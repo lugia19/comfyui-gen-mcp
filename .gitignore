@@ -18,3 +18,4 @@ python_modules/
 
 # Spike scratch
 spikes/**/.env
+.venv-workers/

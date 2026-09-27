@@ -1,0 +1,17 @@
+{
+  "name": "comfy-gen-spike-button",
+  "private": true,
+  "scripts": {
+    "deploy": "bash deploy.sh"
+  },
+  "cloudflare": {
+    "bindings": {
+      "SPIKE_SECRET": {
+        "description": "Any long random string. It becomes part of the connector URL, so treat it like a password."
+      },
+      "RELAY_SECRET": {
+        "description": "Any long random string. The stand-in agent (spikes/agent_ws.py) authenticates with it."
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+[project]
+name = "comfy-gen-spike-button"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "mcp==2.2.0",
+    "comfy-gen-spike-sibling",
+]
+
+[dependency-groups]
+dev = ["workers-py", "workers-runtime-sdk"]
+
+[tool.uv.sources]
+# vendor/sibling is copied in by deploy.sh.
+comfy-gen-spike-sibling = { path = "vendor/sibling", editable = false }

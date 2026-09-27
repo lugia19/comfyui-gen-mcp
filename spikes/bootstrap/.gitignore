@@ -1,0 +1,8 @@
+.src/
+src/
+vendor/
+python_modules/
+.venv/
+.venv-workers/
+.wrangler/
+.dev.vars

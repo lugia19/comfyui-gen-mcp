@@ -1,0 +1,2 @@
+SPIKE_SECRET=long-random-string # URL path secret for the MCP endpoints and spike pages
+RELAY_SECRET=another-long-random-string # bearer token the stand-in agent uses

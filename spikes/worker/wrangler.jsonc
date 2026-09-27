@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "comfy-gen-spike",
+  "main": "src/entry.py",
+  // A date on or after 2026-09-08 selects Python 3.14.
+  "compatibility_date": "2026-09-26",
+  "compatibility_flags": ["python_workers"],
+  "observability": { "enabled": true },
+  "kv_namespaces": [{ "binding": "SPIKE_KV" }],
+  "durable_objects": {
+    "bindings": [{ "name": "RELAY", "class_name": "Relay" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Relay"] }]
+}

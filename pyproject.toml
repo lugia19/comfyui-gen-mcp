@@ -1,0 +1,13 @@
+[project]
+name = "comfyui-gen-mcp-workspace"
+version = "0"
+requires-python = ">=3.14"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+# The product packages join as they are written (packages/*). For now: the spikes.
+members = ["spikes/worker", "spikes/sibling"]
+# The Deploy-button template is a standalone project once copied into a user's repository.
+exclude = ["spikes/bootstrap"]
