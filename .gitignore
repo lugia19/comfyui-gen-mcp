@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+node_modules/
+.idea/
+.vscode/
+.claude/*
+
+# Cloudflare / pywrangler local state
+.wrangler/
+.dev.vars
+python_modules/
+
+# Spike scratch
+spikes/**/.env
