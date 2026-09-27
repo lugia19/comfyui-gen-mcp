@@ -17,7 +17,9 @@ echo "vars present: SPIKE_CALLBACK=${SPIKE_CALLBACK:+yes} SPIKE_NONCE=${SPIKE_NO
 echo "== pip install uv modal"
 python3 -m pip install --quiet --disable-pip-version-check uv modal \
   || python3 -m pip install --quiet --disable-pip-version-check --break-system-packages uv modal
-UV_VERSION=$(python3 -m uv --version)
+# pywrangler shells out to `uv` on PATH; make sure that's the one just installed (it needs >= 0.12.3).
+export PATH="$(python3 -c 'import os, uv; print(os.path.dirname(uv.find_uv_bin()))'):$PATH"
+UV_VERSION=$(uv --version)
 MODAL_VERSION=$(python3 -c 'import modal; print(modal.__version__)')
 echo "$UV_VERSION, modal $MODAL_VERSION (t=$(since)s)"
 
@@ -57,6 +59,6 @@ PY
 callback before-deploy
 
 echo "== pywrangler deploy"
-python3 -m uv run pywrangler deploy ${SPIKE_DEPLOY_ARGS:-}
+uv run pywrangler deploy ${SPIKE_DEPLOY_ARGS:-}
 echo "deployed (t=$(since)s)"
 callback after-deploy

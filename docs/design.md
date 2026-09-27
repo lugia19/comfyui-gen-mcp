@@ -255,6 +255,8 @@ checklist are in `spikes/`.
 6. **Durable Object hibernation** in Python, one idle agent connected for a day, duration read from
    the dashboard.
 7. **pywrangler** vendors a uv workspace sibling.
+8. **Blocking time:** how long a `tools/call` may block before each client (web, Desktop, mobile)
+   gives up. Section 3's "about 4 minutes" rests on this.
 
 ## 13. Phases
 

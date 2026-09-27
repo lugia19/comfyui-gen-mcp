@@ -108,6 +108,7 @@ hits = [p for root in ("/mnt", os.getcwd(), os.path.expanduser("~"))
         for p in glob.glob(os.path.join(root, "**", name), recursive=True)]
 if not hits:
     raise SystemExit(f"{{name}} not found; attached files are usually under /mnt/user-data/uploads")
+print("uploading", hits[0])
 data = open(hits[0], "rb").read()
 req = urllib.request.Request({url!r}, data=data, method="POST",
                              headers={{"Content-Type": "application/octet-stream"}})
