@@ -28,6 +28,9 @@ rm -rf .src src vendor && mkdir -p .src vendor
 curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$REF" | tar xz -C .src --strip-components=1
 cp -r .src/spikes/worker/src ./src
 cp -r .src/spikes/sibling vendor/sibling
+# The project file comes with the source, not with the template: Workers Builds runs `uv sync` on
+# any pyproject.toml it finds before the deploy command, and this one needs vendor/ to exist.
+cp .src/spikes/worker/button.pyproject.toml pyproject.toml
 
 MODAL_RESULT="skipped (no MODAL_TOKEN_ID/MODAL_TOKEN_SECRET build secrets)"
 if [ -n "${MODAL_TOKEN_ID:-}" ] && [ -n "${MODAL_TOKEN_SECRET:-}" ]; then

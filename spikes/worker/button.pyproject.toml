@@ -1,3 +1,4 @@
+# pyproject.toml for the Deploy-button Worker; bootstrap/deploy.sh copies it into place at build time.
 [project]
 name = "comfy-gen-spike-button"
 version = "0.1.0"
