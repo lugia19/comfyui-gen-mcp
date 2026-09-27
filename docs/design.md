@@ -126,6 +126,8 @@ feature, and the validation message says so.
    sets a setup password in the deploy prompt.
 3. The user opens the Worker's setup page, logs in, pastes a **user-scoped** Cloudflare API token and
    a Modal token pair. The setup page validates each with a harmless call before accepting it.
+   The token comes from a pre-filled template link (below), so the user only picks their account
+   and clicks Create.
 4. The Worker finds its own tag and build trigger, writes the Modal tokens and a one-time nonce into
    the trigger's build secrets, and starts a build through the Workers Builds API.
 5. The build (Python 3.13 and pip in Cloudflare's build image) fetches the latest release, runs
@@ -162,11 +164,37 @@ Install the MCPB. It stays self-updating through the existing bootstrapper. No a
 |---|---|---|
 | MCP secret path | Worker KV | The connector URL. OAuth is a later upgrade |
 | Setup password | Worker secret | Settings and setup pages, cookie session |
-| Cloudflare user token | Worker secret | Workers Builds API (Builds Configuration edit, Scripts read) |
+| Cloudflare user token | Worker secret | Workers Builds API and deploys (see "Cloudflare token" below) |
 | Modal token pair | Build secrets only | `modal deploy` during builds |
 | Modal proxy token | Worker KV | Calls to the ComfyUI server and admin endpoint |
 | Agent pairing secret | Worker KV, agent | Authenticates the relay |
 | Build nonce | Build secrets, Worker KV | One-time callback from the build |
+
+### Cloudflare token
+
+- **User token, not account token.** The Builds API rejects account tokens ("Invalid token",
+  code 12006), even with the Workers CI permissions (tested 2026-09-27). User tokens live at
+  `dash.cloudflare.com/profile/api-tokens`.
+- **Template link.** The setup page links to
+  `https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=<url-encoded JSON>&accountId=*&zoneId=all&name=Comfy-Gen-MCP`
+  with these keys, all verified to pre-fill (the page shows the legacy names on the right):
+
+  | Key | Type | Shown as |
+  |---|---|---|
+  | `workers_scripts` | edit | Workers Scripts |
+  | `workers_kv_storage` | edit | Workers KV Storage |
+  | `account_settings` | read | Account Settings |
+  | `workers_ci` | edit | Workers Builds Configuration |
+  | `workers_observability` | read | Workers Observability |
+
+  The new role-style "Workers: Admin" permission should be added too, for when the legacy ones are
+  retired; its template key is not documented yet and still has to be found.
+- **Account choice.** The link must use `accountId=*` because the Worker cannot know its account id
+  in advance, which pre-fills "All accounts". The setup page tells the user to narrow it to their
+  own account (a token on every account they belong to, an employer's included, is needlessly
+  broad). The Worker then finds the account it lives in by listing the token's accounts.
+- The dashboard's "Entire Account" resource option on the newer account-token page is only a
+  resource scope, not "all permissions"; worth a line in the setup page if users end up there.
 
 ## 9. Relay (PC generator)
 
@@ -276,4 +304,5 @@ checklist are in `spikes/`.
 | Modal cold start / warm portrait, L4 | about 35 s / about 5 s | Visual-Novelist, 2026-09-27 |
 | Modal free compute | $30 a month, card required | Visual-Novelist packaging docs |
 | MCP `ImageContent` in claude.ai | Shown collapsed in the tool block; model sees it | anthropics issue trackers, April 2026 |
-| Builds API token | User-scoped only | Cloudflare Builds API reference |
+| Builds API token | User-scoped only: an account token with Workers CI Write gets "Invalid token" (12006) | Tested, 2026-09-27 |
+| Token template link | Pre-fills all five permissions on the user-token page | Tested, 2026-09-27 |
