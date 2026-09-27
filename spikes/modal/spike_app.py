@@ -8,6 +8,10 @@ Questions this answers (driven by drive.py, see ../README.md):
      periodic volume.reload() in the server container?
   e. Can a function call update_autoscaler on the Server (the "keep warm" setting)?
   f. Does an admin web endpoint behind proxy auth work for seeding and uploads?
+  g. Does ComfyUI-GGUF install into the image and load (UnetLoaderGGUF in /object_info)?
+
+Modal documents automatic commits (every few seconds, and on shutdown) for Functions and Sandboxes
+but not for Servers, hence the explicit commit in Comfy.stop.
 
 No models are needed: the test workflows use EmptyImage / LoadImage / ImageInvert / SaveImage,
 which are core ComfyUI nodes. The GPU is kept (L4) so cold-start timings are realistic.
@@ -56,8 +60,10 @@ comfy_image = (
     .apt_install("git")
     .pip_install("comfy-cli==1.21.0")
     .run_commands("comfy --skip-prompt install --nvidia --version 0.37.0")
-    # The one custom node the product supports on Modal. Installed here to prove it builds.
-    .run_commands("comfy node install ComfyUI-GGUF")
+    # The one custom node the product supports on Modal. `comfy node install` needs ComfyUI-Manager
+    # in the workspace; registry-install talks to the Comfy Registry directly (id is mixed-case).
+    .run_commands("comfy node registry-install ComfyUI-GGUF")
+    .pip_install("gguf>=0.13.0", "sentencepiece", "protobuf")
     .env({"SPIKE_RELOAD_S": str(RELOAD_S)})
 )
 

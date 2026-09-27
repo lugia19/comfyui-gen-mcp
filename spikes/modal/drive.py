@@ -131,6 +131,9 @@ def cmd_all() -> None:
     out1 = wait_output(comfy, pid)
     note(f"cold start until /prompt accepted: {cold:.1f}s; run {time.monotonic() - t:.1f}s; output {out1['filename']}")
 
+    r = comfy.get("/object_info/UnetLoaderGGUF")
+    note(f"(g) UnetLoaderGGUF in /object_info: {r.status_code == 200 and 'UnetLoaderGGUF' in r.json()}")
+
     pid, warm = submit(comfy, gen_workflow(), "gen #2 (warm)")
     wait_output(comfy, pid)
     note(f"warm /prompt accepted after {warm:.1f}s")
