@@ -25,7 +25,7 @@ GPU is. Targets:
 
 | Component | Runs on | Job |
 |---|---|---|
-| Worker | Cloudflare, Python Worker, free plan | The brain. MCP endpoint, settings and setup app, image route, config in KV, cron jobs, relay mailbox |
+| Worker | Cloudflare, Python Worker, free plan | The brain. MCP endpoint, settings and setup app, image route, config in a Durable Object, cron jobs, relay mailbox |
 | ComfyUI | Modal, a PC, or localhost | The generator. We ship no handler code: ComfyUI's own HTTP API is the interface |
 | Modal app | User's Modal workspace | ComfyUI server on an L4, a Volume, a seed function, a small admin web endpoint |
 | Agent | GPU owner's PC, via the Go launcher | ComfyUI install and lifecycle, model downloads, idle stop, relays the Worker's ComfyUI calls to local ComfyUI |
@@ -39,8 +39,8 @@ Separate existing repo, unchanged in role: the Go launcher (`pygo-bootstrap`).
 | Mode | Brain | Config | Generator | Settings UI |
 |---|---|---|---|---|
 | MCPB | local server | local JSON file | ComfyUI on localhost | localhost page |
-| Worker, no GPU | Worker | KV | ComfyUI on Modal | Worker page |
-| Worker, GPU | Worker | KV | ComfyUI on the PC via the agent | Worker page |
+| Worker, no GPU | Worker | State Durable Object | ComfyUI on Modal | Worker page |
+| Worker, GPU | Worker | State Durable Object | ComfyUI on the PC via the agent | Worker page |
 
 Rule: MCPB **or** Worker, never both on one machine. Both read the same config schema so switching
 keeps settings.
@@ -128,7 +128,7 @@ feature, and the validation message says so.
 - **References are opaque.** Claude sees an id, the brain maps it to a ComfyUI filename it owns. Never
   paths from the model (path traversal on the PC, cross-reading on a shared volume). An id is the
   ComfyUI location signed with an HMAC under the Worker's secret, so it cannot be forged and needs
-  no storage (the free KV plan allows only 1,000 writes a day).
+  no storage.
 - **Results are inline WebP.** claude.ai does not support `resource_link` (it shows "Resource links
   are not currently supported" and the model sees only the name and URL), while inline
   `ImageContent` is shown to the user and seen by the model, WebP included (S2, S2c). Every result
@@ -152,7 +152,9 @@ feature, and the validation message says so.
 
 ## 5. Config and settings
 
-- Config lives with the brain: KV for the Worker, a local JSON file for the MCPB.
+- Config lives with the brain: the `State` Durable Object for the Worker (Workers KV caches reads
+  at the edge for up to a minute, which gave stale reads and lost updates live; see §11), a local
+  JSON file for the MCPB.
 - One Svelte settings app, rendered from the declarative settings schema, served by the Worker
   (behind a Cloudflare-token login and a cookie session) and by the MCPB's local server.
 - One idle setting, "keep warm for N minutes", applies to Modal's `scaledown_window` (live, through
@@ -204,14 +206,14 @@ Install the MCPB. It stays self-updating through the existing bootstrapper. No a
 
 | Secret | Held by | Purpose |
 |---|---|---|
-| MCP secret path | Worker KV | The connector URL. OAuth is a later upgrade |
-| Cloudflare user token | Worker KV | Login to the settings pages; Workers Builds API for setup and updates |
-| Session cookie key | Worker KV | Signs the settings pages' session cookie (a year) |
+| MCP secret path | Worker state | The connector URL. OAuth is a later upgrade |
+| Cloudflare user token | Worker state | Login to the settings pages; Workers Builds API for setup and updates |
+| Session cookie key | Worker state | Signs the settings pages' session cookie (a year) |
 | Modal token pair | Build secrets only | `modal deploy` during builds |
-| Modal proxy token | Worker KV | Calls to the ComfyUI server and admin endpoint |
-| Ref HMAC key | Worker KV | Signs image references and upload tokens |
-| Agent pairing secret | Worker KV, agent | Authenticates the relay |
-| Build nonce | Build secrets, Worker KV | One-time callback from the build |
+| Modal proxy token | Worker state, Modal Dict | Calls to the ComfyUI server and admin endpoint |
+| Ref HMAC key | Worker state | Signs image references and upload tokens |
+| Agent pairing secret | Worker state, agent | Authenticates the relay |
+| Build nonce | Build secrets, Worker state | One-time callback from the build |
 
 **Login.** There is no setup password. A fresh install's URL is not secret: the Worker name is the
 template's `comfy-gen` for nearly everyone, and each account's workers.dev subdomain is public in
@@ -240,7 +242,6 @@ Worker runs (S4).
   | Key | Type | Shown as |
   |---|---|---|
   | `workers_scripts` | edit | Workers Scripts |
-  | `workers_kv_storage` | edit | Workers KV Storage |
   | `account_settings` | read | Account Settings |
   | `workers_ci` | edit | Workers Builds Configuration |
   | `workers_observability` | read | Workers Observability |
@@ -272,7 +273,7 @@ Worker runs (S4).
 | Package | Contents | Must run under |
 |---|---|---|
 | `core` | packs (as package data), workflow build, tool specs, ComfyUI client, brain, MCP handler, settings schema | CPython 3.12+ and Pyodide |
-| `worker` | Worker entry, KV config, routes, render, Durable Object, Builds API, setup, updates | Pyodide (Python 3.14) |
+| `worker` | Worker entry, state Durable Object, routes, render, Durable Object, Builds API, setup, updates | Pyodide (Python 3.14) |
 | `modal_app` | Modal app file, admin endpoint, build-time deploy script | CPython (Modal, build image) |
 | `local` | ComfyUI install, launch, stop, downloads, node install, idle stop, tray; shared by `agent` and `mcpb` | CPython |
 | `mcpb` | stdio shim, local server | CPython |
@@ -320,6 +321,7 @@ Later: the ComfyUI client and the Modal app can become shared with Visual-Noveli
 | Our own job handler and Docker image | Modal serves ComfyUI's own API; ComfyUI is the worker everywhere |
 | R2 or KV for image storage | The generator already holds the files; R2 needs a card on file |
 | QoL or settings-page uploads | The model would not know which reference to use; the sandbox upload keeps it in context |
+| Workers KV for the Worker's state | Reads are cached at the edge for up to a minute: after a save, reads alternated between old and new values for about 60 s, and a read-modify-write could undo a recent write. A SQLite Durable Object is consistent and on the free plan |
 | Hot pack manifest in KV | A second update path; a release build takes about 2 minutes and runs automatically |
 | Fork-sync GitHub Action | More code; the token-driven build covers updates |
 | Qt desktop app | Settings moved to the web; the PC side is a daemon with a small tray |

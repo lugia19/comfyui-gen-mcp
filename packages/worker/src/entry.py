@@ -15,15 +15,17 @@ from comfy_gen_worker.app import App
 from comfy_gen_worker.http import Platform, Request
 
 
-class KVAdapter:
-    def __init__(self, binding):
-        self._kv = binding
+class StateStub:
+    """The State Durable Object as the app's key-value interface (http.KV)."""
+
+    def __init__(self, namespace):
+        self._stub = namespace.getByName("state")
 
     async def get(self, key):
-        return await self._kv.get(key)
+        return await self._stub.read(key)
 
     async def put(self, key, value):
-        await self._kv.put(key, value)
+        await self._stub.write(key, value)
 
 
 async def platform_fetch(url, method="GET", headers=None, body=None):
@@ -43,7 +45,7 @@ def _env(env, name):
 class Default(WorkerEntrypoint):
     def _app(self):
         env = {name: _env(self.env, name) for name in ("VERSION", "DEV_WORKER_HOST")}
-        return App(Platform(kv=KVAdapter(self.env.KV), fetch=platform_fetch, now=time.time, env=env))
+        return App(Platform(kv=StateStub(self.env.STATE), fetch=platform_fetch, now=time.time, env=env))
 
     async def fetch(self, request):
         url = urlsplit(request.url)
@@ -65,6 +67,20 @@ class Default(WorkerEntrypoint):
 
     async def scheduled(self, controller, env, ctx):
         await self._app().scheduled()
+
+
+class State(DurableObject):
+    """The Worker's config, secrets and setup state: one instance, strongly consistent. Workers KV
+    was used first, but it caches reads at the edge for up to a minute, so a read right after a
+    write could return the old value, and a read-modify-write could undo a recent write (seen live).
+    """
+
+    async def read(self, key):
+        value = await self.ctx.storage.get(key)
+        return value if isinstance(value, str) else None
+
+    async def write(self, key, value):
+        await self.ctx.storage.put(key, value)
 
 
 class Relay(DurableObject):

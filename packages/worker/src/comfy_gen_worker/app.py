@@ -2,7 +2,7 @@
 CPython; entry.py adapts Cloudflare's runtime to it.
 
 Keep the MCP path lean (design §3, "Worker CPU budget"): packs are loaded at import, which runs once
-inside the deploy-time snapshot, and a warm call reads KV from the isolate cache.
+inside the deploy-time snapshot, and a warm call reads its state from the isolate cache.
 """
 
 from __future__ import annotations

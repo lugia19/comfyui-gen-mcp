@@ -1,6 +1,6 @@
 """The Worker's view of HTTP: plain request/response values and the platform services it needs.
 
-Everything Cloudflare-specific (the Request/Response classes, fetch, KV) lives in entry.py, which
+Everything Cloudflare-specific (the Request/Response classes, fetch, storage) lives in entry.py, which
 adapts it to these. The rest of the package is plain Python, tested under CPython.
 """
 

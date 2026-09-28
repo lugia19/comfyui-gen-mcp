@@ -1,8 +1,8 @@
 """The Workers Build step, after deploy.sh has downloaded the source.
 
 1. Deploy the Modal app when the setup page stored a Modal token (packages/modal_app).
-2. Write the release's wrangler config with the user's name and IDs merged in from their copy of
-   bootstrap/wrangler.jsonc, and VERSION set.
+2. Write the release's wrangler config with the user's name (and any routes) merged in from their
+   copy of bootstrap/wrangler.jsonc, and VERSION set.
 3. `pywrangler deploy` from packages/worker.
 4. Report to the Worker's /build-callback when the setup page started this build.
 
@@ -66,13 +66,6 @@ def merge(release: dict, template: dict, version: str) -> dict:
     for key in USER_KEYS:
         if key in template:
             cfg[key] = template[key]
-    # KV ids, when the user's copy pins them. Otherwise wrangler reuses the namespace it
-    # provisioned on the first deploy.
-    ids = {ns.get("binding"): ns for ns in template.get("kv_namespaces") or []}
-    for ns in cfg.get("kv_namespaces") or []:
-        for field in ("id", "preview_id"):
-            if ids.get(ns.get("binding"), {}).get(field):
-                ns[field] = ids[ns["binding"]][field]
     cfg["vars"] = {**(cfg.get("vars") or {}), "VERSION": version}
     return cfg
 

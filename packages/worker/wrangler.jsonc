@@ -9,9 +9,16 @@
   "compatibility_flags": ["python_workers"],
   "observability": { "enabled": true },
   "vars": { "VERSION": "dev" },
-  "kv_namespaces": [{ "binding": "KV" }],
-  "durable_objects": { "bindings": [{ "name": "RELAY", "class_name": "Relay" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Relay"] }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "STATE", "class_name": "State" },
+      { "name": "RELAY", "class_name": "Relay" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Relay"] },
+    { "tag": "v2", "new_sqlite_classes": ["State"] }
+  ],
   "assets": {
     "directory": "../../web/dist",
     "not_found_handling": "single-page-application",

@@ -1,12 +1,12 @@
-"""The Worker's state in KV, cached per isolate.
+"""The Worker's state, in the State Durable Object (entry.py), cached per isolate.
 
-Three keys, read on most requests, written rarely (the free plan allows 1,000 KV writes a day):
+Three keys, read on most requests, written rarely:
     config   the user config (comfy_gen_core.config shape)
     secrets  generated keys, the Cloudflare token and discovery, the generator's URL and headers
     setup    setup progress: the current build and its nonce
 
-Reads, missing keys included, are cached per isolate for CACHE_S, so a warm MCP call costs no KV
-reads. Writes update the cache of the isolate that made them; another isolate sees them within
+Reads, missing keys included, are cached per isolate for CACHE_S, so a warm MCP call costs no
+storage reads. Writes update the cache of the isolate that made them; another isolate sees them within
 CACHE_S. The settings pages use Store(cache=False): right after a login or a save, the next page
 load may land on another isolate, and it must not show the state from before.
 """
@@ -57,7 +57,7 @@ class Store:
         return cfg
 
     async def secrets(self) -> dict:
-        """The secrets, generating the Worker's own keys on first use (one KV write, ever)."""
+        """The secrets, generating the Worker's own keys on first use (one write, ever)."""
         data = await self._get("secrets")
         if data is None or "mcp_secret" not in data:
             data = {

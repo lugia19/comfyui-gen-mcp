@@ -43,7 +43,7 @@ def test_template_bindings_match_the_release():
     # The template's bindings are what the button provisions; the release's are what gets deployed.
     template = deploy.read_jsonc((ROOT / "bootstrap" / "wrangler.jsonc").read_text())
     release = deploy.read_jsonc((WORKER / "wrangler.jsonc").read_text())
-    for key in ("kv_namespaces", "durable_objects", "migrations", "compatibility_flags", "triggers"):
+    for key in ("durable_objects", "migrations", "compatibility_flags", "triggers"):
         assert template[key] == release[key], key
     assert template["name"] not in ("comfy-gen-mcp", "comfy-dxt")  # CLAUDE.md hard rule
 
@@ -52,19 +52,16 @@ def test_merge_takes_identity_from_the_template_and_the_rest_from_the_release():
     release = {
         "$schema": "x", "name": "comfy-gen", "main": "src/entry.py", "compatibility_date": "2027-01-01",
         "vars": {"VERSION": "dev", "OTHER": "1"},
-        "kv_namespaces": [{"binding": "KV"}],
         "assets": {"directory": "../../web/dist"},
     }
     template = {
         "name": "my-comfy", "compatibility_date": "2026-01-01", "workers_dev": False,
         "routes": [{"pattern": "comfy.example.com", "custom_domain": True}],
-        "kv_namespaces": [{"binding": "KV", "id": "abc123"}, {"binding": "UNUSED", "id": "zzz"}],
     }
     cfg = deploy.merge(release, template, "v1.2.3")
     assert cfg["name"] == "my-comfy"
     assert cfg["workers_dev"] is False and cfg["routes"] == template["routes"]
     assert cfg["compatibility_date"] == "2027-01-01"
-    assert cfg["kv_namespaces"] == [{"binding": "KV", "id": "abc123"}]
     assert cfg["vars"] == {"VERSION": "v1.2.3", "OTHER": "1"}
     assert cfg["assets"] == {"directory": "../../web/dist"}
     assert "$schema" not in cfg

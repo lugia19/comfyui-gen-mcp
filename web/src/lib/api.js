@@ -32,7 +32,6 @@ export function formatBytes(n) {
 // Pre-filled Cloudflare user-token page (design §8). Keys verified 2026-09-27.
 const TOKEN_PERMISSIONS = [
   { key: 'workers_scripts', type: 'edit' },
-  { key: 'workers_kv_storage', type: 'edit' },
   { key: 'account_settings', type: 'read' },
   { key: 'workers_ci', type: 'edit' },
   { key: 'workers_observability', type: 'read' },
