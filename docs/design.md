@@ -95,11 +95,18 @@ feature, and the validation message says so.
   paths from the model (path traversal on the PC, cross-reading on a shared volume). An id is the
   ComfyUI location signed with an HMAC under the Worker's secret, so it cannot be forged and needs
   no storage (the free KV plan allows only 1,000 writes a day).
-- **Image URLs.** A Worker route behind the secret path resolves a reference and streams `/view` over
-  the right transport. Every result carries a `resource_link` with an image mime type.
-- **Inline image.** Decided by the rendering test. If claude.ai renders the link but the model cannot
-  see it, a small inline thumbnail is on by default.
-- **Edits** are `LoadImage` by reference inside the generator. No image bytes pass through the Worker.
+- **Results are inline images.** claude.ai does not support `resource_link` (it shows "Resource links
+  are not currently supported" and the model sees only the name and URL), while inline
+  `ImageContent` is shown to the user and seen by the model (S2). So every result carries the image
+  inline as base64, which the Worker builds itself: it fetches `/view?filename=...&preview=jpeg;85`,
+  where ComfyUI converts to JPEG before sending (no image work in the Worker), and base64s it. This
+  costs about 10 ms of Worker CPU per MB of JPEG (S2b). If a JPEG comes back over about 700 KB, the
+  Worker asks again at a lower quality.
+- **Image URLs.** A Worker route behind the secret path resolves a reference and streams the
+  full-resolution PNG from `/view` over the right transport. Each result's text block carries the
+  image id and this URL for the user. No `resource_link`.
+- **Edits** are `LoadImage` by reference inside the generator; a prior output loads directly as
+  `"<name> [output]"` (S5). Only results pass image bytes through the Worker.
 - **Uploads from claude.ai** use the code-execution sandbox. A `request_upload` tool returns a
   one-time URL plus the snippet to run. The sandbox posts the attached file, the Worker forwards it
   to ComfyUI's `/upload/image`, the tool result carries the reference, and `edit_image` takes it.
@@ -376,8 +383,34 @@ serialized at import (inside the startup snapshot), plus a `/noop` route returni
 
 **Tokens, 2026-09-27: see section 8.** User token only; template link verified.
 
-**Still open:** S2 (rendering), S3 (sandbox upload), S8 (blocking time) need the claude.ai clients;
-S6 (Durable Object day) needs a machine that can hold a WebSocket for a day.
+**S2, 2026-09-28 (claude.ai web): only inline images work.** `resource_link` alone, or with a text
+block carrying its URL: claude.ai shows "Resource links are not currently supported" and the model
+gets only name, URL and mime type. Inline `ImageContent`: shown to the user, described correctly by
+the model. Both together: the image comes through, the link is ignored. Section 4 follows from this.
+
+**S2b, 2026-09-28: inline results cost about 10 ms CPU per MB.** `big_image` fetches a JPEG over
+HTTP and returns it inline through the MCP handler (the product's result path). 15 calls each,
+interleaved, 5 s apart, all `ok`:
+
+| Inline JPEG | Median CPU | Range |
+|---|---|---|
+| none (`/noop`) | 8 ms | 2 to 38 |
+| 243 KB | 15 ms | 7 to 62 |
+| 608 KB | 19 ms | 11 to 52 |
+| 1.18 MB | 26 ms | 17 to 116 |
+
+Cloudflare let every call through, up to 116 ms. A real 1 MP JPEG at quality 85 is usually well
+under the 608 KB noise test image, so a typical result should land around 10 to 20 ms. Decision:
+full-size inline JPEG, re-requested at lower quality above about 700 KB.
+
+**S3, 2026-09-28: works.** From a claude.ai chat with code execution on, the model called
+`request_upload`, ran the returned snippet, and `show_upload` returned the attached image.
+
+**S8, 2026-09-28: the client timeout is 5 minutes.** A tool call blocks for up to about 4 minutes,
+then returns a request token (section 3).
+
+**Still open:** S6 (Durable Object day), running on the user's machine since 2026-09-28; S2 on
+Desktop and mobile (web tested).
 
 ## 13. Phases
 
