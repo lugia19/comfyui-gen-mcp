@@ -7,7 +7,8 @@ Three keys, read on most requests, written rarely (the free plan allows 1,000 KV
 
 Reads, missing keys included, are cached per isolate for CACHE_S, so a warm MCP call costs no KV
 reads. Writes update the cache of the isolate that made them; another isolate sees them within
-CACHE_S.
+CACHE_S. The settings pages use Store(cache=False): right after a login or a save, the next page
+load may land on another isolate, and it must not show the state from before.
 """
 
 from __future__ import annotations
@@ -26,13 +27,14 @@ _cache: dict[str, tuple[float, dict | None]] = {}
 
 
 class Store:
-    def __init__(self, kv: KV, now):
+    def __init__(self, kv: KV, now, cache: bool = True):
         self.kv = kv
         self.now = now
+        self.cache = cache
 
     async def _get(self, key: str, transform=None) -> dict | None:
         """The key's value, run through *transform* once per cache fill."""
-        hit = _cache.get(key)
+        hit = _cache.get(key) if self.cache else None
         if hit and self.now() - hit[0] < CACHE_S:
             return hit[1]
         raw = await self.kv.get(key)

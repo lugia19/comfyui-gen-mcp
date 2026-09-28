@@ -77,7 +77,8 @@ class App:
     def __init__(self, platform: Platform):
         self.p = platform
         self.fetch = with_user_agent(platform.fetch)
-        self.store = Store(platform.kv, platform.now)
+        self.store = Store(platform.kv, platform.now)  # the MCP, image and upload routes
+        self.fresh = Store(platform.kv, platform.now, cache=False)  # settings pages, callbacks
 
     @property
     def version(self) -> str:
@@ -170,13 +171,13 @@ class App:
 
     async def _build_callback(self, req: Request) -> Response:
         data = req.json()
-        setup = await self.store.setup()
+        setup = await self.fresh.setup()
         expected = setup.get("build_nonce")
         if not expected or not hmac.compare_digest(str(data.get("nonce", "")), expected):
             return Response.error(403, "bad nonce")
         modal = data.get("modal")
         if isinstance(modal, dict) and modal.get("server_url"):
-            await self.store.update_secrets(
+            await self.fresh.update_secrets(
                 generator={
                     "kind": "modal",
                     "base_url": modal["server_url"],
@@ -191,7 +192,7 @@ class App:
     async def _api(self, req: Request, sub: str) -> Response:
         if sub == "/login" and req.method == "POST":
             return await self._login(req)
-        s = await self.store.secrets()
+        s = await self.fresh.secrets()
         if sub == "/logout" and req.method == "POST":
             return Response.json({"ok": True}, headers={"Set-Cookie": auth.cookie_header("", 0)})
         if not auth.session_ok(auth.read_cookie(req.headers.get("cookie")), s["cookie_key"], self.p.now()):
@@ -200,7 +201,7 @@ class App:
         if sub == "/state" and req.method == "GET":
             return Response.json(await self._state(req, s))
         if sub == "/config" and req.method == "PUT":
-            cfg = await self.store.save_config(req.json().get("config"))
+            cfg = await self.fresh.save_config(req.json().get("config"))
             return Response.json({"config": cfg})
         if sub == "/setup/generator" and req.method == "POST":
             return await self._setup_generator(req)
@@ -209,20 +210,20 @@ class App:
         if sub == "/setup/build" and req.method == "GET":
             return await self._build_state(req, s)
         if sub == "/setup/rotate-connector" and req.method == "POST":
-            await self.store.update_secrets(mcp_secret=pysecrets.token_urlsafe(24))
+            await self.fresh.update_secrets(mcp_secret=pysecrets.token_urlsafe(24))
             return Response.json({"ok": True})
         return Response.error(404, "not found")
 
     async def _state(self, req: Request, s: dict) -> dict:
         gen = s.get("generator") or {}
-        setup = await self.store.setup()
+        setup = await self.fresh.setup()
         return {
             "version": self.version,
             "cloudflare": {k: s.get(f"cf_{k}") for k in ("account_id", "script", "branch")} if s.get("cf_token") else None,
             "generator": {"kind": gen.get("kind"), "base_url": gen.get("base_url")} if gen else None,
             "build": setup.get("build"),
             "connector_url": f"{req.base_url}/mcp/{s['mcp_secret']}",
-            "config": await self.store.config(),
+            "config": await self.fresh.config(),
             "schema": SETTINGS_SCHEMA,
             "packs": PACK_METADATA,
         }
@@ -240,11 +241,11 @@ class App:
             found = await cloudflare.discover(self.fetch, token, host)
         except cloudflare.CloudflareError as e:
             return Response.error(401, str(e))
-        await self.store.update_secrets(
+        await self.fresh.update_secrets(
             cf_token=token, cf_account_id=found["account_id"], cf_script=found["script"],
             cf_trigger=found["trigger"], cf_branch=found["branch"],
         )
-        session = auth.make_session((await self.store.secrets())["cookie_key"], self.p.now())
+        session = auth.make_session((await self.fresh.secrets())["cookie_key"], self.p.now())
         return Response.json({"ok": True}, headers={"Set-Cookie": auth.cookie_header(session)})
 
     async def _setup_generator(self, req: Request) -> Response:
@@ -258,7 +259,7 @@ class App:
         resp = await probe.request("GET", "/system_stats")
         if resp.status != 200:
             return Response.error(502, f"ComfyUI did not answer at {base_url}/system_stats (HTTP {resp.status})")
-        await self.store.update_secrets(generator={"kind": "url", "base_url": base_url, "headers": headers})
+        await self.fresh.update_secrets(generator={"kind": "url", "base_url": base_url, "headers": headers})
         return Response.json({"ok": True, "system": resp.json().get("system", {})})
 
     async def _start_build(self, req: Request, s: dict) -> Response:
@@ -273,11 +274,11 @@ class App:
             plain={"COMFY_GEN_CALLBACK": f"{req.base_url}/build-callback"},
         )
         build = await cloudflare.start_build(self.fetch, s["cf_token"], s["cf_account_id"], s["cf_trigger"], s.get("cf_branch") or "main")
-        await self.store.update_setup(build=build, build_nonce=nonce)
+        await self.fresh.update_setup(build=build, build_nonce=nonce)
         return Response.json({"build": build})
 
     async def _build_state(self, req: Request, s: dict) -> Response:
-        setup = await self.store.setup()
+        setup = await self.fresh.setup()
         build = setup.get("build")
         if not build or not s.get("cf_token"):
             return Response.json({"build": None})

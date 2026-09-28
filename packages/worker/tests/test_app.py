@@ -7,7 +7,7 @@ from fake_comfy import png
 
 from comfy_gen_core import refs
 from comfy_gen_core.comfyui import OutputImage
-from comfy_gen_worker import updates
+from comfy_gen_worker import store, updates
 from comfy_gen_worker.app import REQUEST_BUDGET
 from comfy_gen_worker.http import Request
 
@@ -163,6 +163,15 @@ async def test_config_is_normalized_on_save(world):
     resp = await app.handle(request("PUT", "/api/config", {"config": {"keep_warm_minutes": -3, "extra": 1}}, headers=cookie))
     cfg = json.loads(resp.body)["config"]
     assert cfg["keep_warm_minutes"] == 5 and cfg["extra"] == 1
+
+
+async def test_settings_pages_read_past_the_isolate_cache(world):
+    app, *_ = world
+    before = dict(await secrets_of(app))  # what another isolate may still have cached
+    cookie = await login(app)
+    store._cache["secrets"] = (app.p.now(), before)
+    state = json.loads((await app.handle(request("GET", "/api/state", headers=cookie))).body)
+    assert state["cloudflare"]["script"] == "comfy-gen"
 
 
 async def test_login_refuses_other_tokens(world):

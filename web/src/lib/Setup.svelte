@@ -58,10 +58,12 @@
   }
 </script>
 
-<p class="muted">
-  Worker <code>{info.cloudflare.script}</code> in account <code>{info.cloudflare.account_id}</code>. Logging in
-  again with a new token replaces the stored one.
-</p>
+{#if info.cloudflare}
+  <p class="muted">
+    Worker <code>{info.cloudflare.script}</code> in account <code>{info.cloudflare.account_id}</code>. Logging in
+    again with a new token replaces the stored one.
+  </p>
+{/if}
 
 <section>
   <h2>1. GPU</h2>
