@@ -83,6 +83,11 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "image_webp",
+        "description": "Returns a small test image inline as WebP (image/webp). Describe it if you can see it." + _NOTE,
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "slow",
         "description": "Waits the given number of seconds, then returns. Tests how long a tool call may block." + _NOTE,
         "inputSchema": {
@@ -187,6 +192,13 @@ async def call(name: str, args: dict, base: str, env) -> list[dict]:
             return [text(f"asset fetch failed: HTTP {resp.status}")]
         data = await resp.bytes()
         return [image(data, "image/jpeg"), text(f"{len(data)} bytes, size {size}")]
+    if name == "image_webp":
+        from workers import fetch
+
+        resp = await fetch(f"{ASSETS_URL}/webp_test.webp", headers={"User-Agent": "comfy-gen-spike/0.1"})
+        if resp.status != 200:
+            return [text(f"asset fetch failed: HTTP {resp.status}")]
+        return [image(await resp.bytes(), "image/webp")]
     if name == "slow":
         seconds = max(0, min(int(args.get("seconds") or 60), 600))
         t = time.monotonic()
