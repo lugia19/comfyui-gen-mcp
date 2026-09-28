@@ -54,8 +54,11 @@ body = {k: os.environ.get(v, "") for k, v in {
     "modal_deploy": "MODAL_RESULT", "build_uuid": "WORKERS_CI_BUILD_UUID",
     "commit": "WORKERS_CI_COMMIT_SHA", "elapsed_s": "ELAPSED"}.items()}
 body["python"] = platform.python_version()
+# Cloudflare rejects urllib's default "Python-urllib/x.y" user agent with error 1010, even on
+# workers.dev, before the request reaches the Worker. Any Python calling a Worker must set its own.
 req = urllib.request.Request(os.environ["SPIKE_CALLBACK"], data=json.dumps(body).encode(),
-                             headers={"Content-Type": "application/json"}, method="POST")
+                             headers={"Content-Type": "application/json",
+                                      "User-Agent": "comfy-gen-build/0.1"}, method="POST")
 print("callback:", urllib.request.urlopen(req, timeout=30).read().decode())
 PY
 }

@@ -111,7 +111,8 @@ if not hits:
 print("uploading", hits[0])
 data = open(hits[0], "rb").read()
 req = urllib.request.Request({url!r}, data=data, method="POST",
-                             headers={{"Content-Type": "application/octet-stream"}})
+                             headers={{"Content-Type": "application/octet-stream",
+                                      "User-Agent": "comfy-gen-upload/0.1"}})
 print(json.load(urllib.request.urlopen(req, timeout=60)))
 '''
 
