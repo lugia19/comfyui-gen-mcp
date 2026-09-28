@@ -286,6 +286,74 @@ checklist are in `spikes/`.
 8. **Blocking time:** how long a `tools/call` may block before each client (web, Desktop, mobile)
    gives up. Section 3's "about 4 minutes" rests on this.
 
+### Results
+
+**S1, 2026-09-28: the MCP SDK does not run on the free plan; a hand-rolled handler does.** 20 calls
+each through the deployed Worker (Python 3.14, Workers Logs `cpuTimeMs`):
+
+- Hand-rolled stateless JSON-RPC (`initialize`, `tools/list`, `tools/call`, `ping`): all 20 `ok`,
+  CPU 3 to 52 ms, typically about 18 ms. The free plan tolerated calls over the nominal 10 ms, but
+  the margin is thin: per-call work in the Worker must stay small.
+- MCP SDK 2.2.0 (`MCPServer`, stateless, JSON responses): every fresh isolate spent about 2,000 ms
+  CPU importing it and building the app, was killed (Error 1102), and left the isolate broken
+  (later requests: Error 1101, Pyodide "promising task" and "GIL not held" errors). The SDK was
+  imported lazily on its first request; importing it at module level (inside the deploy snapshot)
+  was not tried, but the per-isolate app build would remain.
+- **Decision:** the Worker serves MCP with its own small stateless handler. No MCP SDK in the Worker.
+
+**S4, 2026-09-28: works, with three template lessons.**
+
+- The Deploy button created `lugia19/comfy-gen-spike-button` from the `spikes/bootstrap` folder and
+  pre-filled the deploy command from `package.json` (`npm run deploy`).
+- Workers Builds runs its own dependency install before the deploy command: it detected `bun` and
+  `uv` and ran `bun install` and `uv sync` on whatever `package.json` / `pyproject.toml` the repo
+  has. The first build failed there because the template's `pyproject.toml` referenced files the
+  deploy script had not fetched yet. `SKIP_DEPENDENCY_INSTALL=1` disables it. **Lesson: the
+  template holds no `pyproject.toml`; the project file arrives with the fetched release.**
+- **The template's deploy command is a one-line stub that downloads the real deploy script** at
+  build time (`curl -fsSL <raw GitHub URL> | bash`). A button copy is a frozen snapshot, so anything
+  else in it goes stale. Tested by switching the trigger to the stub via the API (builds 4 and 5).
+- From inside the Worker, with a user token: found its own account, tag and trigger from its
+  workers.dev hostname (the only runtime clue to its name), wrote build variables (0.7 s), started
+  builds. Build logs and status are readable through the API.
+- Build image: Python 3.13.3, `pip install uv modal` 12 s, outbound network to GitHub, PyPI, Modal
+  (gRPC) and workers.dev all work.
+- `modal deploy` from the build: 17 s on the first run, 8 s after (the ComfyUI base image matched
+  Visual-Novelist's and was cached by Modal).
+- Build durations: 1.5 to 2.4 min for a deploy (pywrangler about 1.5 min of it); 7.2 min with a full
+  S5 driver run inside. Five builds used 13.5 of the 3,000 free minutes a month.
+- **Callbacks from Python need a custom `User-Agent`.** Cloudflare answers urllib's default
+  `Python-urllib/x.y` with Error 1010 (403) on workers.dev before the Worker runs. `wrangler dev`
+  does not apply this check, so local tests miss it.
+
+**S5, 2026-09-28: the generator-as-storage design holds on Modal.** Run from inside a Workers Build
+(this development container cannot reach Modal's gRPC API):
+
+- Cold start to `/prompt` accepted: 43.8 s and 44.1 s (L4, image with ComfyUI-GGUF). Warm: 0.5 s.
+- (a) Outputs written to the Volume-backed output folder survive scale-to-zero (`/view` after a cold
+  start: 200). The explicit commit in the server's exit hook was in place; whether Modal's automatic
+  commit alone suffices for Servers was not isolated.
+- (b) `LoadImage` with `"<name> [output]"` loads a prior output directly after a cold start. Edits
+  need no copy step: an output reference feeds an edit as is.
+- (c) Files uploaded through `/upload/image` survive scale-to-zero.
+- (d) A warm ComfyUI does **not** see a LoRA committed by another container within 90 s. With a
+  `volume.reload()` every 10 s in the server container, it sees it after 12.4 s. Caveat: no model was
+  loaded in the spike. Modal documents that a reload fails while Volume files are open and that the
+  Volume appears empty to the container during a reload, so the product should reload only while
+  idle (or restart the container after an upload). Needs one check with a real model loaded.
+- (e) `update_autoscaler` works from inside a Modal function (0.5 s), so "keep warm" applies live.
+- (f) Admin endpoint behind proxy auth spawns the seed function: 335 MB in 26 s with progress.
+- (g) `comfy node registry-install ComfyUI-GGUF` works in the image; `UnetLoaderGGUF` loads.
+
+**S7, 2026-09-27/28: works.** `pywrangler sync` vendors a uv workspace sibling (declared with
+`workspace = true, editable = false`) as a normal, non-editable install in `python_modules/`
+(local). A path dependency deployed through the button imports in production (Python 3.14.2).
+
+**Tokens, 2026-09-27: see section 8.** User token only; template link verified.
+
+**Still open:** S2 (rendering), S3 (sandbox upload), S8 (blocking time) need the claude.ai clients;
+S6 (Durable Object day) needs a machine that can hold a WebSocket for a day.
+
 ## 13. Phases
 
 1. New repository skeleton: uv workspace, `core` extracted and tested under both Pythons, MCPB
