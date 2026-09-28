@@ -95,7 +95,7 @@ def build(tmp_path, monkeypatch):
 
     monkeypatch.setattr(deploy.subprocess, "run", run)
     monkeypatch.setattr(deploy.urllib.request, "urlopen", urlopen)
-    for var in ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "COMFY_GEN_CALLBACK", "COMFY_GEN_NONCE"):
+    for var in ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "COMFY_GEN_CALLBACK", "COMFY_GEN_NONCE", "UV"):
         monkeypatch.delenv(var, raising=False)
 
     def go():
