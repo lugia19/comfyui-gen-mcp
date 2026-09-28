@@ -82,6 +82,15 @@ describe("ComfyUIClient", () => {
     expect(comfy.calls.at(-1)![2]).toEqual({ filename: "a.png", subfolder: "", type: "output", preview: "webp;90" });
   });
 
+  it("view waits out a cold start, but not without an allowance", async () => {
+    const { comfy, client } = setup();
+    comfy.viewBootFails = 2;
+    expect((await client.view(new OutputImage("a.png"))).status).toBe(200);
+    expect(comfy.calls.filter((c) => c[1] === "/view").length).toBe(3);
+    comfy.viewBootFails = 1;
+    await expect(fastClient(comfy).view(new OutputImage("a.png"))).rejects.toThrow(/HTTP 503/);
+  });
+
   it("upload sends multipart and returns an input image", async () => {
     const { comfy, client } = setup();
     const data = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x20, 0x64, 0x61, 0x74, 0x61]);

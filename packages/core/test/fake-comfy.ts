@@ -42,6 +42,7 @@ export const json = (data: unknown, status = 200) => new Response(status, utf8(J
  */
 export class FakeComfy implements Transport {
   bootFails = 0;
+  viewBootFails = 0;
   reject: unknown = null;
   history: (string | number)[] = [];
   prompts: Record<string, any>[] = [];
@@ -88,7 +89,13 @@ export class FakeComfy implements Transport {
       const pending = this.state === "pending" ? [[1, "other", {}, {}, []], [2, pid, {}, {}, []]] : [];
       return json({ queue_running: running, queue_pending: pending });
     }
-    if (path === "/view") return new Response(200, this.viewBody, { "content-type": "image/webp" });
+    if (path === "/view") {
+      if (this.viewBootFails) {
+        this.viewBootFails -= 1;
+        return new Response(503);
+      }
+      return new Response(200, this.viewBody, { "content-type": "image/webp" });
+    }
     if (path === "/upload/image") {
       this.uploads.push(body);
       const text = String.fromCharCode(...body);

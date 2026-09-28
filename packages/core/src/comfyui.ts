@@ -253,13 +253,21 @@ export class ComfyUIClient {
     return idx < 0 ? null : idx + 1;
   }
 
-  /** Fetch an image from /view. *preview* ("webp;90", "jpeg;85") has ComfyUI convert it first. */
+  /** Fetch an image from /view. *preview* ("webp;90", "jpeg;85") has ComfyUI convert it first.
+   * Waits out a cold start like submit(): a full-resolution link opened after the GPU scaled to
+   * zero would otherwise fail (seen live). */
   async view(image: OutputImage, preview?: string): Promise<Response> {
     const params = image.params();
     if (preview) params.preview = preview;
-    const resp = await this.request("GET", "/view", { params, timeout: 60 });
-    if (resp.status !== 200) throw new ComfyUIError(`Could not fetch ${image.filename} (HTTP ${resp.status}).`);
-    return resp;
+    const deadline = this.now() + this.coldStartS;
+    for (;;) {
+      const resp = await this.request("GET", "/view", { params, timeout: 60 });
+      if (resp.status === 200) return resp;
+      const left = this.remaining();
+      const retry = BOOTING.includes(resp.status) && this.coldStartS && this.now() <= deadline && (left === null || left > 0);
+      if (!retry) throw new ComfyUIError(`Could not fetch ${image.filename} (HTTP ${resp.status}).`);
+      await this.sleep(COLD_START_POLL_S);
+    }
   }
 
   /** Upload to ComfyUI's input folder (overwriting a same-named file). */
