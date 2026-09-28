@@ -12,6 +12,8 @@ import time
 import canned
 
 UPLOAD_TOKEN_TTL = 600
+ASSETS_URL = "https://raw.githubusercontent.com/lugia19/comfyui-gen-mcp/refs/heads/claude/upbeat-dijkstra-d03v19/spikes/worker/assets"
+BIG_SIZES = {"s", "m", "l"}
 UPLOAD_TTL = 86400
 
 _NOTE = " (Infrastructure test tool. After calling it, tell the user exactly what you received.)"
@@ -68,6 +70,17 @@ TOOLS: list[dict] = [
         "name": "sibling",
         "description": "Reports whether the worker could import its workspace sibling package." + _NOTE,
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "big_image",
+        "description": (
+            "Returns a large test JPEG inline (size s = 243 KB, m = 608 KB, l = 1.18 MB), fetched over "
+            "HTTP the way a real result is fetched from ComfyUI. Describe it if you can see it." + _NOTE
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"size": {"type": "string", "enum": ["s", "m", "l"], "default": "m"}},
+        },
     },
     {
         "name": "slow",
@@ -161,6 +174,19 @@ async def call(name: str, args: dict, base: str, env) -> list[dict]:
             return [text(hello())]
         except Exception as e:
             return [text(f"sibling import FAILED: {type(e).__name__}: {e}")]
+    if name == "big_image":
+        # S2b: the product's result path is fetch /view?preview=jpeg -> base64 -> JSON. This is the
+        # same work with a fixed file, so its CPU cost can be measured.
+        from workers import fetch
+
+        size = str(args.get("size") or "m")
+        if size not in BIG_SIZES:
+            return [text(f"size must be one of {sorted(BIG_SIZES)}")]
+        resp = await fetch(f"{ASSETS_URL}/{size}.jpg", headers={"User-Agent": "comfy-gen-spike/0.1"})
+        if resp.status != 200:
+            return [text(f"asset fetch failed: HTTP {resp.status}")]
+        data = await resp.bytes()
+        return [image(data, "image/jpeg"), text(f"{len(data)} bytes, size {size}")]
     if name == "slow":
         seconds = max(0, min(int(args.get("seconds") or 60), 600))
         t = time.monotonic()
