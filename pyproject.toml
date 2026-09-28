@@ -23,5 +23,5 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/core/tests"]
+testpaths = ["packages/core/tests", "packages/worker/tests"]
 addopts = "-q"

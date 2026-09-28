@@ -70,6 +70,8 @@ class FakeComfy:
             name = re.search(rb'filename="([^"]+)"', body).group(1).decode()
             sub = re.search(rb'name="subfolder"\r\n\r\n([^\r]*)\r\n', body)
             return _json({"name": name, "subfolder": sub.group(1).decode() if sub else "", "type": "input"})
+        if path == "/system_stats":
+            return _json({"system": {"comfyui_version": "0.37.0", "os": "posix"}, "devices": []})
         if path == "/object_info":
             return _json({"KSampler": {}, "SaveImage": {}, "CLIPTextEncode": {}})
         return Response(404)

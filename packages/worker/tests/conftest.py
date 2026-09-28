@@ -1,0 +1,135 @@
+import json
+import os
+import sys
+import struct
+from urllib.parse import parse_qsl, urlsplit
+
+import pytest
+
+HERE = os.path.dirname(__file__)
+sys.path.insert(0, os.path.join(HERE, "..", "src"))
+sys.path.insert(0, os.path.join(HERE, "..", "..", "core", "tests"))  # FakeComfy
+
+from comfy_gen_core import comfyui  # noqa: E402
+from comfy_gen_core.comfyui import Response  # noqa: E402
+from fake_comfy import FakeComfy  # noqa: E402
+
+from comfy_gen_worker import store  # noqa: E402
+from comfy_gen_worker.app import App  # noqa: E402
+from comfy_gen_worker.http import Platform, Request  # noqa: E402
+
+COMFY = "https://comfy.example"
+HOST = "comfy-gen.someone.workers.dev"
+PASSWORD = "correct horse"
+
+
+def png(w=64, h=48):
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + ihdr + b"\x00" * 4
+
+
+class FakeKV:
+    def __init__(self):
+        self.data: dict[str, str] = {}
+        self.writes = 0
+
+    async def get(self, key):
+        return self.data.get(key)
+
+    async def put(self, key, value, ttl=None):
+        self.writes += 1
+        self.data[key] = value
+
+    async def delete(self, key):
+        self.data.pop(key, None)
+
+
+class FakeNet:
+    """The Worker's fetch: routes to FakeComfy, a scripted Cloudflare API, GitHub, and image URLs."""
+
+    def __init__(self, comfy):
+        self.comfy = comfy
+        self.calls = []
+        self.latest_release = "v1.0.0"
+        self.token_status = "active"
+        self.builds_started = []
+        self.build_vars = {}
+
+    async def __call__(self, url, method="GET", headers=None, body=None):
+        self.calls.append((method, url, headers or {}))
+        parts = urlsplit(url)
+        if url.startswith(COMFY):
+            params = dict(parse_qsl(parts.query)) or None
+            return await self.comfy.request(method, parts.path, params=params, headers=headers, body=body)
+        if parts.netloc == "api.cloudflare.com":
+            return self._cloudflare(method, parts.path.removeprefix("/client/v4"), body)
+        if parts.netloc == "api.github.com":
+            return _json({"tag_name": self.latest_release})
+        if parts.netloc == "images.example":
+            return Response(200, png(1600, 900)) if parts.path.endswith(".png") else Response(404)
+        return Response(404)
+
+    def _cloudflare(self, method, path, body):
+        if path == "/user/tokens/verify":
+            ok = self.token_status == "active"
+            return _cf({"id": "t", "status": "active"} if ok else None, ok)
+        if path == "/accounts":
+            return _cf([{"id": "acct1", "name": "Someone"}])
+        if "/workers/scripts-search" in path:
+            return _cf([{"id": "tag1", "script_name": "comfy-gen"}])
+        if path.endswith("/builds/workers/tag1/triggers"):
+            return _cf([{"trigger_uuid": "trig1", "branch_includes": ["main"]}])
+        if path.endswith("/environment_variables") and method == "PATCH":
+            self.build_vars.update(json.loads(body))
+            return _cf(None)
+        if path.endswith("/builds") and method == "POST":
+            self.builds_started.append(json.loads(body))
+            return _cf({"build_uuid": f"build{len(self.builds_started)}"})
+        if "/builds/builds/" in path and path.endswith("/logs"):
+            return _cf({"lines": [[1, "hello"], [2, "world"]], "cursor": "c2"})
+        if "/builds/builds/" in path:
+            return _cf({"status": "running", "build_outcome": None})
+        return _cf(None, ok=False)
+
+
+def _json(data):
+    return Response(200, json.dumps(data).encode())
+
+
+def _cf(result, ok=True):
+    return Response(200 if ok else 400, json.dumps({"success": ok, "result": result, "errors": [] if ok else [{"code": 1, "message": "nope"}]}).encode())
+
+
+class Clock:
+    def __init__(self):
+        self.t = 1_800_000_000.0
+
+    def __call__(self):
+        return self.t
+
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
+@pytest.fixture
+def comfy(monkeypatch):
+    monkeypatch.setattr(comfyui, "COLD_START_POLL_S", 0)
+    monkeypatch.setattr(comfyui, "POLL_SCHEDULE", (0,))
+    monkeypatch.setattr(comfyui, "POLL_SCHEDULE_TAIL", 0)
+    return FakeComfy()
+
+
+@pytest.fixture
+def world(comfy):
+    store.clear_cache()
+    kv, net, clock = FakeKV(), FakeNet(comfy), Clock()
+    app = App(Platform(kv=kv, fetch=net, now=clock, env={"SETUP_PASSWORD": PASSWORD, "VERSION": "v1.0.0"}))
+    return app, kv, net, clock
+
+
+def request(method, path, body=b"", headers=None, query=None):
+    if isinstance(body, (dict, list)):
+        body = json.dumps(body).encode()
+    return Request(method=method, path=path, host=HOST, query=query or {}, headers=headers or {}, body=body)
