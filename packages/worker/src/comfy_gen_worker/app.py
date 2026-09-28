@@ -234,6 +234,14 @@ class App:
             return await self._models(s)
         if sub == "/models/seed" and req.method == "POST":
             return await self._seed_pack(req, s)
+        if sub == "/modal/diagnostics" and req.method == "GET":
+            admin = modal_admin.for_generator(self.fetch, s.get("generator"))
+            if admin is None:
+                return Response.error(400, "the GPU is not on Modal")
+            try:
+                return Response.json(await admin.diagnostics())
+            except modal_admin.ModalAdminError as e:
+                return Response.error(502, str(e))
         if sub == "/setup/generator" and req.method == "POST":
             return await self._setup_generator(req)
         if sub == "/setup/build" and req.method == "POST":

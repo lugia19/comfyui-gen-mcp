@@ -261,6 +261,8 @@ async def test_models_page_reports_and_remembers_ready_packs(world):
     assert sorted(p for _, p, _ in net.admin_calls) == ["/seed/flux2klein_edit", "/seed/z_image_turbo"]  # anima is recorded
     retry = await app.handle(request("POST", "/api/models/seed", {"pack": "flux2klein_edit"}, headers=cookie))
     assert json.loads(retry.body)["started"] is True
+    diag = json.loads((await app.handle(request("GET", "/api/modal/diagnostics", headers=cookie))).body)
+    assert diag == {"status": {"reload": {"ok": True}}, "files": {"vae/ae.safetensors": 3}}
 
 
 async def test_saving_settings_seeds_new_packs_and_applies_keep_warm(world):

@@ -97,6 +97,10 @@ class FakeNet:
             return _json({"started": True, **self.seed_state[body["pack"]]})
         if method == "GET" and path.startswith("/seed/"):
             return _json(self.seed_state.get(path.rsplit("/", 1)[1], {"state": "missing"}))
+        if method == "GET" and path == "/status":
+            return _json({"reload": {"ok": True}})
+        if method == "GET" and path == "/files":
+            return _json({"vae/ae.safetensors": 3})
         if method == "POST" and path == "/idle":
             return _json({"seconds": body["seconds"]})
         return Response(404)

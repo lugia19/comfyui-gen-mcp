@@ -36,6 +36,9 @@ class ModalAdmin:
     async def status(self, pack_name: str) -> dict:
         return await self._call("GET", f"/seed/{pack_name}")
 
+    async def diagnostics(self) -> dict:
+        return {"status": await self._call("GET", "/status"), "files": await self._call("GET", "/files")}
+
     async def idle(self, minutes: int) -> dict:
         return await self._call("POST", "/idle", {"seconds": max(60, min(3600, minutes * 60))})
 
