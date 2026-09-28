@@ -1,6 +1,7 @@
 """ComfyUI on Modal, in the user's workspace (design §2, S5).
 
-- Comfy: ComfyUI's own HTTP API on an L4, behind proxy auth. The Worker is its only client.
+- Comfy: ComfyUI's own HTTP API on an L4, behind proxy auth, plus our /comfy-gen/wait route
+  (comfy_node/). The Worker is its only client.
 - seed: downloads a pack's model files onto the Volume (a CPU container, not the GPU).
 - admin: a small proxy-auth'd API for the Worker: start a seed, read its progress, set keep-warm.
 
@@ -40,6 +41,9 @@ KEEP_WARM_S = 300  # the default keep_warm_minutes; the Worker applies the user'
 RELOAD_POLL_S = 10
 USER_AGENT = "comfy-gen-seed"
 
+COMFY_DIR = "/root/comfy/ComfyUI"  # where comfy-cli installs it
+COMFY_NODE_SRC = os.path.join(os.path.dirname(__file__), "comfy_node")  # our /comfy-gen/wait route
+
 EXTRA_PATHS = "comfy_gen:\n  base_path: " + MODELS_DIR + "\n" + "".join(f"  {s}: {s}\n" for s in SUBFOLDERS)
 
 app = modal.App(APP_NAME)
@@ -55,6 +59,7 @@ comfy_image = (
     # ComfyUI-Manager; registry-install talks to the Comfy Registry directly (the id is mixed-case).
     .run_commands("comfy node registry-install ComfyUI-GGUF")
     .pip_install("gguf>=0.13.0", "sentencepiece", "protobuf")
+    .add_local_dir(COMFY_NODE_SRC, f"{COMFY_DIR}/custom_nodes/comfy-gen")
     .add_local_python_source("comfy_gen_modal")
 )
 

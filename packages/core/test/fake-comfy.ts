@@ -6,6 +6,7 @@ import { ComfyUIClient, Response, type ClientOptions, type RequestOptions, type 
 /** Instant sleeps and a clock that moves only when slept, so waits are deterministic. */
 export function fastClient(transport: Transport, opts: ClientOptions = {}): ComfyUIClient {
   let t = 0;
+  if (transport instanceof FakeComfy) transport.hold = (s) => void (t += s);
   return new ComfyUIClient(transport, {
     sleep: async (s) => {
       t += s;
@@ -39,11 +40,15 @@ export const json = (data: unknown, status = 200) => new Response(status, utf8(J
  *               "error"    in history with an execution error
  *               "gone"     in neither history nor queue
  *               <number>   that HTTP status
+ * heldWait    serve /comfy-gen/wait (the Modal image's extension); each call takes one history step
  */
 export class FakeComfy implements Transport {
   bootFails = 0;
   viewBootFails = 0;
   reject: unknown = null;
+  heldWait = false;
+  /** Called with the seconds a held wait would block for (fastClient moves its clock). */
+  hold: (seconds: number) => void = () => {};
   history: (string | number)[] = [];
   prompts: Record<string, any>[] = [];
   calls: [string, string, Record<string, string> | undefined][] = [];
@@ -66,22 +71,18 @@ export class FakeComfy implements Transport {
     }
     const m = /^\/history\/(\w+)$/.exec(path);
     if (m) {
-      const step = this.history.length ? this.history.shift()! : "done";
+      const step = this.nextStep();
       if (typeof step === "number") return new Response(step);
-      this.state = step;
-      const pid = m[1];
-      if (step === "done") {
-        return json({ [pid]: { status: { status_str: "success", completed: true }, outputs: { "9": { images: [OUTPUT] } } } });
-      }
-      if (step === "error") {
-        return json({
-          [pid]: {
-            status: { status_str: "error", messages: [["execution_error", { node_type: "KSampler", exception_message: "out of memory" }]] },
-            outputs: {},
-          },
-        });
-      }
-      return json({});
+      const entry = FINISHED[step];
+      return json(entry ? { [m[1]]: entry } : {});
+    }
+    if (this.heldWait && path.startsWith("/comfy-gen/wait/")) {
+      const step = this.nextStep();
+      if (typeof step === "number") return new Response(step);
+      if (FINISHED[step]) return json({ state: "done", ...FINISHED[step] });
+      if (step === "running" || step === "pending") this.hold(Number(opts.params?.timeout ?? 0));
+      if (step === "pending") return json({ state: "pending", position: 2 });
+      return json({ state: step === "gone" ? "unknown" : step });
     }
     if (path === "/queue") {
       const pid = `p${this.prompts.length}`;
@@ -107,4 +108,18 @@ export class FakeComfy implements Transport {
     if (path === "/object_info") return json({ KSampler: {}, SaveImage: {}, CLIPTextEncode: {} });
     return new Response(404);
   }
+
+  private nextStep(): string | number {
+    const step = this.history.length ? this.history.shift()! : "done";
+    if (typeof step === "string") this.state = step;
+    return step;
+  }
 }
+
+const FINISHED: Record<string, any> = {
+  done: { status: { status_str: "success", completed: true }, outputs: { "9": { images: [OUTPUT] } } },
+  error: {
+    status: { status_str: "error", messages: [["execution_error", { node_type: "KSampler", exception_message: "out of memory" }]] },
+    outputs: {},
+  },
+};

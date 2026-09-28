@@ -39,8 +39,13 @@ export function toHex(data: Uint8Array): string {
   return Array.from(data, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// Chunked: String.fromCharCode(...bytes) on a whole image overflows the stack.
+// The native encoder (ES2026; in Workers, not yet in Node 22) costs about 3 ms of billed CPU per MB
+// against 55 ms for the fallback, which dominated a generation's CPU (design appendix). The fallback
+// is chunked: String.fromCharCode(...bytes) on a whole image overflows the stack.
+const nativeToBase64: ((this: Uint8Array) => string) | undefined = (Uint8Array.prototype as any).toBase64;
+
 export function toBase64(data: Uint8Array): string {
+  if (nativeToBase64) return nativeToBase64.call(data);
   let binary = "";
   for (let i = 0; i < data.length; i += 0x8000) {
     binary += String.fromCharCode(...data.subarray(i, i + 0x8000));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fromUtf8 } from "../src/bytes.ts";
-import { ComfyUIError, OutputImage } from "../src/comfyui.ts";
+import { ComfyUIError, HELD_WAIT_S, OutputImage } from "../src/comfyui.ts";
 import { FakeComfy, fastClient } from "./fake-comfy.ts";
 
 const WF = { "1": { class_type: "SaveImage", inputs: {} } };
@@ -102,6 +102,61 @@ describe("ComfyUIClient", () => {
   it("nodeClasses", async () => {
     const { client } = setup();
     expect((await client.nodeClasses()).has("KSampler")).toBe(true);
+  });
+});
+
+describe("held wait (/comfy-gen/wait)", () => {
+  function held() {
+    const comfy = new FakeComfy();
+    comfy.heldWait = true;
+    return { comfy, client: fastClient(comfy, { coldStartS: 60 }) };
+  }
+  const waits = (comfy: FakeComfy) => comfy.calls.filter((c) => c[1].startsWith("/comfy-gen/wait/"));
+
+  it("returns the images without polling", async () => {
+    const { comfy, client } = held();
+    await client.submit(WF);
+    comfy.history = ["running", "done"];
+    expect(await client.wait("p1", 240)).toEqual([new OutputImage("comfy-gen_00001_.png", "", "output")]);
+    expect(waits(comfy).map((c) => c[2])).toEqual([{ timeout: String(HELD_WAIT_S) }, { timeout: String(HELD_WAIT_S) }]);
+    expect(comfy.calls.some((c) => c[1].startsWith("/history") || c[1] === "/queue")).toBe(false);
+  });
+
+  it("holds no longer than the caller's timeout", async () => {
+    const { comfy, client } = held();
+    comfy.history = ["running"];
+    expect(await client.wait("p1", 7)).toBeNull();
+    expect(waits(comfy)[0][2]).toEqual({ timeout: "7" });
+  });
+
+  it("reports errors, unknown ids and a replaced worker", async () => {
+    let { comfy, client } = held();
+    comfy.history = ["error"];
+    await expect(client.wait("p1", 60)).rejects.toThrow(/KSampler: out of memory/);
+    ({ comfy, client } = held());
+    comfy.history = ["gone"];
+    await expect(client.wait("p1", 60)).rejects.toThrow(/Unknown or expired/);
+    ({ comfy, client } = held());
+    comfy.history = ["running", 503, "gone"];
+    await expect(client.wait("p1", 60)).rejects.toThrow(/restarted mid-image/);
+  });
+
+  it("falls back to polling on a ComfyUI without it, once", async () => {
+    const { comfy, client } = setup(); // FakeComfy answers 404 on the route by default
+    await client.submit(WF);
+    comfy.history = ["running", "done", "done"];
+    expect(await client.wait("p1", 60)).not.toBeNull();
+    expect(await client.wait("p1", 60)).not.toBeNull();
+    expect(waits(comfy).length).toBe(1);
+  });
+
+  it("keeps the budget reserve", async () => {
+    const comfy = new FakeComfy();
+    comfy.heldWait = true;
+    const c = fastClient(comfy, { requestBudget: 5 });
+    comfy.history = Array(10).fill(503);
+    expect(await c.wait("p1", 3600)).toBeNull();
+    expect(c.remaining()).toBe(2);
   });
 });
 

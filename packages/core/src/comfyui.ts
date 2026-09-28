@@ -5,8 +5,10 @@
 // needs something that sends one HTTP request and hands back status, headers and body, so the relay
 // can carry requests as plain data.
 //
-// Completion comes from polling /history. No WebSocket: it doesn't survive the relay. Each poll is
-// a fetch, which is what a request costs in CPU, so the schedule backs off quickly.
+// Completion: a generator with our /comfy-gen/wait extension (the Modal image's, comfy_node/)
+// holds one request until the prompt finishes; any other ComfyUI is polled on /history. No
+// WebSocket: it doesn't survive the relay. Each request costs the Worker CPU and a subrequest, so
+// the poll schedule backs off quickly.
 
 import { concat, fromUtf8, tokenHex, utf8 } from "./bytes.ts";
 
@@ -17,6 +19,9 @@ export const POLL_SCHEDULE = [1, 1, 2, 2, 3, 5, 5, 8];
 export const POLL_SCHEDULE_TAIL = 10;
 export const COLD_START_POLL_S = 5; // Modal boots in about 44 s: ~9 retries
 const QUEUE_CHECK_EVERY = 5; // polls between queue checks while nothing looks wrong
+// Seconds one /comfy-gen/wait request is held: well under the 100 s after which Cloudflare's edge
+// may give up on a response.
+export const HELD_WAIT_S = 50;
 // Requests kept back for after the wait: the result image and one re-request at lower quality, or
 // the queue position for a Pending answer.
 export const BUDGET_RESERVE = 2;
@@ -146,6 +151,8 @@ export class ComfyUIClient {
   readonly coldStartS: number;
   readonly requestBudget: number | null;
   requestsMade = 0;
+  /** false once the generator answered 404 on /comfy-gen/wait: poll instead. */
+  heldWait = true;
   readonly clientId = tokenHex(16);
   readonly transport: Transport;
   private sleep: (s: number) => Promise<void>;
@@ -194,11 +201,43 @@ export class ComfyUIClient {
   }
 
   /**
-   * Poll until the prompt finishes. Returns its images, or null if still running at *timeout*.
+   * Wait until the prompt finishes. Returns its images, or null if still running at *timeout*.
    * Throws ComfyUIError on an execution error, or when the prompt is in neither history nor queue
    * (unknown id, cancelled, or the GPU worker was replaced mid-job).
    */
   async wait(promptId: string, timeout: number): Promise<OutputImage[] | null> {
+    if (this.heldWait) {
+      const result = await this.waitHeld(promptId, timeout);
+      if (result !== undefined) return result;
+    }
+    return this.waitPolling(promptId, timeout);
+  }
+
+  /** wait() through /comfy-gen/wait; undefined if the generator doesn't have it. */
+  private async waitHeld(promptId: string, timeout: number): Promise<OutputImage[] | null | undefined> {
+    const deadline = this.now() + timeout;
+    let interrupted = false;
+    for (;;) {
+      if (!this.canSpend(1)) return null;
+      const hold = Math.max(0, Math.min(deadline - this.now(), HELD_WAIT_S));
+      const resp = await this.request("GET", `/comfy-gen/wait/${encodeURIComponent(promptId)}`, { params: { timeout: String(hold) } });
+      if (resp.status === 404) {
+        this.heldWait = false;
+        return undefined;
+      }
+      if (resp.status === 200) {
+        const job = resp.json();
+        if (job.state === "done") return outputs(promptId, job);
+        if (job.state === "unknown") throw new ComfyUIError(interrupted ? RESTARTED : unknown(promptId));
+      } else {
+        interrupted = true; // a 5xx mid-job: the GPU worker may have been replaced
+      }
+      if (this.now() >= deadline) return null;
+      if (resp.status !== 200) await this.sleep(COLD_START_POLL_S);
+    }
+  }
+
+  private async waitPolling(promptId: string, timeout: number): Promise<OutputImage[] | null> {
     const deadline = this.now() + timeout;
     let interrupted = false; // saw a 5xx since we started waiting
     let polls = 0;
@@ -211,8 +250,7 @@ export class ComfyUIClient {
       if (checkQueue && (await this.queuePosition(promptId)) === null) {
         [entry] = await this.historyEntry(promptId); // it may have finished between the requests
         if (entry) return outputs(promptId, entry);
-        if (interrupted) throw new ComfyUIError("The GPU worker restarted mid-image. Please retry.");
-        throw new ComfyUIError(`Unknown or expired request ${promptId}: it is not queued and has no result.`);
+        throw new ComfyUIError(interrupted ? RESTARTED : unknown(promptId));
       }
       if (this.now() >= deadline) return null;
       await this.sleep(this.pollDelay(polls));
@@ -290,6 +328,9 @@ export class ComfyUIClient {
     return new Set(Object.keys(resp.json()));
   }
 }
+
+const RESTARTED = "The GPU worker restarted mid-image. Please retry.";
+const unknown = (promptId: string) => `Unknown or expired request ${promptId}: it is not queued and has no result.`;
 
 /** User-facing text for a rejected /prompt, with ComfyUI's validation messages when present. */
 function rejection(resp: Response): string {
