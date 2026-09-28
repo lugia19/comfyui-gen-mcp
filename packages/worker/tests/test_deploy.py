@@ -83,7 +83,7 @@ def build(tmp_path, monkeypatch):
 
     def run(cmd, cwd=None, **kw):
         b.calls.append((cmd, cwd))
-        if "deploy.py" in cmd:  # the Modal app's script
+        if "comfy_gen_modal.deploy" in cmd:  # the Modal app's script
             out = Path(cmd[cmd.index("--out") + 1])
             out.write_text(json.dumps({"server_url": "https://m.modal.run", "admin_url": "https://a.modal.run"}))
         return subprocess.CompletedProcess(cmd, b.exit_code)
@@ -125,13 +125,8 @@ def test_setup_build_deploys_modal_and_reports(build, monkeypatch):
     monkeypatch.setenv("COMFY_GEN_NONCE", "n0nce")
 
     assert build.go() == 0
-    assert build.posts[0][2]["modal_result"] == "skipped (this release has no Modal app)"
-
-    app = build.src / "packages" / "modal_app"
-    app.mkdir(parents=True)
-    (app / "deploy.py").write_text("")
-    build.posts.clear()
-    assert build.go() == 0
+    cmd, cwd = build.calls[0]
+    assert cmd[:5] == ["uv", "run", "--package", "comfy-gen-modal", "--no-dev"] and cwd == build.src
     url, agent, body = build.posts[0]
     assert url.endswith("/build-callback") and agent == "comfy-gen-build"
     assert body == {
@@ -146,3 +141,16 @@ def test_failed_deploy_is_reported(build, monkeypatch):
     build.exit_code = 1
     assert build.go() == 1
     assert build.posts[0][2]["stage"] == "failed"
+
+
+def test_modal_failure_still_deploys_the_worker_and_says_so(build, monkeypatch):
+    monkeypatch.setenv("MODAL_TOKEN_ID", "ak-1")
+    monkeypatch.setenv("MODAL_TOKEN_SECRET", "as-1")
+    monkeypatch.setenv("COMFY_GEN_CALLBACK", "https://w/build-callback")
+    monkeypatch.setenv("COMFY_GEN_NONCE", "n")
+    real_run = deploy.subprocess.run
+    monkeypatch.setattr(deploy.subprocess, "run", lambda cmd, cwd=None, **kw: (
+        subprocess.CompletedProcess(cmd, 1) if "comfy_gen_modal.deploy" in cmd else real_run(cmd, cwd=cwd, **kw)))
+    assert build.go() == 0
+    body = build.posts[0][2]
+    assert body["stage"] == "deployed" and body["modal_result"] == "failed (exit 1)" and "modal" not in body

@@ -2,7 +2,7 @@ import base64
 import json
 
 import pytest
-from conftest import COMFY, TOKEN, request
+from conftest import ADMIN, COMFY, TOKEN, request
 from fake_comfy import png
 
 from comfy_gen_core import refs
@@ -206,7 +206,6 @@ async def test_direct_generator_is_probed_before_saving(world, comfy):
 async def test_build_and_callback(world):
     app, _, net, _ = world
     cookie = await login(app)
-    await app.handle(request("POST", "/api/setup/cloudflare", {"token": "cfut_x"}, headers=cookie))
     resp = await app.handle(request("POST", "/api/setup/build", {"modal_token_id": "ak-1", "modal_token_secret": "as-1"}, headers=cookie))
     assert json.loads(resp.body) == {"build": "build1"}
     assert net.build_vars["MODAL_TOKEN_SECRET"] == {"value": "as-1", "is_secret": True}
@@ -219,11 +218,90 @@ async def test_build_and_callback(world):
     assert (await app.handle(request("POST", "/build-callback", {"nonce": "wrong"}))).status == 403
     ok = await app.handle(request("POST", "/build-callback", {
         "nonce": nonce, "stage": "after-deploy", "version": "v1.0.0",
-        "modal": {"server_url": "https://m.modal.run", "admin_url": "https://a.modal.run",
+        "modal": {"server_url": "https://m.modal.run", "admin_url": ADMIN,
                   "proxy_token_id": "wk-1", "proxy_token_secret": "ws-1"}}))
-    assert ok.status == 200
+    assert ok.status == 200 and json.loads(ok.body)["warnings"] == []
     gen = (await secrets_of(app))["generator"]
     assert gen["kind"] == "modal" and gen["headers"] == {"Modal-Key": "wk-1", "Modal-Secret": "ws-1"}
+    assert gen["admin_url"] == ADMIN
+    # A deploy resets keep-warm, and a fresh install has no models: both are applied right away.
+    assert ("POST", "/idle", {"seconds": 300}) in net.admin_calls
+    seeded = sorted(body["pack"] for m, p, body in net.admin_calls if p == "/seed")
+    assert seeded == ["anima_turbo", "flux2klein_edit", "z_image_turbo"]
+    assert all(body["models"] for m, p, body in net.admin_calls if p == "/seed")
+
+
+# ── Modal models ──────────────────────────────────────────────────────
+
+async def with_modal(app):
+    await app.store.update_secrets(generator={"kind": "modal", "base_url": COMFY, "admin_url": ADMIN,
+                                              "headers": {"Modal-Key": "wk", "Modal-Secret": "ws"}})
+
+
+async def test_callback_survives_a_cold_admin_api(world):
+    app, _, net, _ = world
+    await app.store.update_setup(build_nonce="n")
+    net.admin_up = False
+    ok = await app.handle(request("POST", "/build-callback", {"nonce": "n", "modal": {"server_url": "https://m", "admin_url": ADMIN}}))
+    assert ok.status == 200 and len(json.loads(ok.body)["warnings"]) == 4  # keep-warm + three packs
+    assert (await secrets_of(app))["generator"]["kind"] == "modal"
+
+
+async def test_models_page_reports_and_remembers_ready_packs(world):
+    app, _, net, _ = world
+    await with_modal(app)
+    cookie = await login(app)
+    net.seed_state = {"anima_turbo": {"state": "done", "done": 9, "total": 9},
+                      "z_image_turbo": {"state": "downloading", "done": 1, "total": 4}}
+    packs = {p["name"]: p for p in json.loads((await app.handle(request("GET", "/api/models", headers=cookie))).body)["packs"]}
+    assert packs["anima_turbo"]["state"] == "done" and packs["z_image_turbo"]["done"] == 1
+    assert packs["flux2klein_edit"]["state"] == "missing" and packs["anima_turbo"]["size"] > 5e9
+    net.admin_calls.clear()
+    await app.handle(request("GET", "/api/models", headers=cookie))
+    assert sorted(p for _, p, _ in net.admin_calls) == ["/seed/flux2klein_edit", "/seed/z_image_turbo"]  # anima is recorded
+    retry = await app.handle(request("POST", "/api/models/seed", {"pack": "flux2klein_edit"}, headers=cookie))
+    assert json.loads(retry.body)["started"] is True
+
+
+async def test_saving_settings_seeds_new_packs_and_applies_keep_warm(world):
+    app, _, net, _ = world
+    await with_modal(app)
+    cookie = await login(app)
+    await app.store.update_setup(seeded=["anima_turbo", "z_image_turbo", "flux2klein_edit"])
+    cfg = json.loads((await app.handle(request("GET", "/api/state", headers=cookie))).body)["config"]
+    resp = await app.handle(request("PUT", "/api/config", {"config": cfg}, headers=cookie))
+    assert json.loads(resp.body)["warnings"] == [] and net.admin_calls == []  # nothing changed
+    cfg["pack_selections"] = {"generate_realistic_image": "flux2klein_9b"}
+    cfg["keep_warm_minutes"] = 15
+    await app.handle(request("PUT", "/api/config", {"config": cfg}, headers=cookie))
+    assert ("POST", "/idle", {"seconds": 900}) in net.admin_calls
+    assert [b["pack"] for _, p, b in net.admin_calls if p == "/seed"] == ["flux2klein_9b"]
+
+
+async def test_generation_waits_for_its_models(world, comfy):
+    app, _, net, _ = world
+    await with_modal(app)
+    args = {"name": "generate_illustrated_image", "arguments": {"prompt": "x"}}
+    _, r = await mcp(app, "tools/call", args)
+    text = r["result"]["content"][0]["text"]
+    assert r["result"]["isError"] and "being downloaded" in text and "https://comfy-gen.someone.workers.dev/" in text
+    assert net.seed_state["anima_turbo"]["state"] == "queued"  # the call started the download
+    net.seed_state["anima_turbo"] = {"state": "downloading", "done": 3, "total": 4}
+    _, r = await mcp(app, "tools/call", args)
+    assert "(75%)" in r["result"]["content"][0]["text"] and comfy.prompts == []
+    net.seed_state["anima_turbo"] = {"state": "done"}
+    _, r = await mcp(app, "tools/call", args)
+    assert r["result"]["content"][0]["type"] == "image"
+    net.admin_calls.clear()
+    await mcp(app, "tools/call", args)
+    assert net.admin_calls == []  # ready packs cost no admin call
+
+
+async def test_other_generators_never_touch_the_admin_api(world, comfy):
+    app, _, net, _ = world
+    await with_generator(app)
+    _, r = await mcp(app, "tools/call", {"name": "generate_illustrated_image", "arguments": {"prompt": "x"}})
+    assert r["result"]["content"][0]["type"] == "image" and net.admin_calls == []
 
 
 # ── updates ───────────────────────────────────────────────────────────

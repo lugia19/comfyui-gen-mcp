@@ -1,7 +1,6 @@
 """The Workers Build step, after deploy.sh has downloaded the source.
 
-1. Deploy the Modal app when the setup page stored a Modal token (M3; skipped until the source
-   has one).
+1. Deploy the Modal app when the setup page stored a Modal token (packages/modal_app).
 2. Write the release's wrangler config with the user's name and IDs merged in from their copy of
    bootstrap/wrangler.jsonc, and VERSION set.
 3. `pywrangler deploy` from packages/worker.
@@ -79,16 +78,15 @@ def merge(release: dict, template: dict, version: str) -> dict:
 
 
 def deploy_modal(src: Path) -> tuple[dict | None, str]:
-    """Run the Modal app's own deploy script. It writes the URLs and proxy token as JSON."""
+    """Run the Modal app's own deploy script (comfy_gen_modal.deploy). It writes the URLs and proxy
+    token as JSON."""
     if not (os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET")):
         return None, "skipped (no Modal token)"
-    app_dir = src / "packages" / "modal_app"
-    if not (app_dir / "deploy.py").exists():
-        return None, "skipped (this release has no Modal app)"
     print("== Modal", flush=True)
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "modal.json"
-        result = subprocess.run(["uv", "run", "--directory", str(app_dir), "python", "deploy.py", "--out", str(out)])
+        cmd = ["uv", "run", "--package", "comfy-gen-modal", "--no-dev", "python", "-m", "comfy_gen_modal.deploy", "--out", str(out)]
+        result = subprocess.run(cmd, cwd=src)
         if result.returncode != 0 or not out.exists():
             return None, f"failed (exit {result.returncode})"
         return json.loads(out.read_text()), "ok"
@@ -103,7 +101,8 @@ def callback(body: dict) -> None:
         headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
     )
     try:
-        print("callback:", urllib.request.urlopen(req, timeout=30).read().decode()[:200])
+        # The Worker seeds models and applies keep-warm while answering, so allow it time.
+        print("callback:", urllib.request.urlopen(req, timeout=120).read().decode()[:200])
     except Exception as e:  # the deploy itself worked or failed already; don't mask that
         print(f"callback failed: {e}")
 

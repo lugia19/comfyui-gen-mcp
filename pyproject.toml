@@ -9,19 +9,21 @@ package = false
 [tool.uv.workspace]
 # packages/worker is deliberately not a member: it needs Python 3.14 (Pyodide) and a workspace
 # forces every member onto the intersection of their requires-python. It depends on core by path.
-members = ["packages/core"]
+members = ["packages/core", "packages/modal_app"]
 exclude = ["packages/worker", "spikes/*"]
 
 [tool.uv.sources]
 comfy-gen-core = { workspace = true }
+comfy-gen-modal = { workspace = true }
 
 [dependency-groups]
 dev = [
     "comfy-gen-core[httpx]",
+    "comfy-gen-modal",
     "pytest>=8.0",
     "anyio>=4.0",
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/core/tests", "packages/worker/tests"]
+testpaths = ["packages/core/tests", "packages/modal_app/tests", "packages/worker/tests"]
 addopts = "-q"

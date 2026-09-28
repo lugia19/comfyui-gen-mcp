@@ -20,7 +20,7 @@ from comfy_gen_core.config import SETTINGS_SCHEMA
 from comfy_gen_core.images import sniff_mime
 from comfy_gen_core.mcp import McpHandler
 
-from comfy_gen_worker import auth, cloudflare, updates, uploads
+from comfy_gen_worker import auth, cloudflare, modal_admin, updates, uploads
 from comfy_gen_worker.hooks import WorkerHooks
 from comfy_gen_worker.http import FetchTransport, Platform, Request, Response, with_user_agent
 from comfy_gen_worker.render import render, text
@@ -29,6 +29,7 @@ from comfy_gen_worker.store import Store
 log = logging.getLogger("comfy_gen")
 
 PACKS = packs_mod.builtin_packs()
+GROUPS = packs_mod.group_by_tool(PACKS)
 
 # Of the free plan's 50 external subrequests per invocation, what one MCP call may spend on ComfyUI.
 # The rest covers downloading an edit_image URL and its upload.
@@ -67,6 +68,10 @@ def _pack_metadata() -> list[dict]:
 
 
 PACK_METADATA = _pack_metadata()
+
+
+def selected_packs(cfg: dict) -> list[dict]:
+    return packs_mod.select(GROUPS, cfg["pack_selections"])
 
 
 def _hmac_key(s: dict) -> bytes:
@@ -125,7 +130,9 @@ class App:
         cfg = await self.store.config()
         key = _hmac_key(s)
         client = self._client(s.get("generator"))
-        brain = Brain(PACKS, cfg, client, "refs", hooks=WorkerHooks(client, key, self.fetch))
+        hooks = WorkerHooks(client, key, self.fetch, admin=modal_admin.for_generator(self.fetch, s.get("generator")),
+                            store=self.store, settings_url=f"{req.base_url}/")
+        brain = Brain(PACKS, cfg, client, "refs", hooks=hooks)
         served = {spec["name"] for spec in brain.specs}
 
         async def call(name: str, args: dict) -> tuple[list[dict], bool]:
@@ -176,16 +183,32 @@ class App:
         if not expected or not hmac.compare_digest(str(data.get("nonce", "")), expected):
             return Response.error(403, "bad nonce")
         modal = data.get("modal")
+        warnings: list[str] = []
         if isinstance(modal, dict) and modal.get("server_url"):
-            await self.fresh.update_secrets(
-                generator={
-                    "kind": "modal",
-                    "base_url": modal["server_url"],
-                    "headers": {"Modal-Key": modal.get("proxy_token_id", ""), "Modal-Secret": modal.get("proxy_token_secret", "")},
-                    "cold_start_s": MODAL_COLD_START_S,
-                },
-            )
-        return Response.json({"ok": True})
+            generator = {
+                "kind": "modal",
+                "base_url": modal["server_url"],
+                "admin_url": modal.get("admin_url"),
+                "headers": {"Modal-Key": modal.get("proxy_token_id", ""), "Modal-Secret": modal.get("proxy_token_secret", "")},
+                "cold_start_s": MODAL_COLD_START_S,
+            }
+            await self.fresh.update_secrets(generator=generator)
+            # A deploy resets keep-warm to the app's default, and a fresh install has no models yet.
+            admin = modal_admin.for_generator(self.fetch, generator)
+            if admin:
+                cfg = await self.fresh.config()
+                warnings = await self._apply_to_modal(admin, cfg, keep_warm=True)
+        return Response.json({"ok": True, "warnings": warnings})
+
+    async def _apply_to_modal(self, admin, cfg: dict, keep_warm: bool) -> list[str]:
+        """Best effort: apply keep-warm, start downloads for selected packs. Returns warnings."""
+        warnings = []
+        if keep_warm:
+            try:
+                await admin.idle(cfg["keep_warm_minutes"])
+            except modal_admin.ModalAdminError as e:
+                warnings.append(f"Could not apply keep-warm: {e}")
+        return warnings + await modal_admin.seed_missing(admin, self.fresh, selected_packs(cfg))
 
     # ── settings API ──────────────────────────────────────────────────
 
@@ -201,8 +224,16 @@ class App:
         if sub == "/state" and req.method == "GET":
             return Response.json(await self._state(req, s))
         if sub == "/config" and req.method == "PUT":
+            old = await self.fresh.config()
             cfg = await self.fresh.save_config(req.json().get("config"))
-            return Response.json({"config": cfg})
+            admin = modal_admin.for_generator(self.fetch, s.get("generator"))
+            changed = old["keep_warm_minutes"] != cfg["keep_warm_minutes"]
+            warnings = await self._apply_to_modal(admin, cfg, keep_warm=changed) if admin else []
+            return Response.json({"config": cfg, "warnings": warnings})
+        if sub == "/models" and req.method == "GET":
+            return await self._models(s)
+        if sub == "/models/seed" and req.method == "POST":
+            return await self._seed_pack(req, s)
         if sub == "/setup/generator" and req.method == "POST":
             return await self._setup_generator(req)
         if sub == "/setup/build" and req.method == "POST":
@@ -247,6 +278,31 @@ class App:
         )
         session = auth.make_session((await self.fresh.secrets())["cookie_key"], self.p.now())
         return Response.json({"ok": True}, headers={"Set-Cookie": auth.cookie_header(session)})
+
+    async def _models(self, s: dict) -> Response:
+        """Download state of the selected packs on Modal, for the pages to poll."""
+        admin = modal_admin.for_generator(self.fetch, s.get("generator"))
+        if admin is None:
+            return Response.json({"packs": []})
+        out = []
+        for pack in selected_packs(await self.fresh.config()):
+            try:
+                status = await modal_admin.pack_status(admin, self.fresh, pack)
+            except modal_admin.ModalAdminError as e:
+                status = {"state": "unknown", "error": str(e)}
+            out.append({"name": pack["name"], "display_name": pack.get("display_name", pack["name"]),
+                        "tool_name": pack["tool_name"], "size": packs_mod.download_size(pack), **status})
+        return Response.json({"packs": out})
+
+    async def _seed_pack(self, req: Request, s: dict) -> Response:
+        admin = modal_admin.for_generator(self.fetch, s.get("generator"))
+        pack = next((p for p in PACKS if p["name"] == req.json().get("pack")), None)
+        if admin is None or pack is None:
+            return Response.error(400, "no such pack, or the GPU is not on Modal")
+        try:
+            return Response.json(await admin.seed(pack))
+        except modal_admin.ModalAdminError as e:
+            return Response.error(502, str(e))
 
     async def _setup_generator(self, req: Request) -> Response:
         """A ComfyUI the Worker can reach directly (advanced; Modal is configured by the build)."""

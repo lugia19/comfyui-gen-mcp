@@ -17,6 +17,7 @@ from comfy_gen_worker.app import App  # noqa: E402
 from comfy_gen_worker.http import Platform, Request  # noqa: E402
 
 COMFY = "https://comfy.example"
+ADMIN = "https://admin.example"  # the Modal app's admin API
 HOST = "comfy-gen.someone.workers.dev"
 TOKEN = "cfut_owner"
 
@@ -45,6 +46,9 @@ class FakeNet:
         self.scripts = {"comfy-gen": "tag1"}  # what the token can see
         self.builds_started = []
         self.build_vars = {}
+        self.admin_calls = []  # (method, path, body)
+        self.seed_state = {}  # pack -> progress entry
+        self.admin_up = True
 
     async def __call__(self, url, method="GET", headers=None, body=None):
         self.calls.append((method, url, headers or {}))
@@ -54,6 +58,8 @@ class FakeNet:
             return await self.comfy.request(method, parts.path, params=params, headers=headers, body=body)
         if parts.netloc == "api.cloudflare.com":
             return self._cloudflare(method, parts.path.removeprefix("/client/v4"), body)
+        if url.startswith(ADMIN):
+            return self._admin(method, parts.path, json.loads(body) if body else None)
         if parts.netloc == "api.github.com":
             return _json({"tag_name": self.latest_release})
         if parts.netloc == "images.example":
@@ -81,6 +87,19 @@ class FakeNet:
         if "/builds/builds/" in path:
             return _cf({"status": "running", "build_outcome": None})
         return _cf(None, ok=False)
+
+    def _admin(self, method, path, body):
+        if not self.admin_up:
+            return Response(503, b"cold")
+        self.admin_calls.append((method, path, body))
+        if method == "POST" and path == "/seed":
+            self.seed_state[body["pack"]] = {"state": "queued", "done": 0, "total": 1}
+            return _json({"started": True, **self.seed_state[body["pack"]]})
+        if method == "GET" and path.startswith("/seed/"):
+            return _json(self.seed_state.get(path.rsplit("/", 1)[1], {"state": "missing"}))
+        if method == "POST" and path == "/idle":
+            return _json({"seconds": body["seconds"]})
+        return Response(404)
 
 
 def _cf(result, ok=True):
