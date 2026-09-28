@@ -11,21 +11,21 @@
       "filename": "z-image-turbo-Q5_K_M.gguf",
       "subfolder": "diffusion_models",
       "url": "https://huggingface.co/unsloth/Z-Image-Turbo-GGUF/resolve/main/z-image-turbo-Q5_K_M.gguf",
-      "size_bytes": 5981921689,
+      "size_bytes": 5574444096,
       "sha256": "847e33003ae6e85121c62785d7f7213958d58287c932d0c2189a1c9a2d1f093a"
     },
     {
       "filename": "Qwen3-4B-Q5_K_M.gguf",
       "subfolder": "text_encoders",
       "url": "https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q5_K_M.gguf",
-      "size_bytes": 3103113216,
+      "size_bytes": 2889514272,
       "sha256": "37edbd37f5b7a4d4e7a766400c57def1f790e809de03513b86bf11bb06979695"
     },
     {
       "filename": "ae.safetensors",
       "subfolder": "vae",
       "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
-      "size_bytes": 351272960,
+      "size_bytes": 335304388,
       "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38"
     }
   ],

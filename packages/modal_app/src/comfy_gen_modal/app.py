@@ -6,8 +6,9 @@
 
 The Volume holds models, input and output, so uploads and earlier outputs survive scale-to-zero
 (S5 a–c). A warm ComfyUI only sees files written by other containers after volume.reload(), which
-fails while files are open, so the server reloads when a seed asks and ComfyUI is idle, after /free
-(S5 d).
+fails while files are open. ComfyUI keeps model files open even after /free (seen live, S5 d), so
+when a seed asks and ComfyUI is idle, the server restarts the ComfyUI process around the reload:
+about 15 s, instead of a cold start.
 
 Deployed by deploy.py inside a Workers Build: `python -m modal deploy -m comfy_gen_modal.app`.
 """
@@ -17,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import signal
 import subprocess
 import threading
 import time
@@ -66,14 +68,49 @@ admin_image = (
 # ── ComfyUI ────────────────────────────────────────────────────────────────────
 
 
-def _comfy(path: str, body: dict | None = None) -> dict:
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{COMFY_PORT}{path}", data=json.dumps(body).encode() if body is not None else None,
-        headers={"Content-Type": "application/json"}, method="POST" if body is not None else "GET",
+def _comfy_busy() -> bool:
+    with urllib.request.urlopen(f"http://127.0.0.1:{COMFY_PORT}/queue", timeout=30) as r:
+        queue = json.load(r)
+    return bool(queue.get("queue_running") or queue.get("queue_pending"))
+
+
+_proc: subprocess.Popen | None = None
+
+
+def _launch() -> None:
+    global _proc
+    _proc = subprocess.Popen(
+        f"comfy launch -- --listen 0.0.0.0 --port {COMFY_PORT} "
+        f"--input-directory {INPUT_DIR} --output-directory {OUTPUT_DIR} "
+        "--extra-model-paths-config /root/extra_model_paths.yaml",
+        shell=True, start_new_session=True,  # its own process group: comfy launch starts a child
     )
-    with urllib.request.urlopen(req, timeout=30) as r:
-        raw = r.read()
-    return json.loads(raw) if raw.strip() else {}
+
+
+def _stop() -> None:
+    os.killpg(_proc.pid, signal.SIGTERM)
+    try:
+        _proc.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        os.killpg(_proc.pid, signal.SIGKILL)
+        _proc.wait()
+
+
+def _reload() -> str:
+    """Make files other containers committed visible here. Commit first: a reload may drop
+    uncommitted changes, and ComfyUI's outputs and uploads are exactly that."""
+    try:
+        volume.commit()
+        volume.reload()
+        return "reloaded"
+    except RuntimeError:  # "open files preventing the operation": ComfyUI holds model files
+        _stop()
+        try:
+            volume.commit()
+            volume.reload()
+        finally:
+            _launch()
+        return "restarted ComfyUI"
 
 
 def _watch_reloads(started: float) -> None:
@@ -86,18 +123,15 @@ def _watch_reloads(started: float) -> None:
             requested = state.get("reload_requested_at") or 0
             if requested <= done_upto:
                 continue
-            queue = _comfy("/queue")
-            if queue.get("queue_running") or queue.get("queue_pending"):
+            if _comfy_busy():
                 continue
         except Exception:  # ComfyUI still booting, or a Dict hiccup: look again next poll
             continue
         try:
-            _comfy("/free", {"unload_models": True, "free_memory": True})
-            time.sleep(2)
             t = time.monotonic()
-            volume.reload()
-            state["reload"] = {"at": time.time(), "ok": True, "seconds": round(time.monotonic() - t, 2)}
-        except Exception as e:  # e.g. files still open; the next cold start sees the files anyway
+            how = _reload()
+            state["reload"] = {"at": time.time(), "ok": True, "how": how, "seconds": round(time.monotonic() - t, 2)}
+        except Exception as e:  # the next cold start sees the files anyway
             state["reload"] = {"at": time.time(), "ok": False, "error": f"{type(e).__name__}: {e}"}
         done_upto = requested
 
@@ -119,12 +153,7 @@ class Comfy:
             os.makedirs(d, exist_ok=True)
         with open("/root/extra_model_paths.yaml", "w") as fh:
             fh.write(EXTRA_PATHS)
-        subprocess.Popen(
-            f"comfy launch -- --listen 0.0.0.0 --port {COMFY_PORT} "
-            f"--input-directory {INPUT_DIR} --output-directory {OUTPUT_DIR} "
-            "--extra-model-paths-config /root/extra_model_paths.yaml",
-            shell=True,
-        )
+        _launch()
         threading.Thread(target=_watch_reloads, args=(time.time(),), daemon=True).start()
 
     @modal.exit()
@@ -162,10 +191,9 @@ def _download(m: dict, part_suffix: str, on_bytes) -> None:
     os.replace(part, path)
 
 
-# One seed at a time: packs share files (text encoders, VAEs), and two containers writing the same
-# Volume file is last-writer-wins at best. Seen live: two packs fetched a shared 3 GB file at once
-# and a later seed found it missing. Queued calls wait their turn and find shared files present.
-@app.function(image=admin_image, volumes={VOL: volume}, timeout=3 * 3600, cpu=2.0, max_containers=1)
+# Seeds run in parallel. Two packs may fetch a shared file at once; each writes a complete .part and
+# renames it, so whichever commit lands last leaves the same complete file.
+@app.function(image=admin_image, volumes={VOL: volume}, timeout=3 * 3600, cpu=2.0)
 def seed(pack: str, models: list[dict]) -> None:
     key = f"seed:{pack}"
     volume.reload()

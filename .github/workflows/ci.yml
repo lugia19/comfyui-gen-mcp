@@ -49,3 +49,10 @@ jobs:
         run: |
           git add -N web/dist
           git diff --exit-code --stat web/dist || { echo "::error::Rebuild web/dist (cd web && npm run build) and commit it"; exit 1; }
+
+  pack-models:
+    # Pack sizes and hashes must match what the URLs serve: the Modal seed trusts the sizes.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/check_pack_models.py

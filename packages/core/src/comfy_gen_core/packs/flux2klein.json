@@ -18,7 +18,7 @@
       "filename": "Qwen3-4B-Q5_K_M.gguf",
       "subfolder": "text_encoders",
       "url": "https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q5_K_M.gguf",
-      "size_bytes": 3103113216,
+      "size_bytes": 2889514272,
       "sha256": "37edbd37f5b7a4d4e7a766400c57def1f790e809de03513b86bf11bb06979695"
     },
     {
