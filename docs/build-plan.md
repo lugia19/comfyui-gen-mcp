@@ -1,9 +1,11 @@
 # Comfy-Gen-MCP rewrite: build plan
 
-> **Status (2026-09-28):** M0–M2 done. M3 (the Modal app) is built and verified live on the test
-> install `comfy-gen.yuri-f92.workers.dev` (design doc appendix, "M3 live"). Worker state moved from
-> KV to a Durable Object along the way. Left for M3: the user's claude.ai check, renaming the default
-> branch to `main`, and tagging v1.0.0. The rest of this file is the overall plan.
+> **Status (2026-09-28):** M0–M3 are built and verified live on the test install
+> `comfy-gen.yuri-f92.workers.dev`. `core` and the Worker were then ported to TypeScript (design doc
+> §3 "Worker CPU budget", §11, appendix), which leaves the Modal app as the only Python. Left for M3:
+> the user's claude.ai check, the `main` branch and the v1.0.0 tag. M5 and M6 (MCPB, agent) are now
+> Node. Module names below are from the Python era; the TypeScript files keep the same split. The
+> rest of this file is the overall plan.
 >
 > As built, the build step is `packages/worker/deploy/deploy.sh` (the release asset, tag filled in
 > by `release.yml`), which hands over to `deploy.py` in the downloaded source. `deploy.py` runs

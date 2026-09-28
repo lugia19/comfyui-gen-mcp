@@ -96,7 +96,7 @@ describe("packs and config", () => {
   const builtin = builtinPacks();
 
   it("every pack JSON file is listed, in file-name order", () => {
-    const dir = new URL("../src/comfy_gen_core/packs/", import.meta.url);
+    const dir = new URL("../packs/", import.meta.url);
     const files = readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
     expect(PACK_FILES.map(([f]) => f)).toEqual(files);
   });

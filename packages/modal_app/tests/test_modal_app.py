@@ -1,8 +1,9 @@
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from comfy_gen_core.packs import builtin_packs
 from comfy_gen_modal.deploy import proxy_token
 from comfy_gen_modal.models import needed, rel_path, validate_models, validate_pack_name
 
@@ -10,9 +11,14 @@ MODEL = {"url": "https://huggingface.co/x/y/resolve/main/m.safetensors", "subfol
          "filename": "m.safetensors", "size_bytes": 100, "sha256": "A" * 64}
 
 
+PACKS = Path(__file__).resolve().parents[2] / "core" / "packs"
+
+
 def test_every_builtin_pack_passes_validation():
     # The Worker sends pack["models"] as they are; the admin endpoint must accept them.
-    for pack in builtin_packs():
+    files = sorted(PACKS.glob("*.json"))
+    assert len(files) >= 7
+    for pack in (json.loads(f.read_text()) for f in files):
         validate_pack_name(pack["name"])
         assert len(validate_models(pack["models"])) == len(pack["models"])
 

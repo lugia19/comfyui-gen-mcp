@@ -7,23 +7,20 @@ requires-python = ">=3.12"
 package = false
 
 [tool.uv.workspace]
-# packages/worker is deliberately not a member: it needs Python 3.14 (Pyodide) and a workspace
-# forces every member onto the intersection of their requires-python. It depends on core by path.
-members = ["packages/core", "packages/modal_app"]
-exclude = ["packages/worker", "spikes/*"]
+# The Python that remains: the Modal app (runs on Modal and in the Workers Build). core and the
+# Worker are TypeScript (npm workspaces); the build step's deploy.py is stdlib-only and tested here.
+members = ["packages/modal_app"]
+exclude = ["spikes/*"]
 
 [tool.uv.sources]
-comfy-gen-core = { workspace = true }
 comfy-gen-modal = { workspace = true }
 
 [dependency-groups]
 dev = [
-    "comfy-gen-core[httpx]",
     "comfy-gen-modal",
     "pytest>=8.0",
-    "anyio>=4.0",
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/core/tests", "packages/modal_app/tests", "packages/worker/tests"]
+testpaths = ["packages/modal_app/tests", "packages/worker/tests"]
 addopts = "-q"

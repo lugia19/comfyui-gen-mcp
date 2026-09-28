@@ -12,7 +12,7 @@ import sys
 import urllib.error
 import urllib.request
 
-PACKS = os.path.join(os.path.dirname(__file__), "..", "packages", "core", "src", "comfy_gen_core", "packs")
+PACKS = os.path.join(os.path.dirname(__file__), "..", "packages", "core", "packs")
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):

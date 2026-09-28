@@ -1,8 +1,9 @@
 # Comfy-Gen-MCP design
 
 Status: design settled 2026-09-28 after the infrastructure spikes (results in the appendix; S6 still
-running). This document is the source of truth for the rewrite; `docs/build-plan.md` is the build
-order.
+running). `core` and the Worker moved from Python to TypeScript the same day, after the Worker's CPU
+was measured (appendix, "CPU of a Python Worker"). This document is the source of truth for the
+rewrite; `docs/build-plan.md` is the build order.
 
 Product name: Comfy-Gen-MCP. Repository: `lugia19/comfyui-gen-mcp`. The previous implementation lives
 in `lugia19/comfy-gen-mcp`, in maintenance.
@@ -56,29 +57,30 @@ A single async ComfyUI client, in the shape of Visual-Novelist's `ComfyUIClient`
 - fetch outputs from `/view`, upload inputs to `/upload/image`
 - auth headers per transport
 
-The client speaks to ComfyUI through a small `Transport` protocol (one HTTP request in, status,
-headers and body out), so the same code runs under CPython and Pyodide and the relay can carry
-requests as plain data. Transports:
+The client speaks to ComfyUI through a small `Transport` interface (one HTTP request in, status and
+body out), so the same code runs in the Worker and in Node, and the relay can carry requests as
+plain data. Transports:
 
 | Transport | How the client reaches ComfyUI |
 |---|---|
 | Modal | JS `fetch` from the Worker to the deployed server URL with `Modal-Key` / `Modal-Secret` proxy-token headers |
 | PC | Through the Worker's Durable Object, which relays HTTP to the agent, which calls its local ComfyUI |
-| MCPB | `httpx` to `http://127.0.0.1:<port>` |
+| MCPB | `fetch` to `http://127.0.0.1:<port>` (the same `FetchTransport` as the Worker's) |
 
 ### Brain
 
 Packs (JSON: workflow, prompt node, seed and dimension nodes, model URLs, tool descriptions) are
 resolved per tool, prompts injected, seeds randomized, dimensions computed, LoRAs spliced. This is
-the old `workflow.py`, `model_pack.py` and `tool_specs.py`, made Pyodide-clean, plus the MCP handler.
+the old `workflow.py`, `model_pack.py` and `tool_specs.py`, ported to TypeScript with Web-platform APIs
+only, plus the MCP handler.
 
 ### MCP
 
 A hand-rolled, stateless JSON-RPC handler in `core` serves `initialize`, `ping`, `tools/list` and
-`tools/call` with one JSON body per POST (no sessions, no SSE). The official MCP SDK costs about
-2 s of CPU per fresh Worker isolate and is killed on the free plan (S1). The Worker and the MCPB's
-local server both use the handler; only the MCPB's stdio shim, a separate CPython process, uses the
-SDK.
+`tools/call` with one JSON body per POST (no sessions, no SSE). It was written when the Worker was
+Python, where the official MCP SDK cost about 2 s of CPU per fresh isolate (S1); it stays because it
+is small, proven with claude.ai, and costs nothing. The Worker and the MCPB's local server both use
+it; the MCPB's stdio shim may use the official TypeScript SDK.
 
 ### Waiting
 
@@ -100,18 +102,24 @@ about 42 requests. The relay path (Worker to Durable Object) counts against the 
 
 ### Worker CPU budget
 
-The free plan's nominal limit is 10 ms of CPU per request. A bare Python request costs about 3 ms,
-and 10 to 20 ms on a fresh isolate; Cloudflare tolerated calls up to 116 ms in the spikes but the
-real ceiling is undocumented (S1b, S2b). Rules for Worker code:
+The free plan's limit is 10 ms of CPU per request, with some tolerance for occasional overruns
+("if your Worker starts hitting the limit consistently, its execution will be terminated").
+Waiting on the network is not billed; what is billed is our code and, above all, each fetch.
 
-- no heavy imports (no pydantic-based libraries, no MCP SDK)
-- anything request-independent is computed or serialized at import, which happens once inside the
-  deploy-time snapshot
-- no logging on the MCP path
-- per-call work is plain dict work; image bytes are only base64'd, never decoded
+The Worker was Python first, and that failed this budget: a Python Worker bills about 10 ms per
+request before any of our code runs, plus about 0.24 ms per JS await and 1.8 ms per fetch, so every
+request sat at the limit and a generation cost 60 to 160 ms (appendix). In TypeScript, measured on
+the same install: ping, tools/list and the settings API cost 1 to 2 ms; a generation 30 to 60 ms,
+almost all of it in its fetches (cold-start retries, polls, the image). Generations are the rare,
+tolerated overrun. Rules for Worker code:
 
-If enforcement ever tightens, the fallback is a thin JS front Worker that answers `initialize`,
-`tools/list` and `ping` itself and passes only `tools/call` to Python.
+- keep fetches per request low; they are the cost
+- no heavy dependencies on the request path; request-independent data is built at module scope
+- plain data only at module scope (stubs, `env` and I/O objects are bound to their request)
+- image bytes are only base64'd, never decoded
+
+If generations ever need to come under 10 ms, the next step is a long-poll endpoint in front of
+ComfyUI on Modal, so a generation makes about 3 fetches instead of about 20.
 
 ### Custom workflows
 
@@ -272,35 +280,34 @@ Worker runs (S4).
 
 ## 10. Repository
 
-**One authored repository**, a uv workspace:
+**One authored repository.** TypeScript in npm workspaces, plus the Python that runs on Modal:
 
-| Package | Contents | Must run under |
+| Package | Contents | Runs in |
 |---|---|---|
-| `core` | packs (as package data), workflow build, tool specs, ComfyUI client, brain, MCP handler, settings schema | CPython 3.12+ and Pyodide |
-| `worker` | Worker entry, state Durable Object, routes, render, Durable Object, Builds API, setup, updates | Pyodide (Python 3.14) |
-| `modal_app` | Modal app file, admin endpoint, build-time deploy script | CPython (Modal, build image) |
-| `local` | ComfyUI install, launch, stop, downloads, node install, idle stop, tray; shared by `agent` and `mcpb` | CPython |
-| `mcpb` | stdio shim, local server | CPython |
-| `agent` | `local` plus the relay client | CPython |
+| `core` | packs (JSON), workflow build, tool specs, ComfyUI client, refs, brain, MCP handler, settings schema | Workers and Node (Web-platform APIs only) |
+| `worker` | Worker entry, State and Relay Durable Objects, routes, render, Builds API, setup, updates; the build step `deploy/deploy.{sh,py}` | Workers (the build step: Workers Builds) |
+| `modal_app` | Modal app, admin endpoint, build-time deploy script | Python (Modal, build image) |
+| `local` | ComfyUI install, launch, stop, downloads, node install, idle stop, tray; shared by `agent` and `mcpb` | Node |
+| `mcpb` | stdio shim, local server | Node (Claude Desktop's bundled runtime) |
+| `agent` | `local` plus the relay client | Node |
 | `web` | Svelte settings and setup app | browser |
 | `site` | static landing page | browser |
-| `bootstrap` | what the Deploy button copies: wrangler config, `package.json` with the deploy stub, `.dev.vars.example` | Workers Builds |
+| `bootstrap` | what the Deploy button copies: wrangler config and `package.json` with the deploy stub | Workers Builds |
 
-`worker` is a standalone pywrangler project outside the uv workspace, depending on `core` by path
-(`editable = false`, S7): a workspace takes the intersection of its members' `requires-python`,
-and the Worker needs 3.14 while the MCPB's runtime is 3.12.
+`core` exports its TypeScript source directly (no build step): wrangler bundles it into the Worker,
+and the MCPB and agent will bundle it too. `web` stays outside the workspaces with its own lockfile,
+and its built `dist` is committed so deploys need no web build.
 
-Tests run `core` under both CPython and Pyodide.
-
-Packs ship inside `core` as package data, so the Worker bundle, the MCPB checkout and the agent all
-get them without extra packaging.
+Packs ship inside `core` as JSON modules, so the Worker bundle, the MCPB and the agent all get them
+without extra packaging.
 
 `local` exists because the MCPB and the agent do the same job on a user's machine (keep a ComfyUI
 installed, fed and running only when needed) and must share that code.
 
 The Deploy button points at the `bootstrap` folder; the button copies only that folder (S4). The
-template holds no `pyproject.toml`, because Workers Builds runs `uv sync` on any it finds before the
-deploy command (S4); the project file comes with the fetched release.
+template holds no project files with dependencies, because Workers Builds installs them before the
+deploy command (S4); the Worker's `package.json` and lockfile come with the fetched release, and
+the build step runs `npm ci` for the Worker's workspace, then `wrangler deploy`.
 
 Existing installs update from `github.com/lugia19/comfy-dxt.git`, the repository's former name,
 which GitHub redirects to `comfy-gen-mcp`. So never create a new repository named `comfy-dxt` or
@@ -318,7 +325,7 @@ Later: the ComfyUI client and the Modal app can become shared with Visual-Noveli
 | Rejected | Why |
 |---|---|
 | Always-on RunPod CPU pod hosting the server | Bills around the clock |
-| TypeScript Worker | One language across Worker, MCPB and agent; the Python Worker fits the CPU budget once the MCP SDK is out (S1b) |
+| Python Worker (Pyodide) | Chosen first, so one Python brain could serve the Worker and the MCPB. Measured: about 10 ms CPU per request before our code, 0.24 ms per JS await, 1.8 ms per fetch; every request at the free plan's limit, generations 60 to 160 ms. The TypeScript port bills 1 to 2 ms per request. |
 | MCP SDK in the Worker | About 2 s CPU per fresh isolate, killed on the free plan (S1) |
 | `resource_link` results | Not supported by claude.ai; the model sees only a name and URL (S2) |
 | RunPod serverless | Superseded by Modal in Visual-Novelist: cheap pools often unstocked, volume pins a datacenter |
@@ -338,21 +345,21 @@ Later: the ComfyUI client and the Modal app can become shared with Visual-Noveli
 The order puts first what can be built and tested without Modal, Windows or a GPU (see
 `docs/build-plan.md`):
 
-1. `core`, tested under CPython and Pyodide.
+1. `core` (Python first, ported to TypeScript after M3's CPU measurements).
 2. Worker, web app, bootstrap, release pipeline: the cloud path, tested against any reachable
    ComfyUI.
 3. Modal app and the **first release** (no-GPU users).
 4. Full cloud settings: LoRAs, artists, custom workflows, sandbox uploads.
-5. `local` and the MCPB at parity with the old extension.
+5. `local` and the MCPB (Node) at parity with the old extension.
 6. Agent and relay. Then retire the old repository.
 
 ## 13. Reference numbers
 
 | Fact | Value | Source, date |
 |---|---|---|
-| Workers free CPU per request | 10 ms nominal; up to 116 ms tolerated in tests | Cloudflare limits; S1b/S2b, 2026-09-28 |
-| Python Worker request, bare | about 3 ms; 10 to 20 ms on a fresh isolate | S1b, 2026-09-28 |
-| Inline image cost in the Worker | about 10 ms CPU per MB | S2b, 2026-09-28 |
+| Workers free CPU per request | 10 ms, occasional overruns tolerated; up to 164 ms seen without a failure | Cloudflare limits; M3 live, 2026-09-28 |
+| TypeScript Worker request | 1 to 2 ms (MCP ping, tools/list, settings API); a generation 30 to 60 ms | TS port, 2026-09-28 |
+| Python Worker request (retired) | about 10 ms floor, + 0.24 ms per JS await, + 1.8 ms per fetch | Probes, 2026-09-28 |
 | Modal cold start / warm, L4 | about 44 s / 0.5 s to accept a prompt | S5, 2026-09-28 |
 | Modal free compute | $30 a month, card required | Modal pricing and billing docs |
 | Workers Builds | 3,000 free minutes a month, 1 concurrent; a deploy takes 1.5 to 2.4 min | S4, 2026-09-28 |
@@ -433,6 +440,21 @@ through its own setup API and Workers Builds:
   the 160 to 540 KB results explains only a few ms of that, and CPU does not track wall time or
   poll count. **Open risk:** well above the free plan's nominal 10 ms; nothing has failed, and the
   S1 SDK failure was at about 2,000 ms. To investigate with probes, as for the M2 figures.
+
+**TypeScript port, 2026-09-28: switched live without losing state.** `core` and the Worker were
+ported line for line; golden vectors generated from the Python code pinned image ids, upload tokens,
+session cookies, workflows, the tool list and the MCP bodies, and all matched. Deployed over the
+Python Worker on the test install through a normal build:
+
+- the Python-issued session cookie still logged in; the connector URL, config, generator and
+  downloaded-pack list carried over (same Durable Object, same JSON strings)
+- image ids issued by the Python Worker loaded and edited
+- the build callback landed on the new code; a generate on Modal worked (65 s from cold)
+- billed CPU, same method as before: MCP ping, tools/list and initialize median 2 ms (max 8, 18
+  calls); settings API median 1 ms (max 3); a cold generate 31 ms; an edit returning a 640 KB image
+  59 ms; the build callback 48 ms. The Worker bundle is 132 KiB (Python: 256 KiB plus Pyodide).
+- found on the way: `/img` on a GPU scaled to zero answered 502; `/view` now waits out a cold start
+  like `/prompt`.
 
 **CPU of a Python Worker, 2026-09-28: waiting is free, crossing into JavaScript is not.** A
 local CPU profile (wrangler dev DevTools) of a generate put 90% of the time in one or two samples
