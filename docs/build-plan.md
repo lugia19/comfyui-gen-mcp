@@ -1,12 +1,9 @@
 # Comfy-Gen-MCP rewrite: build plan
 
-> **Status (2026-09-28):** M0, M1 and M2's local work are done; CI is green on 3.12, 3.14, Pyodide
-> and the `web/dist` check. M2 was verified against `pywrangler dev` plus a CPU ComfyUI (MCP,
-> inline WebP, refs, uploads through the real snippet, the pages in Chromium) and with a
-> `--dry-run` of the whole build path from the branch tarball.
-> **Still open in M2** (needs the user): a real Deploy-button deploy of `bootstrap/` with the build
-> variable `COMFY_GEN_REF` set to the branch, CPU per call from Workers Logs, and the Workers Admin
-> template key. **Next: M3.** The rest of this file is the overall plan.
+> **Status (2026-09-28):** M0–M2 done. M3 (the Modal app) is built and verified live on the test
+> install `comfy-gen.yuri-f92.workers.dev` (design doc appendix, "M3 live"). Worker state moved from
+> KV to a Durable Object along the way. Left for M3: the user's claude.ai check, renaming the default
+> branch to `main`, and tagging v1.0.0. The rest of this file is the overall plan.
 >
 > As built, the build step is `packages/worker/deploy/deploy.sh` (the release asset, tag filled in
 > by `release.yml`), which hands over to `deploy.py` in the downloaded source. `deploy.py` runs

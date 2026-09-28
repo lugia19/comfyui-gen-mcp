@@ -174,11 +174,15 @@ feature, and the validation message says so.
    keeps for builds (see "Login" in section 8).
 4. The Worker finds its own tag and build trigger, writes the Modal tokens and a one-time nonce into
    the trigger's build secrets, and starts a build through the Workers Builds API.
-5. The build (Python 3.13 and pip in Cloudflare's build image) fetches the latest release, runs
-   `modal deploy` with the official SDK, mints a proxy token, posts the server URL and proxy token to
-   the Worker with the nonce, then deploys the Worker.
-6. The setup page streams the build logs, then shows ready. The user picks packs. The Worker calls
-   the Modal admin endpoint to seed models onto the Volume.
+5. The build (Python 3.13 in Cloudflare's build image) fetches the release and runs
+   `comfy_gen_modal.deploy`: `modal deploy` with the official SDK, and a proxy token minted once and
+   kept in the app's `comfy-gen-state` Dict, so update builds reuse it. It then deploys the Worker
+   and posts the server URL, admin URL and proxy token to it with the nonce (about 90 s in all once
+   Modal has the image cached).
+6. The callback stores the generator, re-applies keep-warm (a deploy resets it) and starts a seed
+   for each selected pack. The setup page streams the build logs, then the downloads (about 20 GB
+   for the defaults, about 3 minutes). A tool whose models are not on the Volume yet answers with
+   the download's progress instead of failing inside ComfyUI.
 7. The user copies the connector URL into claude.ai.
 
 ### GPU owner
@@ -403,6 +407,32 @@ compare within one interleaved run only. The app's own Python costs about 0.13 m
 (Pyodide under Node). The gap between `/mcp` and a bare route is the JS-to-Python glue, spread over
 several steps; `entry.py` now copies only the `cookie` request header and no fetched response
 headers across the boundary. Nothing failed at any CPU level measured.
+
+**M3 live, 2026-09-28: ComfyUI on Modal through the product.** The test install, set up entirely
+through its own setup API and Workers Builds:
+
+- Setup build: Modal deploy 6 s (the image was already cached from S5), whole build about 90 s. The
+  three default packs (19.6 GB of distinct files) downloaded in parallel in about 3 minutes.
+- Generations through MCP: 86 to 90 s from cold (container start, ComfyUI start, first model load
+  from the Volume); 30 to 60 s warm when the pack's model is not yet in memory. `edit_image` on an
+  earlier output's id works. The full-resolution PNG serves through `/img/<ref>`.
+- **S5(d), answered:** `volume.reload()` fails even after `/free` ("open files preventing the
+  operation": ComfyUI keeps model files open). The watcher now commits, tries a reload, and on open
+  files restarts the ComfyUI process around it. Measured: a 15.8 GB pack seeded while the GPU was
+  warm with another model loaded, the watcher reported "restarted ComfyUI", and a generation with
+  the new pack succeeded without a container cold start (131 s, mostly loading 16 GB). Outputs
+  written before the restart were still served afterwards, since the watcher commits first.
+- Four pack sizes from the old repo were wrong (GiB/GB mix-ups; hashes right). The seed trusts
+  sizes, so it re-fetched those files every time. Fixed from Hugging Face's `x-linked-size`;
+  `scripts/check_pack_models.py` checks every pack in CI.
+- Workers KV caches reads at the edge for up to a minute, so reads right after a save alternated
+  between old and new values. State moved to a SQLite Durable Object (§11).
+- A deploy resets Durable Objects, and the build callback arrives seconds after one; State calls
+  retry on "reset because its code was updated", and the build retries the callback once.
+- CPU per `tools/call` carrying an image: 59 to 164 ms, median 122 (7 calls), all `ok`. Base64 of
+  the 160 to 540 KB results explains only a few ms of that, and CPU does not track wall time or
+  poll count. **Open risk:** well above the free plan's nominal 10 ms; nothing has failed, and the
+  S1 SDK failure was at about 2,000 ms. To investigate with probes, as for the M2 figures.
 
 **S2, 2026-09-28 (claude.ai web): only inline images work.** `resource_link` alone, or with a text
 block carrying its URL: claude.ai shows "Resource links are not currently supported" and the model
