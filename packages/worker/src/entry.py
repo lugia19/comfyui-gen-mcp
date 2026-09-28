@@ -58,7 +58,8 @@ class Default(WorkerEntrypoint):
         req = Request(
             method=method,
             path=url.path,
-            host=url.hostname or "",
+            host=url.netloc,
+            scheme=url.scheme or "https",
             query=dict(parse_qsl(url.query)),
             headers={k.lower(): v for k, v in request.headers.items()},
             body=body,

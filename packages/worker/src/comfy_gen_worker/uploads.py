@@ -17,7 +17,7 @@ UPLOAD_TTL_S = 600
 MAX_UPLOAD_BYTES = 20_000_000
 
 # The snippet sets its own User-Agent: Cloudflare rejects urllib's default with Error 1010.
-SNIPPET = '''import glob, json, os, urllib.request
+SNIPPET = '''import glob, os, urllib.request
 name = {filename!r}
 hits = [p for root in ("/mnt", os.getcwd(), os.path.expanduser("~"))
         for p in glob.glob(os.path.join(root, "**", name), recursive=True)]
@@ -27,7 +27,7 @@ data = open(hits[0], "rb").read()
 req = urllib.request.Request({url!r}, data=data, method="POST",
                              headers={{"Content-Type": "application/octet-stream",
                                        "User-Agent": "comfy-gen-upload"}})
-print(json.load(urllib.request.urlopen(req, timeout=120)))
+print(urllib.request.urlopen(req, timeout=120).read().decode())
 '''
 
 

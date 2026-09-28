@@ -26,6 +26,7 @@ class Request:
     query: dict[str, str] = field(default_factory=dict)
     headers: dict[str, str] = field(default_factory=dict)  # lower-case names
     body: bytes = b""
+    scheme: str = "https"  # http only under wrangler dev
 
     def json(self) -> dict:
         try:
@@ -36,7 +37,7 @@ class Request:
 
     @property
     def base_url(self) -> str:
-        return f"https://{self.host}"
+        return f"{self.scheme}://{self.host}"
 
 
 @dataclass

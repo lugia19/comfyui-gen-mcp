@@ -11,7 +11,7 @@
   }
 
   // A working copy; saved as a whole.
-  let cfg = $state(structuredClone(info.config))
+  let cfg = $state($state.snapshot(info.config))
   let saving = $state(false)
   let message = $state('')
   let error = $state('')
