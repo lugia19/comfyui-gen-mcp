@@ -80,7 +80,7 @@ def deploy_modal(src: Path) -> tuple[dict | None, str]:
     print("== Modal", flush=True)
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "modal.json"
-        cmd = ["uv", "run", "--package", "comfy-gen-modal", "--no-dev", "python", "-m", "comfy_gen_modal.deploy", "--out", str(out)]
+        cmd = [os.environ.get("UV", "uv"), "run", "--package", "comfy-gen-modal", "--no-dev", "python", "-m", "comfy_gen_modal.deploy", "--out", str(out)]
         result = subprocess.run(cmd, cwd=src)
         if result.returncode != 0 or not out.exists():
             return None, f"failed (exit {result.returncode})"

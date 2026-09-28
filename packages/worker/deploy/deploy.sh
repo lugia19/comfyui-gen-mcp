@@ -25,8 +25,9 @@ python3 --version
 # uv runs the Modal deploy (comfy_gen_modal.deploy); the build image may lack it or have an old one.
 python3 -m pip install --quiet --disable-pip-version-check uv \
   || python3 -m pip install --quiet --disable-pip-version-check --break-system-packages uv
-export PATH="$(python3 -c 'import os, uv; print(os.path.dirname(uv.find_uv_bin()))'):$PATH"
-uv --version
+# By path, not by prepending its directory to PATH: that directory can hold an older node.
+export UV="$(python3 -c 'import uv; print(uv.find_uv_bin())')"
+"$UV" --version
 
 SRC=".comfy-gen/src"
 rm -rf .comfy-gen && mkdir -p "$SRC"
