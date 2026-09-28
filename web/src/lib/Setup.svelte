@@ -12,7 +12,6 @@
   let modalSecret = $state('')
   let buildBusy = $state(false)
   let buildError = $state('')
-  let building = $state(false)
 
   let showDirect = $state(false)
   let directUrl = $state('')
@@ -43,7 +42,6 @@
     try {
       await api('POST', '/setup/build', { modal_token_id: modalId.trim(), modal_token_secret: modalSecret.trim() })
       modalSecret = ''
-      building = true
       await refresh()
     } catch (err) {
       buildError = err.message
@@ -126,8 +124,8 @@
     {#if !info.cloudflare}<p class="muted">Save the Cloudflare token first.</p>{/if}
     {#if buildError}<p class="err">{buildError}</p>{/if}
   </form>
-  {#if building || info.build}
-    <BuildLog onfinished={refresh} />
+  {#if info.build}
+    {#key info.build}<BuildLog onfinished={refresh} />{/key}
   {/if}
 
   <p>

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from urllib.parse import quote
 
-from comfy_gen_worker.http import USER_AGENT, Fetch
+from comfy_gen_worker.http import Fetch
 
 API = "https://api.cloudflare.com/client/v4"
 
@@ -20,7 +20,7 @@ class CloudflareError(Exception):
 
 
 async def call(fetch: Fetch, token: str, method: str, path: str, body=None):
-    headers = {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
+    headers = {"Authorization": f"Bearer {token}"}
     data = None
     if body is not None:
         headers["Content-Type"] = "application/json"
@@ -92,8 +92,7 @@ async def start_build(fetch: Fetch, token: str, account_id: str, trigger: str, b
 
 async def build_status(fetch: Fetch, token: str, account_id: str, build: str) -> dict:
     r = await call(fetch, token, "GET", f"/accounts/{account_id}/builds/builds/{build}")
-    return {"status": r.get("status"), "outcome": r.get("build_outcome"), "created": r.get("created_on"),
-            "stopped": r.get("stopped_on")}
+    return {"status": r.get("status"), "outcome": r.get("build_outcome")}
 
 
 async def build_logs(fetch: Fetch, token: str, account_id: str, build: str, cursor: str | None) -> dict:

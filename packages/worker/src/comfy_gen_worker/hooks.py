@@ -11,11 +11,10 @@ import secrets
 from comfy_gen_core import refs
 from comfy_gen_core.brain import Hooks
 from comfy_gen_core.comfyui import ComfyUIClient, ComfyUIError
-from comfy_gen_core.images import image_size, sniff_mime
+from comfy_gen_core.images import image_size
 
-from comfy_gen_worker.http import USER_AGENT, Fetch
-
-MAX_URL_IMAGE_BYTES = 20_000_000
+from comfy_gen_worker.http import Fetch
+from comfy_gen_worker.uploads import BadImage, store_input
 
 
 class WorkerHooks(Hooks):
@@ -40,17 +39,13 @@ class WorkerHooks(Hooks):
 
     async def _from_url(self, url: str) -> tuple[str, tuple[int, int] | None]:
         try:
-            resp = await self.fetch(url, method="GET", headers={"User-Agent": USER_AGENT})
+            resp = await self.fetch(url, method="GET")
         except Exception as e:
             raise ComfyUIError(f"Could not download {url}: {e}") from e
         if resp.status != 200:
             raise ComfyUIError(f"Could not download {url} (HTTP {resp.status}). The URL must be public.")
-        data = resp.content
-        mime = sniff_mime(data)
-        if mime is None:
-            raise ComfyUIError(f"{url} is not a PNG, JPEG, WebP or GIF image.")
-        if len(data) > MAX_URL_IMAGE_BYTES:
-            raise ComfyUIError(f"{url} is too large ({len(data) // 1_000_000} MB).")
-        name = refs.upload_filename(secrets.token_urlsafe(9), mime)
-        uploaded = await self.client.upload(data, name, mime, subfolder=refs.UPLOAD_SUBFOLDER)
-        return uploaded.load_value(), image_size(data)
+        try:
+            uploaded, _ = await store_input(self.client, resp.content, secrets.token_urlsafe(9))
+        except BadImage as e:
+            raise ComfyUIError(f"{url}: {e}.") from e
+        return uploaded.load_value(), image_size(resp.content)

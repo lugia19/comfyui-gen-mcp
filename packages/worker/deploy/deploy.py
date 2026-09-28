@@ -7,6 +7,9 @@
 3. `pywrangler deploy` from packages/worker.
 4. Report to the Worker's /build-callback when the setup page started this build.
 
+Build variables, set by the setup page: MODAL_TOKEN_ID and MODAL_TOKEN_SECRET (Modal deploy),
+COMFY_GEN_CALLBACK and COMFY_GEN_NONCE (the report).
+
 Runs on the build image's python3: standard library only, and nothing newer than 3.10.
 """
 
@@ -15,7 +18,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shlex
 import subprocess
 import sys
 import tempfile
@@ -111,6 +113,7 @@ def main() -> int:
     ap.add_argument("--template", type=Path, required=True, help="the user's repository checkout")
     ap.add_argument("--src", type=Path, required=True, help="the downloaded source")
     ap.add_argument("--version", required=True)
+    ap.add_argument("--dry-run", action="store_true", help="wrangler --dry-run: build, deploy nothing")
     args = ap.parse_args()
 
     modal, modal_result = deploy_modal(args.src)
@@ -123,9 +126,8 @@ def main() -> int:
     (worker / "wrangler.jsonc").write_text(json.dumps(cfg, indent=2))
     print(f"== Worker {cfg['name']} {args.version}", flush=True)
 
-    # COMFY_GEN_DEPLOY_ARGS: extra wrangler arguments, e.g. --dry-run when testing this script.
-    extra = shlex.split(os.environ.get("COMFY_GEN_DEPLOY_ARGS", ""))
-    deployed = subprocess.run(["uv", "run", "pywrangler", "deploy", *extra], cwd=worker).returncode == 0
+    cmd = ["uv", "run", "pywrangler", "deploy"] + (["--dry-run"] if args.dry_run else [])
+    deployed = subprocess.run(cmd, cwd=worker).returncode == 0
     report = {"stage": "deployed" if deployed else "failed", "version": args.version, "modal_result": modal_result}
     if modal:
         report["modal"] = modal

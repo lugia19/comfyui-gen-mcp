@@ -12,6 +12,7 @@
   let timer = null
   let pre
 
+  // One request at a time: the next poll is scheduled only after this one answers.
   async function poll() {
     try {
       const q = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
@@ -22,20 +23,16 @@
       status = b.status
       outcome = b.outcome
       if (pre) queueMicrotask(() => (pre.scrollTop = pre.scrollHeight))
-      if (b.status === 'stopped') {
-        clearInterval(timer)
-        await onfinished()
-      }
+      if (b.status === 'stopped') return await onfinished()
+      error = ''
     } catch (e) {
       error = e.message
     }
+    timer = setTimeout(poll, 4000)
   }
 
-  onMount(() => {
-    poll()
-    timer = setInterval(poll, 4000)
-  })
-  onDestroy(() => clearInterval(timer))
+  onMount(poll)
+  onDestroy(() => clearTimeout(timer))
 </script>
 
 <h2>Deploy log</h2>

@@ -10,7 +10,7 @@ import logging
 import re
 
 from comfy_gen_worker import cloudflare
-from comfy_gen_worker.http import USER_AGENT, Fetch
+from comfy_gen_worker.http import Fetch
 from comfy_gen_worker.store import Store
 
 log = logging.getLogger("comfy_gen")
@@ -27,7 +27,7 @@ async def latest_release(fetch: Fetch) -> str | None:
     resp = await fetch(
         f"https://api.github.com/repos/{REPO}/releases/latest",
         method="GET",
-        headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"},
+        headers={"Accept": "application/vnd.github+json"},
     )
     if resp.status != 200:
         return None

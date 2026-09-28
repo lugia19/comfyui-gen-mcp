@@ -84,15 +84,8 @@ async def test_node_classes(client):
 
 # ── request budget (the Worker's free plan allows 50 subrequests per invocation) ──
 
-def test_default_poll_schedule_backs_off():
-    c = ComfyUIClient(None)
-    delays = [c._poll_delay(i) for i in range(12)]
-    assert delays[:3] == [1, 1, 2] and delays[-1] == 10
-    assert sum(delays[:8]) < 30  # quick at first
-
-
 async def test_wait_stops_early_and_keeps_the_reserve(comfy):
-    c = ComfyUIClient(comfy, poll_interval_s=0, request_budget=12)
+    c = ComfyUIClient(comfy, request_budget=12)
     await c.submit(WF)
     comfy.history = ["running"] * 100
     assert await c.wait("p1", timeout=3600) is None
@@ -103,7 +96,7 @@ async def test_wait_stops_early_and_keeps_the_reserve(comfy):
 
 async def test_cold_start_gives_up_before_the_budget_runs_out(comfy):
     comfy.boot_503s = 100
-    c = ComfyUIClient(comfy, cold_start_s=3600, poll_interval_s=0, request_budget=10)
+    c = ComfyUIClient(comfy, cold_start_s=3600, request_budget=10)
     with pytest.raises(ComfyUIError, match="still starting"):
         await c.submit(WF)
     assert c.requests_made <= 10

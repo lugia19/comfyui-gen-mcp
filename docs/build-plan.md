@@ -8,11 +8,11 @@
 > variable `COMFY_GEN_REF` set to the branch, CPU per call from Workers Logs, and the Workers Admin
 > template key. **Next: M3.** The rest of this file is the overall plan.
 >
-> As built, the build step is `packages/worker/build/deploy.sh` (the release asset, tag filled in
+> As built, the build step is `packages/worker/deploy/deploy.sh` (the release asset, tag filled in
 > by `release.yml`), which hands over to `deploy.py` in the downloaded source. `deploy.py` runs
 > `packages/modal_app/deploy.py --out <json>` when a Modal token is set and that file exists; M3
 > only has to provide it. Build variables: `COMFY_GEN_REF` (tag or branch), `COMFY_GEN_DEPLOY_URL`
-> (where the stub gets `deploy.sh`), `COMFY_GEN_DEPLOY_ARGS` (extra wrangler arguments).
+> (where the stub gets `deploy.sh`). `bash deploy.sh --dry-run` builds without deploying.
 
 ## M2 in detail: Worker, web app, bootstrap, release pipeline
 

@@ -3,10 +3,11 @@
 Three keys, read on most requests, written rarely (the free plan allows 1,000 KV writes a day):
     config   the user config (comfy_gen_core.config shape)
     secrets  generated keys, the Cloudflare token and discovery, the generator's URL and headers
-    setup    setup progress: the current build, its nonce, what builds reported back
+    setup    setup progress: the current build and its nonce
 
-Reads are cached per isolate for CACHE_S, so a warm MCP call costs no KV reads. Writes update the
-cache of the isolate that made them; another isolate sees them within CACHE_S.
+Reads, missing keys included, are cached per isolate for CACHE_S, so a warm MCP call costs no KV
+reads. Writes update the cache of the isolate that made them; another isolate sees them within
+CACHE_S.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from comfy_gen_worker.http import KV
 CACHE_S = 30.0
 
 # Module-level so the cache survives across requests in one isolate.
-_cache: dict[str, tuple[float, dict]] = {}
+_cache: dict[str, tuple[float, dict | None]] = {}
 
 
 class Store:
@@ -29,14 +30,16 @@ class Store:
         self.kv = kv
         self.now = now
 
-    async def _get(self, key: str) -> dict | None:
+    async def _get(self, key: str, transform=None) -> dict | None:
+        """The key's value, run through *transform* once per cache fill."""
         hit = _cache.get(key)
         if hit and self.now() - hit[0] < CACHE_S:
             return hit[1]
         raw = await self.kv.get(key)
         data = json.loads(raw) if raw else None
-        if data is not None:
-            _cache[key] = (self.now(), data)
+        if transform:
+            data = transform(data)
+        _cache[key] = (self.now(), data)
         return data
 
     async def _put(self, key: str, data: dict) -> None:
@@ -44,7 +47,7 @@ class Store:
         _cache[key] = (self.now(), data)
 
     async def config(self) -> dict:
-        return config_mod.normalize(await self._get("config"))
+        return await self._get("config", config_mod.normalize)
 
     async def save_config(self, cfg: dict) -> dict:
         cfg = config_mod.normalize(cfg)
@@ -64,18 +67,19 @@ class Store:
             await self._put("secrets", data)
         return data
 
-    async def update_secrets(self, **changes) -> dict:
-        data = {**await self.secrets(), **changes}
-        await self._put("secrets", {k: v for k, v in data.items() if v is not None})
-        return data
+    async def update_secrets(self, **changes) -> None:
+        await self._update("secrets", await self.secrets(), changes)
 
     async def setup(self) -> dict:
         return await self._get("setup") or {}
 
-    async def update_setup(self, **changes) -> dict:
-        data = {**await self.setup(), **changes}
-        await self._put("setup", {k: v for k, v in data.items() if v is not None})
-        return data
+    async def update_setup(self, **changes) -> None:
+        await self._update("setup", await self.setup(), changes)
+
+    async def _update(self, key: str, current: dict, changes: dict) -> None:
+        """Merge *changes* in; a None value removes the key."""
+        data = {**current, **changes}
+        await self._put(key, {k: v for k, v in data.items() if v is not None})
 
 
 def clear_cache() -> None:

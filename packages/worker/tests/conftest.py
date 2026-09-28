@@ -1,7 +1,6 @@
 import json
 import os
 import sys
-import struct
 from urllib.parse import parse_qsl, urlsplit
 
 import pytest
@@ -10,9 +9,8 @@ HERE = os.path.dirname(__file__)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 sys.path.insert(0, os.path.join(HERE, "..", "..", "core", "tests"))  # FakeComfy
 
-from comfy_gen_core import comfyui  # noqa: E402
 from comfy_gen_core.comfyui import Response  # noqa: E402
-from fake_comfy import FakeComfy  # noqa: E402
+from fake_comfy import FakeComfy, _json, no_waiting, png  # noqa: E402
 
 from comfy_gen_worker import store  # noqa: E402
 from comfy_gen_worker.app import App  # noqa: E402
@@ -23,11 +21,6 @@ HOST = "comfy-gen.someone.workers.dev"
 PASSWORD = "correct horse"
 
 
-def png(w=64, h=48):
-    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
-    return b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + ihdr + b"\x00" * 4
-
-
 class FakeKV:
     def __init__(self):
         self.data: dict[str, str] = {}
@@ -36,12 +29,9 @@ class FakeKV:
     async def get(self, key):
         return self.data.get(key)
 
-    async def put(self, key, value, ttl=None):
+    async def put(self, key, value):
         self.writes += 1
         self.data[key] = value
-
-    async def delete(self, key):
-        self.data.pop(key, None)
 
 
 class FakeNet:
@@ -92,10 +82,6 @@ class FakeNet:
         return _cf(None, ok=False)
 
 
-def _json(data):
-    return Response(200, json.dumps(data).encode())
-
-
 def _cf(result, ok=True):
     return Response(200 if ok else 400, json.dumps({"success": ok, "result": result, "errors": [] if ok else [{"code": 1, "message": "nope"}]}).encode())
 
@@ -115,9 +101,7 @@ def anyio_backend():
 
 @pytest.fixture
 def comfy(monkeypatch):
-    monkeypatch.setattr(comfyui, "COLD_START_POLL_S", 0)
-    monkeypatch.setattr(comfyui, "POLL_SCHEDULE", (0,))
-    monkeypatch.setattr(comfyui, "POLL_SCHEDULE_TAIL", 0)
+    no_waiting(monkeypatch)
     return FakeComfy()
 
 

@@ -4,8 +4,25 @@ from __future__ import annotations
 
 import json
 import re
+import struct
+import zlib
 
+from comfy_gen_core import comfyui
 from comfy_gen_core.comfyui import Response
+
+def no_waiting(monkeypatch) -> None:
+    """Make the client's cold-start retries and history polls instant."""
+    monkeypatch.setattr(comfyui, "COLD_START_POLL_S", 0)
+    monkeypatch.setattr(comfyui, "POLL_SCHEDULE", (0,))
+    monkeypatch.setattr(comfyui, "POLL_SCHEDULE_TAIL", 0)
+
+
+def png(w: int = 64, h: int = 48) -> bytes:
+    """The smallest PNG header that image_size and sniff_mime accept."""
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    chunk = struct.pack(">I", len(ihdr)) + b"IHDR" + ihdr + struct.pack(">I", zlib.crc32(b"IHDR" + ihdr))
+    return b"\x89PNG\r\n\x1a\n" + chunk
+
 
 OUTPUT = {"filename": "comfy-gen_00001_.png", "subfolder": "", "type": "output"}
 

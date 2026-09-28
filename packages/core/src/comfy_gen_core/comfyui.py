@@ -125,7 +125,6 @@ def encode_multipart(fields: dict[str, str], files: dict[str, tuple[str, bytes, 
 class ComfyUIClient:
     """
     cold_start_s     how long submit() keeps retrying while the host answers 502/503/504
-    poll_interval_s  fixed seconds between polls (tests); None follows POLL_SCHEDULE
     request_budget   max transport requests this client may make (the Worker's per-invocation
                      subrequest limit); None means unlimited. wait() stops early, returning None,
                      when only BUDGET_RESERVE requests are left.
@@ -135,12 +134,10 @@ class ComfyUIClient:
         self,
         transport: Transport,
         cold_start_s: float = 0,
-        poll_interval_s: float | None = None,
         request_budget: int | None = None,
     ):
         self.transport = transport
         self.cold_start_s = cold_start_s
-        self.poll_interval_s = poll_interval_s
         self.request_budget = request_budget
         self.requests_made = 0
         self.client_id = secrets.token_hex(16)
@@ -158,8 +155,6 @@ class ComfyUIClient:
         return await self.transport.request(method, path, **kw)
 
     def _poll_delay(self, polls: int) -> float:
-        if self.poll_interval_s is not None:
-            return self.poll_interval_s
         return POLL_SCHEDULE[polls] if polls < len(POLL_SCHEDULE) else POLL_SCHEDULE_TAIL
 
     async def submit(self, workflow: dict) -> str:

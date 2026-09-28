@@ -1,5 +1,2 @@
-python_modules/
-.venv-workers/
-.wrangler/
-.dev.vars
+# pywrangler writes this on deploy; the rest is in the root .gitignore
 pylock.toml

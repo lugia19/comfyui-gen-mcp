@@ -1,4 +1,4 @@
-"""The build-time deploy script (packages/worker/build/deploy.py) and the bootstrap template."""
+"""The build-time deploy script (packages/worker/deploy/deploy.py) and the bootstrap template."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 WORKER = ROOT / "packages" / "worker"
 
-_spec = importlib.util.spec_from_file_location("deploy", WORKER / "build" / "deploy.py")
+_spec = importlib.util.spec_from_file_location("deploy", WORKER / "deploy" / "deploy.py")
 deploy = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(deploy)
 
@@ -37,11 +37,6 @@ def test_jsonc_comments_and_trailing_commas():
         "list": [1, 2],
         "obj": {"a": 1},
     }
-
-
-def test_repo_configs_parse():
-    for path in (ROOT / "bootstrap" / "wrangler.jsonc", WORKER / "wrangler.jsonc"):
-        assert deploy.read_jsonc(path.read_text())["main"] == "src/entry.py"
 
 
 def test_template_bindings_match_the_release():

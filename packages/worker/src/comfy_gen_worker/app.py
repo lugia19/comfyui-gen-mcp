@@ -7,6 +7,7 @@ inside the deploy-time snapshot, and a warm call reads KV from the isolate cache
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import logging
 import secrets as pysecrets
@@ -21,7 +22,7 @@ from comfy_gen_core.mcp import McpHandler
 
 from comfy_gen_worker import auth, cloudflare, updates, uploads
 from comfy_gen_worker.hooks import WorkerHooks
-from comfy_gen_worker.http import FetchTransport, Platform, Request, Response
+from comfy_gen_worker.http import FetchTransport, Platform, Request, Response, with_user_agent
 from comfy_gen_worker.render import render, text
 from comfy_gen_worker.store import Store
 
@@ -40,7 +41,7 @@ INSTRUCTIONS = (
 )
 
 
-def pack_metadata() -> list[dict]:
+def _pack_metadata() -> list[dict]:
     """What the settings page needs to render pack choices."""
     groups = packs_mod.group_by_tool(PACKS)
     return [
@@ -65,9 +66,17 @@ def pack_metadata() -> list[dict]:
     ]
 
 
+PACK_METADATA = _pack_metadata()
+
+
+def _hmac_key(s: dict) -> bytes:
+    return bytes.fromhex(s["hmac_key"])
+
+
 class App:
     def __init__(self, platform: Platform):
         self.p = platform
+        self.fetch = with_user_agent(platform.fetch)
         self.store = Store(platform.kv, platform.now)
 
     @property
@@ -94,7 +103,7 @@ class App:
         return Response.error(404, "not found")
 
     async def scheduled(self) -> str:
-        result = await updates.check(self.p.fetch, self.store, self.version)
+        result = await updates.check(self.fetch, self.store, self.version)
         log.info("update check: %s", result)
         return result
 
@@ -103,7 +112,7 @@ class App:
     def _client(self, generator: dict | None) -> ComfyUIClient | None:
         if not generator or not generator.get("base_url"):
             return None
-        transport = FetchTransport(self.p.fetch, generator["base_url"], generator.get("headers"))
+        transport = FetchTransport(self.fetch, generator["base_url"], generator.get("headers"))
         return ComfyUIClient(transport, cold_start_s=generator.get("cold_start_s", 0), request_budget=REQUEST_BUDGET)
 
     async def _mcp(self, req: Request, secret: str) -> Response:
@@ -113,9 +122,9 @@ class App:
         if req.method != "POST":
             return Response(405, b"", {"Allow": "POST"})
         cfg = await self.store.config()
-        key = bytes.fromhex(s["hmac_key"])
+        key = _hmac_key(s)
         client = self._client(s.get("generator"))
-        brain = Brain(PACKS, cfg, client, "refs", hooks=WorkerHooks(client, key, self.p.fetch))
+        brain = Brain(PACKS, cfg, client, "refs", hooks=WorkerHooks(client, key, self.fetch))
         served = {spec["name"] for spec in brain.specs}
 
         async def call(name: str, args: dict) -> tuple[list[dict], bool]:
@@ -137,7 +146,7 @@ class App:
     async def _image(self, ref: str) -> Response:
         s = await self.store.secrets()
         try:
-            image = refs.verify(ref, bytes.fromhex(s["hmac_key"]))
+            image = refs.verify(ref, _hmac_key(s))
         except refs.RefError:
             return Response.error(404, "not found")
         client = self._client(s.get("generator"))
@@ -155,7 +164,7 @@ class App:
         client = self._client(s.get("generator"))
         if client is None:
             return Response.error(503, "generator not set up")
-        return await uploads.receive(token, req.body, client, bytes.fromhex(s["hmac_key"]), self.p.now())
+        return await uploads.receive(token, req.body, client, _hmac_key(s), self.p.now())
 
     # ── builds ────────────────────────────────────────────────────────
 
@@ -174,11 +183,7 @@ class App:
                     "headers": {"Modal-Key": modal.get("proxy_token_id", ""), "Modal-Secret": modal.get("proxy_token_secret", "")},
                     "cold_start_s": MODAL_COLD_START_S,
                 },
-                modal_admin_url=modal.get("admin_url"),
             )
-        reports = (setup.get("reports") or [])[-9:]
-        reports.append({k: data.get(k) for k in ("stage", "version", "modal_result")} | {"at": int(self.p.now())})
-        await self.store.update_setup(reports=reports)
         return Response.json({"ok": True})
 
     # ── settings API ──────────────────────────────────────────────────
@@ -221,24 +226,23 @@ class App:
             "cloudflare": {k: s.get(f"cf_{k}") for k in ("account_id", "script", "branch")} if s.get("cf_token") else None,
             "generator": {"kind": gen.get("kind"), "base_url": gen.get("base_url")} if gen else None,
             "build": setup.get("build"),
-            "reports": setup.get("reports") or [],
             "connector_url": f"{req.base_url}/mcp/{s['mcp_secret']}",
             "config": await self.store.config(),
             "schema": SETTINGS_SCHEMA,
-            "packs": pack_metadata(),
+            "packs": PACK_METADATA,
         }
 
     async def _setup_cloudflare(self, req: Request) -> Response:
         token = str(req.json().get("token", "")).strip()
         if not token:
             return Response.error(400, "paste a token")
-        await cloudflare.verify_user_token(self.p.fetch, token)
-        found = await cloudflare.discover(self.p.fetch, token, req.host)
+        await cloudflare.verify_user_token(self.fetch, token)
+        found = await cloudflare.discover(self.fetch, token, req.host)
         await self.store.update_secrets(
-            cf_token=token, cf_account_id=found["account_id"], cf_script=found["script"], cf_tag=found["tag"],
+            cf_token=token, cf_account_id=found["account_id"], cf_script=found["script"],
             cf_trigger=found["trigger"], cf_branch=found["branch"],
         )
-        return Response.json({k: found[k] for k in ("account_id", "script", "branch")})
+        return Response.json({"ok": True})
 
     async def _setup_generator(self, req: Request) -> Response:
         """A ComfyUI the Worker can reach directly (advanced; Modal is configured by the build)."""
@@ -247,7 +251,7 @@ class App:
         headers = data.get("headers") if isinstance(data.get("headers"), dict) else {}
         if not base_url.startswith(("https://", "http://")):
             return Response.error(400, "base_url must be an http(s) URL")
-        probe = FetchTransport(self.p.fetch, base_url, headers)
+        probe = FetchTransport(self.fetch, base_url, headers)
         resp = await probe.request("GET", "/system_stats")
         if resp.status != 200:
             return Response.error(502, f"ComfyUI did not answer at {base_url}/system_stats (HTTP {resp.status})")
@@ -260,20 +264,22 @@ class App:
         data = req.json()
         nonce = pysecrets.token_urlsafe(24)
         await cloudflare.set_build_vars(
-            self.p.fetch, s["cf_token"], s["cf_account_id"], s["cf_trigger"],
+            self.fetch, s["cf_token"], s["cf_account_id"], s["cf_trigger"],
             secret={"COMFY_GEN_NONCE": nonce, "MODAL_TOKEN_ID": data.get("modal_token_id"),
                     "MODAL_TOKEN_SECRET": data.get("modal_token_secret")},
             plain={"COMFY_GEN_CALLBACK": f"{req.base_url}/build-callback"},
         )
-        build = await cloudflare.start_build(self.p.fetch, s["cf_token"], s["cf_account_id"], s["cf_trigger"], s.get("cf_branch") or "main")
+        build = await cloudflare.start_build(self.fetch, s["cf_token"], s["cf_account_id"], s["cf_trigger"], s.get("cf_branch") or "main")
         await self.store.update_setup(build=build, build_nonce=nonce)
         return Response.json({"build": build})
 
     async def _build_state(self, req: Request, s: dict) -> Response:
         setup = await self.store.setup()
-        build = req.query.get("build") or setup.get("build")
+        build = setup.get("build")
         if not build or not s.get("cf_token"):
             return Response.json({"build": None})
-        status = await cloudflare.build_status(self.p.fetch, s["cf_token"], s["cf_account_id"], build)
-        logs = await cloudflare.build_logs(self.p.fetch, s["cf_token"], s["cf_account_id"], build, req.query.get("cursor"))
+        status, logs = await asyncio.gather(
+            cloudflare.build_status(self.fetch, s["cf_token"], s["cf_account_id"], build),
+            cloudflare.build_logs(self.fetch, s["cf_token"], s["cf_account_id"], build, req.query.get("cursor")),
+        )
         return Response.json({"build": build, **status, **logs})

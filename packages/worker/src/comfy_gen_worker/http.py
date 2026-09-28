@@ -13,8 +13,7 @@ from urllib.parse import urlencode
 
 from comfy_gen_core.comfyui import Response as CoreResponse
 
-# Every outbound request from Python needs its own User-Agent: Cloudflare answers urllib's default
-# with Error 1010, and GitHub's API refuses requests without one.
+# Sent on every outbound request (with_user_agent): GitHub's API refuses requests without one.
 USER_AGENT = "comfy-gen-worker"
 
 
@@ -59,10 +58,16 @@ class Response:
 Fetch = Callable[..., Awaitable[CoreResponse]]
 
 
+def with_user_agent(fetch: Fetch) -> Fetch:
+    async def fetch_with_ua(url, method="GET", headers=None, body=None):
+        return await fetch(url, method=method, headers={"User-Agent": USER_AGENT, **(headers or {})}, body=body)
+
+    return fetch_with_ua
+
+
 class KV(Protocol):
     async def get(self, key: str) -> str | None: ...
-    async def put(self, key: str, value: str, ttl: int | None = None) -> None: ...
-    async def delete(self, key: str) -> None: ...
+    async def put(self, key: str, value: str) -> None: ...
 
 
 @dataclass

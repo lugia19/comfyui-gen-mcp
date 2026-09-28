@@ -18,7 +18,7 @@ jobs:
       - name: deploy.sh pinned to this tag
         run: |
           mkdir -p out
-          sed "s/__COMFY_GEN_TAG__/${GITHUB_REF_NAME}/" packages/worker/build/deploy.sh > out/deploy.sh
+          sed "s/__COMFY_GEN_TAG__/${GITHUB_REF_NAME}/" packages/worker/deploy/deploy.sh > out/deploy.sh
           grep -q "RELEASE_TAG=\"${GITHUB_REF_NAME}\"" out/deploy.sh
       - name: Create the release
         env:

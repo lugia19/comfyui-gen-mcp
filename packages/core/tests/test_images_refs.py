@@ -1,17 +1,11 @@
 import struct
-import zlib
 
 import pytest
 
 from comfy_gen_core import refs
 from comfy_gen_core.comfyui import OutputImage
 from comfy_gen_core.images import image_size, sniff_mime
-
-
-def png(w, h):
-    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
-    chunk = struct.pack(">I", len(ihdr)) + b"IHDR" + ihdr + struct.pack(">I", zlib.crc32(b"IHDR" + ihdr))
-    return b"\x89PNG\r\n\x1a\n" + chunk
+from fake_comfy import png
 
 
 def jpeg(w, h):

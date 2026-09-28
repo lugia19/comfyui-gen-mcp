@@ -2,7 +2,8 @@ import base64
 import json
 
 import pytest
-from conftest import COMFY, PASSWORD, png, request
+from conftest import COMFY, PASSWORD, request
+from fake_comfy import png
 
 from comfy_gen_core import refs
 from comfy_gen_core.comfyui import OutputImage
@@ -164,9 +165,11 @@ async def test_cloudflare_setup_discovers_the_worker(world):
     app, _, net, _ = world
     cookie = await login(app)
     resp = await app.handle(request("POST", "/api/setup/cloudflare", {"token": "cfut_x"}, headers=cookie))
-    assert json.loads(resp.body) == {"account_id": "acct1", "script": "comfy-gen", "branch": "main"}
+    assert resp.status == 200
     s = await secrets_of(app)
-    assert s["cf_trigger"] == "trig1" and s["cf_token"] == "cfut_x"
+    assert (s["cf_account_id"], s["cf_script"], s["cf_branch"], s["cf_trigger"]) == ("acct1", "comfy-gen", "main", "trig1")
+    assert s["cf_token"] == "cfut_x"
+    assert all(headers["User-Agent"] == "comfy-gen-worker" for _, _, headers in net.calls)  # every outbound call
     net.token_status = "revoked"
     bad = await app.handle(request("POST", "/api/setup/cloudflare", {"token": "acct_token"}, headers=cookie))
     assert bad.status == 502 and "My Profile" in json.loads(bad.body)["error"]

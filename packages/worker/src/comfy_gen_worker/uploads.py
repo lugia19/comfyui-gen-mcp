@@ -8,13 +8,32 @@ and answers with an image id that edit_image takes.
 from __future__ import annotations
 
 from comfy_gen_core import refs
-from comfy_gen_core.comfyui import ComfyUIClient, ComfyUIError
+from comfy_gen_core.comfyui import ComfyUIClient, ComfyUIError, OutputImage
 from comfy_gen_core.images import sniff_mime
 
 from comfy_gen_worker.http import Response
+from comfy_gen_worker.render import text
 
 UPLOAD_TTL_S = 600
-MAX_UPLOAD_BYTES = 20_000_000
+MAX_IMAGE_BYTES = 20_000_000
+
+
+class BadImage(ValueError):
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+
+
+async def store_input(client: ComfyUIClient, data: bytes, nonce: str) -> tuple[OutputImage, str]:
+    """Put image bytes in ComfyUI's input folder: (the stored image, its mime type).
+    Raises BadImage for anything that isn't a supported image of a sane size."""
+    mime = sniff_mime(data)
+    if mime is None:
+        raise BadImage(415, "not a PNG, JPEG, WebP or GIF image")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise BadImage(413, f"too large ({len(data) // 1_000_000} MB; the limit is {MAX_IMAGE_BYTES // 1_000_000} MB)")
+    image = await client.upload(data, refs.upload_filename(nonce, mime), mime, subfolder=refs.UPLOAD_SUBFOLDER)
+    return image, mime
 
 # The snippet sets its own User-Agent: Cloudflare rejects urllib's default with Error 1010.
 SNIPPET = '''import glob, os, urllib.request
@@ -35,15 +54,15 @@ def request_upload(args: dict, base_url: str, hmac_key: bytes, now: float) -> tu
     """The request_upload tool: a fresh link and the snippet to use it."""
     filename = str(args.get("filename") or "").strip()
     if not filename:
-        return [{"type": "text", "text": "Error: filename is required."}], True
+        return [text("Error: filename is required.")], True
     token = refs.mint_upload(hmac_key, now, UPLOAD_TTL_S)
     code = SNIPPET.format(filename=filename, url=f"{base_url}/upload/{token}")
-    return [{"type": "text", "text": (
+    return [text(
         "Run this Python in your code execution environment. It uploads the attached file and prints "
         "a JSON object with an image_id; pass that image_id to edit_image. The link expires in 10 "
         "minutes. If the request is blocked, the user needs to allow this domain in their code "
         "execution network settings.\n\n```python\n" + code + "```"
-    )}], False
+    )], False
 
 
 async def receive(token: str, body: bytes, client: ComfyUIClient, hmac_key: bytes, now: float) -> Response:
@@ -54,13 +73,10 @@ async def receive(token: str, body: bytes, client: ComfyUIClient, hmac_key: byte
         return Response.error(403, str(e))
     if not body:
         return Response.error(400, "empty body")
-    if len(body) > MAX_UPLOAD_BYTES:
-        return Response.error(413, "image too large")
-    mime = sniff_mime(body)
-    if mime is None:
-        return Response.error(415, "not a PNG, JPEG, WebP or GIF image")
     try:
-        image = await client.upload(body, refs.upload_filename(nonce, mime), mime, subfolder=refs.UPLOAD_SUBFOLDER)
+        image, mime = await store_input(client, body, nonce)
+    except BadImage as e:
+        return Response.error(e.status, str(e))
     except ComfyUIError as e:
         return Response.error(502, str(e))
     return Response.json({"image_id": refs.sign(image, hmac_key), "bytes": len(body), "mime": mime})

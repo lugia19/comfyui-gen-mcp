@@ -22,14 +22,8 @@ class KVAdapter:
     async def get(self, key):
         return await self._kv.get(key)
 
-    async def put(self, key, value, ttl=None):
-        if ttl:
-            await self._kv.put(key, value, expirationTtl=ttl)
-        else:
-            await self._kv.put(key, value)
-
-    async def delete(self, key):
-        await self._kv.delete(key)
+    async def put(self, key, value):
+        await self._kv.put(key, value)
 
 
 async def platform_fetch(url, method="GET", headers=None, body=None):
