@@ -16,16 +16,30 @@ from comfy_gen_worker.http import Platform, Request
 
 
 class StateStub:
-    """The State Durable Object as the app's key-value interface (http.KV)."""
+    """The State Durable Object as the app's key-value interface (http.KV).
+
+    A deploy resets the object ("Durable Object reset because its code was updated"), and the build
+    callback arrives seconds after one, so calls retry. A stub that threw is broken: take a new one.
+    """
 
     def __init__(self, namespace):
+        self._ns = namespace
         self._stub = namespace.getByName("state")
 
+    async def _call(self, method, *args):
+        for attempt in range(3):
+            try:
+                return await getattr(self._stub, method)(*args)
+            except Exception as e:
+                if attempt == 2 or "reset" not in str(e):
+                    raise
+                self._stub = self._ns.getByName("state")
+
     async def get(self, key):
-        return await self._stub.read(key)
+        return await self._call("read", key)
 
     async def put(self, key, value):
-        await self._stub.write(key, value)
+        await self._call("write", key, value)
 
 
 async def platform_fetch(url, method="GET", headers=None, body=None):

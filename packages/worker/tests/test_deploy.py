@@ -151,3 +151,27 @@ def test_modal_failure_still_deploys_the_worker_and_says_so(build, monkeypatch):
     assert build.go() == 0
     body = build.posts[0][2]
     assert body["stage"] == "deployed" and body["modal_result"] == "failed (exit 1)" and "modal" not in body
+
+
+def test_callback_retries_once_on_a_server_error(build, monkeypatch):
+    import urllib.error
+
+    monkeypatch.setenv("COMFY_GEN_CALLBACK", "https://w/build-callback")
+    monkeypatch.setenv("COMFY_GEN_NONCE", "n")
+    monkeypatch.setattr(deploy.time, "sleep", lambda s: None)
+    answers = [urllib.error.HTTPError("https://w/build-callback", 500, "reset", {}, None), None]
+
+    def urlopen(req, timeout):
+        answer = answers.pop(0)
+        if answer:
+            raise answer
+        build.posts.append(json.loads(req.data))
+
+        class Resp:
+            def read(self):
+                return b'{"ok": true}'
+        return Resp()
+
+    monkeypatch.setattr(deploy.urllib.request, "urlopen", urlopen)
+    assert build.go() == 0
+    assert answers == [] and build.posts[0]["stage"] == "deployed"

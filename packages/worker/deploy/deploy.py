@@ -20,6 +20,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -93,11 +95,20 @@ def callback(body: dict) -> None:
         url, data=json.dumps({"nonce": nonce, **body}).encode(), method="POST",
         headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
     )
-    try:
-        # The Worker seeds models and applies keep-warm while answering, so allow it time.
-        print("callback:", urllib.request.urlopen(req, timeout=120).read().decode()[:200])
-    except Exception as e:  # the deploy itself worked or failed already; don't mask that
-        print(f"callback failed: {e}")
+    for attempt in (1, 2):
+        try:
+            # The Worker seeds models and applies keep-warm while answering, so allow it time.
+            print("callback:", urllib.request.urlopen(req, timeout=120).read().decode()[:200])
+            return
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or attempt == 2:
+                print(f"callback failed: {e}")
+                return
+            print(f"callback: HTTP {e.code}, retrying (the new Worker version may still be settling)")
+            time.sleep(5)
+        except Exception as e:  # the deploy itself worked or failed already; don't mask that
+            print(f"callback failed: {e}")
+            return
 
 
 def main() -> int:
