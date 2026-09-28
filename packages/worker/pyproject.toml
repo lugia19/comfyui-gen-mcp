@@ -1,0 +1,13 @@
+[project]
+name = "comfy-gen-worker"
+version = "0.1.0"
+description = "Comfy-Gen-MCP's Cloudflare Python Worker. Standalone pywrangler project, outside the uv workspace (see CLAUDE.md)."
+requires-python = ">=3.14"
+dependencies = ["comfy-gen-core"]
+
+[dependency-groups]
+dev = ["workers-py", "workers-runtime-sdk"]
+
+[tool.uv.sources]
+# editable = false: an editable install would vendor a pointer to this machine's filesystem (S7).
+comfy-gen-core = { path = "../core", editable = false }

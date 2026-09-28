@@ -32,3 +32,20 @@ jobs:
         working-directory: scripts
       - run: npm run test:pyodide
         working-directory: scripts
+
+  web:
+    # web/dist is committed (deploys have no node); it must match its source.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - name: web/dist matches the source
+        run: |
+          git add -N web/dist
+          git diff --exit-code --stat web/dist || { echo "::error::Rebuild web/dist (cd web && npm run build) and commit it"; exit 1; }

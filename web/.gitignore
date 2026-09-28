@@ -1,0 +1,3 @@
+node_modules
+*.local
+# dist is committed: users deploy without node

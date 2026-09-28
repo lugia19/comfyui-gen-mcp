@@ -20,3 +20,6 @@ python_modules/
 spikes/**/.env
 .venv-workers/
 .venv*/
+
+# The built web app is committed
+!web/dist/
