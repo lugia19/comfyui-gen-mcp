@@ -434,6 +434,23 @@ through its own setup API and Workers Builds:
   poll count. **Open risk:** well above the free plan's nominal 10 ms; nothing has failed, and the
   S1 SDK failure was at about 2,000 ms. To investigate with probes, as for the M2 figures.
 
+**CPU of a Python Worker, 2026-09-28: waiting is free, crossing into JavaScript is not.** A
+local CPU profile (wrangler dev DevTools) of a generate put 90% of the time in one or two samples
+per await, stretched over gaps where Python resumes after a JS promise (`onFulfilled`); counting
+only real samples gave about 8 ms of work. Probe routes on the deployed Worker, 12 calls each,
+billed `cpuTimeMs`:
+
+| Route | Median CPU |
+|---|---|
+| no awaits | 10 ms |
+| 100 awaits of a resolved JS promise | 33.5 ms (about 0.24 ms each) |
+| 15 fetches with their bodies | 37.5 ms (about 1.8 ms each) |
+| `asyncio.sleep` 0.5 s / 3 s | 6.5 / 13 ms (waiting is not billed) |
+
+So a generation's CPU is set by how many times it calls out (polls, each a fetch plus a body read,
+and a sleep between) plus a floor of about 10 ms that no Python Worker request avoids. A cold
+generation on Modal makes about 20 fetches: the 59 to 164 ms measured in M3.
+
 **S2, 2026-09-28 (claude.ai web): only inline images work.** `resource_link` alone, or with a text
 block carrying its URL: claude.ai shows "Resource links are not currently supported" and the model
 gets only name, URL and mime type. Inline `ImageContent`: shown to the user, described correctly by
