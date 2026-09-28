@@ -1,12 +1,10 @@
-// Development and release config. deploy.sh merges the user's name and provisioned IDs from their
-// copy of bootstrap/wrangler.jsonc into this file before deploying.
+// Development and release config. deploy.py merges the user's name (and any routes) from their copy
+// of bootstrap/wrangler.jsonc into this file before deploying.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "comfy-gen",
-  "main": "src/entry.py",
-  // A date on or after 2026-09-08 selects Python 3.14.
+  "main": "src/index.ts",
   "compatibility_date": "2026-09-26",
-  "compatibility_flags": ["python_workers"],
   "observability": { "enabled": true },
   "vars": { "VERSION": "dev" },
   "durable_objects": {

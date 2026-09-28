@@ -22,7 +22,7 @@ esac
 echo "== Comfy-Gen-MCP $REF"
 python3 --version
 
-# pywrangler shells out to the uv on PATH and needs a recent one; the build image's may be older.
+# uv runs the Modal deploy (comfy_gen_modal.deploy); the build image may lack it or have an old one.
 python3 -m pip install --quiet --disable-pip-version-check uv \
   || python3 -m pip install --quiet --disable-pip-version-check --break-system-packages uv
 export PATH="$(python3 -c 'import os, uv; print(os.path.dirname(uv.find_uv_bin()))'):$PATH"

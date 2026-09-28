@@ -3,7 +3,7 @@
 1. Deploy the Modal app when the setup page stored a Modal token (packages/modal_app).
 2. Write the release's wrangler config with the user's name (and any routes) merged in from their
    copy of bootstrap/wrangler.jsonc, and VERSION set.
-3. `pywrangler deploy` from packages/worker.
+3. `npm ci` for the Worker's workspace, then `wrangler deploy` from packages/worker.
 4. Report to the Worker's /build-callback when the setup page started this build.
 
 Build variables, set by the setup page: MODAL_TOKEN_ID and MODAL_TOKEN_SECRET (Modal deploy),
@@ -129,8 +129,9 @@ def main() -> int:
     (worker / "wrangler.jsonc").write_text(json.dumps(cfg, indent=2))
     print(f"== Worker {cfg['name']} {args.version}", flush=True)
 
-    cmd = ["uv", "run", "pywrangler", "deploy"] + (["--dry-run"] if args.dry_run else [])
-    deployed = subprocess.run(cmd, cwd=worker).returncode == 0
+    installed = subprocess.run(["npm", "ci", "--workspace", "packages/worker"], cwd=args.src).returncode == 0
+    cmd = ["npx", "wrangler", "deploy"] + (["--dry-run"] if args.dry_run else [])
+    deployed = installed and subprocess.run(cmd, cwd=worker).returncode == 0
     report = {"stage": "deployed" if deployed else "failed", "version": args.version, "modal_result": modal_result}
     if modal:
         report["modal"] = modal

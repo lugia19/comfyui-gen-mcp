@@ -7,9 +7,8 @@
   // comfy-dxt (see the repository's CLAUDE.md).
   "name": "comfy-gen",
   // src/ is not in this repository: deploy.sh downloads it at build time.
-  "main": "src/entry.py",
+  "main": "src/index.ts",
   "compatibility_date": "2026-09-26",
-  "compatibility_flags": ["python_workers"],
   "observability": { "enabled": true },
   "durable_objects": {
     "bindings": [

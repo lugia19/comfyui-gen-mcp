@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc -p packages/core"
+    "typecheck": "tsc -p packages/core && tsc -p packages/worker"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",

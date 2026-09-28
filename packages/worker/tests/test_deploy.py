@@ -43,14 +43,14 @@ def test_template_bindings_match_the_release():
     # The template's bindings are what the button provisions; the release's are what gets deployed.
     template = deploy.read_jsonc((ROOT / "bootstrap" / "wrangler.jsonc").read_text())
     release = deploy.read_jsonc((WORKER / "wrangler.jsonc").read_text())
-    for key in ("durable_objects", "migrations", "compatibility_flags", "triggers"):
+    for key in ("main", "compatibility_date", "durable_objects", "migrations", "triggers"):
         assert template[key] == release[key], key
     assert template["name"] not in ("comfy-gen-mcp", "comfy-dxt")  # CLAUDE.md hard rule
 
 
 def test_merge_takes_identity_from_the_template_and_the_rest_from_the_release():
     release = {
-        "$schema": "x", "name": "comfy-gen", "main": "src/entry.py", "compatibility_date": "2027-01-01",
+        "$schema": "x", "name": "comfy-gen", "main": "src/index.ts", "compatibility_date": "2027-01-01",
         "vars": {"VERSION": "dev", "OTHER": "1"},
         "assets": {"directory": "../../web/dist"},
     }
@@ -111,7 +111,10 @@ def test_button_deploy_without_setup(build):
     cfg = json.loads((build.src / "packages" / "worker" / "wrangler.jsonc").read_text())
     assert cfg["name"] == "comfy-gen" and cfg["vars"]["VERSION"] == "v1.0.0"
     assert cfg["assets"]["directory"] == "../../web/dist"
-    assert build.calls == [(["uv", "run", "pywrangler", "deploy"], build.src / "packages" / "worker")]
+    assert build.calls == [
+        (["npm", "ci", "--workspace", "packages/worker"], build.src),
+        (["npx", "wrangler", "deploy"], build.src / "packages" / "worker"),
+    ]
     assert build.posts == []  # no callback until the setup page starts a build
 
 
