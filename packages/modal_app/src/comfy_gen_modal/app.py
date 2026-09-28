@@ -162,7 +162,10 @@ def _download(m: dict, part_suffix: str, on_bytes) -> None:
     os.replace(part, path)
 
 
-@app.function(image=admin_image, volumes={VOL: volume}, timeout=3 * 3600, cpu=2.0)
+# One seed at a time: packs share files (text encoders, VAEs), and two containers writing the same
+# Volume file is last-writer-wins at best. Seen live: two packs fetched a shared 3 GB file at once
+# and a later seed found it missing. Queued calls wait their turn and find shared files present.
+@app.function(image=admin_image, volumes={VOL: volume}, timeout=3 * 3600, cpu=2.0, max_containers=1)
 def seed(pack: str, models: list[dict]) -> None:
     key = f"seed:{pack}"
     volume.reload()
@@ -195,7 +198,7 @@ def seed(pack: str, models: list[dict]) -> None:
 STALE_S = 120  # a "downloading" entry not updated for this long is a dead seed; allow a new one
 
 
-@app.function(image=admin_image, timeout=120)
+@app.function(image=admin_image, volumes={VOL: volume}, timeout=120)
 @modal.asgi_app(requires_proxy_auth=True)
 def admin():
     from fastapi import Body, FastAPI, HTTPException
@@ -226,6 +229,22 @@ def admin():
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
         return await state.get.aio(f"seed:{pack}") or {"state": "missing"}
+
+    @api.get("/status")
+    async def status():
+        """Diagnostics: the watcher's last Volume reload."""
+        return {"reload": await state.get.aio("reload"), "reload_requested_at": await state.get.aio("reload_requested_at")}
+
+    @api.get("/files")
+    async def files():
+        """Diagnostics: model files on the Volume, with sizes."""
+        await volume.reload.aio()
+        out = {}
+        for sub in SUBFOLDERS:
+            d = f"{MODELS_DIR}/{sub}"
+            for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+                out[f"{sub}/{name}"] = os.path.getsize(f"{d}/{name}")
+        return out
 
     @api.post("/idle")
     async def set_idle(body: dict = Body(...)):
