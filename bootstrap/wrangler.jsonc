@@ -1,0 +1,18 @@
+// What the "Deploy to Cloudflare" button copies into your account. It holds configuration only:
+// every build downloads the latest release's deploy.sh, which fetches the code, merges in the name
+// and IDs from this file, and deploys. So this copy never needs updating.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // The button names your new repository after this, so it must never be comfy-gen-mcp or
+  // comfy-dxt (see the repository's CLAUDE.md).
+  "name": "comfy-gen",
+  // src/ is not in this repository: deploy.sh downloads it at build time.
+  "main": "src/entry.py",
+  "compatibility_date": "2026-09-26",
+  "compatibility_flags": ["python_workers"],
+  "observability": { "enabled": true },
+  "kv_namespaces": [{ "binding": "KV" }],
+  "durable_objects": { "bindings": [{ "name": "RELAY", "class_name": "Relay" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Relay"] }],
+  "triggers": { "crons": ["17 4 * * *"] }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "comfy-gen",
+  "private": true,
+  "scripts": {
+    "deploy": "curl -fsSL \"${COMFY_GEN_DEPLOY_URL:-https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/deploy.sh}\" | bash"
+  },
+  "cloudflare": {
+    "bindings": {
+      "SETUP_PASSWORD": {
+        "description": "A password for your setup page. You will use it once to finish setup, and again whenever you change settings."
+      }
+    }
+  }
+}

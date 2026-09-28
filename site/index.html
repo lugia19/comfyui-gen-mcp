@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Comfy-Gen-MCP</title>
+  <meta name="description" content="Image generation for Claude, on your own ComfyUI: in the cloud or on your PC." />
+  <style>
+    :root {
+      --bg: #f6f6f7; --card: #fff; --text: #17171a; --muted: #5d5d66; --border: #e2e2e6;
+      --accent: #6246ea; --accent-text: #fff; --code: #efeff2;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111113; --card: #1b1b1f; --text: #ececf0; --muted: #a3a3ad; --border: #2d2d33;
+        --accent: #8e7bff; --accent-text: #111113; --code: #26262c;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    main { max-width: 720px; margin: 0 auto; padding: 40px 16px 64px; }
+    h1 { font-size: 2rem; margin: 0 0 4px; }
+    h2 { font-size: 1.2rem; margin: 0 0 12px; }
+    .lede { color: var(--muted); margin: 0 0 32px; }
+    section { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; margin: 0 0 16px; }
+    a { color: var(--accent); }
+    code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
+    ol, ul { padding-left: 22px; margin: 8px 0; }
+    li { margin: 4px 0; }
+    .muted { color: var(--muted); font-size: 0.93rem; }
+    .button {
+      display: inline-block; background: var(--accent); color: var(--accent-text); text-decoration: none;
+      font-weight: 600; padding: 10px 18px; border-radius: 8px; margin: 8px 0;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Comfy-Gen-MCP</h1>
+  <p class="lede">Image generation and editing for Claude, on a ComfyUI you own.</p>
+
+  <section>
+    <h2>No GPU? Run it in the cloud</h2>
+    <p>
+      A Cloudflare Worker gives claude.ai (web, desktop and mobile) an image tool. ComfyUI runs on
+      <a href="https://modal.com">Modal</a>, which only runs, and only bills, while it generates.
+    </p>
+    <p><b>You need:</b></p>
+    <ul>
+      <li>A <a href="https://dash.cloudflare.com/sign-up">Cloudflare account</a> (the free plan is enough) with GitHub connected.</li>
+      <li>A <a href="https://modal.com/signup">Modal account</a> with a card on file. New accounts get $30 of free compute a month.</li>
+      <li>A claude.ai plan that can add custom connectors.</li>
+    </ul>
+    <p><b>Steps:</b></p>
+    <ol>
+      <li>Click the button. Pick a setup password when it asks, then wait for the first deploy (about 3 minutes).</li>
+      <li>Open your Worker's URL, log in, and follow the setup page: a Cloudflare token, then a Modal token.</li>
+      <li>Copy the connector URL it shows into claude.ai under <b>Settings → Connectors → Add custom connector</b>.</li>
+    </ol>
+    <a class="button" href="https://deploy.workers.cloudflare.com/?url=https://github.com/lugia19/comfyui-gen-mcp/tree/main/bootstrap">
+      Deploy to Cloudflare
+    </a>
+    <p class="muted">Updates install themselves: the Worker checks for a new release daily and redeploys.</p>
+  </section>
+
+  <section>
+    <h2>Have a GPU? Run it on your PC</h2>
+    <p>
+      The Claude Desktop extension installs and runs ComfyUI locally. For now, get it from
+      <a href="https://github.com/lugia19/comfy-gen-mcp">the current version's repository</a>; this project
+      replaces it soon.
+    </p>
+  </section>
+
+  <p class="muted">Source and issues: <a href="https://github.com/lugia19/comfyui-gen-mcp">github.com/lugia19/comfyui-gen-mcp</a></p>
+</main>
+</body>
+</html>

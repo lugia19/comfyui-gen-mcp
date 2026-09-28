@@ -1,0 +1,26 @@
+name: Release
+
+# Push a tag like v1.2.3. Installs pick the release up through their daily update check: the
+# Worker starts a Workers Build, whose deploy command downloads releases/latest/download/deploy.sh.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: deploy.sh pinned to this tag
+        run: |
+          mkdir -p out
+          sed "s/__COMFY_GEN_TAG__/${GITHUB_REF_NAME}/" packages/worker/build/deploy.sh > out/deploy.sh
+          grep -q "RELEASE_TAG=\"${GITHUB_REF_NAME}\"" out/deploy.sh
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" out/deploy.sh --title "$GITHUB_REF_NAME" --generate-notes
