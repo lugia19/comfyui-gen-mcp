@@ -1,0 +1,18 @@
+{
+  "name": "comfy-gen",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/core",
+    "packages/worker"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/core"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  }
+}
