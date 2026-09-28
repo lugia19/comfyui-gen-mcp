@@ -9,6 +9,7 @@
 # Build variables it reads:
 #   COMFY_GEN_REF         deploy this tag or branch instead (testing, pinning)
 #   COMFY_GEN_DEPLOY_URL  read by the deploy command itself: where to get this script
+#   COMFY_GEN_DEPLOY_ARGS extra wrangler deploy arguments (deploy.py), e.g. --dry-run
 #   MODAL_TOKEN_ID/SECRET, COMFY_GEN_NONCE, COMFY_GEN_CALLBACK: set by the setup page (deploy.py)
 set -euo pipefail
 

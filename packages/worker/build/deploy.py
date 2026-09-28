@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -122,7 +123,9 @@ def main() -> int:
     (worker / "wrangler.jsonc").write_text(json.dumps(cfg, indent=2))
     print(f"== Worker {cfg['name']} {args.version}", flush=True)
 
-    deployed = subprocess.run(["uv", "run", "pywrangler", "deploy"], cwd=worker).returncode == 0
+    # COMFY_GEN_DEPLOY_ARGS: extra wrangler arguments, e.g. --dry-run when testing this script.
+    extra = shlex.split(os.environ.get("COMFY_GEN_DEPLOY_ARGS", ""))
+    deployed = subprocess.run(["uv", "run", "pywrangler", "deploy", *extra], cwd=worker).returncode == 0
     report = {"stage": "deployed" if deployed else "failed", "version": args.version, "modal_result": modal_result}
     if modal:
         report["modal"] = modal
