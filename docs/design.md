@@ -301,6 +301,31 @@ each through the deployed Worker (Python 3.14, Workers Logs `cpuTimeMs`):
   was not tried, but the per-isolate app build would remain.
 - **Decision:** the Worker serves MCP with its own small stateless handler. No MCP SDK in the Worker.
 
+**S1b, 2026-09-28: where the handler's CPU goes.** SDK removed from the bundle (vendored modules
+18.7 MiB to 232 KiB, upload 137 KiB), per-request log line dropped, request-independent JSON
+serialized at import (inside the startup snapshot), plus a `/noop` route returning a constant.
+90 calls, interleaved, 5 s apart, all `ok`:
+
+| Route | Median CPU | Range | Calls at 10 ms or more |
+|---|---|---|---|
+| `/noop` (bare Python request) | 3.5 ms | 2 to 18 | 8 of 30 |
+| MCP `tools/call` `ping` | 7.5 ms | 2 to 44 | 14 of 30 |
+| MCP `tools/call` `image_inline` | 5 ms | 3 to 27 | 11 of 30 |
+
+- The distribution is two clusters: 2 to 6 ms, and 8 to 20 ms. The second cluster appears even for
+  `/noop`, so it is the Python runtime (a fresh or re-initialising isolate), not our code. Our
+  handler adds about 2 to 5 ms on top of the floor.
+- Slimming the bundle lowered the fresh-isolate cost somewhat (S1: 18 to 29 ms, now mostly 10 to
+  20) but cannot remove it. Nothing on the Python side gets a fresh isolate under 10 ms.
+- Cloudflare did not enforce 10 ms per request: 110 raw-handler calls across S1 and S1b, up to
+  52 ms, all succeeded. The SDK's 2,000 ms was killed. So there is a real ceiling well above
+  10 ms, but it is not documented; treat it as unknown and keep per-call work small.
+- **Decision:** stay on the Python Worker. Rules for the product: nothing request-independent
+  computed per request, no heavy imports, minimal logging on the MCP path, and the brain's
+  per-call work (pack lookup, workflow build) kept to plain dict work. If CPU enforcement ever
+  bites, the fallback is a thin JS front Worker that answers `initialize`, `tools/list` and `ping`
+  itself and passes only `tools/call` to Python.
+
 **S4, 2026-09-28: works, with three template lessons.**
 
 - The Deploy button created `lugia19/comfy-gen-spike-button` from the `spikes/bootstrap` folder and
