@@ -18,7 +18,7 @@ from comfy_gen_worker.http import Platform, Request  # noqa: E402
 
 COMFY = "https://comfy.example"
 HOST = "comfy-gen.someone.workers.dev"
-PASSWORD = "correct horse"
+TOKEN = "cfut_owner"
 
 
 class FakeKV:
@@ -42,6 +42,7 @@ class FakeNet:
         self.calls = []
         self.latest_release = "v1.0.0"
         self.token_status = "active"
+        self.scripts = {"comfy-gen": "tag1"}  # what the token can see
         self.builds_started = []
         self.build_vars = {}
 
@@ -66,7 +67,7 @@ class FakeNet:
         if path == "/accounts":
             return _cf([{"id": "acct1", "name": "Someone"}])
         if "/workers/scripts-search" in path:
-            return _cf([{"id": "tag1", "script_name": "comfy-gen"}])
+            return _cf([{"id": tag, "script_name": name} for name, tag in self.scripts.items()])
         if path.endswith("/builds/workers/tag1/triggers"):
             return _cf([{"trigger_uuid": "trig1", "branch_includes": ["main"]}])
         if path.endswith("/environment_variables") and method == "PATCH":
@@ -109,7 +110,7 @@ def comfy(monkeypatch):
 def world(comfy):
     store.clear_cache()
     kv, net, clock = FakeKV(), FakeNet(comfy), Clock()
-    app = App(Platform(kv=kv, fetch=net, now=clock, env={"SETUP_PASSWORD": PASSWORD, "VERSION": "v1.0.0"}))
+    app = App(Platform(kv=kv, fetch=net, now=clock, env={"VERSION": "v1.0.0"}))
     return app, kv, net, clock
 
 

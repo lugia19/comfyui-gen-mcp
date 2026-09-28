@@ -1,4 +1,9 @@
-"""The settings pages' login: the setup password, then a signed, stateless session cookie."""
+"""The settings pages' session: a signed, stateless cookie.
+
+There is no password. Logging in means pasting a Cloudflare API token that can see this Worker
+(app._login), which only the account's owner can make; setup needs that token anyway. So the
+cookie lasts a year, and a new browser logs in with a fresh token from the same link.
+"""
 
 from __future__ import annotations
 
@@ -6,13 +11,7 @@ import hashlib
 import hmac
 
 COOKIE = "cg_session"
-SESSION_S = 30 * 24 * 3600
-
-
-def password_ok(given: str, expected: str | None) -> bool:
-    if not expected:
-        return False  # no SETUP_PASSWORD configured: nobody gets in
-    return hmac.compare_digest(given.encode(), expected.encode())
+SESSION_S = 365 * 24 * 3600
 
 
 def make_session(cookie_key: str, now: float) -> str:

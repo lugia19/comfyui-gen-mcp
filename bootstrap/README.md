@@ -6,4 +6,4 @@ Workers Build downloads the latest release and deploys it, so there is nothing h
 sync.
 
 When the deploy finishes, open your Worker's URL (`https://comfy-gen.<your-subdomain>.workers.dev`)
-and log in with the setup password you chose.
+and log in with a Cloudflare API token; the page links to a pre-filled one.

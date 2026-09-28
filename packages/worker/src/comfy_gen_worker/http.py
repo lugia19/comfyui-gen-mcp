@@ -77,7 +77,7 @@ class Platform:
     kv: KV
     fetch: Fetch
     now: Callable[[], float]
-    env: dict[str, str]  # SETUP_PASSWORD, VERSION
+    env: dict[str, str]  # VERSION; DEV_WORKER_HOST under pywrangler dev
 
 
 class FetchTransport:

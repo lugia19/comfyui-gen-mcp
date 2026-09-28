@@ -1,1 +1,2 @@
-SETUP_PASSWORD=choose-a-password # protects the setup and settings pages
+# pywrangler dev only: log in by proving ownership of this deployed Worker instead of 127.0.0.1
+DEV_WORKER_HOST=comfy-gen.<your-subdomain>.workers.dev

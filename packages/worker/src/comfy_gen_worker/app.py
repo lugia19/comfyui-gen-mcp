@@ -189,12 +189,9 @@ class App:
     # ── settings API ──────────────────────────────────────────────────
 
     async def _api(self, req: Request, sub: str) -> Response:
-        s = await self.store.secrets()
         if sub == "/login" and req.method == "POST":
-            if not auth.password_ok(str(req.json().get("password", "")), self.p.env.get("SETUP_PASSWORD")):
-                return Response.error(401, "wrong password")
-            session = auth.make_session(s["cookie_key"], self.p.now())
-            return Response.json({"ok": True}, headers={"Set-Cookie": auth.cookie_header(session)})
+            return await self._login(req)
+        s = await self.store.secrets()
         if sub == "/logout" and req.method == "POST":
             return Response.json({"ok": True}, headers={"Set-Cookie": auth.cookie_header("", 0)})
         if not auth.session_ok(auth.read_cookie(req.headers.get("cookie")), s["cookie_key"], self.p.now()):
@@ -205,8 +202,6 @@ class App:
         if sub == "/config" and req.method == "PUT":
             cfg = await self.store.save_config(req.json().get("config"))
             return Response.json({"config": cfg})
-        if sub == "/setup/cloudflare" and req.method == "POST":
-            return await self._setup_cloudflare(req)
         if sub == "/setup/generator" and req.method == "POST":
             return await self._setup_generator(req)
         if sub == "/setup/build" and req.method == "POST":
@@ -232,17 +227,25 @@ class App:
             "packs": PACK_METADATA,
         }
 
-    async def _setup_cloudflare(self, req: Request) -> Response:
+    async def _login(self, req: Request) -> Response:
+        """A Cloudflare user token that can see this Worker proves ownership. It is also the token
+        the Worker needs for builds and updates, so the latest one is kept."""
         token = str(req.json().get("token", "")).strip()
         if not token:
             return Response.error(400, "paste a token")
-        await cloudflare.verify_user_token(self.fetch, token)
-        found = await cloudflare.discover(self.fetch, token, req.host)
+        # Under pywrangler dev the host is 127.0.0.1; DEV_WORKER_HOST names a deployed Worker instead.
+        host = self.p.env.get("DEV_WORKER_HOST") or req.host
+        try:
+            await cloudflare.verify_user_token(self.fetch, token)
+            found = await cloudflare.discover(self.fetch, token, host)
+        except cloudflare.CloudflareError as e:
+            return Response.error(401, str(e))
         await self.store.update_secrets(
             cf_token=token, cf_account_id=found["account_id"], cf_script=found["script"],
             cf_trigger=found["trigger"], cf_branch=found["branch"],
         )
-        return Response.json({"ok": True})
+        session = auth.make_session((await self.store.secrets())["cookie_key"], self.p.now())
+        return Response.json({"ok": True}, headers={"Set-Cookie": auth.cookie_header(session)})
 
     async def _setup_generator(self, req: Request) -> Response:
         """A ComfyUI the Worker can reach directly (advanced; Modal is configured by the build)."""

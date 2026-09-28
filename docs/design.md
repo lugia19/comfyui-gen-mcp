@@ -154,7 +154,7 @@ feature, and the validation message says so.
 
 - Config lives with the brain: KV for the Worker, a local JSON file for the MCPB.
 - One Svelte settings app, rendered from the declarative settings schema, served by the Worker
-  (behind the setup password, cookie session) and by the MCPB's local server.
+  (behind a Cloudflare-token login and a cookie session) and by the MCPB's local server.
 - One idle setting, "keep warm for N minutes", applies to Modal's `scaledown_window` (live, through
   `update_autoscaler`, S5) and to the agent's idle stop.
 - If both the PC and Modal are configured, the PC is used when online and Modal when it is not.
@@ -164,12 +164,12 @@ feature, and the validation message says so.
 ### No GPU
 
 1. Static site: prerequisites (Cloudflare, GitHub, Modal with a card on file), then the Deploy button.
-2. The button copies the bootstrap into the user's GitHub and deploys via Workers Builds. The user
-   sets a setup password in the deploy prompt.
-3. The user opens the Worker's setup page, logs in, pastes a **user-scoped** Cloudflare API token and
-   a Modal token pair. The setup page validates each with a harmless call before accepting it.
-   The token comes from a pre-filled template link (section 8), so the user only narrows it to their
-   account and clicks Create.
+2. The button copies the bootstrap into the user's GitHub and deploys via Workers Builds. It asks
+   for nothing.
+3. The user opens the Worker's page and logs in by pasting a **user-scoped** Cloudflare API token,
+   then a Modal token pair. The token comes from a pre-filled template link (section 8), so the user
+   only narrows it to their account and clicks Create. It is both the login and the token the Worker
+   keeps for builds (see "Login" in section 8).
 4. The Worker finds its own tag and build trigger, writes the Modal tokens and a one-time nonce into
    the trigger's build secrets, and starts a build through the Workers Builds API.
 5. The build (Python 3.13 and pip in Cloudflare's build image) fetches the latest release, runs
@@ -205,13 +205,24 @@ Install the MCPB. It stays self-updating through the existing bootstrapper. No a
 | Secret | Held by | Purpose |
 |---|---|---|
 | MCP secret path | Worker KV | The connector URL. OAuth is a later upgrade |
-| Setup password | Worker secret | Settings and setup pages, cookie session |
-| Cloudflare user token | Worker KV | Workers Builds API: builds for setup and updates |
+| Cloudflare user token | Worker KV | Login to the settings pages; Workers Builds API for setup and updates |
+| Session cookie key | Worker KV | Signs the settings pages' session cookie (a year) |
 | Modal token pair | Build secrets only | `modal deploy` during builds |
 | Modal proxy token | Worker KV | Calls to the ComfyUI server and admin endpoint |
 | Ref HMAC key | Worker KV | Signs image references and upload tokens |
 | Agent pairing secret | Worker KV, agent | Authenticates the relay |
 | Build nonce | Build secrets, Worker KV | One-time callback from the build |
+
+**Login.** There is no setup password. A fresh install's URL is not secret: the Worker name is the
+template's `comfy-gen` for nearly everyone, and each account's workers.dev subdomain is public in
+Certificate Transparency logs (its wildcard certificate). So "the first visitor claims it" would let
+anyone scanning those logs claim installs before their owners. The Deploy button takes only the
+template URL (no name, secret or variable parameters), so nothing random can reach the deploy
+either. Instead, logging in means pasting a Cloudflare user token that can see this Worker
+(`scripts-search` on its name finds it in the token's accounts), which only the account's owner can
+make. Setup needs that token anyway; the latest one replaces the stored one. The session cookie
+lasts a year; a new browser logs in with a fresh token from the same link. Under `pywrangler dev`,
+`DEV_WORKER_HOST` names the deployed Worker to prove ownership of.
 
 Any Python code that calls a Worker (build callbacks, the upload snippet, the agent) sends its own
 `User-Agent`: Cloudflare answers urllib's default `Python-urllib/x.y` with Error 1010 before the

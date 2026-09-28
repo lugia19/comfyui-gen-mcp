@@ -42,7 +42,7 @@ def _env(env, name):
 
 class Default(WorkerEntrypoint):
     def _app(self):
-        env = {"SETUP_PASSWORD": _env(self.env, "SETUP_PASSWORD"), "VERSION": _env(self.env, "VERSION")}
+        env = {name: _env(self.env, name) for name in ("VERSION", "DEV_WORKER_HOST")}
         return App(Platform(kv=KVAdapter(self.env.KV), fetch=platform_fetch, now=time.time, env=env))
 
     async def fetch(self, request):

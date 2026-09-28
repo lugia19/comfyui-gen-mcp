@@ -2,13 +2,14 @@ import base64
 import json
 
 import pytest
-from conftest import COMFY, PASSWORD, request
+from conftest import COMFY, TOKEN, request
 from fake_comfy import png
 
 from comfy_gen_core import refs
 from comfy_gen_core.comfyui import OutputImage
 from comfy_gen_worker import updates
 from comfy_gen_worker.app import REQUEST_BUDGET
+from comfy_gen_worker.http import Request
 
 pytestmark = pytest.mark.anyio
 
@@ -29,7 +30,7 @@ async def with_generator(app):
 
 
 async def login(app):
-    resp = await app.handle(request("POST", "/api/login", {"password": PASSWORD}))
+    resp = await app.handle(request("POST", "/api/login", {"token": TOKEN}))
     assert resp.status == 200
     return {"cookie": resp.headers["Set-Cookie"].split(";")[0]}
 
@@ -141,14 +142,17 @@ async def test_fetch_result_resumes(world, comfy):
 
 # ── settings API ──────────────────────────────────────────────────────
 
-async def test_login_and_session(world):
-    app, *_ = world
+async def test_login_with_a_token_that_sees_this_worker(world):
+    app, _, net, _ = world
     assert (await app.handle(request("GET", "/api/state"))).status == 401
-    assert (await app.handle(request("POST", "/api/login", {"password": "nope"}))).status == 401
     cookie = await login(app)
+    s = await secrets_of(app)
+    assert (s["cf_account_id"], s["cf_script"], s["cf_branch"], s["cf_trigger"]) == ("acct1", "comfy-gen", "main", "trig1")
+    assert s["cf_token"] == TOKEN
+    assert all(headers["User-Agent"] == "comfy-gen-worker" for _, _, headers in net.calls)  # every outbound call
     resp = await app.handle(request("GET", "/api/state", headers=cookie))
     state = json.loads(resp.body)
-    assert state["generator"] is None and state["cloudflare"] is None
+    assert state["generator"] is None and state["cloudflare"]["script"] == "comfy-gen"
     assert state["connector_url"].startswith("https://comfy-gen.someone.workers.dev/mcp/")
     assert any(g["tool_name"] == "generate_illustrated_image" for g in state["packs"])
 
@@ -161,18 +165,23 @@ async def test_config_is_normalized_on_save(world):
     assert cfg["keep_warm_minutes"] == 5 and cfg["extra"] == 1
 
 
-async def test_cloudflare_setup_discovers_the_worker(world):
+async def test_login_refuses_other_tokens(world):
     app, _, net, _ = world
-    cookie = await login(app)
-    resp = await app.handle(request("POST", "/api/setup/cloudflare", {"token": "cfut_x"}, headers=cookie))
-    assert resp.status == 200
-    s = await secrets_of(app)
-    assert (s["cf_account_id"], s["cf_script"], s["cf_branch"], s["cf_trigger"]) == ("acct1", "comfy-gen", "main", "trig1")
-    assert s["cf_token"] == "cfut_x"
-    assert all(headers["User-Agent"] == "comfy-gen-worker" for _, _, headers in net.calls)  # every outbound call
+    assert (await app.handle(request("POST", "/api/login", {}))).status == 400
+    net.scripts = {"someone-elses-worker": "tag9"}  # a token for another account
+    bad = await app.handle(request("POST", "/api/login", {"token": "cfut_stranger"}))
+    assert bad.status == 401 and "cannot see a Worker named comfy-gen" in json.loads(bad.body)["error"]
     net.token_status = "revoked"
-    bad = await app.handle(request("POST", "/api/setup/cloudflare", {"token": "acct_token"}, headers=cookie))
-    assert bad.status == 502 and "My Profile" in json.loads(bad.body)["error"]
+    bad = await app.handle(request("POST", "/api/login", {"token": "acct_token"}))
+    assert bad.status == 401 and "My Profile" in json.loads(bad.body)["error"]
+    assert "Set-Cookie" not in bad.headers and "cf_token" not in await secrets_of(app)
+
+
+async def test_dev_login_checks_the_named_worker(world):
+    app, *_ = world
+    app.p.env["DEV_WORKER_HOST"] = "comfy-gen.someone.workers.dev"
+    resp = await app.handle(Request("POST", "/api/login", "127.0.0.1:8788", body=b'{"token": "cfut_owner"}', scheme="http"))
+    assert resp.status == 200
 
 
 async def test_direct_generator_is_probed_before_saving(world, comfy):

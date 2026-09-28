@@ -27,7 +27,7 @@ packages/worker/
   src/comfy_gen_worker/   plain Python, importable under CPython for tests:
     app.py                router: (method, path, headers, body) → Response; auth checks
     store.py              KV-backed state behind a tiny async KV protocol: config, secrets, setup
-    auth.py               password check, HMAC cookie session
+    auth.py               HMAC cookie session (login is a Cloudflare token, app._login)
     render.py             Brain outcome → MCP content (WebP inline + text; Pending/Failed text)
     hooks.py              WorkerHooks.resolve_image: ref → load value; https URL → fetch + upload
     uploads.py            request_upload snippet, POST /upload/<token> → ComfyUI /upload/image
@@ -50,7 +50,7 @@ packages/worker/
 | `POST /mcp/<mcp_secret>` | secret path | `core.McpHandler`; `request_upload` is handled here, everything else goes to `Brain` (image_mode "refs") and then `render` |
 | `GET /img/<ref>` | HMAC ref | streams the full PNG from `/view` |
 | `POST /upload/<token>` | HMAC upload token | body is the raw image; uploads it to ComfyUI input `comfy-gen-uploads/`; returns `{"image_id": ref}` |
-| `POST /api/login`, `/api/logout` | password | sets or clears the session cookie (HMAC(cookie_key, expiry), `HttpOnly; Secure; SameSite=Strict`) |
+| `POST /api/login`, `/api/logout` | Cloudflare token that can see this Worker | sets or clears the session cookie (HMAC(cookie_key, expiry), `HttpOnly; Secure; SameSite=Strict`) |
 | `GET /api/state` | cookie | setup step, config, pack metadata (names, sizes, descriptions), `SETTINGS_SCHEMA`, connector URL once ready |
 | `PUT /api/config` | cookie | `config.normalize` → KV |
 | `POST /api/setup/cloudflare` | cookie | verify it's a user token, discover account/tag/trigger, store |
@@ -59,7 +59,7 @@ packages/worker/
 | `POST /build-callback` | nonce | stores what the build reports (M3: Modal URLs and proxy token) |
 | everything else | none | Workers Static Assets serves `web/dist` (SPA fallback), with `run_worker_first` set for the routes above |
 
-- `SETUP_PASSWORD` is a Worker secret prompted by the Deploy button.
+- No setup password: login is a Cloudflare user token that can see this Worker (design §8, "Login").
 - The MCP secret, HMAC key and cookie key are generated on the first request and stored in KV.
 - Config and secrets are cached per isolate for 30 s, so an MCP call costs zero KV reads when warm.
 
@@ -108,7 +108,7 @@ fine. Only the request count needs managing:
 - `package.json`: the deploy stub
   `curl -fsSL "${COMFY_GEN_DEPLOY_URL:-https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/deploy.sh}" | bash`.
   A build variable can point it at a branch's script, for testing before a release exists.
-- `.dev.vars.example`: `SETUP_PASSWORD`. No `pyproject.toml`.
+- No `.dev.vars.example` (the button asks for nothing) and no `pyproject.toml`.
 - `deploy.sh`, released as an asset:
   - resolve the tag (latest, or `COMFY_GEN_REF`) and download its tarball
   - lay out `packages/{core,worker}` plus `web/dist`
@@ -284,7 +284,7 @@ scripts/test_pyodide.mjs  runs core's tests under Pyodide via the npm pyodide pa
   - `/mcp/<secret>`
   - `/img/<ref>`: streams the full PNG
   - `/upload/<token>`
-  - `/setup`, `/settings` and `/api/*`: password, then an HMAC cookie
+  - `/setup`, `/settings` and `/api/*`: Cloudflare-token login, then an HMAC cookie
   - static `web/dist` through Workers Static Assets, with no Python CPU cost (to verify)
   - `/build-callback`: nonce-checked
   - `scheduled()`: daily update check
@@ -301,8 +301,7 @@ scripts/test_pyodide.mjs  runs core's tests under Pyodide via the npm pyodide pa
 
 **`web`** (Svelte), rendered from `SETTINGS_SCHEMA` and pack metadata, so the MCPB reuses it later:
 - setup wizard:
-  - password
-  - the token template link, with "narrow to your account"
+  - login: the token template link, with "narrow to your account"
   - Modal pair
   - build log stream
   - packs
@@ -313,7 +312,7 @@ scripts/test_pyodide.mjs  runs core's tests under Pyodide via the npm pyodide pa
 - `wrangler.jsonc` declares every binding up front: KV, and the Relay Durable Object with its
   migration, so M6 needs no template change.
 - `package.json` with the deploy stub, which downloads `releases/latest/download/deploy.sh`.
-- `.dev.vars.example` with `SETUP_PASSWORD`.
+- No secrets to fill in: login is a Cloudflare token.
 
 The release's `deploy.sh`:
 - fetches that release's source

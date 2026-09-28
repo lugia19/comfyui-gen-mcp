@@ -1,12 +1,8 @@
 <script>
-  import { api, TOKEN_TEMPLATE_URL } from './api.js'
+  import { api } from './api.js'
   import BuildLog from './BuildLog.svelte'
 
   let { info, refresh } = $props()
-
-  let cfToken = $state('')
-  let cfBusy = $state(false)
-  let cfError = $state('')
 
   let modalId = $state('')
   let modalSecret = $state('')
@@ -19,21 +15,6 @@
   let directError = $state('')
 
   let copied = $state(false)
-
-  async function saveToken(e) {
-    e.preventDefault()
-    cfBusy = true
-    cfError = ''
-    try {
-      await api('POST', '/setup/cloudflare', { token: cfToken.trim() })
-      cfToken = ''
-      await refresh()
-    } catch (err) {
-      cfError = err.message
-    } finally {
-      cfBusy = false
-    }
-  }
 
   async function deployModal(e) {
     e.preventDefault()
@@ -77,29 +58,13 @@
   }
 </script>
 
-<section>
-  <h2>1. Cloudflare token</h2>
-  {#if info.cloudflare}
-    <p class="ok">Connected: Worker <code>{info.cloudflare.script}</code> in account <code>{info.cloudflare.account_id}</code>.</p>
-    <p class="muted">This lets the Worker deploy the GPU side and update itself. Paste a new token below to replace it.</p>
-  {:else}
-    <p>The Worker needs a Cloudflare API token to set up the GPU side and keep itself up to date.</p>
-    <ol>
-      <li><a href={TOKEN_TEMPLATE_URL} target="_blank" rel="noopener">Open the pre-filled token page</a>. The permissions are already ticked.</li>
-      <li>Under <b>Account Resources</b>, change "All accounts" to <b>your account</b> only.</li>
-      <li>Click <b>Continue to summary</b>, then <b>Create Token</b>, and paste it here.</li>
-    </ol>
-  {/if}
-  <form onsubmit={saveToken}>
-    <label for="cf">API token</label>
-    <input id="cf" type="password" bind:value={cfToken} placeholder="cfut_…" autocomplete="off" />
-    <button type="submit" disabled={cfBusy || !cfToken.trim()}>{cfBusy ? 'Checking…' : 'Save token'}</button>
-    {#if cfError}<p class="err">{cfError}</p>{/if}
-  </form>
-</section>
+<p class="muted">
+  Worker <code>{info.cloudflare.script}</code> in account <code>{info.cloudflare.account_id}</code>. Logging in
+  again with a new token replaces the stored one.
+</p>
 
 <section>
-  <h2>2. GPU</h2>
+  <h2>1. GPU</h2>
   {#if info.generator}
     <p class="ok">
       Ready: {info.generator.kind === 'modal' ? 'ComfyUI on Modal' : 'a ComfyUI at'} <code>{info.generator.base_url}</code>.
@@ -118,10 +83,9 @@
     <input id="mid" type="text" bind:value={modalId} placeholder="ak-…" autocomplete="off" />
     <label for="msec">Token secret</label>
     <input id="msec" type="password" bind:value={modalSecret} placeholder="as-…" autocomplete="off" />
-    <button type="submit" disabled={buildBusy || !info.cloudflare || !modalId.trim() || !modalSecret.trim()}>
+    <button type="submit" disabled={buildBusy || !modalId.trim() || !modalSecret.trim()}>
       {buildBusy ? 'Starting…' : 'Deploy to Modal'}
     </button>
-    {#if !info.cloudflare}<p class="muted">Save the Cloudflare token first.</p>{/if}
     {#if buildError}<p class="err">{buildError}</p>{/if}
   </form>
   {#if info.build}
@@ -145,7 +109,7 @@
 </section>
 
 <section>
-  <h2>3. Connect Claude</h2>
+  <h2>2. Connect Claude</h2>
   <p>Add this URL in claude.ai: <b>Settings → Connectors → Add custom connector</b>.</p>
   <div class="row">
     <code>{info.connector_url}</code>
@@ -155,5 +119,5 @@
     <button class="secondary" onclick={rotate}>Make a new URL</button>
   </div>
   <p class="muted">Anyone with this URL can generate images on your GPU account. Treat it like a password.</p>
-  {#if !info.generator}<p class="muted">It works once step 2 is done.</p>{/if}
+  {#if !info.generator}<p class="muted">It works once step 1 is done.</p>{/if}
 </section>
