@@ -2,7 +2,7 @@
   "name": "comfy-gen-spike-button",
   "private": true,
   "scripts": {
-    "deploy": "bash deploy.sh"
+    "deploy": "curl -fsSL https://raw.githubusercontent.com/lugia19/comfyui-gen-mcp/refs/heads/${SPIKE_REF:-claude/upbeat-dijkstra-d03v19}/spikes/bootstrap/deploy.sh | bash"
   },
   "cloudflare": {
     "bindings": {

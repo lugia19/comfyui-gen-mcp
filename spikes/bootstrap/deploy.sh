@@ -44,6 +44,15 @@ if [ -n "${MODAL_TOKEN_ID:-}" ] && [ -n "${MODAL_TOKEN_SECRET:-}" ]; then
 fi
 echo "modal: $MODAL_RESULT"
 
+# S5 from inside the build (this container-free path exists because the build image can speak
+# Modal's gRPC): SPIKE_MODAL_DRIVE=all|lora|idle|seed runs spikes/modal/drive.py after the deploy.
+if [ -n "${SPIKE_MODAL_DRIVE:-}" ] && [ "${MODAL_RESULT#ok}" != "$MODAL_RESULT" ]; then
+  echo "== modal drive.py $SPIKE_MODAL_DRIVE"
+  python3 -m pip install --quiet --disable-pip-version-check httpx \
+    || python3 -m pip install --quiet --disable-pip-version-check --break-system-packages httpx
+  (cd .src/spikes/modal && python3 -u drive.py "$SPIKE_MODAL_DRIVE") || echo "drive.py FAILED"
+fi
+
 callback() {
   [ -n "${SPIKE_CALLBACK:-}" ] || { echo "no SPIKE_CALLBACK, skipping callback"; return 0; }
   STAGE="$1" UV_VERSION="$UV_VERSION" MODAL_VERSION="$MODAL_VERSION" MODAL_RESULT="$MODAL_RESULT" \
