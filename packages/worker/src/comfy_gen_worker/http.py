@@ -23,7 +23,7 @@ class Request:
     path: str
     host: str
     query: dict[str, str] = field(default_factory=dict)
-    headers: dict[str, str] = field(default_factory=dict)  # lower-case names
+    headers: dict[str, str] = field(default_factory=dict)  # lower-case names; entry.py passes only cookie
     body: bytes = b""
     scheme: str = "https"  # http only under wrangler dev
 

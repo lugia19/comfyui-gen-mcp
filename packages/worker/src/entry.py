@@ -31,8 +31,8 @@ async def platform_fetch(url, method="GET", headers=None, body=None):
     if body is not None:
         kw["body"] = body
     resp = await fetch(url, **kw)
-    content = await resp.bytes()
-    return CoreResponse(resp.status, content, {k.lower(): v for k, v in resp.headers.items()})
+    # No headers: nothing reads them (image types are sniffed), and each one is an FFI crossing.
+    return CoreResponse(resp.status, await resp.bytes())
 
 
 def _env(env, name):
@@ -55,7 +55,9 @@ class Default(WorkerEntrypoint):
             host=url.netloc,
             scheme=url.scheme or "https",
             query=dict(parse_qsl(url.query)),
-            headers={k.lower(): v for k, v in request.headers.items()},
+            # Only the cookie: copying every header across the JS boundary costs CPU per header,
+            # and claude.ai sends many.
+            headers={"cookie": request.headers.get("cookie") or ""},
             body=body,
         )
         resp = await self._app().handle(req)
