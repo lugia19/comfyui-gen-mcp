@@ -384,6 +384,24 @@ The distribution has two clusters, 2 to 6 ms and 8 to 20 ms; the second appears 
 so it is the Python runtime (a fresh or re-initialising isolate), not our code. The handler adds
 about 2 to 5 ms. 110 raw-handler calls across S1 and S1b, up to 52 ms, all succeeded.
 
+**M2 live, 2026-09-28: the product Worker, measured the S1b way.** Deploy-button install
+(`comfy-gen`), no generator, 30 MCP calls 5 s apart: median 19.5 ms CPU, max 58, all `ok`. Probe
+routes deployed to the same Worker, interleaved with the spike's unchanged `/noop`:
+
+| Route | Median CPU |
+|---|---|
+| spike `/noop` (3.5 ms in S1b) | 15.5 ms |
+| product bare route | 9 to 10.5 ms |
+| each glue step alone (URL parse, request headers, body, bytes response) | +1 to 2 ms |
+| store reads + Brain + McpHandler + handle, without the glue | about the bare route |
+| full `/mcp` | 22 to 24 ms |
+
+The platform floor moved between runs (the spike's untouched `/noop` went from 3.5 to 15.5 ms), so
+compare within one interleaved run only. The app's own Python costs about 0.13 ms per MCP request
+(Pyodide under Node). The gap between `/mcp` and a bare route is the JS-to-Python glue, spread over
+several steps; `entry.py` now copies only the `cookie` request header and no fetched response
+headers across the boundary. Nothing failed at any CPU level measured.
+
 **S2, 2026-09-28 (claude.ai web): only inline images work.** `resource_link` alone, or with a text
 block carrying its URL: claude.ai shows "Resource links are not currently supported" and the model
 gets only name, URL and mime type. Inline `ImageContent`: shown to the user, described correctly by
