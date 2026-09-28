@@ -25,7 +25,7 @@ architecture, and update it when a decision changes. `docs/build-plan.md` is the
 
 The Worker runs on the free plan: 10 ms CPU per request, with some tolerance for occasional
 overruns. Measured (design doc appendix): ping, tools/list and the settings API cost 1 to 2 ms; a
-generation about 11 ms warm, 17 to 19 cold. A fetch costs about 0.25 ms, a Durable Object call 0.4;
+warm generation about 6 ms of work (billed 5 to 18 per call), cold 17 to 19. A fetch costs about 0.25 ms, a Durable Object call 0.4;
 JavaScript loops over image bytes cost the most (base64 by hand was 55 ms per MB). So:
 
 - base64 through `bytes.ts` `toBase64` (native `Uint8Array.toBase64` where available); never loop

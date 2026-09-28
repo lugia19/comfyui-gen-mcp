@@ -125,8 +125,9 @@ request sat at the limit and a generation cost 60 to 160 ms (appendix). In TypeS
 0.25 ms and a Durable Object call about 0.4 ms; what cost most was base64 in JavaScript, 55 ms per
 MB, replaced by the native `Uint8Array.toBase64` at about 3 ms per MB (appendix, "Where a TypeScript
 generation's CPU went"). Measured on the test install: ping, tools/list and the settings API cost 1
-to 2 ms; a warm generation median 11 ms (7 to 20), a cold one 17 to 19 ms, an edit 9 ms.
-Generations are the rare, tolerated overrun. Rules for Worker code:
+to 2 ms. A warm generation is about 5 to 6 ms of work (itemized in the appendix, "Itemizing a warm
+generation"), billed anywhere from 5 to 18 ms per call, median 7 to 11 depending on the run; a cold
+one 17 to 19 ms, an edit 9 ms. Generations are the rare, tolerated overrun. Rules for Worker code:
 
 - base64 with `toBase64` from `bytes.ts` (native where the runtime has it); no per-byte JS loops
   over images
@@ -458,6 +459,31 @@ through its own setup API and Workers Builds:
   poll count. **Open risk:** well above the free plan's nominal 10 ms; nothing has failed, and the
   S1 SDK failure was at about 2,000 ms. To investigate with probes, as for the M2 figures.
 
+**Itemizing a warm generation, 2026-09-28: about 6 ms of work, the rest is platform variance.**
+A throwaway Worker (`comfy-gen-cpuprobe`, deleted after) bundled the real `App` and ran the MCP
+generate path with pieces swapped out, 12 to 20 calls per variant, billed `cpuTimeMs` medians:
+
+| Variant | Median CPU |
+|---|---|
+| MCP `ping` through `App` | 1 ms |
+| generate, canned ComfyUI answers, 2 KB image | 1 to 2 ms |
+| generate, canned answers, the real 419 KB WebP | 5 ms (4 if the response body is discarded) |
+| same, plus Durable Object reads and a real fetch of a 314 KB image | 5 to 6.5 ms |
+| same, with the wait held 2 / 5 / 15 s | 5 / 6 / 6 ms |
+| same, 15 s holds, four requests overlapping in one isolate | 11 ms |
+| the real `App` against the real Modal GPU (memory state) | 6 to 7 ms |
+| a real Modal `/view` of 419 KB alone / GitHub 314 KB alone | 1 / 1 ms |
+| a 15 s sleep / a 10 s pending fetch | 0 / 0 ms |
+
+So a warm generation costs about 1 ms of request plumbing, 1 ms of state and fetches, and 3 to 4 ms
+that scale with the image (reading the body, one `JSON.stringify` pass, sending 560 KB). Run live
+and in the probe, alternating, with the same prompt on the same GPU: the live Worker 5 to 15 ms
+(median 8.5), the live `index.ts` in the probe with its own State DO median 8, the probe with memory
+state median 7; an earlier alternating run had the live Worker at median 11 against 6. The
+per-call spread (5 to 18 ms for identical work) and overlapping requests, not our code, set the
+tail. What is left to cut is small: skipping the stringify pass over the base64 (under 1 ms), or
+smaller inline images.
+
 **Where a TypeScript generation's CPU went, 2026-09-28: base64, not fetches.** A throwaway probe
 Worker (`comfy-gen-cpuprobe`, deleted after), 10 calls per route, billed `cpuTimeMs` medians:
 
@@ -482,9 +508,7 @@ Modal image gets `/comfy-gen/wait` (§3). Against a local ComfyUI 0.37.0, a 21.7
 requests (submit, one wait) instead of about eleven, and the result arrives when it is saved rather
 than at the next poll. Live, after both changes (7 warm and 2 cold generations, one edit):
 warm generations 7 to 20 ms, median 11 (were about 30); cold 17 and 19 ms (was 31); an edit
-returning a 268 KB image 9 ms (was 59). The rest is not yet itemized: a warm generation makes about
-three fetches and three Durable Object calls, returns a 300 to 600 KB JSON body, and the bare MCP
-request costs 1 to 2 ms.
+returning a 268 KB image 9 ms (was 59). The rest is itemized in the next entry.
 
 **TypeScript port, 2026-09-28: switched live without losing state.** `core` and the Worker were
 ported line for line; golden vectors generated from the Python code pinned image ids, upload tokens,
