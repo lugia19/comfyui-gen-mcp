@@ -44,14 +44,15 @@ uv run pywrangler secret put RELAY_SECRET  # another one
 If the deploy complains that the KV namespace has no id, create it with
 `npx wrangler kv namespace create SPIKE_KV` and put the id into `wrangler.jsonc`.
 
-Open `https://comfy-gen-spike.<your-subdomain>.workers.dev/<SPIKE_SECRET>/`. It lists the two
-connector URLs. Add both as custom connectors in claude.ai (Settings > Connectors > Add custom
-connector) as "spike-sdk" and "spike-raw".
+Open `https://comfy-gen-spike.<your-subdomain>.workers.dev/<SPIKE_SECRET>/`. It shows the
+connector URL (`/<SPIKE_SECRET>/raw/mcp`). Add it as a custom connector in claude.ai (Settings >
+Connectors > Add custom connector). The MCP SDK variant was removed after S1 (see the design doc):
+it exceeded the free CPU budget on every fresh isolate.
 
 **S7.** Call the `sibling` tool once. Report its text.
 
-**S1.** Call `ping` and `image_inline` about 10 times each through each connector (a mix of fresh
-chats and repeated calls is fine). Then in the dashboard: Workers & Pages > comfy-gen-spike > Logs
+**S1 (done, see the design doc).** Originally: call `ping` and `image_inline` about 10 times each
+through each connector (a mix of fresh chats and repeated calls is fine). Then in the dashboard: Workers & Pages > comfy-gen-spike > Logs
 (Workers Logs). Each invocation shows its CPU time; in the query builder, filter on the request URL
 containing `/raw/mcp` or `/sdk/mcp` and look at `cpuTimeMs`. Report:
 

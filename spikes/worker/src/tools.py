@@ -92,6 +92,9 @@ def image(data: bytes, mime: str = "image/png") -> dict:
     return {"type": "image", "data": base64.b64encode(data).decode(), "mimeType": mime}
 
 
+CANNED_IMAGE = image(canned.PNG)  # encoded once, inside the startup snapshot
+
+
 def sniff_mime(data: bytes) -> str:
     if data.startswith(b"\x89PNG"):
         return "image/png"
@@ -127,9 +130,9 @@ async def call(name: str, args: dict, base: str, env) -> list[dict]:
     if name == "image_link_text":
         return [link(img_url, "canned.png"), text(f"Image URL: {img_url}")]
     if name == "image_inline":
-        return [image(canned.PNG)]
+        return [CANNED_IMAGE]
     if name == "image_both":
-        return [link(img_url, "canned.png"), image(canned.PNG)]
+        return [link(img_url, "canned.png"), CANNED_IMAGE]
     if name == "request_upload":
         token = secrets.token_urlsafe(18)
         await env.SPIKE_KV.put(f"utok:{token}", str(args.get("filename", "")), expirationTtl=UPLOAD_TOKEN_TTL)

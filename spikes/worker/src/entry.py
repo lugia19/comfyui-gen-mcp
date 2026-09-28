@@ -3,8 +3,9 @@ the Worker), S6 (Durable Object WebSocket hibernation), S7 (workspace sibling im
 
 Routes (SECRET = the SPIKE_SECRET secret):
   /SECRET/                  index with the connector URLs
-  /SECRET/sdk/mcp           MCP via the official SDK          (S1, S2, S3, S7)
+  /SECRET/noop              constant response: the bare Python request cost (S1b)
   /SECRET/raw/mcp           MCP via the hand-rolled handler   (S1, S2, S3, S7)
+                            (the MCP SDK variant was removed after S1: it exceeds the free CPU budget)
   /SECRET/img/canned.png    the test image                    (S2)
   /SECRET/upload/<token>    one-time upload target            (S3)
   /SECRET/uploads/<id>      an uploaded image                 (S3)
@@ -27,7 +28,7 @@ import time
 from urllib.parse import parse_qs, urlparse
 
 from js import WebSocketPair, WebSocketRequestResponsePair
-from workers import DurableObject, Response, WorkerEntrypoint, asgi
+from workers import DurableObject, Response, WorkerEntrypoint
 
 import builds
 import canned
@@ -46,11 +47,10 @@ def json_response(data, status: int = 200) -> Response:
 
 
 class Default(WorkerEntrypoint):
-    def __init__(self, ctx, env):
-        super().__init__(ctx, env)
-        self._sdk_apps = {}
-
     async def fetch(self, request):
+        # S1b floor: no parsing, no logging, no JSON. Anything a request costs beyond this is ours.
+        if request.url.endswith("/noop") and request.url.endswith(f"/{self.env.SPIKE_SECRET}/noop"):
+            return Response("ok")
         url = urlparse(request.url)
         path = url.path
         host = url.hostname
@@ -66,14 +66,12 @@ class Default(WorkerEntrypoint):
 
         sub = path[len(prefix):] or "/"
         base = f"https://{host}{prefix}"
+        if sub == "/raw/mcp":  # the hot path: checked first, no log line
+            return await self._raw_mcp(request, base)
         log(route=sub.split("/")[1] if sub != "/" else "index", method=str(request.method))
 
         if sub in ("/", ""):
             return Response(self._index(base), headers={"Content-Type": "text/html; charset=utf-8"})
-        if sub == "/raw/mcp":
-            return await self._raw_mcp(request, base)
-        if sub == "/sdk/mcp":
-            return await self._sdk_mcp(request, path, base)
         if sub == "/img/canned.png":
             return Response(canned.PNG, headers={"Content-Type": "image/png", "Cache-Control": "no-store"})
         if sub.startswith("/upload/") and request.method == "POST":
@@ -95,20 +93,10 @@ class Default(WorkerEntrypoint):
     async def _raw_mcp(self, request, base: str):
         if request.method != "POST":
             return Response("Method not allowed", status=405, headers={"Allow": "POST"})
-        status, body, label = await mcp_raw.handle(await request.bytes(), base, self.env)
-        log(variant="raw", rpc=label)
+        status, body = await mcp_raw.handle(await request.bytes(), base, self.env)
         if body is None:
             return Response(None, status=status)
-        return json_response(body, status)
-
-    async def _sdk_mcp(self, request, path: str, base: str):
-        app = self._sdk_apps.get(base)
-        if app is None:
-            import mcp_sdk  # imported lazily so the raw variant's numbers don't include the SDK
-
-            app = self._sdk_apps[base] = mcp_sdk.build_app(path, base, self.env)
-        log(variant="sdk")
-        return await asgi.fetch(app, request, self.env)
+        return Response(body, status=status, headers={"Content-Type": "application/json"})
 
     async def _upload(self, request, token: str):
         key = f"utok:{token}"
@@ -190,8 +178,8 @@ class Default(WorkerEntrypoint):
         return f"""<!doctype html><meta charset="utf-8"><title>comfy-gen spikes</title>
 <body style="font:14px system-ui;margin:16px">
 <h1>comfy-gen spikes</h1>
-<p>Connector URLs (add both in claude.ai: Settings, Connectors, Add custom connector):</p>
-<ul><li>SDK: <code>{base}/sdk/mcp</code></li><li>Raw: <code>{base}/raw/mcp</code></li></ul>
+<p>Connector URL (claude.ai: Settings, Connectors, Add custom connector):</p>
+<ul><li><code>{base}/raw/mcp</code></li></ul>
 <p><a href="{base}/img/canned.png">Test image</a> ({canned.DESCRIPTION})</p>
 <p><a href="{base}/builds">Builds spike (S4)</a> &middot; <a href="{base}/relay/status">Relay status</a>
  &middot; <a href="{base}/relay/call?path=/ping">Relay round trip</a></p>

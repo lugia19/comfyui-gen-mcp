@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "Infrastructure spikes S1-S4, S6, S7 in one Python Worker. See ../README.md."
 requires-python = ">=3.14"
 dependencies = [
-    "mcp==2.2.0",
     "comfy-gen-spike-sibling",
 ]
 
