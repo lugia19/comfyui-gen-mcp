@@ -1,7 +1,18 @@
 # Comfy-Gen-MCP rewrite: build plan
 
-> **Status (2026-09-28):** M0 and M1 are done (commit 04562a3, CI green on 3.12, 3.14 and Pyodide).
-> **Next: M2**, detailed in "M2 in detail" below. The rest of this file is the overall plan.
+> **Status (2026-09-28):** M0, M1 and M2's local work are done; CI is green on 3.12, 3.14, Pyodide
+> and the `web/dist` check. M2 was verified against `pywrangler dev` plus a CPU ComfyUI (MCP,
+> inline WebP, refs, uploads through the real snippet, the pages in Chromium) and with a
+> `--dry-run` of the whole build path from the branch tarball.
+> **Still open in M2** (needs the user): a real Deploy-button deploy of `bootstrap/` with the build
+> variable `COMFY_GEN_REF` set to the branch, CPU per call from Workers Logs, and the Workers Admin
+> template key. **Next: M3.** The rest of this file is the overall plan.
+>
+> As built, the build step is `packages/worker/build/deploy.sh` (the release asset, tag filled in
+> by `release.yml`), which hands over to `deploy.py` in the downloaded source. `deploy.py` runs
+> `packages/modal_app/deploy.py --out <json>` when a Modal token is set and that file exists; M3
+> only has to provide it. Build variables: `COMFY_GEN_REF` (tag or branch), `COMFY_GEN_DEPLOY_URL`
+> (where the stub gets `deploy.sh`), `COMFY_GEN_DEPLOY_ARGS` (extra wrangler arguments).
 
 ## M2 in detail: Worker, web app, bootstrap, release pipeline
 
