@@ -23,3 +23,5 @@ spikes/**/.env
 
 # The built web app is committed
 !web/dist/
+# The Workers Build step (not a build output)
+!packages/worker/build/
