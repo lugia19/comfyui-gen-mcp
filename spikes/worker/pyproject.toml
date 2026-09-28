@@ -12,4 +12,4 @@ dev = ["workers-py", "workers-runtime-sdk"]
 
 [tool.uv.sources]
 # editable = false: an editable install would vendor a pointer to this machine's filesystem.
-comfy-gen-spike-sibling = { workspace = true, editable = false }
+comfy-gen-spike-sibling = { path = "../sibling", editable = false }

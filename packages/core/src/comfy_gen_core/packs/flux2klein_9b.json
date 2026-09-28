@@ -1,0 +1,132 @@
+{
+  "name": "flux2klein_9b",
+  "display_name": "Flux 2 Klein 9B",
+  "description": "Higher-quality Flux 2 Klein with stronger prompt understanding (9B Q8 quantized, ~12GB+ VRAM)",
+  "tool_name": "generate_realistic_image",
+  "is_default": false,
+  "group_tool_description": "This tool generates realistic/general-purpose images via ComfyUI.\nUse natural language to describe the image you want. Be specific about composition, lighting, style, and subject.\n\nExamples:\n- A photorealistic portrait of an elderly man with weathered skin, dramatic side lighting\n- A cozy coffee shop interior with warm morning light streaming through windows, watercolor style\n- A futuristic cityscape at sunset with flying vehicles, cinematic wide shot\n\nNote: The first generation after launching ComfyUI may take 1-2 minutes while the model loads into GPU memory. If the request times out, please retry.\n\nThe aspect_ratio parameter controls image shape: square (1:1), portrait (3:4), landscape (4:3), tall (9:16), wide (16:9). Default is square.\n\nIMPORTANT: The generated image may not appear inline in the conversation, but it IS sent to the user. Do not assume the generation failed just because you cannot see the image.",
+  "tool_description": "This tool generates images using the Flux 2 Klein 9B model via ComfyUI.\nFlux 2 Klein is a fast, general-purpose image generation model with excellent prompt understanding.\nUse natural language to describe the image you want. Be specific about composition, lighting, style, and subject.\n\nExamples:\n- A photorealistic portrait of an elderly man with weathered skin, dramatic side lighting\n- A cozy coffee shop interior with warm morning light streaming through windows, watercolor style\n- A futuristic cityscape at sunset with flying vehicles, cinematic wide shot\n\nNote: The first generation after launching ComfyUI may take 1-2 minutes while the model loads into GPU memory. If the request times out, please retry.\n\nThe aspect_ratio parameter controls image shape: square (1:1), portrait (3:4), landscape (4:3), tall (9:16), wide (16:9). Default is square.\n\nIMPORTANT: The generated image may not appear inline in the conversation, but it IS sent to the user. Do not assume the generation failed just because you cannot see the image.",
+  "models": [
+    {
+      "filename": "flux-2-klein-9b-Q8_0.gguf",
+      "subfolder": "diffusion_models",
+      "url": "https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF/resolve/main/flux-2-klein-9b-Q8_0.gguf",
+      "size_bytes": 9978304800,
+      "sha256": "dfa8908dd58c5af6479b944f80558e226ee40a8fe0903729309e8d1b98fe5297"
+    },
+    {
+      "filename": "Qwen3-8B-Q5_K_M.gguf",
+      "subfolder": "text_encoders",
+      "url": "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q5_K_M.gguf",
+      "size_bytes": 5851113280,
+      "sha256": "159c694b93271e4edc1dc2a305b10cf981032c8f3035a7da00973312f0331504"
+    },
+    {
+      "filename": "flux2-vae.safetensors",
+      "subfolder": "vae",
+      "url": "https://huggingface.co/Comfy-Org/vae-text-encorder-for-flux-klein-4b/resolve/main/split_files/vae/flux2-vae.safetensors",
+      "size_bytes": 336211292,
+      "sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
+    }
+  ],
+  "workflow": {
+    "94": {
+      "inputs": { "sampler_name": "euler" },
+      "class_type": "KSamplerSelect",
+      "_meta": { "title": "KSamplerSelect" }
+    },
+    "95": {
+      "inputs": { "steps": 8, "width": ["101", 0], "height": ["102", 0] },
+      "class_type": "Flux2Scheduler",
+      "_meta": { "title": "Flux2Scheduler" }
+    },
+    "96": {
+      "inputs": {
+        "cfg": 1,
+        "model": ["110", 0],
+        "positive": ["107", 0],
+        "negative": ["100", 0]
+      },
+      "class_type": "CFGGuider",
+      "_meta": { "title": "CFGGuider" }
+    },
+    "97": {
+      "inputs": {
+        "noise": ["103", 0],
+        "guider": ["96", 0],
+        "sampler": ["94", 0],
+        "sigmas": ["95", 0],
+        "latent_image": ["99", 0]
+      },
+      "class_type": "SamplerCustomAdvanced",
+      "_meta": { "title": "SamplerCustomAdvanced" }
+    },
+    "98": {
+      "inputs": { "samples": ["97", 0], "vae": ["106", 0] },
+      "class_type": "VAEDecode",
+      "_meta": { "title": "VAE Decode" }
+    },
+    "99": {
+      "inputs": { "width": ["101", 0], "height": ["102", 0], "batch_size": 1 },
+      "class_type": "EmptyFlux2LatentImage",
+      "_meta": { "title": "Empty Flux 2 Latent" }
+    },
+    "100": {
+      "inputs": { "text": "", "clip": ["105", 0] },
+      "class_type": "CLIPTextEncode",
+      "_meta": { "title": "CLIP Text Encode (Negative Prompt)" }
+    },
+    "101": {
+      "inputs": { "value": 1024 },
+      "class_type": "PrimitiveInt",
+      "_meta": { "title": "Width" }
+    },
+    "102": {
+      "inputs": { "value": 1024 },
+      "class_type": "PrimitiveInt",
+      "_meta": { "title": "Height" }
+    },
+    "103": {
+      "inputs": { "noise_seed": 0 },
+      "class_type": "RandomNoise",
+      "_meta": { "title": "RandomNoise" }
+    },
+    "105": {
+      "inputs": { "clip_name": "Qwen3-8B-Q5_K_M.gguf", "type": "flux2" },
+      "class_type": "CLIPLoaderGGUF",
+      "_meta": { "title": "CLIPLoader (GGUF)" }
+    },
+    "106": {
+      "inputs": { "vae_name": "flux2-vae.safetensors" },
+      "class_type": "VAELoader",
+      "_meta": { "title": "Load VAE" }
+    },
+    "107": {
+      "inputs": { "text": "", "clip": ["105", 0] },
+      "class_type": "CLIPTextEncode",
+      "_meta": { "title": "CLIP Text Encode (Positive Prompt)" }
+    },
+    "108": {
+      "inputs": { "filename_prefix": "comfy-gen", "images": ["98", 0] },
+      "class_type": "SaveImage",
+      "_meta": { "title": "Save Image" }
+    },
+    "110": {
+      "inputs": { "unet_name": "flux-2-klein-9b-Q8_0.gguf" },
+      "class_type": "UnetLoaderGGUF",
+      "_meta": { "title": "Unet Loader (GGUF)" }
+    }
+  },
+  "prompt_node_id": "107",
+  "seed_nodes": [{"node_id": "103", "field": "noise_seed"}],
+  "dimension_nodes": {
+    "width": [{"node_id": "101", "field": "value"}],
+    "height": [{"node_id": "102", "field": "value"}]
+  },
+  "max_pixels": 1048576,
+  "max_pixels_limit": 4194304,
+  "required_nodes": {
+    "UnetLoaderGGUF": "ComfyUI-GGUF",
+    "CLIPLoaderGGUF": "ComfyUI-GGUF"
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "name": "anima",
+  "display_name": "Anima",
+  "description": "Anime and illustration model supporting booru tags and natural language. Slower than Anima Turbo, but higher quality with better adherence to artist styles (2B, ~4GB VRAM)",
+  "tool_name": "generate_illustrated_image",
+  "is_default": false,
+  "config_key": "anima",
+  "group_tool_description": "This tool generates illustrated/anime images using the Anima model via ComfyUI.\nAnima supports a mix of booru tags and natural language prompting.\nPrompts MUST follow this order:\n\n@artist, masterpiece, best quality, [character] from [series/game/etc],\n[description of the character], [tags or NLP describing the scene]\n\nUse the @ prefix for artist styles ({artist_list}).\nUse booru-style tags for specific information like body type, positions,\nand camera angles. Use natural language for complex scene composition.\nIMPORTANT: Tags use spaces, NOT underscores (e.g. 'long hair' not 'long_hair').\nAlways start with 'masterpiece, best quality'.\nNote: Text later in the prompt has MORE effect, so put the most important details at the end.{lora_triggers}\n\nThe aspect_ratio parameter controls image shape: square (1:1), portrait (3:4), landscape (4:3), tall (9:16), wide (16:9). Default is square.\n\nIMPORTANT: Anima cannot render text in images. If the user needs text in an illustration, generate the image without text first, then use the edit_image tool to add text.\n\nIMPORTANT: The generated image may not appear inline in the conversation, but it IS sent to the user. Do not assume the generation failed just because you cannot see the image.",
+  "tool_description": "This tool generates images using the Anima model via ComfyUI.\nAnima supports a mix of booru tags and natural language prompting.\nPrompts MUST follow this order:\n\n@artist, masterpiece, best quality, [character] from [series/game/etc],\n[description of the character], [tags or NLP describing the scene]\n\nUse the @ prefix for artist styles ({artist_list}).\nUse booru-style tags for specific information like body type, positions,\nand camera angles. Use natural language for complex scene composition.\nIMPORTANT: Tags use spaces, NOT underscores (e.g. 'long hair' not 'long_hair').\nAlways start with 'masterpiece, best quality'.\nNote: Text later in the prompt has MORE effect, so put the most important details at the end.{lora_triggers}\n\nThe aspect_ratio parameter controls image shape: square (1:1), portrait (3:4), landscape (4:3), tall (9:16), wide (16:9). Default is square.\n\nIMPORTANT: Anima cannot render text in images. If the user needs text in an illustration, generate the image without text first, then use the edit_image tool to add text.\n\nIMPORTANT: The generated image may not appear inline in the conversation, but it IS sent to the user. Do not assume the generation failed just because you cannot see the image.",
+  "default_artist_list": "@cutesexyrobutts, @shuuko \\(s h uuko\\), @nyantcha, @bone nigi",
+  "models": [
+    {
+      "filename": "anima-base-v1.0.safetensors",
+      "subfolder": "diffusion_models",
+      "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/diffusion_models/anima-base-v1.0.safetensors",
+      "size_bytes": 4489052392,
+      "sha256": "bd43b7cffe1ed1153d9c41e7beb2f18cb1273eafbaa3af3edd6a173dc90a006e"
+    },
+    {
+      "filename": "qwen_3_06b_base.safetensors",
+      "subfolder": "text_encoders",
+      "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/text_encoders/qwen_3_06b_base.safetensors",
+      "size_bytes": 1192135096,
+      "sha256": "cd2a512003e2f9f3cd3c32a9c3573f820bb28c940f73c57b1ddaa983d9223eba"
+    },
+    {
+      "filename": "qwen_image_vae.safetensors",
+      "subfolder": "vae",
+      "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/vae/qwen_image_vae.safetensors",
+      "size_bytes": 253806246,
+      "sha256": "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
+    }
+  ],
+  "workflow": {
+    "8": {
+      "inputs": { "samples": ["19", 0], "vae": ["15", 0] },
+      "class_type": "VAEDecode",
+      "_meta": { "title": "VAE Decode" }
+    },
+    "12": {
+      "inputs": {
+        "text": "worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, sepia, mask, black face, scaled face, watermark, signature",
+        "clip": ["45", 0]
+      },
+      "class_type": "CLIPTextEncode",
+      "_meta": { "title": "CLIP Text Encode (Negative Prompt)" }
+    },
+    "15": {
+      "inputs": { "vae_name": "qwen_image_vae.safetensors" },
+      "class_type": "VAELoader",
+      "_meta": { "title": "Load VAE" }
+    },
+    "19": {
+      "inputs": {
+        "seed": 0, "steps": 30, "cfg": 4, "sampler_name": "er_sde",
+        "scheduler": "simple", "denoise": 1,
+        "model": ["44", 0], "positive": ["55", 0],
+        "negative": ["12", 0], "latent_image": ["28", 0]
+      },
+      "class_type": "KSampler",
+      "_meta": { "title": "KSampler" }
+    },
+    "28": {
+      "inputs": { "width": 1536, "height": 1536, "batch_size": 1 },
+      "class_type": "EmptyLatentImage",
+      "_meta": { "title": "Empty Latent Image" }
+    },
+    "44": {
+      "inputs": { "unet_name": "anima-base-v1.0.safetensors", "weight_dtype": "default" },
+      "class_type": "UNETLoader",
+      "_meta": { "title": "Load Diffusion Model" }
+    },
+    "45": {
+      "inputs": { "clip_name": "qwen_3_06b_base.safetensors", "type": "stable_diffusion", "device": "default" },
+      "class_type": "CLIPLoader",
+      "_meta": { "title": "Load CLIP" }
+    },
+    "55": {
+      "inputs": { "text": "", "clip": ["45", 0] },
+      "class_type": "CLIPTextEncode",
+      "_meta": { "title": "CLIP Text Encode (Prompt)" }
+    },
+    "57": {
+      "inputs": { "filename_prefix": "comfy-gen", "images": ["8", 0] },
+      "class_type": "SaveImage",
+      "_meta": { "title": "Save Image" }
+    }
+  },
+  "prompt_node_id": "55",
+  "seed_nodes": [{"node_id": "19", "field": "seed"}],
+  "dimension_nodes": {
+    "width": [{"node_id": "28", "field": "width"}],
+    "height": [{"node_id": "28", "field": "height"}]
+  },
+  "max_pixels": 2359296
+}

@@ -1,0 +1,185 @@
+{
+  "name": "z_image_turbo",
+  "display_name": "Z-Image Turbo",
+  "description": "High quality turbo image generation model (8GB+ VRAM required)",
+  "tool_name": "generate_realistic_image",
+  "is_default": true,
+  "group_tool_description": "This tool generates realistic/general-purpose images via ComfyUI.\nUse natural language to describe the image you want. Be specific about composition, lighting, style, and subject.\n\nExamples:\n- A photorealistic portrait of an elderly man with weathered skin, dramatic side lighting\n- A cozy coffee shop interior with warm morning light streaming through windows, watercolor style\n- A futuristic cityscape at sunset with flying vehicles, cinematic wide shot\n\nNote: The first generation after launching ComfyUI may take 1-2 minutes while the model loads into GPU memory. If the request times out, please retry.\n\nThe aspect_ratio parameter controls image shape: square (1:1), portrait (3:4), landscape (4:3), tall (9:16), wide (16:9). Default is square.\n\nIMPORTANT: The generated image may not appear inline in the conversation, but it IS sent to the user. Do not assume the generation failed just because you cannot see the image.",
+  "tool_description": "This tool generates images using the Z-Image Turbo model via ComfyUI.\nZ-Image Turbo is a fast, high quality image generation model optimized for speed.\nUse natural language to describe the image you want. Be specific about composition, lighting, style, and subject.\n\nExamples:\n- A photorealistic portrait of an elderly man with weathered skin, dramatic side lighting\n- A cozy coffee shop interior with warm morning light streaming through windows, watercolor style\n- A futuristic cityscape at sunset with flying vehicles, cinematic wide shot\n\nNote: The first generation after launching ComfyUI may take 1-2 minutes while the model loads into GPU memory. If the request times out, please retry.\n\nThe aspect_ratio parameter controls image shape: square (1:1), portrait (3:4), landscape (4:3), tall (9:16), wide (16:9). Default is square.\n\nIMPORTANT: The generated image may not appear inline in the conversation, but it IS sent to the user. Do not assume the generation failed just because you cannot see the image.",
+  "models": [
+    {
+      "filename": "z-image-turbo-Q5_K_M.gguf",
+      "subfolder": "diffusion_models",
+      "url": "https://huggingface.co/unsloth/Z-Image-Turbo-GGUF/resolve/main/z-image-turbo-Q5_K_M.gguf",
+      "size_bytes": 5981921689,
+      "sha256": "847e33003ae6e85121c62785d7f7213958d58287c932d0c2189a1c9a2d1f093a"
+    },
+    {
+      "filename": "Qwen3-4B-Q5_K_M.gguf",
+      "subfolder": "text_encoders",
+      "url": "https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q5_K_M.gguf",
+      "size_bytes": 3103113216,
+      "sha256": "37edbd37f5b7a4d4e7a766400c57def1f790e809de03513b86bf11bb06979695"
+    },
+    {
+      "filename": "ae.safetensors",
+      "subfolder": "vae",
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
+      "size_bytes": 351272960,
+      "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38"
+    }
+  ],
+  "workflow": {
+    "3": {
+      "inputs": {
+        "seed": 0,
+        "steps": 9,
+        "cfg": 1,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1,
+        "model": [
+          "29",
+          0
+        ],
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "13",
+          0
+        ]
+      },
+      "class_type": "KSampler",
+      "_meta": {
+        "title": "KSampler"
+      }
+    },
+    "6": {
+      "inputs": {
+        "text": "",
+        "clip": [
+          "30",
+          0
+        ]
+      },
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "CLIP Text Encode (Positive Prompt)"
+      }
+    },
+    "7": {
+      "inputs": {
+        "text": "blurry ugly bad",
+        "clip": [
+          "30",
+          0
+        ]
+      },
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "CLIP Text Encode (Negative Prompt)"
+      }
+    },
+    "8": {
+      "inputs": {
+        "samples": [
+          "3",
+          0
+        ],
+        "vae": [
+          "17",
+          0
+        ]
+      },
+      "class_type": "VAEDecode",
+      "_meta": {
+        "title": "VAE Decode"
+      }
+    },
+    "13": {
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      },
+      "class_type": "EmptySD3LatentImage",
+      "_meta": {
+        "title": "EmptySD3LatentImage"
+      }
+    },
+    "17": {
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      },
+      "class_type": "VAELoader",
+      "_meta": {
+        "title": "Load VAE"
+      }
+    },
+    "28": {
+      "inputs": {
+        "filename_prefix": "comfy-gen",
+        "images": [
+          "8",
+          0
+        ]
+      },
+      "class_type": "SaveImage",
+      "_meta": {
+        "title": "Save Image"
+      }
+    },
+    "29": {
+      "inputs": {
+        "unet_name": "z-image-turbo-Q5_K_M.gguf"
+      },
+      "class_type": "UnetLoaderGGUF",
+      "_meta": {
+        "title": "Unet Loader (GGUF)"
+      }
+    },
+    "30": {
+      "inputs": {
+        "clip_name": "Qwen3-4B-Q5_K_M.gguf",
+        "type": "stable_diffusion"
+      },
+      "class_type": "CLIPLoaderGGUF",
+      "_meta": {
+        "title": "CLIPLoader (GGUF)"
+      }
+    }
+  },
+  "prompt_node_id": "6",
+  "seed_nodes": [
+    {
+      "node_id": "3",
+      "field": "seed"
+    }
+  ],
+  "dimension_nodes": {
+    "width": [
+      {
+        "node_id": "13",
+        "field": "width"
+      }
+    ],
+    "height": [
+      {
+        "node_id": "13",
+        "field": "height"
+      }
+    ]
+  },
+  "max_pixels": 1048576,
+  "max_pixels_limit": 4194304,
+  "required_nodes": {
+    "UnetLoaderGGUF": "ComfyUI-GGUF",
+    "CLIPLoaderGGUF": "ComfyUI-GGUF"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "comfy-gen-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Runs packages/core's tests under Pyodide, the Cloudflare Python Worker's runtime.",
+  "scripts": {
+    "test:pyodide": "node --experimental-wasm-jspi test_pyodide.mjs"
+  },
+  "dependencies": {
+    "pyodide": "314.0.7"
+  }
+}

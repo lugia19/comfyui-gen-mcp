@@ -1,13 +1,27 @@
 [project]
 name = "comfyui-gen-mcp-workspace"
 version = "0"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 
 [tool.uv]
 package = false
 
 [tool.uv.workspace]
-# The product packages join as they are written (packages/*). For now: the spikes.
-members = ["spikes/worker", "spikes/sibling"]
-# The Deploy-button template is a standalone project once copied into a user's repository.
-exclude = ["spikes/bootstrap"]
+# packages/worker is deliberately not a member: it needs Python 3.14 (Pyodide) and a workspace
+# forces every member onto the intersection of their requires-python. It depends on core by path.
+members = ["packages/core"]
+exclude = ["packages/worker", "spikes/*"]
+
+[tool.uv.sources]
+comfy-gen-core = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "comfy-gen-core[httpx]",
+    "pytest>=8.0",
+    "anyio>=4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/core/tests"]
+addopts = "-q"
