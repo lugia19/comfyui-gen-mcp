@@ -1,5 +1,143 @@
 # Comfy-Gen-MCP rewrite: build plan
 
+> **Status (2026-09-28):** M0 and M1 are done (commit 04562a3, CI green on 3.12, 3.14 and Pyodide).
+> **Next: M2**, detailed in "M2 in detail" below. The rest of this file is the overall plan.
+
+## M2 in detail: Worker, web app, bootstrap, release pipeline
+
+### Structure: the logic is testable without Cloudflare
+
+```
+packages/worker/
+  pyproject.toml          standalone pywrangler project, Python 3.14; deps: comfy-gen-core (path, editable=false)
+  wrangler.jsonc          dev config (name comfy-gen, KV, Relay DO + migration, assets, cron)
+  src/entry.py            the ONLY workers-specific file: WorkerEntrypoint adapter (Request → app.Request,
+                          app.Response → Response), scheduled(), and the KV/fetch adapters
+  src/comfy_gen_worker/   plain Python, importable under CPython for tests:
+    app.py                router: (method, path, headers, body) → Response; auth checks
+    store.py              KV-backed state behind a tiny async KV protocol: config, secrets, setup
+    auth.py               password check, HMAC cookie session
+    render.py             Brain outcome → MCP content (WebP inline + text; Pending/Failed text)
+    hooks.py              WorkerHooks.resolve_image: ref → load value; https URL → fetch + upload
+    uploads.py            request_upload snippet, POST /upload/<token> → ComfyUI /upload/image
+    setup.py              Cloudflare-token step (verify, discover account/tag/trigger), build start/status/logs
+    builds.py             Workers Builds API client (from the spike, over an injected fetch)
+    updates.py            cron: latest GitHub release against VERSION → start a build
+  tests/                  CPython tests with a fake KV, a fake fetch and FakeComfy; run from the root pytest
+```
+
+- `entry.py` provides `FetchTransport`, which implements `core.Transport` over `workers.fetch`,
+  plus a KV adapter and a clock. `app.py` receives them injected, so every route is tested under
+  CPython. Only `entry.py` needs Pyodide, and it's exercised by the `pywrangler dev` end-to-end run.
+- Root `pyproject` testpaths gain `packages/worker/tests`. Worker modules stay 3.12-compatible so
+  CI covers them on both versions.
+
+### Routes
+
+| Route | Auth | Does |
+|---|---|---|
+| `POST /mcp/<mcp_secret>` | secret path | `core.McpHandler`; `request_upload` is handled here, everything else goes to `Brain` (image_mode "refs") and then `render` |
+| `GET /img/<ref>` | HMAC ref | streams the full PNG from `/view` |
+| `POST /upload/<token>` | HMAC upload token | body is the raw image; uploads it to ComfyUI input `comfy-gen-uploads/`; returns `{"image_id": ref}` |
+| `POST /api/login`, `/api/logout` | password | sets or clears the session cookie (HMAC(cookie_key, expiry), `HttpOnly; Secure; SameSite=Strict`) |
+| `GET /api/state` | cookie | setup step, config, pack metadata (names, sizes, descriptions), `SETTINGS_SCHEMA`, connector URL once ready |
+| `PUT /api/config` | cookie | `config.normalize` → KV |
+| `POST /api/setup/cloudflare` | cookie | verify it's a user token, discover account/tag/trigger, store |
+| `POST /api/setup/generator` | cookie | advanced/dev: a direct ComfyUI URL plus optional headers (M3 adds Modal) |
+| `POST /api/setup/build`, `GET /api/setup/build` | cookie | start a build; status plus a log cursor (M3 uses it for Modal) |
+| `POST /build-callback` | nonce | stores what the build reports (M3: Modal URLs and proxy token) |
+| everything else | none | Workers Static Assets serves `web/dist` (SPA fallback), with `run_worker_first` set for the routes above |
+
+- `SETUP_PASSWORD` is a Worker secret prompted by the Deploy button.
+- The MCP secret, HMAC key and cookie key are generated on the first request and stored in KV.
+- Config and secrets are cached per isolate for 30 s, so an MCP call costs zero KV reads when warm.
+
+### Subrequest budget (verified 2026-09-28)
+
+The free plan allows **50 external subrequests per invocation** (`fetch()`), plus **1,000 to
+Cloudflare services** (KV, and by the docs' wording Durable Object calls). There's no reset over
+time: polling `/history` every second for 240 s would be 240 requests. A 250 s blocking tool call
+through a deployed Worker does work (HTTP 200 after 251.7 s, tested today), so blocking itself is
+fine. Only the request count needs managing:
+
+- `core.ComfyUIClient` gains an optional `request_budget`, counting every transport call.
+  - `wait` polls on a backoff (1, 1, 2, 2, 3, 5, 5, 8 s, then every 10 s). Queue checks drop to
+    every 5th poll.
+  - Cold-start retries in `submit` use 5 s steps, so Modal's roughly 44 s boot costs about 9
+    requests.
+  - It stops early when only the reserve for `/view` is left (2: the WebP, plus one lower-quality
+    retry). `wait` then returns `None`, which becomes `Pending` and a `fetch_result` token.
+    `fetch_result` runs as a new invocation with a fresh budget.
+- A worst case of cold start, a long generation and the view comes to about 42 requests, inside
+  a Worker budget of 46. The MCPB passes no budget, so it has no limit.
+- The relay path goes Worker → Durable Object, which counts against the 1,000 limit. The Durable
+  Object's WebSocket messages to the agent aren't subrequests. So the PC path isn't squeezed.
+- Record in `docs/design.md` §3 (Waiting) and §13.
+
+### Web app (`web/`, Svelte 5 + Vite, built `web/dist` committed)
+
+- Pages:
+  - Login.
+  - Setup:
+    - Cloudflare token: the template link, the "narrow to your account" note, then paste.
+    - Generator: Modal in M3; a direct URL for now.
+    - Packs.
+    - Connector URL with claude.ai instructions.
+  - Settings: pack choice with download sizes, max megapixels, keep-warm, all rendered from
+    `SETTINGS_SCHEMA` and pack metadata.
+- Plain handwritten CSS with light and dark themes, no UI framework. Everything goes through `/api`.
+- CI builds it and fails if `web/dist` differs from the committed copy.
+
+### Bootstrap template (`bootstrap/`) and `deploy.sh`
+
+- `wrangler.jsonc`:
+  - **name `comfy-gen`**. The button names the new repo after the Worker, so it must never be
+    `comfy-gen-mcp` or `comfy-dxt`.
+  - bindings: KV, the Relay DO with its migration, assets, a daily cron.
+- `package.json`: the deploy stub
+  `curl -fsSL "${COMFY_GEN_DEPLOY_URL:-https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/deploy.sh}" | bash`.
+  A build variable can point it at a branch's script, for testing before a release exists.
+- `.dev.vars.example`: `SETUP_PASSWORD`. No `pyproject.toml`.
+- `deploy.sh`, released as an asset:
+  - resolve the tag (latest, or `COMFY_GEN_REF`) and download its tarball
+  - lay out `packages/{core,worker}` plus `web/dist`
+  - merge the template's `name` and provisioned KV id into the release's `wrangler.jsonc`, using a
+    tolerant JSONC reader
+  - set `vars.VERSION`
+  - `uv run pywrangler deploy`
+  - M3 adds the Modal step and the callback. Every HTTP call sends a custom `User-Agent`.
+
+### Release pipeline and site
+
+- `.github/workflows/release.yml`: on a `v*` tag, create the GitHub release with `deploy.sh` as an
+  asset. `inventory.json` comes in M4.
+- `site/index.html`: prerequisites and the Deploy button. It's published through a Pages workflow
+  once the user enables Pages.
+
+### Cron updates
+
+`scheduled()` runs daily:
+- asks GitHub's API for the latest release (with a `User-Agent`, as GitHub requires)
+- if its tag is newer than `VERSION`, a token is stored, and that tag wasn't already tried: start a
+  build and record the tag in KV
+
+### Verification (M2)
+
+- CPython tests for every route, auth, render, uploads, setup, builds and updates, using fakes.
+  Core gains tests for the request budget.
+- **End to end here:**
+  - `pywrangler dev` in front of a CPU ComfyUI installed with comfy-cli in this container
+  - a custom workflow of core nodes only: EmptyImage as the titled prompt node, then SaveImage
+  - MCP driven with curl: `initialize`, `tools/list`, `generate_custom_image` → inline WebP,
+    `/img/<ref>`, `request_upload` + upload, `edit`-by-URL resolution, and a `fetch_result` timeout
+    path
+  - the web pages driven with Playwright Chromium (login, setup steps, settings save)
+- **Real deploy** (with the user's go-ahead): a Deploy-button deploy of `bootstrap/` with
+  `COMFY_GEN_DEPLOY_URL` pointed at the branch, then setup through the pages. CPU per call is read
+  from Workers Logs as in S1b.
+
+---
+
 ## Context
 
 `lugia19/comfyui-gen-mcp` is the rewrite of Comfy-Gen-MCP. There is one "brain" (packs,

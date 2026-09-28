@@ -80,3 +80,36 @@ async def test_upload_sends_multipart_and_returns_an_input_image(client, comfy):
 
 async def test_node_classes(client):
     assert "KSampler" in await client.node_classes()
+
+
+# ── request budget (the Worker's free plan allows 50 subrequests per invocation) ──
+
+def test_default_poll_schedule_backs_off():
+    c = ComfyUIClient(None)
+    delays = [c._poll_delay(i) for i in range(12)]
+    assert delays[:3] == [1, 1, 2] and delays[-1] == 10
+    assert sum(delays[:8]) < 30  # quick at first
+
+
+async def test_wait_stops_early_and_keeps_the_reserve(comfy):
+    c = ComfyUIClient(comfy, poll_interval_s=0, request_budget=12)
+    await c.submit(WF)
+    comfy.history = ["running"] * 100
+    assert await c.wait("p1", timeout=3600) is None
+    assert c.remaining() >= 2  # left for the image, or the queue position
+    assert await c.status_message("p1") == "Currently being generated"
+    assert c.requests_made <= 12
+
+
+async def test_cold_start_gives_up_before_the_budget_runs_out(comfy):
+    comfy.boot_503s = 100
+    c = ComfyUIClient(comfy, cold_start_s=3600, poll_interval_s=0, request_budget=10)
+    with pytest.raises(ComfyUIError, match="still starting"):
+        await c.submit(WF)
+    assert c.requests_made <= 10
+
+
+async def test_status_message_without_budget_makes_no_request(comfy):
+    c = ComfyUIClient(comfy, request_budget=0)
+    assert await c.status_message("p1") == "Generating"
+    assert comfy.calls == []

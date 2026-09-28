@@ -19,9 +19,15 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 BOOTING = (502, 503, 504)  # what a scale-to-zero host answers while a container starts
-POLL_INTERVAL_S = 1.0
-COLD_START_POLL_S = 2.0
+# Seconds between /history polls: quick at first (a warm generation takes a few seconds), then
+# sparse, so a long wait costs few requests. The Worker's free plan allows 50 per invocation.
+POLL_SCHEDULE = (1, 1, 2, 2, 3, 5, 5, 8)
+POLL_SCHEDULE_TAIL = 10
+COLD_START_POLL_S = 5.0  # Modal boots in about 44 s: ~9 retries
 QUEUE_CHECK_EVERY = 5  # polls between queue checks while nothing looks wrong
+# Requests kept back for after the wait: the result image and one re-request at lower quality, or
+# the queue position for a Pending answer.
+BUDGET_RESERVE = 2
 
 
 class ComfyUIError(Exception):
@@ -117,18 +123,51 @@ def encode_multipart(fields: dict[str, str], files: dict[str, tuple[str, bytes, 
 
 
 class ComfyUIClient:
-    def __init__(self, transport: Transport, cold_start_s: float = 0, poll_interval_s: float = POLL_INTERVAL_S):
+    """
+    cold_start_s     how long submit() keeps retrying while the host answers 502/503/504
+    poll_interval_s  fixed seconds between polls (tests); None follows POLL_SCHEDULE
+    request_budget   max transport requests this client may make (the Worker's per-invocation
+                     subrequest limit); None means unlimited. wait() stops early, returning None,
+                     when only BUDGET_RESERVE requests are left.
+    """
+
+    def __init__(
+        self,
+        transport: Transport,
+        cold_start_s: float = 0,
+        poll_interval_s: float | None = None,
+        request_budget: int | None = None,
+    ):
         self.transport = transport
         self.cold_start_s = cold_start_s
         self.poll_interval_s = poll_interval_s
+        self.request_budget = request_budget
+        self.requests_made = 0
         self.client_id = secrets.token_hex(16)
+
+    def remaining(self) -> int | None:
+        return None if self.request_budget is None else self.request_budget - self.requests_made
+
+    def _can_spend(self, n: int) -> bool:
+        """Whether n more requests fit while keeping the reserve."""
+        left = self.remaining()
+        return left is None or left - n >= BUDGET_RESERVE
+
+    async def _request(self, method: str, path: str, **kw) -> Response:
+        self.requests_made += 1
+        return await self.transport.request(method, path, **kw)
+
+    def _poll_delay(self, polls: int) -> float:
+        if self.poll_interval_s is not None:
+            return self.poll_interval_s
+        return POLL_SCHEDULE[polls] if polls < len(POLL_SCHEDULE) else POLL_SCHEDULE_TAIL
 
     async def submit(self, workflow: dict) -> str:
         """Queue a workflow and return its prompt_id, waiting out a cold start when allowed."""
         body = json.dumps({"prompt": workflow, "client_id": self.client_id}).encode()
         deadline = time.monotonic() + self.cold_start_s
         while True:
-            resp = await self.transport.request(
+            resp = await self._request(
                 "POST", "/prompt", headers={"Content-Type": "application/json"}, body=body,
             )
             if resp.status == 200:
@@ -137,6 +176,9 @@ class ComfyUIClient:
                 raise ComfyUIError(_rejection(resp))
             if time.monotonic() > deadline:
                 raise ComfyUIError(f"The GPU did not start within {self.cold_start_s:.0f}s.")
+            # Leave room for at least one more submit and a couple of polls after it.
+            if not self._can_spend(3):
+                raise ComfyUIError("The GPU is still starting up. Please try again in a minute.")
             await asyncio.sleep(COLD_START_POLL_S)
 
     async def wait(self, prompt_id: str, timeout: float) -> list[OutputImage] | None:
@@ -149,6 +191,9 @@ class ComfyUIClient:
         interrupted = False  # saw a 5xx since we started waiting
         polls = 0
         while True:
+            # A poll can cost up to three requests (history, queue, history again).
+            if not self._can_spend(3):
+                return None
             entry, status = await self._history_entry(prompt_id)
             interrupted = interrupted or status >= 500
             if entry is not None:
@@ -164,10 +209,13 @@ class ComfyUIClient:
                 raise ComfyUIError(f"Unknown or expired request {prompt_id}: it is not queued and has no result.")
             if time.monotonic() >= deadline:
                 return None
+            await asyncio.sleep(self._poll_delay(polls))
             polls += 1
-            await asyncio.sleep(self.poll_interval_s)
 
     async def status_message(self, prompt_id: str) -> str:
+        left = self.remaining()
+        if left is not None and left < 1:
+            return "Generating"
         pos = await self._queue_position(prompt_id)
         if pos == 0:
             return "Currently being generated"
@@ -176,7 +224,7 @@ class ComfyUIClient:
         return "Generating"
 
     async def _history_entry(self, prompt_id: str) -> tuple[dict | None, int]:
-        resp = await self.transport.request("GET", f"/history/{prompt_id}")
+        resp = await self._request("GET", f"/history/{prompt_id}")
         if resp.status != 200:
             return None, resp.status
         entry = resp.json().get(prompt_id)
@@ -190,7 +238,7 @@ class ComfyUIClient:
     async def _queue_position(self, prompt_id: str) -> int | None:
         """0 if running, n > 0 if pending at position n, None if not queued. An unreadable queue
         counts as running, so a flaky read never fails a live job."""
-        resp = await self.transport.request("GET", "/queue")
+        resp = await self._request("GET", "/queue")
         if resp.status != 200:
             return 0
         q = resp.json()
@@ -207,7 +255,7 @@ class ComfyUIClient:
         params = image.params()
         if preview:
             params["preview"] = preview
-        resp = await self.transport.request("GET", "/view", params=params, timeout=60)
+        resp = await self._request("GET", "/view", params=params, timeout=60)
         if resp.status != 200:
             raise ComfyUIError(f"Could not fetch {image.filename} (HTTP {resp.status}).")
         return resp
@@ -218,7 +266,7 @@ class ComfyUIClient:
         if subfolder:
             fields["subfolder"] = subfolder
         body, ctype = encode_multipart(fields, {"image": (filename, data, mime)})
-        resp = await self.transport.request(
+        resp = await self._request(
             "POST", "/upload/image", headers={"Content-Type": ctype}, body=body, timeout=120,
         )
         if resp.status != 200:
@@ -228,7 +276,7 @@ class ComfyUIClient:
 
     async def node_classes(self) -> set[str]:
         """Every node class this ComfyUI knows. /object_info is large: callers should cache it."""
-        resp = await self.transport.request("GET", "/object_info", timeout=60)
+        resp = await self._request("GET", "/object_info", timeout=60)
         if resp.status != 200:
             raise ComfyUIError(f"Could not read ComfyUI's node list (HTTP {resp.status}).")
         return set(resp.json())

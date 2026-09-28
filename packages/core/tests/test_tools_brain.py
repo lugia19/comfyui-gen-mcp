@@ -132,3 +132,13 @@ async def test_unknown_tools_raise_key_error(client):
 
 def test_specs_are_json_serializable(client):
     json.dumps(brain(client).specs)
+
+
+async def test_brain_turns_an_exhausted_budget_into_a_token(comfy):
+    from comfy_gen_core.comfyui import ComfyUIClient
+
+    client = ComfyUIClient(comfy, poll_interval_s=0, request_budget=8)
+    comfy.history = ["running"] * 100
+    out = await brain(client, wait_s=3600).call("generate_realistic_image", {"prompt": "x"})
+    assert isinstance(out, Pending) and out.token == "p1"
+    assert client.requests_made <= 8

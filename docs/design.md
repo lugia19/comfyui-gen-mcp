@@ -90,6 +90,14 @@ Jobs are stateless: the request token is ComfyUI's own `prompt_id` (plus a `:los
 asked). `fetch_result` just resumes polling `/history`, so nothing is kept between requests, which
 suits the Worker and survives an MCPB restart.
 
+A 250 s blocking call through a deployed Worker works (tested 2026-09-28). What limits the wait is
+the free plan's **50 external subrequests per invocation** (plus 1,000 to Cloudflare services such
+as KV and Durable Objects), with no reset over time. So the client polls on a backoff (1, 1, 2, 2,
+3, 5, 5, 8 s, then every 10 s), retries a cold start every 5 s, and carries a request budget: when
+only the requests needed for the result image are left, it stops and returns a `fetch_result` token,
+and the next call starts with a fresh budget. A cold Modal start plus a long generation fits in
+about 42 requests. The relay path (Worker to Durable Object) counts against the 1,000 limit.
+
 ### Worker CPU budget
 
 The free plan's nominal limit is 10 ms of CPU per request. A bare Python request costs about 3 ms,
@@ -332,6 +340,8 @@ The order puts first what can be built and tested without Modal, Windows or a GP
 | Modal free compute | $30 a month, card required | Modal pricing and billing docs |
 | Workers Builds | 3,000 free minutes a month, 1 concurrent; a deploy takes 1.5 to 2.4 min | S4, 2026-09-28 |
 | MCP client timeout | 5 minutes | S8, 2026-09-28 |
+| Blocking tool call through a Worker | 250 s works | Tested, 2026-09-28 |
+| Workers free subrequests | 50 external + 1,000 to Cloudflare services, per invocation | Cloudflare limits, 2026-09-05 |
 | Builds API token | User-scoped only: an account token with Workers CI Write gets "Invalid token" (12006) | Tested, 2026-09-27 |
 | Token template link | Pre-fills all five permissions on the user-token page | Tested, 2026-09-27 |
 
