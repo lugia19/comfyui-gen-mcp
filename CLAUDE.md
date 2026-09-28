@@ -25,10 +25,12 @@ architecture, and update it when a decision changes. `docs/build-plan.md` is the
 
 The Worker runs on the free plan: 10 ms CPU per request, with some tolerance for occasional
 overruns. Measured (design doc appendix): ping, tools/list and the settings API cost 1 to 2 ms; a
-generation costs 30 to 60 ms, almost all of it in the fetches it makes (cold-start retries, polls,
-the image). So:
+generation about 11 ms warm, 17 to 19 cold. A fetch costs about 0.25 ms, a Durable Object call 0.4;
+JavaScript loops over image bytes cost the most (base64 by hand was 55 ms per MB). So:
 
-- keep fetches per request low: that is where the CPU goes, not in our code
+- base64 through `bytes.ts` `toBase64` (native `Uint8Array.toBase64` where available); never loop
+  over image bytes in JS
+- keep fetches per request low: waits go through `/comfy-gen/wait` where the generator has it
 - no heavy dependencies on the request path; request-independent data is built at module scope
 - plain data only at module scope (no stubs, `env` or I/O objects: they are request-bound)
 - image bytes are base64'd, never decoded

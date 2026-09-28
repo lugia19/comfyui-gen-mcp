@@ -53,7 +53,10 @@ keeps settings.
 A single async ComfyUI client, in the shape of Visual-Novelist's `ComfyUIClient`:
 
 - submit to `/prompt`, tolerating 502/503/504 while a scale-to-zero host boots (`cold_start_s`)
-- poll `/history`, detect a worker replaced mid-job (prompt gone from both history and queue after a 5xx)
+- wait for completion: one held request to `/comfy-gen/wait/<prompt_id>` where the generator has
+  our ComfyUI extension (the Modal image, `packages/modal_app/.../comfy_node`), otherwise poll
+  `/history` (a 404 on the wait route switches to polling); either way, detect a worker replaced
+  mid-job (prompt gone from both history and queue after a 5xx)
 - fetch outputs from `/view`, upload inputs to `/upload/image`
 - auth headers per transport
 
@@ -92,10 +95,20 @@ Jobs are stateless: the request token is ComfyUI's own `prompt_id` (plus a `:los
 asked). `fetch_result` just resumes polling `/history`, so nothing is kept between requests, which
 suits the Worker and survives an MCPB restart.
 
+Our one addition to ComfyUI's API is `GET /comfy-gen/wait/<prompt_id>?timeout=S` (up to 120 s):
+it holds the request until the prompt is done or S passes, and answers `done` (status and outputs,
+as in `/history`), `running`, `pending` with a position, or `unknown`. It reads the queue before the
+history; ComfyUI moves a finished job between the two under one lock, so no finished job reads as
+unknown. The client holds each wait for 50 s (Modal's proxy held a 50 s request, tested
+2026-09-28; Cloudflare may drop a response slower than 100 s). The PC agent (M6) serves the same
+route from its side of the relay.
+
 A 250 s blocking call through a deployed Worker works (tested 2026-09-28). What limits the wait is
 the free plan's **50 external subrequests per invocation** (plus 1,000 to Cloudflare services such
-as KV and Durable Objects), with no reset over time. So the client polls on a backoff (1, 1, 2, 2,
-3, 5, 5, 8 s, then every 10 s), retries a cold start every 5 s, and carries a request budget: when
+as KV and Durable Objects), with no reset over time. So the client waits with held requests
+where it can and otherwise polls on a backoff (1, 1, 2, 2, 3, 5, 5, 8 s, then every 10 s), retries
+a cold start every 5 s (a Modal server with no container answers 503 at once: requests don't
+queue), and carries a request budget: when
 only the requests needed for the result image are left, it stops and returns a `fetch_result` token,
 and the next call starts with a fresh budget. A cold Modal start plus a long generation fits in
 about 42 requests. The relay path (Worker to Durable Object) counts against the 1,000 limit.
@@ -104,16 +117,20 @@ about 42 requests. The relay path (Worker to Durable Object) counts against the 
 
 The free plan's limit is 10 ms of CPU per request, with some tolerance for occasional overruns
 ("if your Worker starts hitting the limit consistently, its execution will be terminated").
-Waiting on the network is not billed; what is billed is our code and, above all, each fetch.
+Waiting on the network is not billed.
 
 The Worker was Python first, and that failed this budget: a Python Worker bills about 10 ms per
 request before any of our code runs, plus about 0.24 ms per JS await and 1.8 ms per fetch, so every
-request sat at the limit and a generation cost 60 to 160 ms (appendix). In TypeScript, measured on
-the same install: ping, tools/list and the settings API cost 1 to 2 ms; a generation 30 to 60 ms,
-almost all of it in its fetches (cold-start retries, polls, the image). Generations are the rare,
-tolerated overrun. Rules for Worker code:
+request sat at the limit and a generation cost 60 to 160 ms (appendix). In TypeScript a fetch costs about
+0.25 ms and a Durable Object call about 0.4 ms; what cost most was base64 in JavaScript, 55 ms per
+MB, replaced by the native `Uint8Array.toBase64` at about 3 ms per MB (appendix, "Where a TypeScript
+generation's CPU went"). Measured on the test install: ping, tools/list and the settings API cost 1
+to 2 ms; a warm generation median 11 ms (7 to 20), a cold one 17 to 19 ms, an edit 9 ms.
+Generations are the rare, tolerated overrun. Rules for Worker code:
 
-- keep fetches per request low; they are the cost
+- base64 with `toBase64` from `bytes.ts` (native where the runtime has it); no per-byte JS loops
+  over images
+- keep fetches per request low: cheap each, but a generation's polls added up
 - no heavy dependencies on the request path; request-independent data is built at module scope
 - plain data only at module scope (stubs, `env` and I/O objects are bound to their request)
 - image bytes are only base64'd, never decoded
@@ -440,6 +457,34 @@ through its own setup API and Workers Builds:
   the 160 to 540 KB results explains only a few ms of that, and CPU does not track wall time or
   poll count. **Open risk:** well above the free plan's nominal 10 ms; nothing has failed, and the
   S1 SDK failure was at about 2,000 ms. To investigate with probes, as for the M2 figures.
+
+**Where a TypeScript generation's CPU went, 2026-09-28: base64, not fetches.** A throwaway probe
+Worker (`comfy-gen-cpuprobe`, deleted after), 10 calls per route, billed `cpuTimeMs` medians:
+
+| Route | Median CPU |
+|---|---|
+| no work | 0 ms |
+| 1 / 10 / 20 sequential fetches (small body) | 1 / 3 / 5.5 ms (about 0.25 ms each) |
+| 10 fetches in parallel | 1.5 ms |
+| 1 / 5 fetches of a 314 KB body | 1 / 4 ms |
+| 1 / 10 Durable Object RPC calls | 1 / 4 ms |
+| 1 MB of random bytes (the baseline for the rows below) | 2 ms |
+| base64 of 1 MB, chunked `String.fromCharCode(...)` + `btoa` (what `bytes.ts` did) | 55.5 ms |
+| same with `String.fromCharCode.apply` | 11.5 ms |
+| `Uint8Array.prototype.toBase64` (native), plus `JSON.stringify` | 5 ms |
+| `JSON.stringify` of a 1.33 MB string alone | 7.5 ms |
+| a 3 s sleep | 0 ms |
+
+So fetches were never the TypeScript Worker's problem (the 1.8 ms per fetch was Pyodide's), and the
+spread-argument base64 was. `bytes.ts` now uses the native encoder, keeping the chunked one for
+Node 22. Polling was replaced anyway, since a generation made 10 to 25 requests: ComfyUI in the
+Modal image gets `/comfy-gen/wait` (§3). Against a local ComfyUI 0.37.0, a 21.7 s job took two
+requests (submit, one wait) instead of about eleven, and the result arrives when it is saved rather
+than at the next poll. Live, after both changes (7 warm and 2 cold generations, one edit):
+warm generations 7 to 20 ms, median 11 (were about 30); cold 17 and 19 ms (was 31); an edit
+returning a 268 KB image 9 ms (was 59). The rest is not yet itemized: a warm generation makes about
+three fetches and three Durable Object calls, returns a 300 to 600 KB JSON body, and the bare MCP
+request costs 1 to 2 ms.
 
 **TypeScript port, 2026-09-28: switched live without losing state.** `core` and the Worker were
 ported line for line; golden vectors generated from the Python code pinned image ids, upload tokens,
