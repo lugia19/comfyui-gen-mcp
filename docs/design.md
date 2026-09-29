@@ -459,6 +459,20 @@ through its own setup API and Workers Builds:
   poll count. **Open risk:** well above the free plan's nominal 10 ms; nothing has failed, and the
   S1 SDK failure was at about 2,000 ms. To investigate with probes, as for the M2 figures.
 
+**Redeploying under load, 2026-09-29: no `max_containers=1`.** Five jobs queued on a warm server,
+then `modal deploy` of the same app:
+
+- with `max_containers=1`: the running container was stopped at once; every request answered 503
+  for about 25 s while the replacement booted, and all five jobs were lost (`unknown` afterwards)
+- without it: a replacement started beside the old container, which kept serving and finished four
+  jobs; the fifth was lost in the handover (`unknown`), with no 503s
+
+Without `target_concurrency` a Server does not autoscale, so dropping the limit keeps one container
+in normal use: four jobs submitted at once during a cold start started one container. The client
+reports a lost job as an unknown request rather than hanging. Redeploys only happen on setup and
+update builds. Not tried: `Modal-Session-ID` (sticky routing) to keep a job's requests on the old
+container until it finishes.
+
 **Itemizing a warm generation, 2026-09-28: about 6 ms of work, the rest is platform variance.**
 A throwaway Worker (`comfy-gen-cpuprobe`, deleted after) bundled the real `App` and ran the MCP
 generate path with pieces swapped out, 12 to 20 calls per variant, billed `cpuTimeMs` medians:

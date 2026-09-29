@@ -148,7 +148,8 @@ def _watch_reloads(started: float) -> None:
     port=COMFY_PORT,
     name=SERVER_NAME,
     scaledown_window=KEEP_WARM_S,
-    max_containers=1,
+    # One container: without target_concurrency a Server does not autoscale. max_containers=1
+    # would also stop a redeploy from starting the replacement before the old one goes.
     startup_timeout=300,
 )
 class Comfy:
