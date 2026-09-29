@@ -72,8 +72,28 @@ tag from the `github.com/<repo>/releases/latest` redirect (as the Worker's cron 
 that release's `comfy-gen-server.mjs`, checked against its `.sha256`, for the next start. Two
 cached bundles are kept. The shim changes only when users reinstall the `.mcpb`, so everything else
 lives in the bundle. The tray icon is systray2's helper binary, downloaded once, pinned by SHA-256;
-where it cannot run, there is no tray and the settings URL is in the tool answers. Everything else lives in the old extension's folder, `~/.comfy-gen-mcp`: the
-config file (read as it is, with the old keys migrated), the managed ComfyUI and its models.
+where it cannot run, there is no tray and the settings URL is in the tool answers. The icon's
+color is the state: green running, yellow stopped or starting, red when something needs the user
+(ComfyUI failed or is not installed, a download failed).
+
+Everything else lives in `~/.comfy-gen-mcp`, the old extension's folder: the config file
+(`config.json`; the old `local_config.json` is not read, there being two users to move), the
+managed ComfyUI (ours only: an install without our marker file is replaced by the next install,
+which keeps its models, outputs and inputs) and its models.
+
+**Models already on the machine are used where they are** (`local/discover.ts`), since they are
+many GB. The managed ComfyUI reads, through the `extra_model_paths.yaml` written at each start:
+- the user's extra models folder
+- ComfyUI installs found through comfy-cli's config, the ComfyUI Desktop app's config, the
+  `~/.comfy-registry` entries (Visual-Novelist's too), and a shallow scan of home, Desktop,
+  Documents, Downloads and each Windows drive root for folders named like ComfyUI
+- for each install found, the folders its own `extra_model_paths.yaml` names (often a big model
+  drive), with ComfyUI's folder aliases (`unet` is `diffusion_models`, `clip` is `text_encoders`)
+
+Only what is in none of them is downloaded, into ours. The selected packs download as soon as
+there is a managed ComfyUI (at start, after an install, when the selection changes), as the Worker
+seeds Modal after setup; a tool whose models are still coming says how much is left. The settings
+page lists the sources found.
 
 ## 3. Generation path
 

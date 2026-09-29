@@ -52,13 +52,15 @@ process". It shares `core` with the Worker, and the machine side (`packages/loca
 (M6), so the lifecycle code is written once. Remote use is not its job: that is the Worker's.
 
 1. **`packages/local`**, ported from the old `server/` without Qt:
-   - paths (`~/.comfy-gen-mcp`), the config file with the old keys migrated
+   - paths (`~/.comfy-gen-mcp`), the config file (not migrated from the old extension)
    - GPU detection; ComfyUI installed with a pinned uv, no comfy-cli (design §11); reuse of an old
      install
    - starting ComfyUI on a probed port, stopping it with its process tree, idle stop
    - the `/comfy-gen/wait` extension written into `custom_nodes`, pack nodes from the Comfy Registry
-   - `extra_model_paths.yaml` and the `~/.comfy-registry` shared with Visual-Novelist
-   - the model download queue, with state the settings page reads
+   - other ComfyUI installs' model folders found and shared through `extra_model_paths.yaml`, and
+     the `~/.comfy-registry` shared with Visual-Novelist
+   - the model download queue, started for the selected packs at once, with state the settings
+     page reads
 2. **The server** (`packages/mcpb/src/server`), in the process that owns the port:
    - the `core` MCP handler in image mode "paths", with `LocalHooks` (ComfyUI running, nodes and
      models present; images by path or URL)
