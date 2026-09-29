@@ -3,7 +3,8 @@
 > **Status (2026-09-29):** M0–M4 are built and verified live on the test install
 > `comfy-gen.yuri-f92.workers.dev`; v1.0.0 (M3) is released. `core` and the Worker are TypeScript
 > (design doc §3 "Worker CPU budget", §11, appendix), which leaves the Modal app as the only Python.
-> M4 shipped as LoRAs only (below); it goes out in the next release. M5 and M6 (MCPB, agent) are
+> M4 shipped as LoRAs only (below); it goes out in v1.1.0 with the update-check fix (the first
+> cron check could not see v1.0.0: design appendix, "First cron update"). M5 and M6 (MCPB, agent) are
 > Node. Module names below are from the Python era; the TypeScript files keep the same split. The
 > rest of this file is the overall plan.
 >
