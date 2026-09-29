@@ -8,7 +8,7 @@
 // {app, install_path, models_dir, sees, updated_at}, named <app>-<sha1(canonical path)[:8]>.json.
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
 
@@ -23,6 +23,11 @@ export const SHARED_SUBFOLDERS = [
 const ALIASES: Record<string, string[]> = {
   diffusion_models: ["unet"], unet: ["diffusion_models"], text_encoders: ["clip"], clip: ["text_encoders"],
 };
+/** The type ComfyUI files an alias under: unet and diffusion_models are one list, as are clip and
+ * text_encoders. */
+export function canonType(type: string): string {
+  return type === "unet" ? "diffusion_models" : type === "clip" ? "text_encoders" : type;
+}
 const NOT_MODELS = new Set(["base_path", "is_default", "custom_nodes", "download_model_base"]);
 
 /** Folder type ("loras") -> folders, in search order. */
@@ -38,6 +43,25 @@ export function registryDir(): string {
 export function canonPath(path: string): string {
   const p = normalize(resolve(path));
   return process.platform === "win32" ? p.toLowerCase().replace(/\//g, "\\") : p;
+}
+
+/** Identity for deduplicating folders: the real path, so a junction or symlink to a folder counts
+ * as that folder (seen live: one model drive reached through three junctions). */
+export function folderKey(path: string): string {
+  try {
+    return canonPath(realpathSync.native(path));
+  } catch {
+    return canonPath(path);
+  }
+}
+
+/** Whether a folder holds anything besides ComfyUI's put_*_here placeholder files. */
+export function hasEntries(dir: string): boolean {
+  try {
+    return readdirSync(dir).some((n) => !/^put_.*_here$/i.test(n));
+  } catch {
+    return false;
+  }
 }
 
 export function isDir(path: string): boolean {
@@ -61,8 +85,8 @@ const expandHome = (s: string) => (s === "~" || s.startsWith("~/") || s.startsWi
 /** The sections of an extra_model_paths.yaml (ComfyUI's format), resolved as ComfyUI does: a
  * relative base_path is relative to the file, and each path to base_path. Folders that don't
  * exist are left out. A small parser for that one format, not general YAML. */
-export function parseExtraModelPaths(text: string, yamlDir: string): ModelFolders[] {
-  const sections: { base: string; entries: [string, string[]][] }[] = [];
+export function parseExtraModelPaths(text: string, yamlDir: string): { name: string; folders: ModelFolders }[] {
+  const sections: { name: string; base: string; entries: [string, string[]][] }[] = [];
   let current: (typeof sections)[number] | null = null;
   let block: { indent: number; list: string[] } | null = null;
   for (const raw of text.split(/\r?\n/)) {
@@ -82,7 +106,7 @@ export function parseExtraModelPaths(text: string, yamlDir: string): ModelFolder
     if (!m) continue;
     const [, key, rest] = m;
     if (indent === 0) {
-      current = { base: "", entries: [] };
+      current = { name: key.trim(), base: "", entries: [] };
       sections.push(current);
       continue;
     }
@@ -98,7 +122,7 @@ export function parseExtraModelPaths(text: string, yamlDir: string): ModelFolder
       current.entries.push([key.trim(), [unquote(value)]]);
     }
   }
-  return sections.map(({ base, entries }) => {
+  return sections.map(({ name, base, entries }) => {
     let b = base ? expandHome(base) : "";
     if (b && !isAbsolute(b)) b = join(yamlDir, b);
     const out: ModelFolders = {};
@@ -109,7 +133,7 @@ export function parseExtraModelPaths(text: string, yamlDir: string): ModelFolder
         if (isDir(full)) (out[key] ??= []).push(full);
       }
     }
-    return out;
+    return { name, folders: out };
   });
 }
 
@@ -120,7 +144,7 @@ export function mergeFolders(sources: ModelFolders[]): ModelFolders {
   for (const src of sources) {
     for (const [type, dirs] of Object.entries(src)) {
       for (const d of dirs) {
-        const key = `${type}\n${canonPath(d)}`;
+        const key = `${canonType(type)}\n${folderKey(d)}`;
         if (seen.has(key)) continue;
         seen.add(key);
         (out[type] ??= []).push(d);

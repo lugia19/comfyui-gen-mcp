@@ -9,8 +9,9 @@
 import { request as httpRequest } from "node:http";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
+import { McpHandler, toolSpecs } from "@comfy-gen/core";
 import { loadConfig, log, logTo, openExternal, paths, type Paths } from "@comfy-gen/local";
-import type { Services } from "./server/app.ts";
+import { PACKS, type Services } from "./server/app.ts";
 import { startServer, type RunningServer } from "./server/server.ts";
 import { Tray } from "./tray.ts";
 
@@ -105,13 +106,13 @@ export async function main(opts: MainOptions): Promise<void> {
     let shown = color();
     const t = await Tray.start(p, icons[shown], `Comfy-Gen-MCP: ${status()}`, [
       { title: "Open settings", onClick: () => openExternal(server.app.settingsUrl) },
-      { title: status(), enabled: false },
+      { title: status() }, // enabled: a disabled item is too faint to read (seen on Windows); clicking does nothing
       { title: "Restart ComfyUI", onClick: () => void comfy.restart().catch((e) => log.error("Restart failed:", e)) },
       { title: "Stop ComfyUI", onClick: () => void comfy.stop() },
     ]);
     if (t) {
       setInterval(() => {
-        t.update(1, { title: status(), enabled: false });
+        t.update(1, { title: status() });
         const now = color();
         if (now !== shown) t.setIcon(icons[(shown = now)], `Comfy-Gen-MCP: ${status()}`);
       }, 2000).unref();
@@ -133,7 +134,13 @@ export async function main(opts: MainOptions): Promise<void> {
       if (foreign && !owner) {
         if (await becomeOwner()) continue; // it quit meanwhile
         foreign = !(await ownerIsOurs(cfg.mcp_port));
-        if (foreign) throw new Error(FOREIGN_OWNER(cfg.mcp_port));
+        // Answer ourselves: initialize and tools/list normally, tool calls with what to do. An
+        // error on initialize would only show as a failed extension, the reason buried in logs.
+        if (foreign) {
+          const message = FOREIGN_OWNER(cfg.mcp_port);
+          const handler = new McpHandler("Comfy-Gen-MCP", opts.version, toolSpecs(PACKS, cfg, "paths"), async () => [[{ type: "text", text: `Error: ${message}` }], true]);
+          return handler.handle(line);
+        }
       }
       if (owner) {
         const req = new Request(`http://127.0.0.1:${owner.port}${cfg.mcp_path}`, {

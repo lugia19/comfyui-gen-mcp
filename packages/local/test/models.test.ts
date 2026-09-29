@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -12,11 +12,17 @@ const mk = (...parts: string[]) => {
   mkdirSync(p, { recursive: true });
   return p;
 };
-/** A ComfyUI folder with a models folder holding *subs*. */
+/** A folder holding one model file (empty folders are not sources). */
+const full = (...parts: string[]) => {
+  const p = mk(...parts);
+  writeFileSync(join(p, "model.safetensors"), "");
+  return p;
+};
+/** A ComfyUI folder with a models folder holding *subs*, each with a model in it. */
 const comfy = (path: string, subs: string[] = ["checkpoints"]) => {
   mk(path);
   writeFileSync(join(path, "main.py"), "");
-  for (const s of subs) mk(path, "models", s);
+  for (const s of subs) full(path, "models", s);
   return path;
 };
 
@@ -55,8 +61,8 @@ other:
     custom_nodes: custom_nodes
 `;
     const [a, b] = parseExtraModelPaths(yaml, d);
-    expect(a).toEqual({ checkpoints: [join(drive, "Stable-diffusion")], loras: [join(drive, "Lora"), join(drive, "LyCORIS")] });
-    expect(b).toEqual({ vae: [join(d, "rel", "vae")] });
+    expect(a).toEqual({ name: "a111", folders: { checkpoints: [join(drive, "Stable-diffusion")], loras: [join(drive, "Lora"), join(drive, "LyCORIS")] } });
+    expect(b).toEqual({ name: "other", folders: { vae: [join(d, "rel", "vae")] } });
   });
 
   it("writes one section per source, and reads back the same", () => {
@@ -65,7 +71,7 @@ other:
     const y = mk(dir(), "unet");
     writeExtraModelPaths(d, [{ loras: [x] }, {}, { unet: [y], loras: [x] }]);
     const text = readFileSync(join(d, "extra_model_paths.yaml"), "utf8");
-    expect(parseExtraModelPaths(text, d)).toEqual([{ loras: [x] }, { unet: [y], loras: [x] }]);
+    expect(parseExtraModelPaths(text, d).map((s) => s.folders)).toEqual([{ loras: [x] }, { unet: [y], loras: [x] }]);
     writeExtraModelPaths(d, []);
     expect(existsSync(join(d, "extra_model_paths.yaml"))).toBe(false);
   });
@@ -90,18 +96,34 @@ describe("discovery", () => {
     writeFileSync(join(home, ".config", "comfy-cli", "config.ini"), `[DEFAULT]\ndefault_workspace = ${cli}\n`);
     // a portable build found by the scan, whose yaml names a big model drive
     const portable = comfy(join(home, "Downloads", "ComfyUI_windows_portable", "ComfyUI"), ["checkpoints"]);
-    const drive = mk(dir(), "models", "diffusion_models");
-    writeFileSync(join(portable, "extra_model_paths.yaml"), `big:\n    diffusion_models: ${drive}\n    loras: ${join(ours, "models", "loras")}\n`);
+    const drive = full(dir(), "models", "diffusion_models");
+    const drive2 = full(dir(), "more", "loras");
+    // two sections, and a symlink to the first drive folder (a second name for it)
+    const alias = join(dir(), "alias");
+    symlinkSync(drive, alias);
+    writeFileSync(
+      join(portable, "extra_model_paths.yaml"),
+      `big:\n    diffusion_models: ${drive}\n    loras: ${join(ours, "models", "loras")}\nmore:\n    loras: ${drive2}\n    unet: ${alias}\n`,
+    );
     // the Desktop app
     const desktopBase = mk(dir(), "desktop");
-    mk(desktopBase, "models", "loras");
+    full(desktopBase, "models", "loras");
     mk(home, ".config", "ComfyUI");
     writeFileSync(join(home, ".config", "ComfyUI", "config.json"), JSON.stringify({ basePath: desktopBase }));
     // Visual-Novelist, through the registry (a models folder whose install has no main.py here)
-    const vn = mk(dir(), "vn", "models", "text_encoders");
+    const vn = full(dir(), "vn", "models", "text_encoders");
     writeFileSync(join(registry, "visual-novelist-1.json"), JSON.stringify({ app: "visual-novelist", install_path: "/gone", models_dir: join(vn, "..") }));
+    // a stale entry: an empty models folder (only a ComfyUI placeholder)
+    const stale = mk(dir(), "tmp", "comfyui", "models", "checkpoints");
+    writeFileSync(join(stale, "put_checkpoints_here"), "");
+    writeFileSync(join(registry, "visual-novelist-2.json"), JSON.stringify({ app: "visual-novelist", install_path: "/gone2", models_dir: join(stale, "..") }));
+    // the newer Comfy Desktop: an install in a folder of installs, and a models folder
+    const cdInstall = comfy(join(home, "ComfyUI-Installs", "ComfyUI", "ComfyUI"), ["vae"]);
+    const cdModels = full(dir(), "ComfyUI-Shared", "models", "upscale_models");
+    mk(home, ".config", "Comfy Desktop");
+    writeFileSync(join(home, ".config", "Comfy Desktop", "settings.json"), JSON.stringify({ modelsDirs: [join(cdModels, "..")] }));
     writeFileSync(join(registry, "comfy-gen-mcp-2.json"), JSON.stringify({ app: "comfy-gen-mcp", install_path: ours, models_dir: join(ours, "models") }));
-    const extra = mk(dir(), "extra", "vae");
+    const extra = full(dir(), "extra", "vae");
 
     const sources = discoverModelSources({ models: join(ours, "models"), comfy: ours }, join(extra, ".."), { home, platform: "linux", env: {}, registry });
     const all = sources.flatMap((s) => Object.values(s.folders).flat());
@@ -111,7 +133,14 @@ describe("discovery", () => {
     expect(all).toContain(join(portable, "models", "checkpoints"));
     expect(all).toContain(drive);
     expect(all).toContain(join(desktopBase, "models", "loras"));
+    expect(all).toContain(drive2);
+    expect(all).toContain(join(cdInstall, "models", "vae")); // found by the scan, one level deeper
+    expect(all).toContain(cdModels);
+    expect(all).not.toContain(alias); // the same folder as drive, by another name
+    expect(all.some((d) => d.includes(join("tmp", "comfyui")))).toBe(false); // nothing in it
     expect(all.some((d) => d.startsWith(ours))).toBe(false); // ours, even through another's yaml
+    const labels = sources.map((s) => `${s.from} ${s.path}`);
+    expect(new Set(labels).size).toBe(labels.length); // unique: the settings page keys on them
     expect(sources[0].from).toBe("your extra models folder");
     expect(sources.find((s) => s.folders.diffusion_models)?.from).toContain("extra_model_paths.yaml");
 

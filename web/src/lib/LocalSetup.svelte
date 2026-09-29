@@ -148,7 +148,7 @@
     <h2>Models found on this computer</h2>
     {#if info.model_sources.length}
       <p class="muted">ComfyUI uses these as they are; only what is in none of them is downloaded.</p>
-      {#each info.model_sources as src (src.from + src.path)}
+      {#each info.model_sources as src, i (i)}
         <div class="source">
           <b>{src.from}</b>
           <code>{src.path}</code>

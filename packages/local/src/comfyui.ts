@@ -3,7 +3,7 @@
 // comfyui_url, which is only checked, never managed.
 
 import type { ChildProcess } from "node:child_process";
-import { closeSync, mkdirSync, openSync, readSync, statSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readSync, renameSync, statSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { ComfyUIError } from "@comfy-gen/core";
@@ -152,6 +152,13 @@ export class LocalComfy {
     const args = ["main.py", "--listen", "127.0.0.1", "--port", String(port), "--disable-auto-launch"];
     if ((inst.gpu ?? this.settings().gpu) === "cpu") args.push("--cpu");
     mkdirSync(this.p.logs, { recursive: true });
+    // The previous run's log is kept as comfyui.prev.log: after a crash, the next start would
+    // otherwise overwrite the evidence.
+    try {
+      if (existsSync(this.logFile)) renameSync(this.logFile, join(this.p.logs, "comfyui.prev.log"));
+    } catch (e) {
+      log.warn("Could not keep the previous comfyui.log:", (e as Error).message); // a leftover ComfyUI holds it
+    }
     const fd = openSync(this.logFile, "w");
     log.info(`Starting ComfyUI: ${inst.python} ${args.join(" ")} (in ${inst.dir})`);
     // The wait extension exits ComfyUI when we are gone, however we went (comfy_node, watchdog).
@@ -209,6 +216,7 @@ export class LocalComfy {
       await killTree(child);
     }
     if (this.state === "running" || this.state === "starting") this.state = "stopped";
+    if (this.state !== "external") this.url = null;
     this.objectInfo = null;
   }
 

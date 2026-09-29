@@ -78,7 +78,12 @@ def watch_parent(pid: int, alive=pid_alive, every_s: float = 5.0, exit=os._exit)
     """Exit the process once *pid* is gone. Blocks; run it in a daemon thread."""
     while alive(pid):
         time.sleep(every_s)
-    print(f"[comfy-gen] parent process {pid} is gone; exiting", flush=True)
+    # Straight to the file descriptor: ComfyUI wraps sys.stdout in its log interceptor, whose buffer
+    # os._exit would drop (seen live: the line never reached comfyui.log).
+    try:
+        os.write(sys.__stdout__.fileno() if sys.__stdout__ else 1, f"[comfy-gen] parent process {pid} is gone; exiting\n".encode())
+    except OSError:
+        pass
     exit(0)
 
 

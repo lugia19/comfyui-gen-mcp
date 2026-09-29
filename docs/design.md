@@ -84,12 +84,16 @@ which keeps its models, outputs and inputs) and its models.
 **Models already on the machine are used where they are** (`local/discover.ts`), since they are
 many GB. The managed ComfyUI reads, through the `extra_model_paths.yaml` written at each start:
 - the user's extra models folder
-- ComfyUI installs found through comfy-cli's config, the ComfyUI Desktop app's config, the
+- ComfyUI installs found through comfy-cli's config, the ComfyUI Desktop app's config, the newer
+  Comfy Desktop app's `installations.json`, `settings.json` and `shared_model_paths.yaml`, the
   `~/.comfy-registry` entries (Visual-Novelist's too), and a shallow scan of home, Desktop,
-  Documents, Downloads and each Windows drive root for folders named like ComfyUI
+  Documents, Downloads and each Windows drive root for folders named like ComfyUI (and installs one
+  level inside them, as `ComfyUI-Installs\<name>\ComfyUI`)
 - for each install found, the folders its own `extra_model_paths.yaml` names (often a big model
   drive), with ComfyUI's folder aliases (`unet` is `diffusion_models`, `clip` is `text_encoders`)
 
+Each folder counts once, by its real path (one model drive reached through three junctions was
+seen on the user's PC), and folders holding nothing but ComfyUI's placeholder files are left out.
 Only what is in none of them is downloaded, into ours. The selected packs download as soon as
 there is a managed ComfyUI (at start, after an install, when the selection changes), as the Worker
 seeds Modal after setup; a tool whose models are still coming says how much is left. The settings

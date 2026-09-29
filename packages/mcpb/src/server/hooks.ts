@@ -1,12 +1,13 @@
 // The MCPB's machine hooks for the brain: the local ComfyUI must be running with the pack's nodes
 // and models; edit_image takes paths on this machine (Claude Desktop runs here) or URLs.
 
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  ComfyUIError, Hooks, downloadSize, imageSize, refs, requiredNodes, sniffMime, tokenUrlsafe,
+  ComfyUIError, Hooks, downloadSize, imageSize, refs, requiredNodes, sniffMime,
   type ComfyUIClient, type Pack, type ResolvedImage,
 } from "@comfy-gen/core";
 import { USER_AGENT, type LocalComfy, type ModelDownloads } from "@comfy-gen/local";
@@ -88,7 +89,9 @@ export class LocalHooks extends Hooks {
   private async upload(data: Uint8Array, source: string): Promise<ResolvedImage> {
     const mime = sniffMime(data);
     if (!mime) throw new ComfyUIError(`${source} is not a PNG, JPEG, WebP or GIF image.`);
-    const image = await this.client.upload(data, refs.uploadFilename(tokenUrlsafe(9), mime), mime, refs.UPLOAD_SUBFOLDER);
+    // Named by content: the same image edited again reuses its copy instead of adding another.
+    const name = refs.uploadFilename(createHash("sha256").update(data).digest("hex").slice(0, 16), mime);
+    const image = await this.client.upload(data, name, mime, refs.UPLOAD_SUBFOLDER);
     return [image.loadValue(), imageSize(data)];
   }
 }

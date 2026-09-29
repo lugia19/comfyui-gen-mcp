@@ -43,13 +43,15 @@ def test_wait_times_out_with_the_current_state():
     assert asyncio.run(wait_for(FakeQueue(RUNNING), "p1", -5)) == {"state": "running"}
 
 
-def test_watch_parent_exits_when_the_parent_is_gone():
+def test_watch_parent_exits_when_the_parent_is_gone(capfd):
     from comfy_gen_modal.comfy_node import watch_parent
 
     answers = iter([True, True, False])
     exited = []
     watch_parent(123, alive=lambda pid: next(answers), every_s=0, exit=exited.append)
     assert exited == [0]
+    # written to the file descriptor, past any wrapper around sys.stdout
+    assert "parent process 123 is gone" in capfd.readouterr().out
 
 
 def test_pid_alive():

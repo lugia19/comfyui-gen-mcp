@@ -78,7 +78,17 @@ generations, edits by path and missing nodes through the MCP route; several exte
 relaying to one owner, takeover after a SIGKILL, ComfyUI exiting with its owner, the shim's
 background update from a fake release server.
 
-**Left for the user's PC (Windows, NVIDIA, Claude Desktop):**
+**Checked on the user's PC (Windows 10, NVIDIA, Claude Desktop, 2026-09-30), v1.1.2:** install and
+startup, the tray, loopback-only settings (403 from every LAN, VPN and Tailscale address), model
+discovery, every tool (cold illustrated 37 s, warm 16 s), edits by path, file, URL and two images,
+keep-warm, restart and stop, custom workflows, relays, takeover (150 to 180 ms), quitting Claude
+Desktop (ComfyUI, tray and port gone in under a second), the watchdog after a hard kill (6 s), a
+foreign port owner. Claude Desktop runs the shim in its own Node (a `claude.exe` utility process),
+not `node.exe`. Fixed after it: a blank settings page with a multi-section extra_model_paths.yaml,
+the newer Comfy Desktop's installs, junction duplicates, the watchdog's missing log line, and
+smaller points in the report.
+
+**Earlier list for the user's PC:**
 - `node packages/mcpb/build.mjs vX.Y.Z` (or a release), install `Comfy-Gen-MCP.mcpb` over the old
   extension; it has the same name, `comfyui-image-gen`
 - Claude Desktop's Node runs the shim; the old install and its models are reused (or a fresh CUDA

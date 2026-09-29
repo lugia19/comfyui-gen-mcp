@@ -264,7 +264,7 @@ export class LocalApp {
     if (extra && (!existsSync(extra) || !statSync(extra).isDirectory())) return error(400, `${extra} is not a folder`);
     const cfg = this.s.saveConfig(merged);
     this.s.downloadSelected(); // a newly chosen pack starts downloading now, not at its first use
-    const warnings = this.missingLoras(cfg);
+    const warnings = [...this.missingLoras(cfg), ...(await this.customWorkflowWarnings(cfg))];
     if (current.comfyui_url !== cfg.comfyui_url || current.extra_models_dir !== cfg.extra_models_dir) {
       if (this.s.comfy.state === "running") warnings.push("Restart ComfyUI (Setup tab) for the change to take effect.");
     }
@@ -301,6 +301,22 @@ export class LocalApp {
       }
     }
     return out;
+  }
+
+  /** A custom workflow's node classes this ComfyUI lacks, checked when it is running (otherwise
+   * the check waits for the first generation). */
+  private async customWorkflowWarnings(cfg: Config): Promise<string[]> {
+    const wf = cfg.custom_workflow?.workflow;
+    const comfy = this.s.comfy;
+    if (!wf || (comfy.state !== "running" && comfy.state !== "external")) return [];
+    let have: Set<string>;
+    try {
+      have = await comfy.nodeClasses();
+    } catch {
+      return [];
+    }
+    const missing = [...new Set(Object.values(wf).map((n: any) => String(n?.class_type ?? "")))].filter((c) => c && !have.has(c)).sort();
+    return missing.length ? [`The custom workflow uses node(s) this ComfyUI does not have: ${missing.join(", ")}. Install them, or it will fail.`] : [];
   }
 
   private missingLoras(cfg: Config): string[] {

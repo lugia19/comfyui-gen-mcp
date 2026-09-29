@@ -23,11 +23,11 @@ function proc(home: string) {
   let exited = false;
   let id = 0;
   const started = main({ version: "t", waitExtension: "", web: () => null, paths: paths({ COMFY_GEN_HOME: home }), stdin, stdout, exit: () => (exited = true) });
-  const rpc = (method: string) =>
+  const rpc = (method: string, params: object = {}) =>
     new Promise<any>((resolve) => {
       const i = ++id;
       replies.set(i, resolve);
-      stdin.write(JSON.stringify({ jsonrpc: "2.0", id: i, method }) + "\n");
+      stdin.write(JSON.stringify({ jsonrpc: "2.0", id: i, method, params }) + "\n");
     });
   return { started, rpc, stdin, stdout, exited: () => exited };
 }
@@ -68,8 +68,11 @@ describe("a foreign server on the port", () => {
     await new Promise((r) => old.once("listening", r));
     const a = proc(home);
     await a.started;
-    const reply = await a.rpc("tools/list");
-    expect(reply.error.message).toContain("previous Comfy-Gen-MCP");
+    // Claude Desktop sees a working extension; the reason shows in the chat, on the first tool call.
+    expect((await a.rpc("tools/list")).result.tools.length).toBeGreaterThan(0);
+    const reply = await a.rpc("tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x" } });
+    expect(reply.result.isError).toBe(true);
+    expect(reply.result.content[0].text).toContain("previous Comfy-Gen-MCP");
     old.close();
     a.stdin.end();
   });

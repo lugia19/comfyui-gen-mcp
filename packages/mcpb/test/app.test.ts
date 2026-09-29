@@ -22,6 +22,7 @@ function world(overrides: Partial<Services> = {}) {
   const comfy = {
     state: "stopped", url: null, error: null, install: { dir: join(home, "comfyui"), python: "py", gpu: "cpu", version: "0.37.0" }, models: models_,
     refresh: async () => {}, restart: async () => {}, stop: async () => {},
+    nodeClasses: async () => new Set(["EmptyImage", "SaveImage"]),
     job: (fn: () => Promise<unknown>) => fn(),
   } as unknown as LocalComfy;
   const installState: InstallState = { state: "idle", gpu: null, lines: [], error: null };
@@ -39,7 +40,7 @@ function world(overrides: Partial<Services> = {}) {
   const app = new LocalApp(services);
   const local = (path: string, init: RequestInit = {}, remote = "127.0.0.1") =>
     app.handle(new Request(`http://127.0.0.1:${PORT}${path}`, { ...init, headers: { host: `127.0.0.1:${PORT}`, ...(init.headers as any) } }), remote);
-  return { app, p, local, opened, installs, downloadsStarted: () => downloadsStarted, cfg: () => loadConfig(p.config) };
+  return { app, p, comfy, local, opened, installs, downloadsStarted: () => downloadsStarted, cfg: () => loadConfig(p.config) };
 }
 
 const rpc = (method: string, params: object = {}) => ({ method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
@@ -100,6 +101,15 @@ describe("settings API", () => {
     expect(w.downloadsStarted()).toBe(1); // saving starts the selected packs' downloads
     expect((await put({ extra_models_dir: "/no/such/dir" })).status).toBe(400);
     expect((await put({ comfyui_url: "ftp://x" })).status).toBe(400);
+  });
+
+  it("warns on save about custom workflow nodes a running ComfyUI lacks", async () => {
+    const w = world();
+    (w.comfy as any).state = "running";
+    const workflow = { "1": { class_type: "EmptyImage", inputs: {}, _meta: { title: "Prompt" } }, "2": { class_type: "NoSuchNode", inputs: {} } };
+    const r = await (await w.local("/api/config", { method: "PUT", body: JSON.stringify({ config: { custom_workflow: { workflow, prompt_node_title: "Prompt" } } }) })).json();
+    expect(r.warnings.join()).toContain("NoSuchNode");
+    expect(r.warnings.join()).not.toContain("EmptyImage");
   });
 
   it("lists LoRAs, opens folders, starts installs", async () => {

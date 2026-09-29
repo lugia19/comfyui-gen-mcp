@@ -1,9 +1,12 @@
 // Finding the model folders already on this machine, so nothing is downloaded twice (models.ts has
 // the why). Sources, besides ours and the user's extra folder:
 //   - ComfyUI installs: comfy-cli's workspaces (its config.ini), the ComfyUI Desktop app (its
-//     config.json and extra_models_config.yaml), the ~/.comfy-registry entries, and a shallow scan
-//     of the usual places (home, Desktop, Documents, Downloads, and on Windows each drive's root)
-//     for folders named like ComfyUI
+//     config.json and extra_models_config.yaml), the newer Comfy Desktop app (installations.json,
+//     settings.json's modelsDirs, shared_model_paths.yaml), the ~/.comfy-registry entries, and a
+//     shallow scan of the usual places (home, Desktop, Documents, Downloads, and on Windows each
+//     drive's root) for folders named like ComfyUI
+// Sources whose folders are all empty are dropped (a stale registry entry in a temp folder, seen
+// live), as are folders that are the same folder by another name (junctions, symlinks).
 //   - for each install, the folders its own extra_model_paths.yaml names: that is where a big
 //     model drive usually is
 // Found folders are only read; ours is where downloads go.
@@ -11,7 +14,10 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { canonPath, isDir, mergeFolders, parseExtraModelPaths, registryDir, registryEntries, SHARED_SUBFOLDERS, standardFolders, type ModelFolders, type ModelSource } from "./models.ts";
+import {
+  canonType, folderKey, hasEntries, isDir, mergeFolders, parseExtraModelPaths, registryDir, registryEntries, SHARED_SUBFOLDERS, standardFolders,
+  type ModelFolders, type ModelSource,
+} from "./models.ts";
 
 export type DiscoverOptions = {
   home?: string;
@@ -49,10 +55,33 @@ function comfyCliWorkspaces(home: string, platform: NodeJS.Platform): string[] {
   return out;
 }
 
-function desktopAppDir(home: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string {
-  if (platform === "win32") return join(env.APPDATA || join(home, "AppData", "Roaming"), "ComfyUI");
-  if (platform === "darwin") return join(home, "Library", "Application Support", "ComfyUI");
-  return join(env.XDG_CONFIG_HOME || join(home, ".config"), "ComfyUI");
+/** An app's settings folder: %APPDATA%\<name>, ~/Library/Application Support/<name>, ~/.config/<name>. */
+function appDataDir(name: string, home: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string {
+  if (platform === "win32") return join(env.APPDATA || join(home, "AppData", "Roaming"), name);
+  if (platform === "darwin") return join(home, "Library", "Application Support", name);
+  return join(env.XDG_CONFIG_HOME || join(home, ".config"), name);
+}
+
+function readJson(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** Every string under a key named *key*, anywhere in *data*. The newer Comfy Desktop's files are
+ * not documented; this reads them without assuming more of their shape than the key. */
+function stringsUnder(data: unknown, key: string, out: string[] = []): string[] {
+  if (Array.isArray(data)) data.forEach((d) => stringsUnder(d, key, out));
+  else if (data && typeof data === "object") {
+    for (const [k, v] of Object.entries(data)) {
+      if (k === key && typeof v === "string") out.push(v);
+      else if (k === key && Array.isArray(v)) out.push(...v.filter((x): x is string => typeof x === "string"));
+      else stringsUnder(v, key, out);
+    }
+  }
+  return out;
 }
 
 function scanRoots(home: string, platform: NodeJS.Platform): string[] {
@@ -82,6 +111,11 @@ function scan(roots: string[]): string[] {
       if (/comfy/i.test(child)) {
         const c = comfyAt(path);
         if (c) found.push(c);
+        // A folder of installs, as Comfy Desktop's ComfyUI-Installs\<name>\ComfyUI.
+        else for (const inner of list(path)) {
+          const ci = comfyAt(join(path, inner));
+          if (ci) found.push(ci);
+        }
         continue;
       }
       for (const grandchild of list(path)) {
@@ -101,7 +135,8 @@ function yamlSources(yaml: string, from: string): ModelSource[] {
   } catch {
     return [];
   }
-  return parseExtraModelPaths(text, dirname(yaml)).map((folders) => ({ from, path: yaml, folders }));
+  // One source per section, each named: a yaml often has several, and the settings page lists them.
+  return parseExtraModelPaths(text, dirname(yaml)).map(({ name, folders }) => ({ from: `${from} [${name}]`, path: yaml, folders }));
 }
 
 /** Model folders on this machine besides *own* (our models folder and ComfyUI folder), in the
@@ -117,7 +152,7 @@ export function discoverModelSources(own: { models: string; comfy: string | null
 
   const installs = new Map<string, [string, string]>(); // canonical ComfyUI folder -> [folder, from]
   const addInstall = (dir: string | null, from: string) => {
-    if (dir && !installs.has(canonPath(dir))) installs.set(canonPath(dir), [dir, from]);
+    if (dir && !installs.has(folderKey(dir))) installs.set(folderKey(dir), [dir, from]);
   };
   for (const e of registryEntries(opts.registry ?? registryDir())) {
     const c = comfyAt(e.install);
@@ -125,17 +160,24 @@ export function discoverModelSources(own: { models: string; comfy: string | null
     else if (isDir(e.models)) models(e.models, `${e.app} (registry)`);
   }
   for (const ws of comfyCliWorkspaces(home, platform)) addInstall(comfyAt(ws), "comfy-cli");
-  const desktop = desktopAppDir(home, env, platform);
-  try {
-    const basePath = JSON.parse(readFileSync(join(desktop, "config.json"), "utf8")).basePath;
-    if (typeof basePath === "string" && isDir(join(basePath, "models"))) models(join(basePath, "models"), "ComfyUI Desktop");
-  } catch {
-    // no ComfyUI Desktop
+  // The ComfyUI Desktop app: its base folder and its extra models file.
+  const desktop = appDataDir("ComfyUI", home, env, platform);
+  for (const basePath of stringsUnder(readJson(join(desktop, "config.json")), "basePath")) {
+    if (isDir(join(basePath, "models"))) models(join(basePath, "models"), "ComfyUI Desktop");
   }
   sources.push(...yamlSources(join(desktop, "extra_models_config.yaml"), "ComfyUI Desktop's extra models"));
+  // The newer Comfy Desktop app: its installs, its models folders, its shared model paths.
+  const comfyDesktop = appDataDir("Comfy Desktop", home, env, platform);
+  for (const installPath of stringsUnder(readJson(join(comfyDesktop, "installations.json")), "installPath")) {
+    addInstall(comfyAt(installPath), "Comfy Desktop");
+  }
+  for (const dir of stringsUnder(readJson(join(comfyDesktop, "settings.json")), "modelsDirs")) {
+    if (isDir(dir)) models(dir, "Comfy Desktop");
+  }
+  sources.push(...yamlSources(join(comfyDesktop, "shared_model_paths.yaml"), "Comfy Desktop's shared models"));
   for (const dir of scan(opts.roots ?? scanRoots(home, platform))) addInstall(dir, "found on disk");
 
-  const ownComfy = own.comfy ? canonPath(own.comfy) : null;
+  const ownComfy = own.comfy ? folderKey(own.comfy) : null;
   for (const [key, [dir, from]] of installs) {
     if (key === ownComfy) continue;
     const label = `${from}: ${basename(dir) === "ComfyUI" ? basename(dirname(dir)) + "/ComfyUI" : basename(dir)}`;
@@ -143,21 +185,30 @@ export function discoverModelSources(own: { models: string; comfy: string | null
     sources.push(...yamlSources(join(dir, "extra_model_paths.yaml"), `${label}, its extra_model_paths.yaml`));
   }
 
-  // Ours is searched first anyway; drop it (and anything inside it) from the others.
-  const ownPrefix = canonPath(own.models);
-  const outside = (d: string) => {
-    const c = canonPath(d);
-    return c !== ownPrefix && !c.startsWith(ownPrefix + (platform === "win32" ? "\\" : "/"));
-  };
+  // Ours is searched first anyway; drop it (and anything inside it) from the others. Then each
+  // folder once (by its real path), and sources with nothing in them.
+  const ownPrefix = folderKey(own.models);
+  const sep = platform === "win32" ? "\\" : "/";
   const seen = new Set<string>();
+  const keep = (d: string) => {
+    const k = folderKey(d);
+    if (k === ownPrefix || k.startsWith(ownPrefix + sep) || !hasEntries(d)) return false;
+    return true;
+  };
+  const first = (type: string, d: string) => {
+    const k = `${canonType(type)}\n${folderKey(d)}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  };
   return sources
-    .map((s) => ({ ...s, folders: Object.fromEntries(Object.entries(s.folders).map(([t, ds]) => [t, ds.filter(outside)]).filter(([, ds]) => ds.length)) as ModelFolders }))
-    .filter((s) => {
-      const key = JSON.stringify(Object.values(s.folders).flat().map(canonPath).sort());
-      if (!Object.keys(s.folders).length || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    .map((s) => ({
+      ...s,
+      folders: Object.fromEntries(
+        Object.entries(s.folders).map(([t, ds]) => [t, ds.filter((d) => keep(d) && first(t, d))]).filter(([, ds]) => ds.length),
+      ) as ModelFolders,
+    }))
+    .filter((s) => Object.keys(s.folders).length);
 }
 
 /** Our models folder and every other source, discovered at most once a minute (the scan reads a
