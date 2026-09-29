@@ -1,8 +1,8 @@
 # Comfy-Gen-MCP design
 
-Status: design settled 2026-09-28 after the infrastructure spikes (results in the appendix). `core` and the Worker moved from Python to TypeScript the same day, after the Worker's CPU
-was measured (appendix, "CPU of a Python Worker"). This document is the source of truth for the
-rewrite; `docs/build-plan.md` is the build order.
+Status (2026-09-29): v1.1.0 released (cloud path with LoRAs); the MCPB (M5) and the agent (M6) are
+next. This document is the source of truth for the design; the appendix holds the measurements
+behind it. `docs/build-plan.md` tracks the work.
 
 Product name: Comfy-Gen-MCP. Repository: `lugia19/comfyui-gen-mcp`. The previous implementation lives
 in `lugia19/comfy-gen-mcp`, in maintenance.
@@ -25,7 +25,7 @@ GPU is. Targets:
 
 | Component | Runs on | Job |
 |---|---|---|
-| Worker | Cloudflare, Python Worker, free plan | The brain. MCP endpoint, settings and setup app, image route, config in a Durable Object, cron jobs, relay mailbox |
+| Worker | Cloudflare Worker (TypeScript), free plan | The brain. MCP endpoint, settings and setup app, image route, config in a Durable Object, cron jobs, relay mailbox |
 | ComfyUI | Modal, a PC, or localhost | The generator. We ship no handler code: ComfyUI's own HTTP API is the interface |
 | Modal app | User's Modal workspace | ComfyUI server on an L4, a Volume, a seed function, a small admin web endpoint |
 | Agent | GPU owner's PC, via the Go launcher | ComfyUI install and lifecycle, model downloads, idle stop, relays the Worker's ComfyUI calls to local ComfyUI |
@@ -162,9 +162,9 @@ its inventory live; nothing builds an `inventory.json` for Modal.
   `ImageContent` is shown to the user and seen by the model, WebP included (S2, S2c). Every result
   carries the image inline as base64. The Worker fetches `/view?filename=...&preview=webp;90`,
   where ComfyUI converts with PIL before sending (about 0.1 s on the generator, nothing in the
-  Worker), and base64s it: about 10 ms of Worker CPU per MB (S2b). If the WebP comes back over about
-  700 KB, the Worker asks again at quality 75. The MCPB encodes WebP q90 itself with Pillow (PNG
-  when `:lossless` is asked).
+  Worker), and base64s it with the runtime's native encoder (about 3 ms of Worker CPU per MB,
+  appendix). If the WebP comes back over about 700 KB, the Worker asks again at quality 75. The
+  MCPB does the same against its local ComfyUI (PNG when `:lossless` is asked).
 - **Image URLs.** A Worker route resolves a reference and streams the full-resolution PNG from
   `/view` over the right transport. Each result's text block carries the image id and this URL for
   the user. No `resource_link`.
@@ -276,7 +276,7 @@ template URL (no name, secret or variable parameters), so nothing random can rea
 either. Instead, logging in means pasting a Cloudflare user token that can see this Worker
 (`scripts-search` on its name finds it in the token's accounts), which only the account's owner can
 make. Setup needs that token anyway; the latest one replaces the stored one. The session cookie
-lasts a year; a new browser logs in with a fresh token from the same link. Under `pywrangler dev`,
+lasts a year; a new browser logs in with a fresh token from the same link. Under `wrangler dev`,
 `DEV_WORKER_HOST` names the deployed Worker to prove ownership of.
 
 Any Python code that calls a Worker (build callbacks, the upload snippet, the agent) sends its own
@@ -416,47 +416,20 @@ The order puts first what can be built and tested without Modal, Windows or a GP
 
 The spike code lived in `spikes/`; it was deleted on 2026-09-29, after S6 was recorded.
 
-**S1, 2026-09-28: the MCP SDK does not run on the free plan; a hand-rolled handler does.** 20 calls
-each through the deployed Worker (Python 3.14, Workers Logs `cpuTimeMs`):
+**The Python Worker, 2026-09-27/28 (retired).** v0 of the Worker was Python (Pyodide), so one
+Python brain could serve the Worker and the MCPB. Measured on the deployed Worker (Workers Logs
+`cpuTimeMs`):
 
-- Hand-rolled stateless JSON-RPC: all 20 `ok`, CPU 3 to 52 ms, typically about 18 ms.
-- MCP SDK 2.2.0 (`MCPServer`, stateless, JSON responses): every fresh isolate spent about 2,000 ms
-  CPU importing it and building the app, was killed (Error 1102), and left the isolate broken
-  (later requests: Error 1101, Pyodide "promising task" and "GIL not held" errors). The SDK was
-  imported lazily on its first request; importing it inside the deploy snapshot was not tried, but
-  the per-isolate app build would remain.
+- The official MCP SDK cost about 2,000 ms of CPU per fresh isolate (import and app build), was
+  killed (Error 1102) and left the isolate broken; the hand-rolled stateless handler in `core` comes
+  from this.
+- Every request billed about 10 ms before our code ran (the Python runtime; our own Python was about
+  0.1 ms), plus about 0.24 ms per JavaScript await and 1.8 ms per fetch (probe routes, 12 to 30
+  calls each; waiting was not billed). So every request sat at the free plan's limit, and a
+  generation cost 60 to 160 ms, set by how many times it called out.
+- `pywrangler` vendored a workspace sibling fine (S7), so packaging was not the problem.
 
-**S1b, 2026-09-28: where the handler's CPU goes.** SDK removed from the bundle (vendored modules
-18.7 MiB to 232 KiB), per-request log line dropped, request-independent JSON serialized at import,
-plus a `/noop` route returning a constant. 90 calls, interleaved, 5 s apart, all `ok`:
-
-| Route | Median CPU | Range | Calls at 10 ms or more |
-|---|---|---|---|
-| `/noop` (bare Python request) | 3.5 ms | 2 to 18 | 8 of 30 |
-| MCP `tools/call` `ping` | 7.5 ms | 2 to 44 | 14 of 30 |
-| MCP `tools/call` `image_inline` | 5 ms | 3 to 27 | 11 of 30 |
-
-The distribution has two clusters, 2 to 6 ms and 8 to 20 ms; the second appears even for `/noop`,
-so it is the Python runtime (a fresh or re-initialising isolate), not our code. The handler adds
-about 2 to 5 ms. 110 raw-handler calls across S1 and S1b, up to 52 ms, all succeeded.
-
-**M2 live, 2026-09-28: the product Worker, measured the S1b way.** Deploy-button install
-(`comfy-gen`), no generator, 30 MCP calls 5 s apart: median 19.5 ms CPU, max 58, all `ok`. Probe
-routes deployed to the same Worker, interleaved with the spike's unchanged `/noop`:
-
-| Route | Median CPU |
-|---|---|
-| spike `/noop` (3.5 ms in S1b) | 15.5 ms |
-| product bare route | 9 to 10.5 ms |
-| each glue step alone (URL parse, request headers, body, bytes response) | +1 to 2 ms |
-| store reads + Brain + McpHandler + handle, without the glue | about the bare route |
-| full `/mcp` | 22 to 24 ms |
-
-The platform floor moved between runs (the spike's untouched `/noop` went from 3.5 to 15.5 ms), so
-compare within one interleaved run only. The app's own Python costs about 0.13 ms per MCP request
-(Pyodide under Node). The gap between `/mcp` and a bare route is the JS-to-Python glue, spread over
-several steps; `entry.py` now copies only the `cookie` request header and no fetched response
-headers across the boundary. Nothing failed at any CPU level measured.
+That led to the TypeScript port (below): 1 to 2 ms per request.
 
 **M3 live, 2026-09-28: ComfyUI on Modal through the product.** The test install, set up entirely
 through its own setup API and Workers Builds:
@@ -592,39 +565,11 @@ Python Worker on the test install through a normal build:
 - found on the way: `/img` on a GPU scaled to zero answered 502; `/view` now waits out a cold start
   like `/prompt`.
 
-**CPU of a Python Worker, 2026-09-28: waiting is free, crossing into JavaScript is not.** A
-local CPU profile (wrangler dev DevTools) of a generate put 90% of the time in one or two samples
-per await, stretched over gaps where Python resumes after a JS promise (`onFulfilled`); counting
-only real samples gave about 8 ms of work. Probe routes on the deployed Worker, 12 calls each,
-billed `cpuTimeMs`:
-
-| Route | Median CPU |
-|---|---|
-| no awaits | 10 ms |
-| 100 awaits of a resolved JS promise | 33.5 ms (about 0.24 ms each) |
-| 15 fetches with their bodies | 37.5 ms (about 1.8 ms each) |
-| `asyncio.sleep` 0.5 s / 3 s | 6.5 / 13 ms (waiting is not billed) |
-
-So a generation's CPU is set by how many times it calls out (polls, each a fetch plus a body read,
-and a sleep between) plus a floor of about 10 ms that no Python Worker request avoids. A cold
-generation on Modal makes about 20 fetches: the 59 to 164 ms measured in M3.
-
 **S2, 2026-09-28 (claude.ai web): only inline images work.** `resource_link` alone, or with a text
 block carrying its URL: claude.ai shows "Resource links are not currently supported" and the model
 gets only name, URL and mime type. Inline `ImageContent`: shown to the user, described correctly by
 the model. Both together: the image comes through, the link is ignored. Desktop and mobile not yet
 checked.
-
-**S2b, 2026-09-28: inline results cost about 10 ms CPU per MB.** A tool fetches a JPEG over HTTP
-and returns it inline through the MCP handler (the product's result path). 15 calls each,
-interleaved, 5 s apart, all `ok`:
-
-| Inline image | Median CPU | Range |
-|---|---|---|
-| none (`/noop`) | 8 ms | 2 to 38 |
-| 243 KB | 15 ms | 7 to 62 |
-| 608 KB | 19 ms | 11 to 52 |
-| 1.18 MB | 26 ms | 17 to 116 |
 
 **S2c, 2026-09-28: inline WebP renders in claude.ai** and the model describes it correctly
 (user-tested). On three real 1 MP photos, PIL WebP q90 came out about the size of JPEG q85
@@ -685,9 +630,5 @@ Worker to agent and back: 19 to 37 ms.
 - For the agent (M6): reconnect at once after a drop and reset the backoff after any connection
   that lasted; the spike's reset only ran on a clean close, so its delay climbed to 60 s. The Worker
   should wait a few seconds for the agent to come back before failing a relayed call.
-
-**S7, 2026-09-27/28: works.** `pywrangler sync` vendors a uv workspace sibling (declared with
-`workspace = true, editable = false`) as a normal install in `python_modules/`; a path dependency
-deployed through the button imports in production (Python 3.14.2).
 
 **S8, 2026-09-28: the client timeout is 5 minutes.**
