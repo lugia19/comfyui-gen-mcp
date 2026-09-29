@@ -44,36 +44,33 @@ Decided along the way, recorded in the design doc:
   Remove both afterwards, or the install stays on the branch.
 - `bash deploy.sh --dry-run` builds without deploying.
 
-## M5: the MCPB, at parity with the old extension (Node)
+## M5: the MCPB for Claude Desktop (Node)
 
-The Claude Desktop extension, running a ComfyUI on the user's machine. It shares `core` with the
-Worker, and shares a machine-side package with the agent (M6), so the lifecycle code is written once.
+The Claude Desktop extension, running a ComfyUI on the user's machine; design §2, "The MCPB
+process". It shares `core` with the Worker, and the machine side (`packages/local`) with the agent
+(M6), so the lifecycle code is written once. Remote use is not its job: that is the Worker's.
 
-- **Machine side, ported from the old `server/` without Qt:**
-  - installing ComfyUI with comfy-cli, including its environment fixes
-  - GPU detection and the port-binding probe
-  - starting ComfyUI, and stopping it along with its whole process tree
-  - `extra_model_paths` and custom-node installs through ComfyUI-Manager
-  - a download queue with state the settings page can read
-  - single-instance guard, idle stop, and a tray icon
-  - installing the `/comfy-gen/wait` extension (`packages/modal_app/.../comfy_node`) into the
-    local ComfyUI, so waits are held there too
-- **The MCPB:**
-  - a stdio shim, as in the old extension: it spawns the server when `/alive` fails and keeps it
-    alive
-  - a local HTTP server with the `core` MCP handler at a secret path, `/alive`, the settings app,
-    and `/api/*`
-  - results as WebP through ComfyUI's `/view?preview=webp;90` (as the Worker does), plus the saved
-    file's path
-  - `Hooks`: ensure the ComfyUI process and the models are ready; resolve images by local path
-  - custom workflows back on, checked against the local ComfyUI's `/object_info` (`Brain`'s
-    `inventory`, `missingNodesMessage`)
-  - image mode "paths"
-- **Settings app:** local pages for first-run GPU choice and ComfyUI install, download progress,
-  reinstall, the extra models folder, a custom workflow, and a LoRA folder.
-- **Packaging:** `manifest.json`, a build script, and the launcher pointed at this repository.
-- **Where:** the scaffold, and whatever can be tested against a CPU ComfyUI, is done here. The
-  Windows, GPU and Claude Desktop finishing is done on the user's PC.
+1. **`packages/local`**, ported from the old `server/` without Qt:
+   - paths (`~/.comfy-gen-mcp`), the config file with the old keys migrated
+   - GPU detection, uv, the comfy-cli install with its environment fixes, reuse of an old install
+   - starting ComfyUI on a probed port, stopping it with its process tree, idle stop
+   - the `/comfy-gen/wait` extension written into `custom_nodes`, pack nodes through comfy-cli
+   - `extra_model_paths.yaml` and the `~/.comfy-registry` shared with Visual-Novelist
+   - the model download queue, with state the settings page reads
+2. **The server** (`packages/mcpb/src/server`), in the process that owns the port:
+   - the `core` MCP handler in image mode "paths", with `LocalHooks` (ComfyUI running, nodes and
+     models present; images by path or URL)
+   - results as WebP through `/view?preview=webp;90`, plus the saved file's path for edits
+   - custom workflows, checked against the local `/object_info` (`Brain`'s `inventory`)
+   - `/alive`; the settings app and `/api/*`, loopback only
+3. **The settings app** in local mode: GPU choice and install, ComfyUI status, restart and
+   reinstall, the extra models folder, download progress, a custom workflow, LoRAs from the local
+   folder.
+4. **The shim** (the `.mcpb`): bind or relay, takeover when the owner exits, the daily bundle
+   update; the tray icon. `release.yml` builds the server bundle and the `.mcpb`.
+
+**Where:** everything that can be tested against a CPU ComfyUI is done here. Windows, the GPU and
+Claude Desktop are checked on the user's PC.
 
 ## M6: agent and relay, then retirement
 

@@ -29,7 +29,7 @@ GPU is. Targets:
 | ComfyUI | Modal, a PC, or localhost | The generator. We ship no handler code: ComfyUI's own HTTP API is the interface |
 | Modal app | User's Modal workspace | ComfyUI server on an L4, a Volume, a seed function, a small admin web endpoint |
 | Agent | GPU owner's PC, via the Go launcher | ComfyUI install and lifecycle, model downloads, idle stop, relays the Worker's ComfyUI calls to local ComfyUI |
-| MCPB | Claude Desktop | Stdio shim plus a local server (small tray icon, browser settings) running the same brain against localhost ComfyUI |
+| MCPB | Claude Desktop | A stdio shim that loads the latest server bundle; one Claude Desktop process runs the local server (MCP, settings page, tray, ComfyUI lifecycle), the others relay to it |
 | Static site | GitHub Pages | Prerequisites, the Deploy button, then "open your Worker" |
 
 Separate existing repo, unchanged in role: the Go launcher (`pygo-bootstrap`).
@@ -42,8 +42,30 @@ Separate existing repo, unchanged in role: the Go launcher (`pygo-bootstrap`).
 | Worker, no GPU | Worker | State Durable Object | ComfyUI on Modal | Worker page |
 | Worker, GPU | Worker | State Durable Object | ComfyUI on the PC via the agent | Worker page |
 
-Rule: MCPB **or** Worker, never both on one machine. Both read the same config schema so switching
-keeps settings.
+Rule: an MCPB install and a Worker install are separate; a machine uses one or the other. The MCPB
+is for Claude Desktop only: it has no tunnel and no remote route, and remote use (claude.ai, mobile)
+goes through a Worker, with the PC agent (M6) when the GPU is at home. Both read the same config
+schema, so switching keeps settings.
+
+### The MCPB process
+
+There is no separate server process. Claude Desktop may start the extension more than once (one
+process per window or reload); each process tries to bind the port (9247, as in the old extension):
+
+- The one that binds it **owns** the server, in-process: the MCP route, `/alive`, the settings page
+  and `/api`, the tray icon, and the ComfyUI it starts and stops.
+- The others **relay**: they forward their stdio JSON-RPC to the owner's MCP route over HTTP.
+- When the owner exits, its ComfyUI is stopped with it, and the next relay to find the port free
+  binds it and becomes the owner. ComfyUI starts again on the next job.
+
+The server binds `0.0.0.0`. The MCP route answers any client behind its secret path; the settings
+page and `/api` answer loopback clients only, because they install software and change files.
+
+The `.mcpb` holds only the shim. At most once a day it reads the latest tag from the
+`github.com/<repo>/releases/latest` redirect (as the Worker's cron does), downloads that release's
+server bundle into `~/.comfy-gen-mcp/app/<tag>/`, and `import()`s the newest cached one. Offline, it
+runs what it has. Everything else lives in the old extension's folder, `~/.comfy-gen-mcp`: the
+config file (read as it is, with the old keys migrated), the managed ComfyUI and its models.
 
 ## 3. Generation path
 
@@ -241,7 +263,8 @@ Modal can be added later as the fallback.
 
 ### Claude Desktop only
 
-Install the MCPB. It stays self-updating through the existing bootstrapper. No accounts.
+Install the `.mcpb` in Claude Desktop, open the settings page from the tray or the first tool
+result, pick the GPU and install ComfyUI (or keep the old extension's). No accounts.
 
 ## 7. Updates
 
@@ -251,7 +274,8 @@ Install the MCPB. It stays self-updating through the existing bootstrapper. No a
   sync. One build updates both the Worker and the Modal app. Packs, tool descriptions and workflow
   templates ship with the code: a new pack is a release.
 - **Agent:** through the launcher, as today.
-- **MCPB:** through its bootstrapper, as today.
+- **MCPB:** the shim loads the latest release's server bundle (§2, "The MCPB process"); the
+  `.mcpb` itself changes rarely.
 - No token, no updates. There is no fallback path to maintain.
 
 ## 8. Secrets and auth
@@ -330,7 +354,7 @@ Worker runs (S4).
 | `worker` | Worker entry, State and Relay Durable Objects, routes, render, Builds API, setup, updates; the build step `deploy/deploy.{sh,py}` | Workers (the build step: Workers Builds) |
 | `modal_app` | Modal app, admin endpoint, build-time deploy script | Python (Modal, build image) |
 | `local` | ComfyUI install, launch, stop, downloads, node install, idle stop, tray; shared by `agent` and `mcpb` | Node |
-| `mcpb` | stdio shim, local server | Node (Claude Desktop's bundled runtime) |
+| `mcpb` | the shim (the `.mcpb`) and the server bundle it loads (a release asset); single process, §2 | Node (Claude Desktop's bundled runtime) |
 | `agent` | `local` plus the relay client | Node |
 | `web` | Svelte settings and setup app | browser |
 | `site` | static landing page | browser |
