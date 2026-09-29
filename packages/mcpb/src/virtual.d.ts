@@ -8,6 +8,6 @@ declare module "comfy-gen:wait-extension" {
   export default source;
 }
 declare module "comfy-gen:icons" {
-  export const icoIcon: Uint8Array;
-  export const pngIcon: Uint8Array;
+  const icons: Record<"yellow" | "green" | "red", { ico: string; png: string }>; // base64
+  export default icons;
 }

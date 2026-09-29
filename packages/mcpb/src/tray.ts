@@ -48,6 +48,7 @@ export type TrayItem = { title: string; tooltip?: string; enabled?: boolean; onC
 export class Tray {
   private child: ChildProcess;
   private items: TrayItem[];
+  private menu: Record<string, unknown> = {};
 
   private constructor(child: ChildProcess, items: TrayItem[]) {
     this.child = child;
@@ -94,13 +95,8 @@ export class Tray {
       child.kill();
       return null;
     }
-    tray.send({
-      icon: Buffer.from(icon).toString("base64"),
-      title: "",
-      tooltip,
-      isTemplateIcon: false,
-      items: items.map((item, i) => tray.wire(item, i)),
-    });
+    tray.menu = { icon: Buffer.from(icon).toString("base64"), title: "", tooltip, isTemplateIcon: false };
+    tray.send({ ...tray.menu, items: items.map((item, i) => tray.wire(item, i)) });
     child.unref();
     (child.stdout as any)?.unref?.();
     (child.stdin as any)?.unref?.();
@@ -121,6 +117,12 @@ export class Tray {
     if (!item || (changes.title === item.title && changes.enabled === item.enabled)) return;
     Object.assign(item, changes);
     this.send({ type: "update-item", item: this.wire(item, index), seq_id: -1 });
+  }
+
+  /** Change the icon (and its tooltip). */
+  setIcon(icon: Uint8Array, tooltip: string): void {
+    this.menu = { ...this.menu, icon: Buffer.from(icon).toString("base64"), tooltip };
+    this.send({ type: "update-menu", menu: { ...this.menu, items: this.items.map((item, i) => this.wire(item, i)) } });
   }
 
   stop(): void {

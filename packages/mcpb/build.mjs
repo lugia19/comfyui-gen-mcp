@@ -42,13 +42,10 @@ const embedded = {
         return { contents: `export default ${JSON.stringify(src)};`, loader: "js" };
       }
       if (args.path === "comfy-gen:icons") {
-        const b64 = (f) => readFileSync(join(here, "assets", f)).toString("base64");
-        return {
-          contents: `const d = (s) => new Uint8Array(Buffer.from(s, "base64"));
-export const icoIcon = d(${JSON.stringify(b64("tray.ico"))});
-export const pngIcon = d(${JSON.stringify(b64("tray.png"))});`,
-          loader: "js",
-        };
+        // Tray icons by state color (assets/make_tray_icons.py): .ico for Windows, .png elsewhere.
+        const ext = (f) => readFileSync(join(here, "assets", f)).toString("base64");
+        const icons = Object.fromEntries(["yellow", "green", "red"].map((c) => [c, { ico: ext(`tray-${c}.ico`), png: ext(`tray-${c}.png`) }]));
+        return { contents: `export default ${JSON.stringify(icons)};`, loader: "js" };
       }
     });
   },

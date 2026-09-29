@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  ComfyUIError, Hooks, imageSize, refs, requiredNodes, sniffMime, tokenUrlsafe,
+  ComfyUIError, Hooks, downloadSize, imageSize, refs, requiredNodes, sniffMime, tokenUrlsafe,
   type ComfyUIClient, type Pack, type ResolvedImage,
 } from "@comfy-gen/core";
 import { USER_AGENT, type LocalComfy, type ModelDownloads } from "@comfy-gen/local";
@@ -40,8 +40,10 @@ export class LocalHooks extends Hooks {
       if (status.state === "missing" || status.state === "failed") status = this.downloads.start(pack.name, pack.models);
       if (status.state !== "done") {
         const pct = status.total ? Math.floor((100 * status.done) / status.total) : 0;
+        const gb = (n: number) => `${(n / 1e9).toFixed(1)} GB`;
+        const part = status.total < downloadSize(pack) ? ` (the rest of its ${gb(downloadSize(pack))} is already on this computer)` : "";
         throw new ComfyUIError(
-          `The ${name} model is downloading (${pct}% of ${(status.total / 1e9).toFixed(1)} GB). ` +
+          `The ${name} model is downloading: ${pct}% of ${gb(status.total)}${part}. ` +
             `Try again when it is done; progress is on the settings page, ${this.settingsUrl}`,
         );
       }

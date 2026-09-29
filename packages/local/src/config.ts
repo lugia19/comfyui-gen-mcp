@@ -1,5 +1,4 @@
-// The config file, local_config.json: core's config plus the keys only a local install has.
-// The old extension's file is read as it is; its few differing keys are migrated on load.
+// The config file, config.json: core's config plus the keys only a local install has.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -7,8 +6,6 @@ import { isPlainObject, normalize, tokenUrlsafe, type Config } from "@comfy-gen/
 import { log } from "./log.ts";
 
 export const DEFAULT_MCP_PORT = 9247;
-// The old extension's default ComfyUI URL meant "the managed one", as an empty value does now.
-const OLD_DEFAULT_COMFYUI_URL = "http://127.0.0.1:8188";
 
 export type LocalConfig = Config & {
   mcp_path: string; // the MCP route's secret path, "/mcp/<token>"
@@ -17,36 +14,6 @@ export type LocalConfig = Config & {
   extra_models_dir: string; // another models folder to read from
   gpu: string; // "nvidia" | "amd" | "mac" | "cpu", chosen at install; empty until then
 };
-
-/** The old extension's keys in the new shape. Returns whether anything changed. */
-export function migrate(raw: Record<string, any>): boolean {
-  let changed = false;
-  if ("use_tunnel" in raw) {
-    delete raw.use_tunnel; // the tunnel mode is gone: remote use goes through a Worker
-    changed = true;
-  }
-  if (raw.comfyui_url === OLD_DEFAULT_COMFYUI_URL) {
-    raw.comfyui_url = "";
-    changed = true;
-  }
-  // The old custom workflow was a file path plus a prompt node title; now the workflow itself.
-  if (typeof raw.custom_workflow === "string" || "custom_workflow_prompt_node" in raw) {
-    const path = typeof raw.custom_workflow === "string" ? raw.custom_workflow.trim() : "";
-    const title = typeof raw.custom_workflow_prompt_node === "string" ? raw.custom_workflow_prompt_node.trim() : "";
-    raw.custom_workflow = null;
-    if (path) {
-      try {
-        const workflow = JSON.parse(readFileSync(path, "utf8"));
-        if (isPlainObject(workflow)) raw.custom_workflow = { workflow, prompt_node_title: title };
-      } catch (e) {
-        log.warn(`The old custom workflow ${path} could not be read, so it is dropped:`, (e as Error).message);
-      }
-    }
-    delete raw.custom_workflow_prompt_node;
-    changed = true;
-  }
-  return changed;
-}
 
 function withLocalDefaults(raw: Record<string, any>): LocalConfig {
   const cfg = normalize(raw) as LocalConfig;
@@ -59,7 +26,7 @@ function withLocalDefaults(raw: Record<string, any>): LocalConfig {
   return cfg;
 }
 
-/** Read the config, migrating and filling it in; the file is written back when that changed it.
+/** Read the config, filling it in; the file is written back when that changed it.
  * A missing or unreadable file gives the defaults (an unreadable one is kept aside, not lost). */
 export function loadConfig(path: string): LocalConfig {
   let raw: Record<string, any> = {};
@@ -72,9 +39,8 @@ export function loadConfig(path: string): LocalConfig {
       renameSync(path, `${path}.broken`);
     }
   }
-  const migrated = migrate(raw);
   const cfg = withLocalDefaults(raw);
-  if (migrated || canonical(cfg) !== canonical(raw)) saveConfig(path, cfg);
+  if (canonical(cfg) !== canonical(raw)) saveConfig(path, cfg);
   return cfg;
 }
 

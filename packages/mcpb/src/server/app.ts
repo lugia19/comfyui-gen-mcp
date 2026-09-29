@@ -31,7 +31,8 @@ export type Services = {
   saveConfig(cfg: Record<string, any>): LocalConfig;
   comfy: LocalComfy;
   downloads: ModelDownloads;
-  modelDirs(): string[]; // ours first
+  /** Start downloading the selected packs' missing models (the managed ComfyUI only). */
+  downloadSelected(): void;
   install: { state(): InstallState; start(gpu: string): void };
   detectedGpu(): Promise<string>;
   web(path: string): { body: Uint8Array; type: string } | null;
@@ -72,6 +73,10 @@ async function bodyJson(req: Request): Promise<Record<string, any>> {
   } catch {
     return {};
   }
+}
+
+export function selectedPacks(cfg: Config): Pack[] {
+  return select(GROUPS, cfg.pack_selections);
 }
 
 export class LocalApp {
@@ -207,7 +212,7 @@ export class LocalApp {
     if (sub === "/loras" && m === "GET") return json({ loras: this.loras() });
     if (sub === "/open" && m === "POST") {
       const which = (await bodyJson(req)).which;
-      const dirs: Record<string, string> = { models: this.s.modelDirs()[0], logs: this.s.paths.logs };
+      const dirs: Record<string, string> = { models: this.s.comfy.models.ownModels, logs: this.s.paths.logs };
       dirs.loras = join(dirs.models, "loras");
       if (this.s.comfy.install) dirs.output = join(this.s.comfy.install.dir, "output");
       if (!(which in dirs)) return error(400, "unknown folder");
@@ -236,6 +241,11 @@ export class LocalApp {
       install: this.s.install.state(),
       gpus: GPUS,
       detected_gpu: await this.s.detectedGpu(),
+      model_sources: comfy.state === "not_installed" ? [] : comfy.models.sources().map((src) => ({
+        from: src.from,
+        path: src.path,
+        folders: Object.entries(src.folders).map(([type, dirs]) => ({ type, dirs })),
+      })),
       config: cfg,
       schema: SETTINGS_SCHEMA,
       packs: PACK_METADATA,
@@ -253,6 +263,7 @@ export class LocalApp {
     const extra = String(merged.extra_models_dir ?? "").trim();
     if (extra && (!existsSync(extra) || !statSync(extra).isDirectory())) return error(400, `${extra} is not a folder`);
     const cfg = this.s.saveConfig(merged);
+    this.s.downloadSelected(); // a newly chosen pack starts downloading now, not at its first use
     const warnings = this.missingLoras(cfg);
     if (current.comfyui_url !== cfg.comfyui_url || current.extra_models_dir !== cfg.extra_models_dir) {
       if (this.s.comfy.state === "running") warnings.push("Restart ComfyUI (Setup tab) for the change to take effect.");
@@ -271,7 +282,7 @@ export class LocalApp {
   }
 
   private models() {
-    return select(GROUPS, this.s.config().pack_selections).map((pack: Pack) => ({
+    return selectedPacks(this.s.config()).map((pack: Pack) => ({
       name: pack.name,
       display_name: pack.display_name ?? pack.name,
       tool_name: pack.tool_name,
@@ -283,8 +294,7 @@ export class LocalApp {
   /** LoRA files ComfyUI can load: {name: size}, ours first, then the shared folders'. */
   private loras(): Record<string, number> {
     const out: Record<string, number> = {};
-    for (const dir of this.s.modelDirs()) {
-      const d = join(dir, "loras");
+    for (const d of this.s.comfy.models.folders().loras ?? []) {
       if (!existsSync(d)) continue;
       for (const name of readdirSync(d)) {
         if (name.endsWith(".safetensors") && !(name in out)) out[name] = statSync(join(d, name)).size;

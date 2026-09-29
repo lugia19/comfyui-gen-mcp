@@ -7,9 +7,10 @@ import { closeSync, mkdirSync, openSync, readSync, statSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { ComfyUIError } from "@comfy-gen/core";
+import { ModelLocator } from "./discover.ts";
 import { findInstall, type Install } from "./install.ts";
 import { log } from "./log.ts";
-import { publish, sharedModelDirs, writeExtraModelPaths } from "./models.ts";
+import { publish, writeExtraModelPaths } from "./models.ts";
 import { installedNodePackages, installNodePackage, writeWaitExtension } from "./nodes.ts";
 import type { Paths } from "./paths.ts";
 import { killTree, pythonEnv, start } from "./proc.ts";
@@ -80,11 +81,17 @@ export class LocalComfy {
   private p: Paths;
   private settings: () => ComfySettings;
   private waitExtension: string; // the source of comfy_node/__init__.py
+  /** The model folders this ComfyUI reads: its own, then the others on this machine. */
+  readonly models: ModelLocator;
 
   constructor(p: Paths, settings: () => ComfySettings, waitExtension: string) {
     this.p = p;
     this.settings = settings;
     this.waitExtension = waitExtension;
+    this.models = new ModelLocator(
+      () => ({ models: join(this.install?.dir ?? p.comfyui, "models"), comfy: this.install?.dir ?? null }),
+      () => settings().extra_models_dir,
+    );
   }
 
   get logFile(): string {
@@ -131,11 +138,11 @@ export class LocalComfy {
     this.objectInfo = null;
 
     writeWaitExtension(inst, this.waitExtension);
-    const ownModels = join(inst.dir, "models");
-    const shared = sharedModelDirs(ownModels, this.settings().extra_models_dir);
-    writeExtraModelPaths(inst.dir, shared);
+    const sources = this.models.sources(true);
+    writeExtraModelPaths(inst.dir, sources.map((s) => s.folders));
+    log.info(`Model folders shared with ComfyUI: ${sources.map((s) => `${s.from} (${s.path})`).join("; ") || "none"}`);
     try {
-      publish(inst.dir, ownModels, shared);
+      publish(inst.dir, join(inst.dir, "models"), [...new Set(sources.map((s) => s.path))]);
     } catch (e) {
       log.warn("Could not publish to ~/.comfy-registry:", e);
     }

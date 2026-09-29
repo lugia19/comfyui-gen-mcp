@@ -3,6 +3,7 @@
 // page and the "still downloading" answer a tool call gets, in the shape the Modal seed reports.
 
 import { join } from "node:path";
+import type { ModelLocator } from "./discover.ts";
 import { fetchFile } from "./fetchfile.ts";
 import { log } from "./log.ts";
 import { findModel } from "./models.ts";
@@ -19,18 +20,18 @@ export type PackDownload = {
 type Job = { key: string; files: ModelFile[]; status: PackDownload };
 
 export class ModelDownloads {
-  private dirs: () => string[]; // our models folder first, then the shared ones
+  private models: ModelLocator;
   private jobs = new Map<string, Job>();
   private queue: Job[] = [];
   private running = false;
 
-  constructor(dirs: () => string[]) {
-    this.dirs = dirs;
+  constructor(models: ModelLocator) {
+    this.models = models;
   }
 
-  missing(files: ModelFile[]): ModelFile[] {
-    const dirs = this.dirs();
-    return files.filter((f) => !findModel(dirs, f.subfolder, f.filename));
+  missing(files: ModelFile[], fresh = false): ModelFile[] {
+    const folders = this.models.folders(fresh);
+    return files.filter((f) => !findModel(folders, f.subfolder, f.filename));
   }
 
   /** Where *key*'s files stand. A finished or failed job is reported until the next start(). */
@@ -55,6 +56,11 @@ export class ModelDownloads {
     return { ...job.status };
   }
 
+  /** Whether any download ended in failure (and was not started again since). */
+  failed(): boolean {
+    return [...this.jobs.values()].some((j) => j.status.state === "failed");
+  }
+
   private async pump(): Promise<void> {
     if (this.running) return;
     this.running = true;
@@ -66,11 +72,11 @@ export class ModelDownloads {
   }
 
   private async run(job: Job): Promise<void> {
-    const own = this.dirs()[0];
+    const own = this.models.ownModels;
     job.status.state = "downloading";
     let before = 0;
     for (const f of job.files) {
-      if (findModel(this.dirs(), f.subfolder, f.filename)) {
+      if (findModel(this.models.folders(), f.subfolder, f.filename)) {
         before += f.size_bytes ?? 0; // another pack's job fetched it meanwhile
         job.status.done = before;
         continue;

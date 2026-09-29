@@ -6,10 +6,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import {
-  detectGpu, install, isGpu, loadConfig, LocalComfy, log, logTo, ModelDownloads, openExternal, paths, saveConfig, sharedModelDirs,
+  detectGpu, install, isGpu, loadConfig, LocalComfy, log, logTo, ModelDownloads, openExternal, paths, saveConfig,
   type LocalConfig, type Paths,
 } from "@comfy-gen/local";
-import { LocalApp, type InstallState, type Services } from "./app.ts";
+import { LocalApp, selectedPacks, type InstallState, type Services } from "./app.ts";
 
 export type ServerOptions = {
   version: string;
@@ -32,11 +32,14 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
   const comfy = new LocalComfy(p, () => config(), opts.waitExtension);
   await comfy.refresh();
-  const modelDirs = () => {
-    const own = join(comfy.install?.dir ?? p.comfyui, "models");
-    return [own, ...sharedModelDirs(own, cfg.extra_models_dir)];
+  const downloads = new ModelDownloads(comfy.models);
+  // The selected packs' models download as soon as there is a ComfyUI to put them in, as the Worker
+  // seeds Modal after setup: at start, after an install, and when the selection changes.
+  const downloadSelected = () => {
+    if (comfy.state === "external" || comfy.state === "not_installed") return;
+    comfy.models.sources(true); // look again: a folder may have appeared
+    for (const pack of selectedPacks(config())) if (pack.models?.length) downloads.start(pack.name, pack.models);
   };
-  const downloads = new ModelDownloads(modelDirs);
 
   let installState: InstallState = { state: "idle", gpu: null, lines: [], error: null };
   const startInstall = (gpu: string) => {
@@ -53,6 +56,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       saveConfig(p.config, { ...config(), gpu });
       await comfy.refresh();
       installState.state = "done";
+      downloadSelected();
     })().catch((e) => {
       log.error("Install failed:", e);
       installState = { ...installState, state: "failed", error: (e as Error).message };
@@ -72,7 +76,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     },
     comfy,
     downloads,
-    modelDirs,
+    downloadSelected,
     install: { state: () => installState, start: startInstall },
     detectedGpu: () => (gpuGuess ??= detectGpu()),
     web: opts.web,
@@ -88,6 +92,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     });
   });
   const bound = (server.address() as { port: number }).port;
+  downloadSelected();
   log.info(`Comfy-Gen-MCP ${opts.version} serving on port ${bound} (settings: http://127.0.0.1:${bound}/)`);
   return {
     app,

@@ -4,10 +4,18 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { ModelLocator } from "../src/discover.ts";
 import { ModelDownloads, type ModelFile } from "../src/downloads.ts";
+import { mergeFolders, SHARED_SUBFOLDERS } from "../src/models.ts";
 import { fetchFile } from "../src/fetchfile.ts";
 
 const dir = () => mkdtempSync(join(tmpdir(), "dl-"));
+/** Our folder plus shared ones, in standard layout. */
+const locator = (own: string, ...shared: string[]) =>
+  ({
+    ownModels: own,
+    folders: () => mergeFolders([own, ...shared].map((d) => Object.fromEntries(SHARED_SUBFOLDERS.map((s) => [s, [join(d, s)]])))),
+  }) as unknown as ModelLocator;
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
 /** Serves *files* by path, honoring Range; records the Range headers it saw. */
@@ -66,7 +74,7 @@ describe("ModelDownloads", () => {
       { filename: "b.safetensors", subfolder: "clip", url: `${srv.url}/b`, size_bytes: b.length },
       { filename: "shared.safetensors", subfolder: "vae", url: `${srv.url}/nope`, size_bytes: 1 },
     ];
-    const dl = new ModelDownloads(() => [own, shared]);
+    const dl = new ModelDownloads(locator(own, shared));
     expect(dl.status("p", files)).toEqual({ state: "missing", done: 0, total: 3000 });
     expect(["queued", "downloading"]).toContain(dl.start("p", files).state);
     expect(dl.start("p", files).state).not.toBe("done"); // not queued twice
@@ -80,7 +88,7 @@ describe("ModelDownloads", () => {
   it("reports a failure until the next start", async () => {
     const srv = await serve({});
     const files: ModelFile[] = [{ filename: "x.safetensors", subfolder: "unet", url: `${srv.url}/x`, size_bytes: 10 }];
-    const dl = new ModelDownloads(() => [dir()]);
+    const dl = new ModelDownloads(locator(dir()));
     dl.start("p", files);
     for (let i = 0; i < 100 && dl.status("p", files).state !== "failed"; i++) await new Promise((r) => setTimeout(r, 20));
     expect(dl.status("p", files)).toMatchObject({ state: "failed", error: expect.stringContaining("404") });

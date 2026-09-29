@@ -14,11 +14,16 @@ import type { Services } from "./server/app.ts";
 import { startServer, type RunningServer } from "./server/server.ts";
 import { Tray } from "./tray.ts";
 
+export type TrayColor = "yellow" | "green" | "red";
+const STATE_COLORS: Record<string, TrayColor> = {
+  running: "green", external: "green", stopped: "yellow", starting: "yellow", failed: "red", not_installed: "red",
+};
+
 export type MainOptions = {
   version: string;
   waitExtension: string;
   web: Services["web"];
-  trayIcon?: Uint8Array; // .ico on Windows, .png elsewhere
+  trayIcons?: Record<TrayColor, Uint8Array>; // .ico on Windows, .png elsewhere
   paths?: Paths;
   stdin?: Readable;
   stdout?: Writable;
@@ -87,20 +92,30 @@ export async function main(opts: MainOptions): Promise<void> {
       throw e;
     }
     log.info(`Process ${process.pid} owns the server`);
-    if (opts.trayIcon) void startTray(owner, opts.trayIcon).then((t) => (tray = t));
+    if (opts.trayIcons) void startTray(owner, opts.trayIcons).then((t) => (tray = t));
     return true;
   };
 
-  const startTray = async (server: RunningServer, icon: Uint8Array): Promise<Tray | null> => {
-    const comfy = server.app.s.comfy;
-    const status = () => `ComfyUI: ${comfy.state.replace("_", " ")}`;
-    const t = await Tray.start(p, icon, "Comfy-Gen-MCP", [
+  // The icon's color is the state at a glance: green running, yellow stopped or starting, red when
+  // something needs the user (ComfyUI failed or is not installed, a download failed).
+  const startTray = async (server: RunningServer, icons: Record<TrayColor, Uint8Array>): Promise<Tray | null> => {
+    const { comfy, downloads } = server.app.s;
+    const status = () => `ComfyUI: ${comfy.state.replace("_", " ")}${downloads.failed() ? " (a model download failed)" : ""}`;
+    const color = (): TrayColor => (downloads.failed() ? "red" : STATE_COLORS[comfy.state] ?? "yellow");
+    let shown = color();
+    const t = await Tray.start(p, icons[shown], `Comfy-Gen-MCP: ${status()}`, [
       { title: "Open settings", onClick: () => openExternal(server.app.settingsUrl) },
       { title: status(), enabled: false },
       { title: "Restart ComfyUI", onClick: () => void comfy.restart().catch((e) => log.error("Restart failed:", e)) },
       { title: "Stop ComfyUI", onClick: () => void comfy.stop() },
     ]);
-    if (t) setInterval(() => t.update(1, { title: status(), enabled: false }), 3000).unref();
+    if (t) {
+      setInterval(() => {
+        t.update(1, { title: status(), enabled: false });
+        const now = color();
+        if (now !== shown) t.setIcon(icons[(shown = now)], `Comfy-Gen-MCP: ${status()}`);
+      }, 2000).unref();
+    }
     return t;
   };
 

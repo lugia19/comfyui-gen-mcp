@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadConfig, ModelDownloads, paths, saveConfig, type LocalComfy } from "@comfy-gen/local";
+import { loadConfig, ModelDownloads, ModelLocator, paths, saveConfig, type LocalComfy } from "@comfy-gen/local";
 import { LocalApp, type InstallState, type Services } from "../src/server/app.ts";
 
 const PORT = 9247;
@@ -16,8 +16,11 @@ function world(overrides: Partial<Services> = {}) {
   writeFileSync(join(models, "loras", "mine.safetensors"), "12345");
   const opened: string[] = [];
   const installs: string[] = [];
+  let downloadsStarted = 0;
+  // Discovery sees only this temporary home.
+  const models_ = new ModelLocator(() => ({ models, comfy: join(home, "comfyui") }), () => "", { home, platform: "linux", env: {}, registry: join(home, "registry"), roots: [] });
   const comfy = {
-    state: "stopped", url: null, error: null, install: { dir: join(home, "comfyui"), python: "py", gpu: "cpu", version: "0.37.0" },
+    state: "stopped", url: null, error: null, install: { dir: join(home, "comfyui"), python: "py", gpu: "cpu", version: "0.37.0" }, models: models_,
     refresh: async () => {}, restart: async () => {}, stop: async () => {},
     job: (fn: () => Promise<unknown>) => fn(),
   } as unknown as LocalComfy;
@@ -26,7 +29,7 @@ function world(overrides: Partial<Services> = {}) {
     paths: p, version: "1.2.3", port: PORT,
     config: () => loadConfig(p.config),
     saveConfig: (cfg) => (saveConfig(p.config, cfg), loadConfig(p.config)),
-    comfy, downloads: new ModelDownloads(() => [models]), modelDirs: () => [models],
+    comfy, downloads: new ModelDownloads(models_), downloadSelected: () => void downloadsStarted++,
     install: { state: () => installState, start: (gpu) => installs.push(gpu) },
     detectedGpu: async () => "nvidia",
     web: (path) => (path === "/index.html" ? { body: new TextEncoder().encode("<html>app</html>"), type: "text/html" } : null),
@@ -36,7 +39,7 @@ function world(overrides: Partial<Services> = {}) {
   const app = new LocalApp(services);
   const local = (path: string, init: RequestInit = {}, remote = "127.0.0.1") =>
     app.handle(new Request(`http://127.0.0.1:${PORT}${path}`, { ...init, headers: { host: `127.0.0.1:${PORT}`, ...(init.headers as any) } }), remote);
-  return { app, p, local, opened, installs, cfg: () => loadConfig(p.config) };
+  return { app, p, local, opened, installs, downloadsStarted: () => downloadsStarted, cfg: () => loadConfig(p.config) };
 }
 
 const rpc = (method: string, params: object = {}) => ({ method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
@@ -94,6 +97,7 @@ describe("settings API", () => {
     expect(r.config.mcp_path).toBe(before.mcp_path);
     expect(r.config.mcp_port).toBe(before.mcp_port);
     expect(r.warnings.join()).toContain("gone.safetensors");
+    expect(w.downloadsStarted()).toBe(1); // saving starts the selected packs' downloads
     expect((await put({ extra_models_dir: "/no/such/dir" })).status).toBe(400);
     expect((await put({ comfyui_url: "ftp://x" })).status).toBe(400);
   });

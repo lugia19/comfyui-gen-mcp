@@ -43,7 +43,9 @@
     <div class="model">
       <div class="row">
         <b>{pack.display_name}</b>
-        <span class="muted">{formatBytes(pack.size)}</span>
+        <span class="muted">
+          {formatBytes(pack.size)}{#if pack.state !== 'done' && pack.total && pack.total < pack.size}, {formatBytes(pack.total)} still to download{/if}
+        </span>
         <span class:ok={pack.state === 'done'} class:err={pack.state === 'failed'}>{LABEL[pack.state] || pack.state}</span>
         {#if pack.state === 'failed'}<button class="secondary" onclick={() => retry(pack)}>Retry</button>{/if}
         {#if local && pack.state === 'missing'}<button class="secondary" onclick={() => retry(pack)}>Download</button>{/if}

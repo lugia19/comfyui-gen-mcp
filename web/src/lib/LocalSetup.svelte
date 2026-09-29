@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy, onMount } from 'svelte'
+  import { onDestroy, onMount, untrack } from 'svelte'
   import { api } from './api.js'
   import Models from './Models.svelte'
 
@@ -24,14 +24,15 @@
   }
 
   let comfy = $derived(info.comfyui)
-  let gpu = $state(info.comfyui.gpu || info.detected_gpu)
-  let install = $state(info.install)
+  // Form fields start from the page's first state; later refreshes don't overwrite what is typed.
+  let gpu = $state(untrack(() => info.comfyui.gpu || info.detected_gpu))
+  let install = $state(untrack(() => info.install))
   let busy = $state('')
   let error = $state('')
   let timer = null
 
-  let comfyUrl = $state(info.config.comfyui_url || '')
-  let extraDir = $state(info.config.extra_models_dir || '')
+  let comfyUrl = $state(untrack(() => info.config.comfyui_url || ''))
+  let extraDir = $state(untrack(() => info.config.extra_models_dir || ''))
   let saved = $state('')
 
   async function pollInstall() {
@@ -142,6 +143,27 @@
   <section><Models local /></section>
 {/if}
 
+{#if comfy.state !== 'not_installed' && comfy.state !== 'external'}
+  <section>
+    <h2>Models found on this computer</h2>
+    {#if info.model_sources.length}
+      <p class="muted">ComfyUI uses these as they are; only what is in none of them is downloaded.</p>
+      {#each info.model_sources as src (src.from + src.path)}
+        <div class="source">
+          <b>{src.from}</b>
+          <code>{src.path}</code>
+          <span class="muted">{src.folders.map((f) => f.type).join(', ')}</span>
+        </div>
+      {/each}
+    {:else}
+      <p class="muted">
+        No other ComfyUI found. If you have one somewhere unusual, set its models folder below as
+        "Another models folder".
+      </p>
+    {/if}
+  </section>
+{/if}
+
 <section>
   <h2>Folders</h2>
   <div class="row">
@@ -154,8 +176,8 @@
     <label for="extra">Another models folder (optional)</label>
     <input id="extra" type="text" bind:value={extraDir} placeholder="D:\ComfyUI\models" />
     <p class="muted">
-      A models folder of another ComfyUI, used as is, so nothing is downloaded twice. Installs that
-      register themselves (Visual-Novelist, for one) are found without this.
+      A models folder of another ComfyUI that was not found by itself (see above), used as is, so
+      nothing is downloaded twice.
     </p>
     <label for="url">Your own ComfyUI (advanced)</label>
     <input id="url" type="text" bind:value={comfyUrl} placeholder="http://127.0.0.1:8188" />
@@ -178,3 +200,7 @@
 </section>
 
 {#if error}<p class="err">{error}</p>{/if}
+
+<style>
+  .source { margin: 8px 0; display: flex; flex-direction: column; gap: 2px; }
+</style>

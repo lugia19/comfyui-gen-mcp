@@ -1,8 +1,8 @@
 // Installing ComfyUI: the pinned release's source, a venv made by uv, and PyTorch for the GPU.
 // No comfy-cli and no git: comfy-cli's install broke on Windows paths and code pages in the old
 // extension, and needed git; uv picks the PyTorch build for the GPU itself (--torch-backend auto).
-// An install the old extension made (comfy-cli, possibly with torch in the launcher's venv) is used
-// as it is.
+// Only our own installs count (they carry a marker file); anything else in the folder is replaced by
+// an install, which keeps its models, outputs and inputs.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -67,27 +67,12 @@ function readMarker(dir: string): Partial<Install> | null {
   }
 }
 
-/** The installed ComfyUI and a Python that can run it, or null. An install without our marker (the
- * old extension's) gets the first candidate venv that imports torch. */
+/** The installed ComfyUI and its Python, or null if there is none of ours. */
 export async function findInstall(p: Paths): Promise<Install | null> {
   const dir = comfyDir(p.comfyui);
-  if (!dir) return null;
-  const marker = readMarker(dir);
-  if (marker?.python && existsSync(marker.python)) {
-    return { dir, python: marker.python, gpu: isGpu(marker.gpu) ? marker.gpu : null, version: marker.version ?? null };
-  }
-  for (const venv of [join(dir, ".venv"), join(p.comfyui, ".venv"), p.oldRuntimeVenv]) {
-    const python = venvBin(venv, "python");
-    if (!existsSync(python)) continue;
-    const { code } = await run(python, ["-c", "import torch"], { env: pythonEnv(), timeoutMs: 120_000 });
-    if (code === 0) {
-      log.info(`Using the existing ComfyUI in ${dir} with ${python}`);
-      writeFileSync(join(dir, MARKER), JSON.stringify({ version: null, gpu: null, python }, null, 2)); // probe once
-      return { dir, python, gpu: null, version: null };
-    }
-  }
-  log.warn(`ComfyUI in ${dir} has no Python with torch`);
-  return null;
+  const marker = dir ? readMarker(dir) : null;
+  if (!dir || !marker?.python || !existsSync(marker.python)) return null;
+  return { dir, python: marker.python, gpu: isGpu(marker.gpu) ? marker.gpu : null, version: marker.version ?? null };
 }
 
 /** Install (or reinstall) ComfyUI for *gpu*. The models, outputs, inputs and user settings of an

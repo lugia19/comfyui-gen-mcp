@@ -4,8 +4,8 @@
 
 import web from "comfy-gen:web";
 import waitExtension from "comfy-gen:wait-extension";
-import { icoIcon, pngIcon } from "comfy-gen:icons";
-import { main } from "./main.ts";
+import icons from "comfy-gen:icons";
+import { main, type MainOptions } from "./main.ts";
 
 declare const __VERSION__: string;
 export const VERSION = __VERSION__;
@@ -20,6 +20,8 @@ export function start(): Promise<void> {
       const f = files.get(path);
       return f ? { type: f.type, body: new Uint8Array(Buffer.from(f.body, "base64")) } : null;
     },
-    trayIcon: process.platform === "win32" ? icoIcon : pngIcon,
+    trayIcons: Object.fromEntries(
+      Object.entries(icons).map(([color, f]) => [color, new Uint8Array(Buffer.from(process.platform === "win32" ? f.ico : f.png, "base64"))]),
+    ) as MainOptions["trayIcons"],
   });
 }
