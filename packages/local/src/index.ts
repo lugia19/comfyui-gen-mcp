@@ -12,4 +12,5 @@ export * from "./nodes.ts";
 export * from "./models.ts";
 export * from "./discover.ts";
 export * from "./downloads.ts";
+export * from "./clipboard.ts";
 export * from "./comfyui.ts";

@@ -231,6 +231,12 @@ its inventory live; nothing builds an `inventory.json` for Modal.
   edit is requested. The tool description covers the case where code execution is off: ask the user
   to enable it or give a URL. The snippet sets its own `User-Agent` (see section 8).
 - `edit_image` accepts an upload reference, a previous output reference, or an https URL.
+- **Images pasted into Claude Desktop (the MCPB)** can't use that trick: the sandbox runs in the
+  cloud and cannot reach the extension on `127.0.0.1`. `edit_image` takes `"clipboard"` instead:
+  the tool description has the model ask the user to copy the image (or its file) to the clipboard,
+  and pass `"clipboard"` only once they confirm, never on a guess. The extension reads a copied
+  file first, then image data (`local/clipboard.ts`: PowerShell, osascript, wl-paste or xclip).
+  A file path or URL works as before.
 
 ### LoRAs on the Modal Volume
 

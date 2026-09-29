@@ -96,3 +96,25 @@ export function openExternal(target: string): void {
   child.on("error", () => {});
   child.unref();
 }
+
+/** Run to completion, keeping stdout as bytes (up to *maxBytes*); stderr is dropped. Null if the
+ * command cannot start, exits non-zero, or times out. */
+export function capture(cmd: string, args: string[], opts: { env?: NodeJS.ProcessEnv; timeoutMs?: number; maxBytes?: number } = {}): Promise<Buffer | null> {
+  return new Promise((resolve) => {
+    const max = opts.maxBytes ?? 100 << 20;
+    const chunks: Buffer[] = [];
+    let size = 0;
+    const child = spawn(cmd, args, { env: opts.env, windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
+    const timer = setTimeout(() => child.kill(), opts.timeoutMs ?? 30_000);
+    child.stdout.on("data", (c: Buffer) => {
+      size += c.length;
+      if (size > max) child.kill();
+      else chunks.push(c);
+    });
+    child.on("error", () => (clearTimeout(timer), resolve(null)));
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0 && size <= max ? Buffer.concat(chunks) : null);
+    });
+  });
+}

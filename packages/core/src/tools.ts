@@ -86,10 +86,12 @@ export const EDIT_DESC_PATHS =
   "Edit an image using a text prompt. " +
   "image_path can be a local file path (e.g. C:/Users/me/photo.png) or a publicly accessible URL. " +
   "Previously generated images return their saved_path; use that.\n\n" +
-  "If the user uploads an image to the chat to be edited, ask them for its file path on their " +
-  "machine or a public URL instead, as uploaded chat images cannot be accessed directly. On Windows, " +
-  "the user can get a file's path by holding Shift, right-clicking the file, and selecting " +
-  "'Copy as path'.\n\n" +
+  "An image the user pasted or attached in the chat cannot be passed directly. To edit one, ask the " +
+  "user to either give you its file path (on Windows: hold Shift, right-click the file, 'Copy as " +
+  "path') or copy the image to their clipboard (right-click it, 'Copy image', or copy the file itself). " +
+  "Wait until they confirm it is on the clipboard, then pass image_path \"clipboard\". Never pass " +
+  "\"clipboard\" without that confirmation: the clipboard may hold something else. Only one of the " +
+  "two images can come from the clipboard.\n\n" +
   EDIT_SIZING +
   EDIT_TIPS;
 
