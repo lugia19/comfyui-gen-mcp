@@ -88,3 +88,11 @@ export async function killTree(child: ChildProcess): Promise<void> {
   await Promise.race([exited, new Promise((r) => setTimeout(r, 10_000))]);
   clearTimeout(late);
 }
+
+/** Open a folder or URL with the desktop's default handler. Best effort. */
+export function openExternal(target: string): void {
+  const cmd = WIN ? "explorer" : process.platform === "darwin" ? "open" : "xdg-open";
+  const child = spawn(cmd, [target], { detached: true, stdio: "ignore" });
+  child.on("error", () => {});
+  child.unref();
+}

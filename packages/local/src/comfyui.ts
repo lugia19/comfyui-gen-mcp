@@ -147,7 +147,8 @@ export class LocalComfy {
     mkdirSync(this.p.logs, { recursive: true });
     const fd = openSync(this.logFile, "w");
     log.info(`Starting ComfyUI: ${inst.python} ${args.join(" ")} (in ${inst.dir})`);
-    const child = start(inst.python, args, { cwd: inst.dir, env: pythonEnv(), logFd: fd });
+    // The wait extension exits ComfyUI when we are gone, however we went (comfy_node, watchdog).
+    const child = start(inst.python, args, { cwd: inst.dir, env: pythonEnv({ COMFY_GEN_PARENT_PID: String(process.pid) }), logFd: fd });
     closeSync(fd); // the child has its own handle
     this.child = child;
     let exited: string | null = null;

@@ -1,0 +1,56 @@
+{
+  "manifest_version": "0.3",
+  "name": "comfyui-image-gen",
+  "display_name": "Comfy-Gen-MCP",
+  "version": "0.0.0",
+  "description": "Generate and edit images with ComfyUI on your own GPU. Installs and runs ComfyUI for you; settings open from the tray icon.",
+  "long_description": "Image generation for Claude Desktop through a ComfyUI it installs, starts and stops on your computer. Pick your GPU and install ComfyUI from the settings page (tray icon, or the link in the first tool answer); models download on first use. For claude.ai and your phone, use a Worker install of Comfy-Gen-MCP instead.",
+  "author": {
+    "name": "lugia19"
+  },
+  "homepage": "https://github.com/lugia19/comfyui-gen-mcp",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/shim.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/shim.mjs"
+      ],
+      "env": {}
+    }
+  },
+  "tools": [
+    {
+      "name": "generate_illustrated_image",
+      "description": "Generate an anime or illustration image"
+    },
+    {
+      "name": "generate_realistic_image",
+      "description": "Generate a realistic or general-purpose image"
+    },
+    {
+      "name": "generate_custom_image",
+      "description": "Generate an image with your own ComfyUI workflow"
+    },
+    {
+      "name": "edit_image",
+      "description": "Edit an image by its path on this computer, or a URL"
+    },
+    {
+      "name": "fetch_result",
+      "description": "Fetch the result of a generation that is still running"
+    }
+  ],
+  "compatibility": {
+    "platforms": [
+      "win32",
+      "darwin",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}

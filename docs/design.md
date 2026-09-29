@@ -57,14 +57,22 @@ process per window or reload); each process tries to bind the port (9247, as in 
 - The others **relay**: they forward their stdio JSON-RPC to the owner's MCP route over HTTP.
 - When the owner exits, its ComfyUI is stopped with it, and the next relay to find the port free
   binds it and becomes the owner. ComfyUI starts again on the next job.
+- An owner killed outright (on Windows a killed process leaves its children running) takes its
+  ComfyUI down anyway: our ComfyUI extension (`comfy_node`) exits ComfyUI once the process named in
+  `COMFY_GEN_PARENT_PID` is gone. Tested: ComfyUI gone within 4 s of a SIGKILL, the next message
+  to a relay made it the owner.
 
 The server binds `0.0.0.0`. The MCP route answers any client behind its secret path; the settings
 page and `/api` answer loopback clients only, because they install software and change files.
 
-The `.mcpb` holds only the shim. At most once a day it reads the latest tag from the
-`github.com/<repo>/releases/latest` redirect (as the Worker's cron does), downloads that release's
-server bundle into `~/.comfy-gen-mcp/app/<tag>/`, and `import()`s the newest cached one. Offline, it
-runs what it has. Everything else lives in the old extension's folder, `~/.comfy-gen-mcp`: the
+The `.mcpb` holds the shim (`server/shim.mjs`) and its own release's server bundle. The shim
+`import()`s the newest bundle it has, shipped or cached in `~/.comfy-gen-mcp/app/<tag>/`, falling
+back to an older one if it fails to load. At most once a day, in the background, it reads the latest
+tag from the `github.com/<repo>/releases/latest` redirect (as the Worker's cron does) and downloads
+that release's `comfy-gen-server.mjs`, checked against its `.sha256`, for the next start. Two
+cached bundles are kept. The shim changes only when users reinstall the `.mcpb`, so everything else
+lives in the bundle. The tray icon is systray2's helper binary, downloaded once, pinned by SHA-256;
+where it cannot run, there is no tray and the settings URL is in the tool answers. Everything else lives in the old extension's folder, `~/.comfy-gen-mcp`: the
 config file (read as it is, with the old keys migrated), the managed ComfyUI and its models.
 
 ## 3. Generation path

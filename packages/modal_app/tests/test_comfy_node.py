@@ -41,3 +41,25 @@ def test_wait_returns_when_done(monkeypatch):
 def test_wait_times_out_with_the_current_state():
     assert asyncio.run(wait_for(FakeQueue(RUNNING), "p1", 0)) == {"state": "running"}
     assert asyncio.run(wait_for(FakeQueue(RUNNING), "p1", -5)) == {"state": "running"}
+
+
+def test_watch_parent_exits_when_the_parent_is_gone():
+    from comfy_gen_modal.comfy_node import watch_parent
+
+    answers = iter([True, True, False])
+    exited = []
+    watch_parent(123, alive=lambda pid: next(answers), every_s=0, exit=exited.append)
+    assert exited == [0]
+
+
+def test_pid_alive():
+    import os
+    import subprocess
+    import sys
+
+    from comfy_gen_modal.comfy_node import pid_alive
+
+    assert pid_alive(os.getpid())
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    child.wait()
+    assert not pid_alive(child.pid)

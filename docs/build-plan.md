@@ -4,7 +4,8 @@ What is built, how it ships, and what comes next. `docs/design.md` holds the des
 results behind it; this file only tracks the work.
 
 **Status (2026-09-29):** M0–M4 are built. v1.0.0 (M3) and v1.1.0 (M4) are released, and the test
-install `comfy-gen.yuri-f92.workers.dev` runs v1.1.0. Next: M5.
+install `comfy-gen.yuri-f92.workers.dev` runs v1.1.0. M5 is built and tested here (Linux, CPU
+ComfyUI); it waits for the check on the user's Windows PC, then a release.
 
 ## Built
 
@@ -70,8 +71,18 @@ process". It shares `core` with the Worker, and the machine side (`packages/loca
 4. **The shim** (the `.mcpb`): bind or relay, takeover when the owner exits, the daily bundle
    update; the tray icon. `release.yml` builds the server bundle and the `.mcpb`.
 
-**Where:** everything that can be tested against a CPU ComfyUI is done here. Windows, the GPU and
-Claude Desktop are checked on the user's PC.
+**Checked here:** a fresh install and a reinstall through `local` and through the settings page;
+generations, edits by path and missing nodes through the MCP route; several extension processes
+relaying to one owner, takeover after a SIGKILL, ComfyUI exiting with its owner, the shim's
+background update from a fake release server.
+
+**Left for the user's PC (Windows, NVIDIA, Claude Desktop):**
+- `node packages/mcpb/build.mjs vX.Y.Z` (or a release), install `Comfy-Gen-MCP.mcpb` over the old
+  extension; it has the same name, `comfyui-image-gen`
+- Claude Desktop's Node runs the shim; the old install and its models are reused (or a fresh CUDA
+  install from the settings page)
+- the tray icon; a generation, an edit by `saved_path`, two windows at once, quitting Claude Desktop
+  stops ComfyUI
 
 ## M6: agent and relay, then retirement
 

@@ -3,11 +3,10 @@
 // lock: when another extension process holds it, start() fails with EADDRINUSE and the caller
 // relays to that one instead (design §2, "The MCPB process").
 
-import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import {
-  detectGpu, install, isGpu, loadConfig, LocalComfy, log, logTo, ModelDownloads, paths, saveConfig, sharedModelDirs,
+  detectGpu, install, isGpu, loadConfig, LocalComfy, log, logTo, ModelDownloads, openExternal, paths, saveConfig, sharedModelDirs,
   type LocalConfig, type Paths,
 } from "@comfy-gen/local";
 import { LocalApp, type InstallState, type Services } from "./app.ts";
@@ -22,11 +21,6 @@ export type ServerOptions = {
 };
 
 export type RunningServer = { app: LocalApp; server: Server; port: number; close(): Promise<void> };
-
-function openFolder(path: string): void {
-  const cmd = process.platform === "win32" ? "explorer" : process.platform === "darwin" ? "open" : "xdg-open";
-  spawn(cmd, [path], { detached: true, stdio: "ignore", windowsHide: false }).on("error", (e) => log.warn(`Could not open ${path}:`, e.message)).unref();
-}
 
 /** Start serving. Rejects with the listen error (EADDRINUSE: another process owns the port). */
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
@@ -82,7 +76,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     install: { state: () => installState, start: startInstall },
     detectedGpu: () => (gpuGuess ??= detectGpu()),
     web: opts.web,
-    openFolder,
+    openFolder: openExternal,
   });
 
   const server = createServer((req, res) => void serve(app, req, res));

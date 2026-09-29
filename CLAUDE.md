@@ -39,9 +39,12 @@ Measure with Workers Logs `cpuTimeMs` when a change could move it (the appendix 
 
 ## Layout
 
-- npm workspaces: `packages/core` (`@comfy-gen/core`, TS source exported directly, no build step) and
-  `packages/worker` (the Cloudflare Worker, wrangler). `web/` (Svelte settings app) stays outside,
-  with its own lockfile; its built `web/dist` is committed.
+- npm workspaces: `packages/core` (`@comfy-gen/core`, TS source exported directly, no build step),
+  `packages/worker` (the Cloudflare Worker, wrangler), `packages/local` (the machine side the MCPB
+  and the agent share: config, ComfyUI install and lifecycle with uv, downloads; Node APIs) and
+  `packages/mcpb` (the Claude Desktop extension: shim, bind-or-relay entry, local server, tray;
+  `node packages/mcpb/build.mjs [tag]` builds the server bundle and the `.mcpb`). `web/` (Svelte
+  settings app) stays outside, with its own lockfile; its built `web/dist` is committed.
 - Python that remains, as a uv workspace: `packages/modal_app` (runs on Modal and in the Workers
   Build). The build step `packages/worker/deploy/deploy.{sh,py}` is stdlib Python and must stay at
   that path: published `deploy.sh` releases call it there.

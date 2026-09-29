@@ -1,4 +1,6 @@
-"""ComfyUI extension installed in the Modal image: GET /comfy-gen/wait/{prompt_id}?timeout=S.
+"""ComfyUI extension installed in the Modal image and in the MCPB's local ComfyUI.
+
+GET /comfy-gen/wait/{prompt_id}?timeout=S:
 
 Holds the request until the prompt finishes or S seconds pass, then answers
 {"state": "done", "status": ..., "outputs": ...}, {"state": "running"},
@@ -7,10 +9,18 @@ instead of polling /history and /queue: each request it makes costs it CPU, and 
 seen at once instead of at the next poll. Clients fall back to polling on a 404, so a ComfyUI
 without this extension still works.
 
-No nodes; only the route. Loaded by ComfyUI from custom_nodes/, where it can import `server`.
+Parent watchdog: with COMFY_GEN_PARENT_PID set (the MCPB sets it), ComfyUI exits when that process
+is gone. Claude Desktop may end the extension without a chance to stop its ComfyUI (on Windows a
+killed process leaves its children running), which would otherwise hold the GPU until reboot.
+
+No nodes; only the route and the watchdog. Loaded by ComfyUI from custom_nodes/, where it can
+import `server`.
 """
 
 import asyncio
+import os
+import sys
+import threading
 import time
 
 NODE_CLASS_MAPPINGS = {}
@@ -43,6 +53,41 @@ async def wait_for(queue, prompt_id: str, timeout: float) -> dict:
         await asyncio.sleep(CHECK_EVERY_S)
 
 
+def pid_alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        ok = kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+        kernel32.CloseHandle(handle)
+        return bool(ok) and code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)  # POSIX only: on Windows this would terminate the process
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def watch_parent(pid: int, alive=pid_alive, every_s: float = 5.0, exit=os._exit) -> None:
+    """Exit the process once *pid* is gone. Blocks; run it in a daemon thread."""
+    while alive(pid):
+        time.sleep(every_s)
+    print(f"[comfy-gen] parent process {pid} is gone; exiting", flush=True)
+    exit(0)
+
+
+def _start_watchdog() -> None:
+    pid = os.environ.get("COMFY_GEN_PARENT_PID", "")
+    if pid.isdigit():
+        threading.Thread(target=watch_parent, args=(int(pid),), daemon=True, name="comfy-gen-watchdog").start()
+
+
 def _register() -> None:
     from aiohttp import web
     from server import PromptServer
@@ -64,3 +109,4 @@ except ImportError:
     pass
 else:
     _register()
+    _start_watchdog()

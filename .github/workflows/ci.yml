@@ -22,7 +22,7 @@ jobs:
       - run: uv run --python ${{ matrix.python }} pytest
 
   node:
-    # core and the Worker in TypeScript: typecheck and vitest.
+    # core, local, the MCPB and the Worker in TypeScript: typecheck, vitest, and the MCPB build.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +32,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: node packages/mcpb/build.mjs
 
   web:
     # web/dist is committed (deploys have no node); it must match its source.
