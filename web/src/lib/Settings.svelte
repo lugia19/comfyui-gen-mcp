@@ -1,5 +1,7 @@
 <script>
+  import { onMount } from 'svelte'
   import { api, formatBytes } from './api.js'
+  import Loras from './Loras.svelte'
   import Models from './Models.svelte'
 
   let { info, refresh } = $props()
@@ -40,6 +42,45 @@
   }
 
   const keepWarm = info.schema.find((f) => f.key === 'keep_warm_minutes')
+
+  // LoRA files on the Modal Volume ({name: size}), for the rows' file picker. Other generators have
+  // their own LoRA folder, so there the name is typed.
+  const onModal = info.generator?.kind === 'modal'
+  let loraFiles = $state(null)
+  let loraError = $state('')
+
+  async function loadLoras() {
+    try {
+      loraFiles = (await api('GET', '/loras')).loras
+      loraError = ''
+    } catch (e) {
+      loraFiles = {}
+      loraError = e.message
+    }
+  }
+
+  onMount(() => onModal && loadLoras())
+
+  const stem = (name) => (name || '').replace(/\.safetensors$/i, '')
+
+  // For rendering (no writes during render); loraRows creates the list for the handlers.
+  const rowsOf = (pack) => cfg.pack_loras[pack.config_key] ?? []
+
+  function loraRows(pack) {
+    cfg.pack_loras[pack.config_key] ??= []
+    return cfg.pack_loras[pack.config_key]
+  }
+
+  function addLora(pack) {
+    const name = onModal ? Object.keys(loraFiles || {})[0] || '' : ''
+    loraRows(pack).push({ name, strength: 1, trigger: stem(name), hidden: false })
+  }
+
+  function setLoraName(row, name) {
+    // A trigger still at its default follows the file.
+    if (!row.trigger || row.trigger === stem(row.name)) row.trigger = stem(name)
+    row.name = name
+  }
 
   async function save() {
     saving = true
@@ -114,6 +155,35 @@
         <a href="https://thetacursed.github.io/Anima-Style-Explorer/index.html" target="_blank" rel="noopener">Anima Style Explorer</a>.
       </p>
     {/if}
+
+    {#if current.supports_loras}
+      <h3>LoRAs</h3>
+      <p class="muted">
+        A LoRA with a trigger applies only when the prompt contains that word; without one it always applies.
+        Claude is told the triggers unless the LoRA is hidden.
+      </p>
+      {#each rowsOf(current) as row, i (i)}
+        <div class="row lora">
+          {#if onModal}
+            <select value={row.name} onchange={(e) => setLoraName(row, e.currentTarget.value)} aria-label="LoRA file">
+              {#if row.name && loraFiles && !(row.name in loraFiles)}
+                <option value={row.name}>{row.name} (not uploaded)</option>
+              {/if}
+              {#each Object.keys(loraFiles || {}) as name (name)}<option value={name}>{name}</option>{/each}
+            </select>
+          {:else}
+            <input type="text" value={row.name} placeholder="file.safetensors" aria-label="LoRA file"
+              onchange={(e) => setLoraName(row, e.currentTarget.value.trim())} />
+          {/if}
+          <input class="strength" type="number" min="-5" max="5" step="0.1" bind:value={row.strength} aria-label="Strength" title="Strength" />
+          <input class="trigger" type="text" bind:value={row.trigger} placeholder="always on" aria-label="Trigger" title="Trigger word" />
+          <label class="hidden"><input type="checkbox" bind:checked={row.hidden} /> Hidden</label>
+          <button class="secondary" onclick={() => loraRows(current).splice(i, 1)}>Remove</button>
+        </div>
+      {/each}
+      <button class="secondary" onclick={() => addLora(current)} disabled={onModal && !Object.keys(loraFiles || {}).length}>Add LoRA</button>
+      {#if onModal && loraFiles && !Object.keys(loraFiles).length}<p class="muted">Upload a LoRA file below first.</p>{/if}
+    {/if}
   </section>
 {/each}
 
@@ -130,8 +200,23 @@
 {#each warnings as w}<p class="err">{w}</p>{/each}
 {#if error}<p class="err">{error}</p>{/if}
 
-{#if info.generator?.kind === 'modal'}
+{#if onModal}
+  <section>
+    <Loras files={loraFiles} reload={loadLoras} />
+    {#if loraError}<p class="err">{loraError}</p>{/if}
+  </section>
   <section>
     {#key saves}<Models />{/key}
   </section>
 {/if}
+
+<style>
+  h3 { font-size: 15px; margin: 16px 0 4px; }
+  .lora { margin: 6px 0; flex-wrap: nowrap; }
+  .lora select { flex: 1; min-width: 0; padding: 7px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; }
+  .lora .strength { width: 72px; }
+  .lora .trigger { width: 130px; }
+  .lora .hidden { display: flex; gap: 4px; align-items: center; margin: 0; font-weight: normal; white-space: nowrap; }
+  .lora button { margin-top: 0; }
+  @media (max-width: 560px) { .lora { flex-wrap: wrap; } }
+</style>

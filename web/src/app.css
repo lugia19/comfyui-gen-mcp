@@ -90,7 +90,9 @@ input[type='url'] {
   font: inherit;
 }
 
-button {
+button,
+.button {
+  display: inline-block;
   font: inherit;
   padding: 7px 14px;
   border-radius: 7px;
@@ -99,6 +101,10 @@ button {
   color: var(--accent-text);
   cursor: pointer;
   margin-top: 10px;
+}
+
+.button {
+  font-weight: normal;
 }
 
 button.secondary {
