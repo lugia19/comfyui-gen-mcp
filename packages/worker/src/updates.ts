@@ -18,10 +18,16 @@ function newer(a: number[], b: number[]): boolean {
   return false;
 }
 
+/**
+ * The latest release's tag, from the redirect github.com/<repo>/releases/latest answers with
+ * (…/releases/tag/<tag>). Not the REST API: its unauthenticated limit is 60 requests an hour per IP,
+ * and Workers share their outgoing IPs, so from a Worker it often answers 403 (seen live: the
+ * v1.0.0 cron check logged "no release found").
+ */
 export async function latestRelease(fetch: Fetch): Promise<string | null> {
-  const resp = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: "application/vnd.github+json" } });
-  if (resp.status !== 200) return null;
-  return (await resp.json<any>()).tag_name ?? null;
+  const resp = await fetch(`https://github.com/${REPO}/releases/latest`, { redirect: "manual" });
+  const m = /\/releases\/tag\/([^/?#]+)$/.exec(resp.headers.get("location") ?? "");
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 /** Start a build if a newer release exists. Returns what happened, for the log. */

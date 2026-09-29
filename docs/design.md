@@ -484,6 +484,15 @@ through its own setup API and Workers Builds:
   poll count. **Open risk:** well above the free plan's nominal 10 ms; nothing has failed, and the
   S1 SDK failure was at about 2,000 ms. To investigate with probes, as for the M2 figures.
 
+**First cron update, 2026-09-29: "no release found".** With v1.0.0 published and the test install's
+branch variables removed, the 04:17 check logged `update check: no release found`. A probe Worker
+showed why: GitHub's REST API allows 60 unauthenticated requests an hour per IP, and Workers share
+their outgoing IPs, so `api.github.com/.../releases/latest` answered 403 "API rate limit exceeded"
+(`x-ratelimit-remaining: 0`), and on later requests from other IPs 200 with 2 and 56 left. The
+redirect `github.com/<repo>/releases/latest` → `/releases/tag/<tag>` answered every time.
+`updates.latestRelease` now reads that redirect. v1.0.0's Worker still has the old check, so an
+install on v1.0.0 needs one build started by hand to reach a release with the fix.
+
 **M4 live, 2026-09-29: LoRA uploads.** On the test install, through normal builds:
 
 - a 305 MB Anima LoRA (19 chunks) and a 46 MB one uploaded from the settings page; both assembled,

@@ -35,7 +35,7 @@ async function bodyText(body: BodyInit | null | undefined): Promise<string> {
 export class FakeNet {
   comfy: FakeComfy;
   calls: [string, string, Record<string, string>][] = [];
-  latestRelease = "v1.0.0";
+  latestRelease: string | null = "v1.0.0";
   tokenStatus = "active";
   scripts: Record<string, string> = { "comfy-gen": "tag1" }; // what the token can see
   buildsStarted: any[] = [];
@@ -66,7 +66,10 @@ export class FakeNet {
       return this.admin(method, u.pathname, text ? JSON.parse(text) : null);
     }
     if (u.host === "api.cloudflare.com") return this.cloudflare(method, u.pathname.replace(/^\/client\/v4/, ""), await bodyText(init.body));
-    if (u.host === "api.github.com") return jsonResp({ tag_name: this.latestRelease });
+    if (u.host === "github.com" && u.pathname.endsWith("/releases/latest")) {
+      if (!this.latestRelease) return new Response(null, { status: 302, headers: { location: "https://github.com/lugia19/comfyui-gen-mcp/releases" } });
+      return new Response(null, { status: 302, headers: { location: `https://github.com/lugia19/comfyui-gen-mcp/releases/tag/${this.latestRelease}` } });
+    }
     if (u.host === "images.example") return u.pathname.endsWith(".png") ? new Response(png(1600, 900) as BodyInit) : new Response(null, { status: 404 });
     return new Response(null, { status: 404 });
   };

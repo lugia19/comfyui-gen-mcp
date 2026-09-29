@@ -392,6 +392,9 @@ describe("updates", () => {
     expect(await updates.check(net.fetch, app.store, "v0.9.0")).toContain("updating v0.9.0 -> v1.0.0");
     expect(await updates.check(net.fetch, app.store, "v0.9.0")).toContain("already tried");
     expect(net.buildsStarted.length).toBe(1);
+    net.latestRelease = null; // no release yet: github.com redirects to the releases list
+    expect(await updates.check(net.fetch, app.store, "v0.9.0")).toBe("no release found");
+    expect(net.calls.at(-1)?.[1]).toBe("https://github.com/lugia19/comfyui-gen-mcp/releases/latest");
   });
 
   it("parseVersion", () => {
