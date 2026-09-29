@@ -247,7 +247,6 @@ export function missingNodesMessage(missing: string[], known: Record<string, str
   const named = missing.map((cls) => (cls in known ? `${cls} (from ${known[cls]})` : cls));
   return (
     "This generator does not have the node(s) this workflow needs: " + named.join(", ") + ". " +
-    "The cloud generator supports core ComfyUI plus ComfyUI-GGUF; workflows needing other custom " +
-    "nodes run on a local generator."
+    "Install them in its ComfyUI, then try again."
   );
 }

@@ -7,12 +7,12 @@
 //
 // Reads, missing keys included, are cached per isolate for CACHE_S, so a warm MCP call costs no
 // storage reads. Writes update the cache of the isolate that made them; another isolate sees them
-// within CACHE_S. The settings pages use new Store(kv, now, false): right after a login or a save,
+// within CACHE_S. The settings pages use new Store(storage, now, false): right after a login or a save,
 // the next page load may land on another isolate, and it must not show the state from before.
-// The values are JSON strings, as the Python Worker stored them.
+// The values are JSON strings, a compatibility surface: existing installs hold them.
 
 import { normalize, tokenHex, tokenUrlsafe, type Config } from "@comfy-gen/core";
-import type { KV } from "./platform.ts";
+import type { StateStorage } from "./platform.ts";
 
 export const CACHE_S = 30;
 
@@ -30,12 +30,12 @@ export function cacheEntry(key: string, value: [number, any]): void {
 export type Secrets = Record<string, any> & { mcp_secret: string; hmac_key: string; cookie_key: string };
 
 export class Store {
-  private kv: KV;
+  private storage: StateStorage;
   private now: () => number;
   private useCache: boolean;
 
-  constructor(kv: KV, now: () => number, useCache = true) {
-    this.kv = kv;
+  constructor(storage: StateStorage, now: () => number, useCache = true) {
+    this.storage = storage;
     this.now = now;
     this.useCache = useCache;
   }
@@ -43,7 +43,7 @@ export class Store {
   private async get<T>(key: string, transform?: (v: any) => T): Promise<T> {
     const hit = this.useCache ? cache.get(key) : undefined;
     if (hit && this.now() - hit[0] < CACHE_S) return hit[1];
-    const raw = await this.kv.get(key);
+    const raw = await this.storage.get(key);
     let data = raw ? JSON.parse(raw) : null;
     if (transform) data = transform(data);
     cache.set(key, [this.now(), data]);
@@ -51,7 +51,7 @@ export class Store {
   }
 
   private async put(key: string, data: unknown): Promise<void> {
-    await this.kv.put(key, JSON.stringify(data));
+    await this.storage.put(key, JSON.stringify(data));
     cache.set(key, [this.now(), data]);
   }
 

@@ -4,6 +4,8 @@ import { png } from "../../core/test/fake-comfy.ts";
 import { REQUEST_BUDGET, type App } from "../src/app.ts";
 import { cacheEntry } from "../src/store.ts";
 import * as updates from "../src/updates.ts";
+import golden from "../../core/test/golden.json" with { type: "json" };
+import { makeSession, sessionOk } from "../src/auth.ts";
 import { ADMIN, COMFY, HOST, TOKEN, request, world } from "./world.ts";
 
 const secretsOf = (app: App) => app.store.secrets();
@@ -252,8 +254,6 @@ describe("Modal models", () => {
     expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["/seed/flux2klein_edit", "/seed/z_image_turbo"]); // anima is recorded
     const retry = await app.handle(request("POST", "/api/models/seed", { pack: "flux2klein_edit" }, cookie));
     expect((await body(retry)).started).toBe(true);
-    const diag = await body(await app.handle(request("GET", "/api/modal/diagnostics", undefined, cookie)));
-    expect(diag).toEqual({ status: { reload: { ok: true } }, files: { "vae/ae.safetensors": 3 } });
   });
 
   it("saving settings seeds new packs and applies keep-warm", async () => {
@@ -380,6 +380,16 @@ describe("custom workflows", () => {
     await withModal(app);
     expect(await names()).not.toContain("generate_custom_image");
     expect((await app.store.config()).custom_workflow).not.toBeNull(); // kept for the PC path
+  });
+});
+
+describe("session cookies", () => {
+  it("match the v0 vectors, so existing logins survive", async () => {
+    for (const v of (golden as any).sessions) {
+      expect(await makeSession(v.cookie_key, v.now)).toBe(v.value);
+      expect(await sessionOk(v.value, v.cookie_key, v.now + 60)).toBe(true);
+      expect(await sessionOk(v.value.replace(/.$/, (c: string) => (c === "0" ? "1" : "0")), v.cookie_key, v.now)).toBe(false);
+    }
   });
 });
 

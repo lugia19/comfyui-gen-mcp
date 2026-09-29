@@ -60,10 +60,6 @@ export class ModalAdmin {
     return this.call("GET", `/seed/${packName}`);
   }
 
-  async diagnostics(): Promise<any> {
-    return { status: await this.call("GET", "/status"), files: await this.call("GET", "/files") };
-  }
-
   /** LoRA file name -> size on the Volume. */
   loras(): Promise<Record<string, number>> {
     return this.call("GET", "/loras");

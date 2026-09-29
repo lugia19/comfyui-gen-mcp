@@ -62,8 +62,8 @@ export class App {
   constructor(platform: Platform) {
     this.p = platform;
     this.fetch = withUserAgent(platform.fetch);
-    this.store = new Store(platform.kv, platform.now);
-    this.fresh = new Store(platform.kv, platform.now, false);
+    this.store = new Store(platform.storage, platform.now);
+    this.fresh = new Store(platform.storage, platform.now, false);
   }
 
   get version(): string {
@@ -224,16 +224,6 @@ export class App {
     if (sub === "/loras" || sub.startsWith("/loras/")) return this.loras(req, url, sub, s);
     if (sub === "/models" && req.method === "GET") return this.models(s);
     if (sub === "/models/seed" && req.method === "POST") return this.seedPack(req, s);
-    if (sub === "/modal/diagnostics" && req.method === "GET") {
-      const admin = modalAdmin.forGenerator(this.fetch, s.generator);
-      if (!admin) return error(400, "the GPU is not on Modal");
-      try {
-        return json(await admin.diagnostics());
-      } catch (e) {
-        if (e instanceof modalAdmin.ModalAdminError) return error(502, e.message);
-        throw e;
-      }
-    }
     if (sub === "/setup/generator" && req.method === "POST") return this.setupGenerator(req);
     if (sub === "/setup/build" && req.method === "POST") return this.startBuild(req, url, s);
     if (sub === "/setup/build" && req.method === "GET") return this.buildState(url, s);
@@ -249,7 +239,7 @@ export class App {
     const setup = await this.fresh.setup();
     return {
       version: this.version,
-      cloudflare: s.cf_token ? { account_id: s.cf_account_id ?? null, script: s.cf_script ?? null, branch: s.cf_branch ?? null } : null,
+      cloudflare: s.cf_token ? { account_id: s.cf_account_id ?? null, script: s.cf_script ?? null } : null,
       generator: gen ? { kind: gen.kind ?? null, base_url: gen.base_url ?? null } : null,
       build: setup.build ?? null,
       connector_url: `${url.origin}/mcp/${s.mcp_secret}`,

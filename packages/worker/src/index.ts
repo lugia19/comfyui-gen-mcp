@@ -3,7 +3,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { App } from "./app.ts";
-import type { KV } from "./platform.ts";
+import type { StateStorage } from "./platform.ts";
 
 export interface Env {
   STATE: DurableObjectNamespace<State>;
@@ -17,7 +17,7 @@ export interface Env {
  * Object reset because its code was updated"), and the build callback arrives seconds after one, so
  * calls retry, each on a fresh stub: one that threw is broken.
  */
-class StateStub implements KV {
+class StateStub implements StateStorage {
   private ns: Env["STATE"];
 
   constructor(ns: Env["STATE"]) {
@@ -46,7 +46,7 @@ class StateStub implements KV {
 
 function app(env: Env): App {
   return new App({
-    kv: new StateStub(env.STATE),
+    storage: new StateStub(env.STATE),
     fetch: (url, init) => fetch(url, init),
     now: () => Date.now() / 1000,
     env: { VERSION: env.VERSION, DEV_WORKER_HOST: env.DEV_WORKER_HOST },
@@ -65,7 +65,7 @@ export default {
 /**
  * The Worker's config, secrets and setup state: one instance, strongly consistent. Workers KV was
  * used first, but it caches reads at the edge for up to a minute, so a read right after a write
- * could return the old value (seen live). Values are the JSON strings the Python Worker wrote.
+ * could return the old value (seen live). Values are JSON strings (store.ts).
  */
 export class State extends DurableObject<Env> {
   async read(key: string): Promise<string | null> {

@@ -139,6 +139,7 @@ def _watch_reloads(started: float) -> None:
         try:
             t = time.monotonic()
             how = _reload()
+            # For debugging: `modal dict get comfy-gen-state reload`
             state["reload"] = {"at": time.time(), "ok": True, "how": how, "seconds": round(time.monotonic() - t, 2)}
         except Exception as e:  # the next cold start sees the files anyway
             state["reload"] = {"at": time.time(), "ok": False, "error": f"{type(e).__name__}: {e}"}
@@ -293,22 +294,6 @@ def admin():
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
         return await state.get.aio(f"seed:{pack}") or {"state": "missing"}
-
-    @api.get("/status")
-    async def status():
-        """Diagnostics: the watcher's last Volume reload."""
-        return {"reload": await state.get.aio("reload"), "reload_requested_at": await state.get.aio("reload_requested_at")}
-
-    @api.get("/files")
-    async def files():
-        """Diagnostics: model files on the Volume, with sizes."""
-        await volume.reload.aio()
-        out = {}
-        for sub in SUBFOLDERS:
-            d = f"{MODELS_DIR}/{sub}"
-            for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-                out[f"{sub}/{name}"] = os.path.getsize(f"{d}/{name}")
-        return out
 
     @api.get("/loras")
     async def loras():

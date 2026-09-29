@@ -2,7 +2,7 @@
 
 import { FakeComfy, png } from "../../core/test/fake-comfy.ts";
 import { App } from "../src/app.ts";
-import type { KV } from "../src/platform.ts";
+import type { StateStorage } from "../src/platform.ts";
 import { clearCache } from "../src/store.ts";
 
 export const COMFY = "https://comfy.example";
@@ -10,7 +10,7 @@ export const ADMIN = "https://admin.example"; // the Modal app's admin API
 export const HOST = "comfy-gen.someone.workers.dev";
 export const TOKEN = "cfut_owner";
 
-export class FakeKV implements KV {
+export class FakeStorage implements StateStorage {
   data = new Map<string, string>();
   writes = 0;
   async get(key: string) {
@@ -103,8 +103,6 @@ export class FakeNet {
       return jsonResp({ started: true, ...this.seedState[body.pack] });
     }
     if (method === "GET" && path.startsWith("/seed/")) return jsonResp(this.seedState[path.split("/").at(-1)!] ?? { state: "missing" });
-    if (method === "GET" && path === "/status") return jsonResp({ reload: { ok: true } });
-    if (method === "GET" && path === "/files") return jsonResp({ "vae/ae.safetensors": 3 });
     if (method === "POST" && path === "/idle") return jsonResp({ seconds: body.seconds });
     if (method === "GET" && path === "/loras") return jsonResp(this.loras);
     if (method === "POST" && path === "/loras/uploads") {
@@ -137,12 +135,12 @@ export class Clock {
 export function world() {
   clearCache();
   const comfy = new FakeComfy();
-  const kv = new FakeKV();
+  const storage = new FakeStorage();
   const net = new FakeNet(comfy);
   const clock = new Clock();
   const env: Record<string, string | undefined> = { VERSION: "v1.0.0" };
-  const app = new App({ kv, fetch: net.fetch, now: clock.now, env, sleep: async (s) => void (clock.t += s) });
-  return { app, kv, net, clock, comfy, env };
+  const app = new App({ storage, fetch: net.fetch, now: clock.now, env, sleep: async (s) => void (clock.t += s) });
+  return { app, storage, net, clock, comfy, env };
 }
 
 export function request(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, base = `https://${HOST}`): Request {

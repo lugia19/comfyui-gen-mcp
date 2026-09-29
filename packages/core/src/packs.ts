@@ -64,36 +64,20 @@ export function select(groups: Record<string, Pack[]>, selections: Record<string
   });
 }
 
-function strengthOf(value: unknown): number {
-  if (value === undefined) return 1.0;
-  if (typeof value === "boolean") return value ? 1.0 : 0.0;
-  if (typeof value === "string" && !value.trim()) return 1.0;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 1.0;
-}
-
 /** Whether the pack takes the user's LoRAs: the Anima family (the packs with an artist list), whose
  * plain UNET loader LoraLoaderModelOnly can follow. */
 export function supportsLoras(pack: Pack): boolean {
   return Boolean(pack.default_artist_list);
 }
 
+/** The pack's LoRAs from a normalized config (config.ts cleans the entries). */
 function loras(pack: Pack, cfg: Config): Lora[] {
-  const raw = cfg.pack_loras?.[configKey(pack)] || [];
-  if (raw.length && !supportsLoras(pack)) {
+  const entries = cfg.pack_loras?.[configKey(pack)] ?? [];
+  if (entries.length && !supportsLoras(pack)) {
     console.warn(`Pack '${pack.name}': LoRAs configured but not supported for this pack, ignoring`);
     return [];
   }
-  const out: Lora[] = [];
-  for (let entry of raw) {
-    if (typeof entry === "string") entry = { name: entry };
-    if (!isPlainObject(entry) || !entry.name) {
-      console.warn(`Pack '${pack.name}': skipping malformed LoRA entry ${JSON.stringify(entry)}`);
-      continue;
-    }
-    out.push({ name: String(entry.name), strength: strengthOf(entry.strength), trigger: String(entry.trigger || "").trim() });
-  }
-  return out;
+  return entries;
 }
 
 /** The user's resolution budget, clamped to the model's limit. null when unset or invalid. */

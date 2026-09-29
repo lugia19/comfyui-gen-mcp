@@ -73,12 +73,12 @@ export function randomBytes(n: number): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(n));
 }
 
-/** Like Python's secrets.token_urlsafe(n): n random bytes, base64url. */
+/** n random bytes, base64url. */
 export function tokenUrlsafe(n: number): string {
   return toBase64Url(randomBytes(n));
 }
 
-/** Like Python's secrets.token_hex(n). */
+/** n random bytes, hex. */
 export function tokenHex(n: number): string {
   return toHex(randomBytes(n));
 }
@@ -89,6 +89,19 @@ export function randomSeed(): number {
   return (hi & 0x1fffff) * 2 ** 32 + lo;
 }
 
+const hmacKeys = new Map<string, Promise<CryptoKey>>(); // imported keys; plain data, fine across requests
+
+/** HMAC-SHA256 of *message* under *key*. The imported key is cached per key. */
+export async function hmacSha256(key: Uint8Array, message: string): Promise<Uint8Array> {
+  const id = toHex(key);
+  let k = hmacKeys.get(id);
+  if (!k) {
+    k = crypto.subtle.importKey("raw", key as BufferSource, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    hmacKeys.set(id, k);
+  }
+  return new Uint8Array(await crypto.subtle.sign("HMAC", await k, utf8(message) as BufferSource));
+}
+
 /** Constant-time comparison of two strings. */
 export function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -97,7 +110,7 @@ export function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/** Python's round(): half to even. */
+/** Round half to even (as the pack workflows' reference implementation did). */
 export function roundHalfEven(x: number): number {
   const f = Math.floor(x);
   const diff = x - f;

@@ -2,7 +2,7 @@
 //
 // ComfyUI's own HTTP API is the generator interface everywhere: Modal (HTTPS with proxy-token
 // headers), a PC (through the Worker's relay to the agent), or localhost (the MCPB). The client only
-// needs something that sends one HTTP request and hands back status, headers and body, so the relay
+// needs something that sends one HTTP request and hands back status and body, so the relay
 // can carry requests as plain data.
 //
 // Completion: a generator with our /comfy-gen/wait extension (the Modal image's, comfy_node/)
@@ -34,12 +34,10 @@ export class ComfyUIError extends Error {
 export class Response {
   status: number;
   content: Uint8Array;
-  headers: Record<string, string>;
 
-  constructor(status: number, content: Uint8Array = new Uint8Array(), headers: Record<string, string> = {}) {
+  constructor(status: number, content: Uint8Array = new Uint8Array()) {
     this.status = status;
     this.content = content;
-    this.headers = headers;
   }
 
   get text(): string {
@@ -55,14 +53,13 @@ export type RequestOptions = {
   params?: Record<string, string>;
   headers?: Record<string, string>;
   body?: Uint8Array | string;
-  timeout?: number;
 };
 
 export interface Transport {
   request(method: string, path: string, opts?: RequestOptions): Promise<Response>;
 }
 
-export type Fetch = (url: string, init: RequestInit) => Promise<globalThis.Response>;
+export type Fetch = (url: string, init?: RequestInit) => Promise<globalThis.Response>;
 
 /** HTTP(S) to a ComfyUI base URL with fixed extra headers. Network failures read as 503, so a host
  * that isn't listening yet looks the same as one that is booting. */
@@ -85,7 +82,6 @@ export class FetchTransport implements Transport {
         headers: { ...this.headers, ...opts.headers },
         body: opts.body as BodyInit | undefined,
       });
-      // Headers stay behind: nothing reads them (image types are sniffed from the bytes).
       return new Response(resp.status, new Uint8Array(await resp.arrayBuffer()));
     } catch (e) {
       return new Response(503, utf8(String(e)));
@@ -299,7 +295,7 @@ export class ComfyUIClient {
     if (preview) params.preview = preview;
     const deadline = this.now() + this.coldStartS;
     for (;;) {
-      const resp = await this.request("GET", "/view", { params, timeout: 60 });
+      const resp = await this.request("GET", "/view", { params });
       if (resp.status === 200) return resp;
       const left = this.remaining();
       const retry = BOOTING.includes(resp.status) && this.coldStartS && this.now() <= deadline && (left === null || left > 0);
@@ -313,7 +309,7 @@ export class ComfyUIClient {
     const fields: Record<string, string> = { type: "input", overwrite: "true" };
     if (subfolder) fields.subfolder = subfolder;
     const [body, ctype] = encodeMultipart(fields, { image: [filename, data, mime] });
-    const resp = await this.request("POST", "/upload/image", { headers: { "Content-Type": ctype }, body, timeout: 120 });
+    const resp = await this.request("POST", "/upload/image", { headers: { "Content-Type": ctype }, body });
     if (resp.status !== 200) {
       throw new ComfyUIError(`Upload to ComfyUI failed (HTTP ${resp.status}): ${resp.text.slice(0, 300)}`);
     }
@@ -323,7 +319,7 @@ export class ComfyUIClient {
 
   /** Every node class this ComfyUI knows. /object_info is large: callers should cache it. */
   async nodeClasses(): Promise<Set<string>> {
-    const resp = await this.request("GET", "/object_info", { timeout: 60 });
+    const resp = await this.request("GET", "/object_info");
     if (resp.status !== 200) throw new ComfyUIError(`Could not read ComfyUI's node list (HTTP ${resp.status}).`);
     return new Set(Object.keys(resp.json()));
   }

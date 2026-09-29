@@ -1,16 +1,18 @@
 // What the app needs from its host. index.ts builds the real one over Cloudflare's runtime; tests
 // build fakes. Everything else in src/ is plain TypeScript over these, tested in Node.
 
-export type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
+import type { Fetch } from "@comfy-gen/core";
+
+export type { Fetch };
 
 /** String key-value storage: the State Durable Object in production. */
-export interface KV {
+export interface StateStorage {
   get(key: string): Promise<string | null>;
   put(key: string, value: string): Promise<void>;
 }
 
 export type Platform = {
-  kv: KV;
+  storage: StateStorage;
   fetch: Fetch;
   now: () => number; // seconds
   env: Record<string, string | undefined>; // VERSION; DEV_WORKER_HOST under wrangler dev

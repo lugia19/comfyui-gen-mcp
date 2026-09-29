@@ -164,7 +164,7 @@ describe("packs and config", () => {
       anima: [
         { name: "bare.safetensors", strength: 1, trigger: "", hidden: false },
         { name: "a.safetensors", strength: 5, trigger: "@x", hidden: false },
-        { name: "b.safetensors", strength: 1, trigger: "", hidden: false },
+        { name: "b.safetensors", strength: 0.5, trigger: "", hidden: false },
       ],
       other: [],
     });

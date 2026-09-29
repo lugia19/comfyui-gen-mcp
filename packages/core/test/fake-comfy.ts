@@ -28,7 +28,7 @@ export function png(w = 64, h = 48): Uint8Array {
 
 export const OUTPUT = { filename: "comfy-gen_00001_.png", subfolder: "", type: "output" };
 
-export const json = (data: unknown, status = 200) => new Response(status, utf8(JSON.stringify(data)), { "content-type": "application/json" });
+export const json = (data: unknown, status = 200) => new Response(status, utf8(JSON.stringify(data)));
 
 /**
  * bootFails   how many /prompt calls answer 503 before one is accepted
@@ -95,7 +95,7 @@ export class FakeComfy implements Transport {
         this.viewBootFails -= 1;
         return new Response(503);
       }
-      return new Response(200, this.viewBody, { "content-type": "image/webp" });
+      return new Response(200, this.viewBody);
     }
     if (path === "/upload/image") {
       this.uploads.push(body);

@@ -80,18 +80,26 @@ export function normalize(raw: unknown): Config {
   return cfg;
 }
 
+/** A strength from hand-edited or older configs: missing or blank means 1, a boolean on/off, a
+ * numeric string its number; anything else 1. */
+function strengthOf(value: unknown): number {
+  if (value === undefined || (typeof value === "string" && !value.trim())) return 1;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 1;
+}
+
 /** A pack's LoRA list, cleaned: a bare string is a file name; entries without a name are dropped;
- * strength is clamped to ±LORA_STRENGTH_MAX (1 when missing or not a number). */
+ * strength is clamped to ±LORA_STRENGTH_MAX. Everything downstream reads this shape. */
 function loraEntries(list: unknown): LoraEntry[] {
   if (!Array.isArray(list)) return [];
   const out: LoraEntry[] = [];
   for (const raw of list) {
     const e = typeof raw === "string" ? { name: raw } : raw;
     if (!isPlainObject(e) || typeof e.name !== "string" || !e.name.trim()) continue;
-    const n = typeof e.strength === "number" && Number.isFinite(e.strength) ? e.strength : 1;
     out.push({
       name: e.name.trim(),
-      strength: Math.max(-LORA_STRENGTH_MAX, Math.min(LORA_STRENGTH_MAX, n)),
+      strength: Math.max(-LORA_STRENGTH_MAX, Math.min(LORA_STRENGTH_MAX, strengthOf(e.strength))),
       trigger: typeof e.trigger === "string" ? e.trigger.trim() : "",
       hidden: e.hidden === true,
     });

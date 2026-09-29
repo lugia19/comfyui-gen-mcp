@@ -6,11 +6,11 @@
 // Upload tokens carry an expiry and a random nonce, also signed. The upload they authorize lands
 // under a name derived from the nonce, so a replay within the expiry overwrites the same file.
 //
-// Formats match the Python implementation byte for byte for ASCII names, so ids issued before the
-// TypeScript port still verify (test/golden.json). Python escaped non-ASCII names as \uXXXX in the
-// payload; those old ids still verify, but new ones for such names are spelled differently.
+// The formats are a compatibility surface (test/golden.json pins them): ids in users' chats must
+// keep verifying. Ids for non-ASCII names issued by v0 (the Python Worker) spell them as \uXXXX in
+// the payload; those still verify, and new ones spell them directly.
 
-import { fromBase64Url, fromUtf8, safeEqual, toBase64Url, tokenUrlsafe, utf8 } from "./bytes.ts";
+import { fromBase64Url, fromUtf8, hmacSha256, safeEqual, toBase64Url, tokenUrlsafe, utf8 } from "./bytes.ts";
 import { OutputImage } from "./comfyui.ts";
 import { EXTENSIONS } from "./images.ts";
 
@@ -23,21 +23,8 @@ export class RefError extends Error {
   name = "RefError";
 }
 
-const keys = new Map<string, Promise<CryptoKey>>(); // plain data at module scope: fine across requests
-
-function hmacKey(key: Uint8Array): Promise<CryptoKey> {
-  const id = Array.from(key).join(",");
-  let k = keys.get(id);
-  if (!k) {
-    k = crypto.subtle.importKey("raw", key as BufferSource, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    keys.set(id, k);
-  }
-  return k;
-}
-
 export async function mac(key: Uint8Array, payload: string): Promise<string> {
-  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", await hmacKey(key), utf8(payload) as BufferSource));
-  return toBase64Url(sig.subarray(0, MAC_BYTES));
+  return toBase64Url((await hmacSha256(key, payload)).subarray(0, MAC_BYTES));
 }
 
 async function check(key: Uint8Array, token: string, what: string): Promise<string> {
@@ -77,7 +64,7 @@ export async function verify(ref: string, key: Uint8Array): Promise<OutputImage>
 }
 
 /** A token authorizing one upload until now + ttlS. */
-export async function mintUpload(key: Uint8Array, now: number, ttlS = 600): Promise<string> {
+export async function mintUpload(key: Uint8Array, now: number, ttlS: number): Promise<string> {
   const payload = toBase64Url(utf8(JSON.stringify([Math.trunc(now + ttlS), tokenUrlsafe(12)])));
   return `${payload}.${await mac(key, payload)}`;
 }
