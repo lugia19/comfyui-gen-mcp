@@ -36,7 +36,7 @@
     },
     {
       "name": "edit_image",
-      "description": "Edit an image by its path on this computer, a URL, or the clipboard"
+      "description": "Edit an image by its path on this computer, or a URL"
     },
     {
       "name": "fetch_result",

@@ -129,19 +129,3 @@ describe("settings API", () => {
     expect(packs[0]).toMatchObject({ state: "missing" });
   });
 });
-
-describe("edit_image from the clipboard", () => {
-  it("uploads the clipboard's image, or says what is wrong", async () => {
-    const { LocalHooks } = await import("../src/server/hooks.ts");
-    const { OutputImage } = await import("@comfy-gen/core");
-    const uploads: string[] = [];
-    const client = { upload: async (_d: Uint8Array, name: string) => (uploads.push(name), new OutputImage(name, "comfy-gen-uploads", "input")) } as any;
-    const png = new Uint8Array(Buffer.from("89504e470d0a1a0a0000000d494844520000000400000003", "hex"));
-    const hooks = (clip: Uint8Array | null) => new LocalHooks({ install: null } as any, null as any, client, "x", async () => clip);
-    const [value, size] = await hooks(png).resolveImage("Clipboard");
-    expect(value).toMatch(/^comfy-gen-uploads\/upload-[0-9a-f]{16}\.png$/);
-    expect(size).toEqual([4, 3]);
-    await expect(hooks(null).resolveImage("clipboard")).rejects.toThrow(/holds no image/);
-    await expect(hooks(new Uint8Array([1, 2, 3])).resolveImage("clipboard")).rejects.toThrow(/not a PNG/);
-  });
-});

@@ -10,7 +10,7 @@ import {
   ComfyUIError, Hooks, downloadSize, imageSize, refs, requiredNodes, sniffMime,
   type ComfyUIClient, type Pack, type ResolvedImage,
 } from "@comfy-gen/core";
-import { readClipboardImage, USER_AGENT, type LocalComfy, type ModelDownloads } from "@comfy-gen/local";
+import { USER_AGENT, type LocalComfy, type ModelDownloads } from "@comfy-gen/local";
 
 export const MAX_IMAGE_BYTES = 50_000_000;
 // ComfyUI's own annotated names ("sub/file.png [output]"), as the result text gives them for a
@@ -22,18 +22,13 @@ export class LocalHooks extends Hooks {
   private downloads: ModelDownloads;
   private client: ComfyUIClient;
   private settingsUrl: string;
-  private clipboard: () => Promise<Uint8Array | null>;
 
-  constructor(
-    comfy: LocalComfy, downloads: ModelDownloads, client: ComfyUIClient, settingsUrl: string,
-    clipboard: () => Promise<Uint8Array | null> = () => readClipboardImage(),
-  ) {
+  constructor(comfy: LocalComfy, downloads: ModelDownloads, client: ComfyUIClient, settingsUrl: string) {
     super();
     this.comfy = comfy;
     this.downloads = downloads;
     this.client = client;
     this.settingsUrl = settingsUrl;
-    this.clipboard = clipboard;
   }
 
   async ensure(pack: Pack): Promise<void> {
@@ -61,7 +56,6 @@ export class LocalHooks extends Hooks {
   async resolveImage(arg: string): Promise<ResolvedImage> {
     let a = arg.trim().replace(/^saved_path:\s*/i, "").replace(/^(["'])(.*)\1$/, "$2");
     if (ANNOTATED.test(a)) return [a, null];
-    if (a.toLowerCase() === "clipboard") return this.fromClipboard();
     if (/^https?:\/\//i.test(a)) return this.fromUrl(a);
     if (/^file:\/\//i.test(a)) a = fileURLToPath(a);
     if (a === "~" || a.startsWith("~/") || a.startsWith("~\\")) a = join(homedir(), a.slice(1));
@@ -77,19 +71,6 @@ export class LocalHooks extends Hooks {
       return [`${rel.split("\\").join("/")} [output]`, imageSize(data)];
     }
     return this.upload(data, path);
-  }
-
-  /** The image the user copied, once they confirmed it (the tool description asks the model to). */
-  private async fromClipboard(): Promise<ResolvedImage> {
-    const data = await this.clipboard();
-    if (!data?.length) {
-      throw new ComfyUIError("The clipboard holds no image. Ask the user to copy the image (right-click it, 'Copy image', or copy its file), then try again.");
-    }
-    if (data.length > MAX_IMAGE_BYTES) throw new ComfyUIError(`The clipboard's image is too large (the limit is ${MAX_IMAGE_BYTES / 1e6} MB).`);
-    if (!sniffMime(data)) {
-      throw new ComfyUIError("The clipboard holds something that is not a PNG, JPEG, WebP or GIF image. Ask the user to copy the image itself, then try again.");
-    }
-    return this.upload(data, "the clipboard");
   }
 
   private async fromUrl(url: string): Promise<ResolvedImage> {
