@@ -17,11 +17,11 @@
     if (files && file.name in files && !confirm(`${file.name} is already uploaded. Replace it?`)) return
     try {
       await uploadLora(file, (p) => (progress = { name: file.name, ...p }))
-      await reload()
     } catch (err) {
       error = `${file.name}: ${err.message}`
     } finally {
       progress = null
+      await reload() // also after an error: the file may have arrived regardless
     }
   }
 

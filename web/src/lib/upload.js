@@ -13,6 +13,19 @@ async function sha256Hex(buf) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+// The Worker calls after the chunks (finish, status) are safe to repeat: ride out a dropped
+// connection instead of losing an upload that already arrived. HTTP errors are final.
+async function apiRetrying(method, path) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await api(method, path)
+    } catch (e) {
+      if (e.status || attempt >= RETRIES) throw e
+      await sleep(1000 * 2 ** attempt)
+    }
+  }
+}
+
 async function putChunk(url, buf, sha) {
   for (let attempt = 0; ; attempt++) {
     let status = 0
@@ -54,9 +67,9 @@ export async function uploadLora(file, onProgress) {
   }
   await Promise.all(Array.from({ length: Math.min(PARALLEL, chunks) }, worker))
 
-  await api('POST', `/loras/uploads/${id}/finish`)
+  await apiRetrying('POST', `/loras/uploads/${id}/finish`)
   for (;;) {
-    const s = await api('GET', `/loras/uploads/${id}`)
+    const s = await apiRetrying('GET', `/loras/uploads/${id}`)
     if (s.state === 'done') return
     if (s.state === 'failed') throw new Error(s.error || 'the upload could not be assembled')
     onProgress({ phase: 'assemble', done: s.done || 0, total: file.size })
