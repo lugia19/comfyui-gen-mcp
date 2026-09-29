@@ -43,6 +43,8 @@ export class FakeNet {
   adminCalls: [string, string, any][] = [];
   seedState: Record<string, any> = {};
   adminUp = true;
+  loras: Record<string, number> = {};
+  uploads: Record<string, any> = {};
 
   constructor(comfy: FakeComfy) {
     this.comfy = comfy;
@@ -101,6 +103,25 @@ export class FakeNet {
     if (method === "GET" && path === "/status") return jsonResp({ reload: { ok: true } });
     if (method === "GET" && path === "/files") return jsonResp({ "vae/ae.safetensors": 3 });
     if (method === "POST" && path === "/idle") return jsonResp({ seconds: body.seconds });
+    if (method === "GET" && path === "/loras") return jsonResp(this.loras);
+    if (method === "POST" && path === "/loras/uploads") {
+      if (!String(body.filename).endsWith(".safetensors")) return jsonResp({ detail: "LoRA files must be .safetensors" }, 400);
+      const id = "u".repeat(43);
+      this.uploads[id] = { ...body, state: "uploading" };
+      return jsonResp({ id, chunk_size: 16, chunks: Math.ceil(body.size / 16) });
+    }
+    const up = /^\/loras\/uploads\/([\w-]+)(\/finish)?$/.exec(path);
+    if (up && this.uploads[up[1]]) {
+      if (up[2]) this.uploads[up[1]].state = "assembling";
+      return jsonResp({ state: this.uploads[up[1]].state });
+    }
+    if (up) return jsonResp({ detail: "unknown or expired upload" }, 404);
+    if (method === "DELETE" && path.startsWith("/loras/")) {
+      const name = decodeURIComponent(path.slice(7));
+      if (!(name in this.loras)) return jsonResp({ detail: `no LoRA named ${name}` }, 404);
+      delete this.loras[name];
+      return jsonResp({ deleted: name });
+    }
     return new Response(null, { status: 404 });
   }
 }

@@ -78,5 +78,5 @@ def test_app_defines_what_deploy_looks_up():
     from comfy_gen_modal import app as mod
 
     assert mod.app.name == mod.APP_NAME == "comfy-gen"
-    assert isinstance(mod.seed, modal.Function) and isinstance(mod.admin, modal.Function)
+    assert all(isinstance(getattr(mod, n), modal.Function) for n in ("seed", "admin", "upload", "assemble"))
     assert "comfy_gen:" in mod.EXTRA_PATHS and "  diffusion_models: diffusion_models" in mod.EXTRA_PATHS

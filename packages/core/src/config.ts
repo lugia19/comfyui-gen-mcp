@@ -14,6 +14,10 @@
 import { isPlainObject } from "./bytes.ts";
 
 export const DEFAULT_KEEP_WARM_MINUTES = 5;
+const KEEP_WARM_MAX = 60;
+export const LORA_STRENGTH_MAX = 5;
+
+export type LoraEntry = { name: string; strength: number; trigger: string; hidden: boolean };
 
 export type Config = {
   pack_selections: Record<string, string>;
@@ -44,7 +48,7 @@ export const SETTINGS_SCHEMA = [
     type: "int",
     default: DEFAULT_KEEP_WARM_MINUTES,
     min: 1,
-    max: 60,
+    max: KEEP_WARM_MAX,
   },
   {
     key: "custom_workflow",
@@ -66,10 +70,31 @@ export function normalize(raw: unknown): Config {
     } else if (key === "custom_workflow") {
       if (val === null || (isPlainObject(val) && isPlainObject(val.workflow))) cfg[key] = structuredClone(val);
     } else if (key === "keep_warm_minutes") {
-      if (Number.isInteger(val) && val > 0) cfg[key] = val;
+      if (Number.isInteger(val) && val > 0) cfg[key] = Math.min(val, KEEP_WARM_MAX);
+    } else if (key === "pack_loras") {
+      if (isPlainObject(val)) cfg[key] = Object.fromEntries(Object.entries(val).map(([k, list]) => [k, loraEntries(list)]));
     } else if (isPlainObject(val)) {
       cfg[key] = structuredClone(val);
     }
   }
   return cfg;
+}
+
+/** A pack's LoRA list, cleaned: a bare string is a file name; entries without a name are dropped;
+ * strength is clamped to ±LORA_STRENGTH_MAX (1 when missing or not a number). */
+function loraEntries(list: unknown): LoraEntry[] {
+  if (!Array.isArray(list)) return [];
+  const out: LoraEntry[] = [];
+  for (const raw of list) {
+    const e = typeof raw === "string" ? { name: raw } : raw;
+    if (!isPlainObject(e) || typeof e.name !== "string" || !e.name.trim()) continue;
+    const n = typeof e.strength === "number" && Number.isFinite(e.strength) ? e.strength : 1;
+    out.push({
+      name: e.name.trim(),
+      strength: Math.max(-LORA_STRENGTH_MAX, Math.min(LORA_STRENGTH_MAX, n)),
+      trigger: typeof e.trigger === "string" ? e.trigger.trim() : "",
+      hidden: e.hidden === true,
+    });
+  }
+  return out;
 }

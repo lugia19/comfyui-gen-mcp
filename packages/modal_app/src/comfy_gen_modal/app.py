@@ -3,7 +3,10 @@
 - Comfy: ComfyUI's own HTTP API on an L4, behind proxy auth, plus our /comfy-gen/wait route
   (comfy_node/). The Worker is its only client.
 - seed: downloads a pack's model files onto the Volume (a CPU container, not the GPU).
-- admin: a small proxy-auth'd API for the Worker: start a seed, read its progress, set keep-warm.
+- admin: a small proxy-auth'd API for the Worker: start a seed, read its progress, set keep-warm,
+  create LoRA upload sessions, list and delete LoRAs.
+- upload: the one endpoint without proxy auth. The settings page PUTs LoRA chunks to it, each
+  request carrying an upload session id the admin API issued (uploads.py).
 
 The Volume holds models, input and output, so uploads and earlier outputs survive scale-to-zero
 (S5 a–c). A warm ComfyUI only sees files written by other containers after volume.reload(), which
@@ -27,6 +30,7 @@ import urllib.request
 
 import modal
 
+from comfy_gen_modal import uploads
 from comfy_gen_modal.models import (
     INPUT_DIR, MODELS_DIR, OUTPUT_DIR, SUBFOLDERS, VOL, needed, rel_path, validate_models, validate_pack_name,
 )
@@ -229,6 +233,27 @@ def seed(pack: str, models: list[dict]) -> None:
         raise
 
 
+# ── LoRA uploads ───────────────────────────────────────────────────────────────
+
+
+@app.function(image=admin_image, volumes={VOL: volume}, timeout=1800, cpu=1.0)
+def assemble(upload_id: str) -> None:
+    """Join an upload's chunks into loras/ once all have arrived (uploads.assemble)."""
+    volume.reload()  # the chunks were committed by the upload containers
+    s = uploads.assemble(state, VOL, upload_id, time.time())
+    volume.commit()
+    if s["state"] == "done":
+        state["reload_requested_at"] = time.time()  # a warm ComfyUI picks it up when idle
+
+
+@app.function(image=admin_image, volumes={VOL: volume}, timeout=150)
+@modal.concurrent(max_inputs=8)
+@modal.asgi_app()
+def upload():
+    """The browser's endpoint for LoRA chunks. No proxy auth: the session id is the capability."""
+    return uploads.web_app(state, volume.commit.aio, VOL)
+
+
 # ── admin API (the Worker's) ───────────────────────────────────────────────────
 
 STALE_S = 120  # a "downloading" entry not updated for this long is a dead seed; allow a new one
@@ -237,6 +262,8 @@ STALE_S = 120  # a "downloading" entry not updated for this long is a dead seed;
 @app.function(image=admin_image, volumes={VOL: volume}, timeout=120)
 @modal.asgi_app(requires_proxy_auth=True)
 def admin():
+    import asyncio
+
     from fastapi import Body, FastAPI, HTTPException
 
     api = FastAPI()
@@ -281,6 +308,59 @@ def admin():
             for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
                 out[f"{sub}/{name}"] = os.path.getsize(f"{d}/{name}")
         return out
+
+    @api.get("/loras")
+    async def loras():
+        await volume.reload.aio()
+        return uploads.list_loras(VOL)
+
+    # The uploads helpers use the Dict's blocking API, so they run in a thread (off the event loop).
+
+    @api.delete("/loras/{name}")
+    async def delete_lora(name: str):
+        await volume.reload.aio()
+        try:
+            uploads.delete_lora(VOL, name)
+        except uploads.UploadError as e:
+            raise HTTPException(e.status, str(e)) from None
+        await volume.commit.aio()
+        await state.put.aio("reload_requested_at", time.time())
+        return {"deleted": name}
+
+    @api.post("/loras/uploads")
+    async def create_upload(body: dict = Body(...)):
+        await volume.reload.aio()
+        await asyncio.to_thread(uploads.sweep, state, VOL, time.time())
+        await volume.commit.aio()
+        try:
+            s = await asyncio.to_thread(uploads.new_session, state, body.get("filename"), body.get("size"),
+                                        body.get("origin"), time.time())
+        except uploads.UploadError as e:
+            raise HTTPException(e.status, str(e)) from None
+        return {"id": s["id"], "chunk_size": s["chunk_size"], "chunks": s["chunks"]}
+
+    @api.get("/loras/uploads/{upload_id}")
+    async def upload_status(upload_id: str):
+        try:
+            s = await asyncio.to_thread(uploads.session, state, upload_id, time.time())
+        except uploads.UploadError as e:
+            raise HTTPException(e.status, str(e)) from None
+        return {k: s.get(k) for k in ("filename", "size", "state", "done", "error")}
+
+    @api.post("/loras/uploads/{upload_id}/finish")
+    async def finish_upload(upload_id: str):
+        try:
+            s = await asyncio.to_thread(uploads.session, state, upload_id, time.time())
+        except uploads.UploadError as e:
+            raise HTTPException(e.status, str(e)) from None
+        if s["state"] != "uploading":
+            return {"state": s["state"]}
+        await volume.reload.aio()
+        if gaps := uploads.missing(VOL, s):
+            raise HTTPException(409, f"{len(gaps)} chunk(s) still missing, first {gaps[0]}")
+        await asyncio.to_thread(uploads.update, state, s, state="assembling", done=0)
+        await assemble.spawn.aio(upload_id)
+        return {"state": "assembling"}
 
     @api.post("/idle")
     async def set_idle(body: dict = Body(...)):

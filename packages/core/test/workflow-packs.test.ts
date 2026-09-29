@@ -3,7 +3,7 @@ import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize } from "../src/config.ts";
-import { builtinPacks, configKey, groupByTool, prepare, select, validate } from "../src/packs.ts";
+import { builtinPacks, configKey, groupByTool, prepare, select, supportsLoras, validate } from "../src/packs.ts";
 import { buildPrompt, calcDimensions, classTypes, injectLoras, parseCustomWorkflow, splitLossless, type Workflow } from "../src/workflow.ts";
 
 const smallWorkflow = (): Workflow => ({
@@ -148,5 +148,29 @@ describe("packs and config", () => {
     (out.custom_workflow!.workflow["1"] as any).x = 1;
     expect(raw).toEqual({ custom_workflow: { workflow: { "1": {} } } }); // a deep copy
     expect(normalize({ custom_workflow: "nope" }).custom_workflow).toBeNull();
+  });
+
+  it("normalize cleans LoRA entries and caps keep-warm", () => {
+    const cfg = normalize({
+      keep_warm_minutes: 500,
+      pack_loras: {
+        anima: ["bare.safetensors", { name: " a.safetensors ", strength: 9, trigger: " @x ", hidden: 1 }, { name: "" }, 7,
+          { name: "b.safetensors", strength: "0.5" }],
+        other: "junk",
+      },
+    });
+    expect(cfg.keep_warm_minutes).toBe(60);
+    expect(cfg.pack_loras).toEqual({
+      anima: [
+        { name: "bare.safetensors", strength: 1, trigger: "", hidden: false },
+        { name: "a.safetensors", strength: 5, trigger: "@x", hidden: false },
+        { name: "b.safetensors", strength: 1, trigger: "", hidden: false },
+      ],
+      other: [],
+    });
+  });
+
+  it("only the Anima family takes LoRAs", () => {
+    expect(builtinPacks().filter(supportsLoras).map((p) => p.name).sort()).toEqual(["anima", "anima_turbo"]);
   });
 });

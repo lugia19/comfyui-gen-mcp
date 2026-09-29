@@ -4,7 +4,7 @@ import { png } from "../../core/test/fake-comfy.ts";
 import { REQUEST_BUDGET, type App } from "../src/app.ts";
 import { cacheEntry } from "../src/store.ts";
 import * as updates from "../src/updates.ts";
-import { ADMIN, COMFY, TOKEN, request, world } from "./world.ts";
+import { ADMIN, COMFY, HOST, TOKEN, request, world } from "./world.ts";
 
 const secretsOf = (app: App) => app.store.secrets();
 
@@ -299,6 +299,87 @@ describe("Modal models", () => {
     const [, r] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x" } });
     expect(r.result.content[0].type).toBe("image");
     expect(net.adminCalls).toEqual([]);
+  });
+});
+
+describe("LoRAs", () => {
+  const withUploads = (app: App) =>
+    app.store.updateSecrets({
+      generator: { kind: "modal", base_url: COMFY, admin_url: ADMIN, upload_url: "https://up.example/", headers: { "Modal-Key": "wk", "Modal-Secret": "ws" } },
+    });
+
+  it("the settings page lists, uploads through a session, and deletes LoRAs", async () => {
+    const { app, net } = world();
+    await withUploads(app);
+    const cookie = await login(app);
+    net.loras = { "old.safetensors": 5 };
+    expect(await body(await app.handle(request("GET", "/api/loras", undefined, cookie)))).toEqual({ loras: { "old.safetensors": 5 } });
+
+    const created = await body(await app.handle(request("POST", "/api/loras/uploads", { filename: "style.safetensors", size: 40 }, cookie)));
+    expect(created).toEqual({ id: "u".repeat(43), chunk_size: 16, chunks: 3, upload_url: `https://up.example/u/${"u".repeat(43)}` });
+    expect(net.adminCalls.at(-1)).toEqual(["POST", "/loras/uploads", { filename: "style.safetensors", size: 40, origin: `https://${HOST}` }]);
+    const finish = await app.handle(request("POST", `/api/loras/uploads/${created.id}/finish`, undefined, cookie));
+    expect(await body(finish)).toEqual({ state: "assembling" });
+    expect(await body(await app.handle(request("GET", `/api/loras/uploads/${created.id}`, undefined, cookie)))).toEqual({ state: "assembling" });
+
+    const bad = await app.handle(request("POST", "/api/loras/uploads", { filename: "x.ckpt", size: 1 }, cookie));
+    expect([bad.status, (await body(bad)).error]).toEqual([400, "LoRA files must be .safetensors"]); // the admin API's message
+    const gone = await app.handle(request("GET", "/api/loras/uploads/nope", undefined, cookie));
+    expect(gone.status).toBe(404);
+
+    const del = await app.handle(request("DELETE", "/api/loras/old.safetensors", undefined, cookie));
+    expect(await body(del)).toEqual({ deleted: "old.safetensors" });
+    expect((await app.handle(request("DELETE", "/api/loras/old.safetensors", undefined, cookie))).status).toBe(404);
+    expect((await app.handle(request("GET", "/api/loras"))).status).toBe(401); // cookie required
+  });
+
+  it("uploads need a Modal app that has the upload endpoint", async () => {
+    const { app } = world();
+    await withModal(app); // deployed before M4: no upload_url
+    const cookie = await login(app);
+    const r = await app.handle(request("POST", "/api/loras/uploads", { filename: "a.safetensors", size: 1 }, cookie));
+    expect(r.status).toBe(409);
+    await withGenerator(app);
+    expect((await app.handle(request("GET", "/api/loras", undefined, cookie))).status).toBe(400);
+  });
+
+  it("saving warns about LoRAs that are not uploaded", async () => {
+    const { app, net } = world();
+    await withUploads(app);
+    const cookie = await login(app);
+    await app.store.updateSetup({ seeded: ["anima_turbo", "z_image_turbo", "flux2klein_edit"] });
+    net.loras = { "here.safetensors": 1 };
+    const cfg = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
+    cfg.pack_loras = { anima: [{ name: "here.safetensors", trigger: "@a" }, { name: "gone.safetensors" }] };
+    const resp = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
+    expect(resp.warnings).toEqual(["The LoRA gone.safetensors is not uploaded: generations will fail until it is."]);
+    expect(resp.config.pack_loras.anima[0]).toEqual({ name: "here.safetensors", strength: 1, trigger: "@a", hidden: false });
+    net.adminCalls = [];
+    cfg.pack_loras = {};
+    await app.handle(request("PUT", "/api/config", { config: cfg }, cookie));
+    expect(net.adminCalls.some((c) => c[1] === "/loras")).toBe(false); // no LoRAs, no check
+  });
+
+  it("the settings page learns which packs take LoRAs", async () => {
+    const { app } = world();
+    const cookie = await login(app);
+    const packs = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).packs.flatMap((g: any) => g.packs);
+    expect(packs.filter((p: any) => p.supports_loras).map((p: any) => p.name).sort()).toEqual(["anima", "anima_turbo"]);
+  });
+});
+
+describe("custom workflows", () => {
+  const workflow = { "1": { class_type: "EmptyImage", inputs: {}, _meta: { title: "Prompt" } }, "2": { class_type: "SaveImage", inputs: {} } };
+
+  it("are offered for a generator with the user's own nodes, not on Modal", async () => {
+    const { app } = world();
+    await app.store.saveConfig({ custom_workflow: { workflow, prompt_node_title: "Prompt" } });
+    await withGenerator(app);
+    const names = async () => (await mcp(app, "tools/list"))[1].result.tools.map((t: any) => t.name);
+    expect(await names()).toContain("generate_custom_image");
+    await withModal(app);
+    expect(await names()).not.toContain("generate_custom_image");
+    expect((await app.store.config()).custom_workflow).not.toBeNull(); // kept for the PC path
   });
 });
 

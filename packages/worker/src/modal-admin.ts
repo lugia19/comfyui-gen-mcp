@@ -1,5 +1,6 @@
 // The Modal app's admin API (comfy_gen_modal.app.admin), as the Worker uses it: download a pack's
-// models onto the Volume, read the progress, set keep-warm. Same proxy token as ComfyUI.
+// models onto the Volume, read the progress, set keep-warm, manage LoRA uploads. Same proxy token as
+// ComfyUI. LoRA bytes never pass through here: the browser sends them to the app's upload endpoint.
 
 import type { Pack } from "@comfy-gen/core";
 import type { Fetch } from "./platform.ts";
@@ -7,6 +8,13 @@ import type { Store } from "./store.ts";
 
 export class ModalAdminError extends Error {
   name = "ModalAdminError";
+  /** The admin API's HTTP status, 0 when it could not be reached. */
+  status: number;
+
+  constructor(message: string, status = 0) {
+    super(message);
+    this.status = status;
+  }
 }
 
 export class ModalAdmin {
@@ -31,8 +39,17 @@ export class ModalAdmin {
     } catch (e) {
       throw new ModalAdminError(`Could not reach the Modal app: ${e}`);
     }
-    if (resp.status !== 200) throw new ModalAdminError(`The Modal app answered HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
-    return resp.json();
+    if (resp.status === 200) return resp.json();
+    const text = await resp.text();
+    let detail: unknown;
+    try {
+      detail = JSON.parse(text).detail;
+    } catch {
+      detail = undefined;
+    }
+    // A 4xx carries the admin API's own message for the user (a bad file name, a missing chunk).
+    if (resp.status < 500 && typeof detail === "string") throw new ModalAdminError(detail, resp.status);
+    throw new ModalAdminError(`The Modal app answered HTTP ${resp.status}: ${text.slice(0, 200)}`, resp.status);
   }
 
   seed(pack: Pack): Promise<any> {
@@ -45,6 +62,27 @@ export class ModalAdmin {
 
   async diagnostics(): Promise<any> {
     return { status: await this.call("GET", "/status"), files: await this.call("GET", "/files") };
+  }
+
+  /** LoRA file name -> size on the Volume. */
+  loras(): Promise<Record<string, number>> {
+    return this.call("GET", "/loras");
+  }
+
+  createUpload(filename: string, size: number, origin: string): Promise<{ id: string; chunk_size: number; chunks: number }> {
+    return this.call("POST", "/loras/uploads", { filename, size, origin });
+  }
+
+  uploadStatus(id: string): Promise<any> {
+    return this.call("GET", `/loras/uploads/${encodeURIComponent(id)}`);
+  }
+
+  finishUpload(id: string): Promise<any> {
+    return this.call("POST", `/loras/uploads/${encodeURIComponent(id)}/finish`);
+  }
+
+  deleteLora(name: string): Promise<any> {
+    return this.call("DELETE", `/loras/${encodeURIComponent(name)}`);
   }
 
   idle(minutes: number): Promise<any> {

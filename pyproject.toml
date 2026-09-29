@@ -18,6 +18,8 @@ comfy-gen-modal = { workspace = true }
 dev = [
     "comfy-gen-modal",
     "pytest>=8.0",
+    "fastapi>=0.115",  # the Modal app's upload endpoint, tested with TestClient
+    "httpx>=0.27",
 ]
 
 [tool.pytest.ini_options]

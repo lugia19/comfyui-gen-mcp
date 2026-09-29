@@ -6,7 +6,7 @@
 
 import {
   Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, SETTINGS_SCHEMA, UnknownTool,
-  builtinPacks, configKey, downloadSize, fromHex, groupByTool, refs, select, sniffMime, tokenUrlsafe, safeEqual,
+  builtinPacks, configKey, downloadSize, fromHex, groupByTool, refs, select, sniffMime, supportsLoras, tokenUrlsafe, safeEqual,
   type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
@@ -43,6 +43,7 @@ export const PACK_METADATA = Object.entries(GROUPS).map(([tool, group]) => ({
     max_pixels: p.max_pixels ?? null,
     max_pixels_limit: p.max_pixels_limit ?? null,
     default_artist_list: p.default_artist_list ?? null,
+    supports_loras: supportsLoras(p),
   })),
 }));
 
@@ -107,7 +108,10 @@ export class App {
     const s = await this.store.secrets();
     if (!safeEqual(secret.replace(/^\/+|\/+$/g, ""), s.mcp_secret)) return error(404, "not found");
     if (req.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
-    const cfg = await this.store.config();
+    let cfg = await this.store.config();
+    // Custom workflows are for a generator with the user's own models and nodes (the PC path, the
+    // MCPB); Modal has only the packs' files, so the tool is not offered there. The setting is kept.
+    if (s.generator?.kind === "modal") cfg = { ...cfg, custom_workflow: null };
     const key = hmacKey(s);
     const client = this.client(s.generator);
     const admin = modalAdmin.forGenerator(this.fetch, s.generator);
@@ -172,6 +176,7 @@ export class App {
         kind: "modal",
         base_url: modal.server_url,
         admin_url: modal.admin_url ?? null,
+        upload_url: modal.upload_url ?? null,
         headers: { "Modal-Key": modal.proxy_token_id ?? "", "Modal-Secret": modal.proxy_token_secret ?? "" },
         cold_start_s: MODAL_COLD_START_S,
       };
@@ -213,8 +218,10 @@ export class App {
       const cfg = await this.fresh.saveConfig((await bodyJson(req)).config);
       const admin = modalAdmin.forGenerator(this.fetch, s.generator);
       const warnings = admin ? await this.applyToModal(admin, cfg, old.keep_warm_minutes !== cfg.keep_warm_minutes) : [];
+      if (admin) warnings.push(...(await missingLoras(admin, cfg)));
       return json({ config: cfg, warnings });
     }
+    if (sub === "/loras" || sub.startsWith("/loras/")) return this.loras(req, url, sub, s);
     if (sub === "/models" && req.method === "GET") return this.models(s);
     if (sub === "/models/seed" && req.method === "POST") return this.seedPack(req, s);
     if (sub === "/modal/diagnostics" && req.method === "GET") {
@@ -272,6 +279,32 @@ export class App {
     });
     const session = await auth.makeSession((await this.fresh.secrets()).cookie_key, this.p.now());
     return json({ ok: true }, 200, { "Set-Cookie": auth.cookieHeader(session) });
+  }
+
+  /** LoRA files on the Modal Volume, and upload sessions for the settings page. The browser sends the
+   * bytes to the app's upload endpoint itself; this only creates, finishes and reports sessions. */
+  private async loras(req: Request, url: URL, sub: string, s: Secrets): Promise<Response> {
+    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
+    if (!admin) return error(400, "LoRAs can be uploaded only to the Modal GPU");
+    const m = /^\/loras\/uploads\/([\w-]+)(\/finish)?$/.exec(sub);
+    try {
+      if (sub === "/loras" && req.method === "GET") return json({ loras: await admin.loras() });
+      if (sub === "/loras/uploads" && req.method === "POST") {
+        if (!s.generator.upload_url) return error(409, "Update the Modal app first (run setup again): it has no upload endpoint yet");
+        const body = await bodyJson(req);
+        const session = await admin.createUpload(String(body.filename ?? ""), Number(body.size), url.origin);
+        return json({ ...session, upload_url: `${String(s.generator.upload_url).replace(/\/+$/, "")}/u/${session.id}` });
+      }
+      if (m && !m[2] && req.method === "GET") return json(await admin.uploadStatus(m[1]));
+      if (m && m[2] && req.method === "POST") return json(await admin.finishUpload(m[1]));
+      if (!m && sub.startsWith("/loras/") && req.method === "DELETE") {
+        return json(await admin.deleteLora(decodeURIComponent(sub.slice("/loras/".length))));
+      }
+    } catch (e) {
+      if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+      return error(e.status >= 400 && e.status < 500 ? e.status : 502, e.message);
+    }
+    return error(404, "not found");
   }
 
   /** Download state of the selected packs on Modal, for the pages to poll. */
@@ -340,4 +373,18 @@ export class App {
     ]);
     return json({ build, ...status, ...logs });
   }
+}
+
+/** Warnings for configured LoRAs whose file is not on the Volume. One admin call, only when some are set. */
+async function missingLoras(admin: modalAdmin.ModalAdmin, cfg: Config): Promise<string[]> {
+  const wanted = Object.values(cfg.pack_loras).flat().map((l) => l.name);
+  if (!wanted.length) return [];
+  let have: Record<string, number>;
+  try {
+    have = await admin.loras();
+  } catch (e) {
+    if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+    return [`Could not check the LoRA files: ${e.message}`];
+  }
+  return [...new Set(wanted)].filter((n) => !(n in have)).map((n) => `The LoRA ${n} is not uploaded: generations will fail until it is.`);
 }

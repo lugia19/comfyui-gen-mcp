@@ -72,10 +72,15 @@ function strengthOf(value: unknown): number {
   return Number.isFinite(n) ? n : 1.0;
 }
 
+/** Whether the pack takes the user's LoRAs: the Anima family (the packs with an artist list), whose
+ * plain UNET loader LoraLoaderModelOnly can follow. */
+export function supportsLoras(pack: Pack): boolean {
+  return Boolean(pack.default_artist_list);
+}
+
 function loras(pack: Pack, cfg: Config): Lora[] {
   const raw = cfg.pack_loras?.[configKey(pack)] || [];
-  if (raw.length && !pack.default_artist_list) {
-    // LoRAs are only supported for the Anima-family packs (the ones with an artist list).
+  if (raw.length && !supportsLoras(pack)) {
     console.warn(`Pack '${pack.name}': LoRAs configured but not supported for this pack, ignoring`);
     return [];
   }
