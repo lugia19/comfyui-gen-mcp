@@ -10,4 +10,5 @@ export * from "./uv.ts";
 export * from "./install.ts";
 export * from "./nodes.ts";
 export * from "./models.ts";
+export * from "./downloads.ts";
 export * from "./comfyui.ts";

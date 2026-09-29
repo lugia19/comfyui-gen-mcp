@@ -6,7 +6,7 @@
 
 import {
   Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, SETTINGS_SCHEMA, UnknownTool,
-  builtinPacks, configKey, downloadSize, fromHex, groupByTool, refs, select, sniffMime, supportsLoras, tokenUrlsafe, safeEqual,
+  builtinPacks, downloadSize, fromHex, groupByTool, packMetadata, refs, select, sniffMime, tokenUrlsafe, safeEqual,
   type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
@@ -31,21 +31,7 @@ export const INSTRUCTIONS =
   "Images come back inline, each followed by its image_id. Pass an image_id to edit_image to edit that image.";
 
 /** What the settings page needs to render pack choices. */
-export const PACK_METADATA = Object.entries(GROUPS).map(([tool, group]) => ({
-  tool_name: tool,
-  packs: group.map((p) => ({
-    name: p.name,
-    display_name: p.display_name ?? p.name,
-    description: p.description ?? "",
-    download_size: downloadSize(p),
-    is_default: Boolean(p.is_default),
-    config_key: configKey(p),
-    max_pixels: p.max_pixels ?? null,
-    max_pixels_limit: p.max_pixels_limit ?? null,
-    default_artist_list: p.default_artist_list ?? null,
-    supports_loras: supportsLoras(p),
-  })),
-}));
+export const PACK_METADATA = packMetadata(PACKS);
 
 export function selectedPacks(cfg: Config): Pack[] {
   return select(GROUPS, cfg.pack_selections);

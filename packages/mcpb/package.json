@@ -1,0 +1,9 @@
+{
+  "name": "@comfy-gen/mcpb",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@comfy-gen/core": "*",
+    "@comfy-gen/local": "*"
+  }
+}

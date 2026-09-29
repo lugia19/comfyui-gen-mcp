@@ -115,3 +115,22 @@ export function requiredNodes(pack: Pack): Record<string, string> {
 export function downloadSize(pack: Pack): number {
   return (pack.models ?? []).reduce((n, m) => n + (Number(m.size_bytes) || 0), 0);
 }
+
+/** What a settings page needs to render the pack choices, per tool. */
+export function packMetadata(packs: Pack[]) {
+  return Object.entries(groupByTool(packs)).map(([tool, group]) => ({
+    tool_name: tool,
+    packs: group.map((p) => ({
+      name: p.name,
+      display_name: p.display_name ?? p.name,
+      description: p.description ?? "",
+      download_size: downloadSize(p),
+      is_default: Boolean(p.is_default),
+      config_key: configKey(p),
+      max_pixels: p.max_pixels ?? null,
+      max_pixels_limit: p.max_pixels_limit ?? null,
+      default_artist_list: p.default_artist_list ?? null,
+      supports_loras: supportsLoras(p),
+    })),
+  }));
+}
