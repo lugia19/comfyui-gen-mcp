@@ -45,7 +45,6 @@ Measure with Workers Logs `cpuTimeMs` when a change could move it (the appendix 
 - Python that remains, as a uv workspace: `packages/modal_app` (runs on Modal and in the Workers
   Build). The build step `packages/worker/deploy/deploy.{sh,py}` is stdlib Python and must stay at
   that path: published `deploy.sh` releases call it there.
-- `spikes/` is throwaway infrastructure tests, deleted once S6 is recorded in the design doc.
 
 ## Tests
 

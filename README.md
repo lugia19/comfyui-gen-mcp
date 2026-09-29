@@ -7,6 +7,6 @@ Image generation for Claude through ComfyUI, wherever the GPU is:
   so no tunnel or reverse proxy.
 - **Claude Desktop only:** an MCPB extension runs everything locally, no accounts.
 
-This repository is the rewrite. It is not usable yet; see [`docs/design.md`](docs/design.md) for
-the design and [`spikes/`](spikes/) for the infrastructure tests being run first. The current,
-working version lives in [`lugia19/comfy-gen-mcp`](https://github.com/lugia19/comfy-gen-mcp).
+This repository is the rewrite; see [`docs/design.md`](docs/design.md) for the design and
+[`docs/build-plan.md`](docs/build-plan.md) for what is built. The previous version lives in
+[`lugia19/comfy-gen-mcp`](https://github.com/lugia19/comfy-gen-mcp).

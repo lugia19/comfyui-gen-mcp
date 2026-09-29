@@ -10,7 +10,6 @@ package = false
 # The Python that remains: the Modal app (runs on Modal and in the Workers Build). core and the
 # Worker are TypeScript (npm workspaces); the build step's deploy.py is stdlib-only and tested here.
 members = ["packages/modal_app"]
-exclude = ["spikes/*"]
 
 [tool.uv.sources]
 comfy-gen-modal = { workspace = true }

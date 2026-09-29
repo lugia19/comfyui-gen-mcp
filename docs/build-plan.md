@@ -207,27 +207,21 @@ The work goes on branch `claude/upbeat-dijkstra-d03v19` (currently the repo's de
 - **The MCPB keeps its shim, server and tray architecture.** Qt goes, replaced by a small pystray
   tray plus the browser settings app.
 
-## Repository layout (target)
+## Repository layout (as built)
 
 ```
-pyproject.toml            uv workspace (requires-python >= 3.12): core, local, mcpb, agent, modal_app
+package.json              npm workspaces: packages/core, packages/worker
+pyproject.toml            uv workspace: packages/modal_app (the only Python besides the build step)
 packages/
-  core/                   comfy_gen_core  (CPython 3.12+ and Pyodide 3.14)
-  worker/                 standalone pywrangler project (Python 3.14), NOT a workspace member;
-                          depends on core via { path = "../core", editable = false } (S7)
-  modal_app/              comfy_gen_modal (Modal app, admin endpoint, build-time deploy script)
-  local/                  comfy_gen_local (ComfyUI lifecycle on a user machine, tray)
-  mcpb/                   comfy_gen_mcpb  (stdio shim, local server, manifest.json, build script)
-  agent/                  comfy_gen_agent
-web/                      Svelte settings/setup app; built web/dist committed (users have no node)
+  core/                   @comfy-gen/core, TypeScript, Web-platform APIs only; packs/ holds the pack JSON
+  worker/                 the Cloudflare Worker (wrangler); deploy/ is the build step (deploy.sh, deploy.py)
+  modal_app/              comfy_gen_modal: the Modal app, admin API, seed, the /comfy-gen/wait extension
+  (M5, M6: the Node MCPB and agent, sharing one machine-side package)
+web/                      Svelte settings/setup app; built web/dist committed
 bootstrap/                Deploy-button template
-site/                     static landing page on GitHub Pages
-scripts/test_pyodide.mjs  runs core's tests under Pyodide via the npm pyodide package
+scripts/                  check_pack_models.py
 .github/workflows/        ci.yml, release.yml
 ```
-
-`worker` stays out of the workspace because a workspace takes the intersection of its members'
-`requires-python`, which would force every member onto 3.14.
 
 ## M0: housekeeping (small, first)
 
@@ -405,8 +399,8 @@ GPU and Claude Desktop finishing is done locally.
 
 ## Verification
 
-- **Every milestone:** `uv run pytest` (3.12 and 3.14) and `node scripts/test_pyodide.mjs`, both
-  green in CI.
+- **Every milestone:** `npm run typecheck`, `npm test` and `uv run pytest` (3.12 and 3.14), green
+  in CI.
 - **M2:**
   - `pywrangler dev` plus a CPU ComfyUI here, covering MCP `tools/list`, a generate with a tiny
     workflow, a WebP result, refs, the upload route, and the setup and settings pages in Playwright
@@ -416,8 +410,9 @@ GPU and Claude Desktop finishing is done locally.
 - **M5/M6:** on the user's Windows PC. The MCPB in Claude Desktop; the agent generating from
   claude.ai mobile.
 
-## Cleanup (user, after S6)
+## Cleanup
 
-- Delete the `comfy-gen-spike-button` Worker and its repo, and the Modal `comfy-gen-spike` app and
-  volume.
-- Rotate the Cloudflare and Modal tokens used for the spikes.
+- Done 2026-09-29: `spikes/` deleted; the `comfy-gen-spike-button` Worker and the Modal
+  `comfy-gen-spike` app, volume and dict removed.
+- Left for the user: the GitHub repository the spike's Deploy button created; rotating the
+  Cloudflare and Modal tokens used during development, once M4 no longer needs them.

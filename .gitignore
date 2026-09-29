@@ -15,9 +15,6 @@ node_modules/
 .wrangler/
 .dev.vars
 
-# Spike scratch
-spikes/**/.env
-.venv-workers/
 .venv*/
 
 # The built web app is committed

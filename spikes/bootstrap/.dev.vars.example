@@ -1,2 +1,0 @@
-SPIKE_SECRET=change-me-long-random # part of the connector URL path
-RELAY_SECRET=change-me-long-random # bearer token for the stand-in agent

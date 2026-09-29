@@ -389,7 +389,7 @@ The order puts first what can be built and tested without Modal, Windows or a GP
 
 ## Appendix: spike results
 
-The spike code lives in `spikes/` until S6 is recorded, then it is deleted.
+The spike code lived in `spikes/`; it was deleted on 2026-09-29, after S6 was recorded.
 
 **S1, 2026-09-28: the MCP SDK does not run on the free plan; a hand-rolled handler does.** 20 calls
 each through the deployed Worker (Python 3.14, Workers Logs `cpuTimeMs`):
