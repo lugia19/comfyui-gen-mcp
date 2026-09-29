@@ -473,8 +473,8 @@ But during that minute two ComfyUIs share the Volume without seeing each other's
 right after a setup build finished on one container and its `/view` landed on the other (404), and
 `Modal-Session-ID` (sticky routing) did not prevent it. Worse, each ComfyUI numbers its outputs from
 the files it saw at start, so both write the same `comfy-gen_000NN_.png` names and the later commit
-replaces the earlier file: after two redeploys under load the new container saw about seven fewer
-outputs than were made. An image id could then show another image. So the limit stays: a redeploy
+replaces the earlier file: two redeploys under load, 26 generations after `comfy-gen_00088_`, left
+19 files on the Volume (00089 to 00107, no gaps), so 7 were overwritten. An image id could then show another image. So the limit stays: a redeploy
 (setup and update builds only) loses the jobs in flight, which the client reports as an unknown
 request, and never mixes outputs.
 
