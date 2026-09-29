@@ -148,8 +148,10 @@ def _watch_reloads(started: float) -> None:
     port=COMFY_PORT,
     name=SERVER_NAME,
     scaledown_window=KEEP_WARM_S,
-    # One container: without target_concurrency a Server does not autoscale. max_containers=1
-    # would also stop a redeploy from starting the replacement before the old one goes.
+    # Never two ComfyUIs on the Volume: each numbers its outputs from the files it saw at start, so
+    # during a redeploy's handover they write the same names and one overwrites the other (seen
+    # live). A redeploy therefore stops the old container, losing any job still in it.
+    max_containers=1,
     startup_timeout=300,
 )
 class Comfy:

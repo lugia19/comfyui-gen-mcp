@@ -459,19 +459,24 @@ through its own setup API and Workers Builds:
   poll count. **Open risk:** well above the free plan's nominal 10 ms; nothing has failed, and the
   S1 SDK failure was at about 2,000 ms. To investigate with probes, as for the M2 figures.
 
-**Redeploying under load, 2026-09-29: no `max_containers=1`.** Five jobs queued on a warm server,
-then `modal deploy` of the same app:
+**Redeploying under load, 2026-09-29: keep `max_containers=1`.** Modal's docs suggest leaving it
+unset for a singleton Server, so that a redeploy can start the replacement before the old container
+goes. Tried with five jobs queued and a redeploy of the same app:
 
 - with `max_containers=1`: the running container was stopped at once; every request answered 503
   for about 25 s while the replacement booted, and all five jobs were lost (`unknown` afterwards)
-- without it: a replacement started beside the old container, which kept serving and finished four
-  jobs; the fifth was lost in the handover (`unknown`), with no 503s
+- without it: the old container kept serving next to the new one for about a minute and finished
+  four jobs; the fifth was lost. Four jobs submitted at once during a cold start still started one
+  container (a Server without `target_concurrency` does not autoscale).
 
-Without `target_concurrency` a Server does not autoscale, so dropping the limit keeps one container
-in normal use: four jobs submitted at once during a cold start started one container. The client
-reports a lost job as an unknown request rather than hanging. Redeploys only happen on setup and
-update builds. Not tried: `Modal-Session-ID` (sticky routing) to keep a job's requests on the old
-container until it finishes.
+But during that minute two ComfyUIs share the Volume without seeing each other's files: a generate
+right after a setup build finished on one container and its `/view` landed on the other (404), and
+`Modal-Session-ID` (sticky routing) did not prevent it. Worse, each ComfyUI numbers its outputs from
+the files it saw at start, so both write the same `comfy-gen_000NN_.png` names and the later commit
+replaces the earlier file: after two redeploys under load the new container saw about seven fewer
+outputs than were made. An image id could then show another image. So the limit stays: a redeploy
+(setup and update builds only) loses the jobs in flight, which the client reports as an unknown
+request, and never mixes outputs.
 
 **Itemizing a warm generation, 2026-09-28: about 6 ms of work, the rest is platform variance.**
 A throwaway Worker (`comfy-gen-cpuprobe`, deleted after) bundled the real `App` and ran the MCP
