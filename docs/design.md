@@ -1,7 +1,6 @@
 # Comfy-Gen-MCP design
 
-Status: design settled 2026-09-28 after the infrastructure spikes (results in the appendix; S6 still
-running). `core` and the Worker moved from Python to TypeScript the same day, after the Worker's CPU
+Status: design settled 2026-09-28 after the infrastructure spikes (results in the appendix). `core` and the Worker moved from Python to TypeScript the same day, after the Worker's CPU
 was measured (appendix, "CPU of a Python Worker"). This document is the source of truth for the
 rewrite; `docs/build-plan.md` is the build order.
 
@@ -292,7 +291,8 @@ Worker runs (S4).
 - The agent holds an outbound WebSocket, accepted with the hibernation API; `ping`/`pong` text
   frames are answered by the runtime without waking the object. A `tools/call` sends a request down
   the socket and awaits the reply with the same id. Round trip Worker to agent and back: 19 to 37 ms
-  (S6). The day-long cost is being measured (S6).
+  (S6). An idle connection costs nothing measurable; drops come every few minutes to few hours, so
+  the agent reconnects at once and the Worker waits briefly for it (S6).
 - The Durable Object and its migration are declared in the bootstrap template from the first
   release, so adding the PC path later needs no template change.
 
@@ -603,8 +603,21 @@ edges; WebP encoding took 110 to 155 ms against 4 to 12 ms for JPEG, on the gene
 - (f) Admin endpoint behind proxy auth spawns the seed function: 335 MB in 26 s with progress.
 - (g) `comfy node registry-install ComfyUI-GGUF` works in the image; `UnetLoaderGGUF` loads.
 
-**S6, running since 2026-09-28 11:20 UTC.** A stand-in agent on the user's PC holds the WebSocket.
-Relay round trip Worker to agent and back: 19 to 37 ms. Day-long Durable Object duration: pending.
+**S6, 2026-09-28/29: a hibernating WebSocket costs next to nothing; expect drops.** A stand-in
+agent on the user's PC held a WebSocket to a Durable Object (hibernation API,
+`setWebSocketAutoResponse`), with the client's WebSocket protocol pings every 20 s. Relay round trip
+Worker to agent and back: 19 to 37 ms.
+
+- Cost, from the GraphQL analytics (`durableObjectsPeriodicGroups`): hours with the socket open and
+  no reconnect show no activity at all; an hour with a reconnect shows 10 to 46 ms of active time,
+  all of it the reconnect. No inbound messages were counted, so protocol pings are answered without
+  waking the object. The invocation's wall time (13.5 h) is the connection's life, not billed time.
+- Drops: 8 in 8.4 h (after 4 min to 3.5 h, median about 40 min), all abrupt ("no close frame
+  received or sent"), each reconnected on the first try. Where they come from (Cloudflare's edge or
+  the home network) was not determined; the agent must reconnect either way.
+- For the agent (M6): reconnect at once after a drop and reset the backoff after any connection
+  that lasted; the spike's reset only ran on a clean close, so its delay climbed to 60 s. The Worker
+  should wait a few seconds for the agent to come back before failing a relayed call.
 
 **S7, 2026-09-27/28: works.** `pywrangler sync` vendors a uv workspace sibling (declared with
 `workspace = true, editable = false`) as a normal install in `python_modules/`; a path dependency
