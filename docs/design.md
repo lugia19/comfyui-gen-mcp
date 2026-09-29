@@ -135,15 +135,18 @@ one 17 to 19 ms, an edit 9 ms. Generations are the rare, tolerated overrun. Rule
 - plain data only at module scope (stubs, `env` and I/O objects are bound to their request)
 - image bytes are only base64'd, never decoded
 
-If generations ever need to come under 10 ms, the next step is a long-poll endpoint in front of
-ComfyUI on Modal, so a generation makes about 3 fetches instead of about 20.
+Generations wait through the held `/comfy-gen/wait` request (§3 "Waiting"), so a warm one makes
+about three fetches.
 
 ### Custom workflows
 
-Allowed in every mode, validated against the generator's node inventory. The Modal image's inventory
-is dumped at release time into `inventory.json`. The agent reports its inventory live. Modal
-supports only core ComfyUI plus ComfyUI-GGUF. Anything needing other nodes is a local-generator
-feature, and the validation message says so.
+For generators with the user's own models and nodes: the MCPB's local ComfyUI and the PC agent.
+The Worker does not offer `generate_custom_image` when the generator is Modal (decided in M4): the
+Modal image has only core ComfyUI plus ComfyUI-GGUF and the Volume only the packs' model files, so
+a custom workflow there could only rearrange the packs. The setting is kept in the config, so a user
+who later adds a PC generator gets the tool. Validation against the generator's node inventory
+(`Brain`'s `inventory` option, `missingNodesMessage`) is for the PC path, where the agent reports
+its inventory live; nothing builds an `inventory.json` for Modal.
 
 ## 4. Images, references, uploads, edits
 
@@ -174,6 +177,26 @@ feature, and the validation message says so.
   edit is requested. The tool description covers the case where code execution is off: ask the user
   to enable it or give a URL. The snippet sets its own `User-Agent` (see section 8).
 - `edit_image` accepts an upload reference, a previous output reference, or an https URL.
+
+### LoRAs on the Modal Volume
+
+LoRAs (Anima family only, as in the old extension: `supportsLoras` in `packs.ts`) are uploaded from
+the settings page and configured per pack family: file, strength, trigger (it applies only when the
+prompt contains the trigger; no trigger means always), hidden (the trigger is not listed in the tool
+description).
+
+- **Upload path, browser straight to Modal.** The bytes never pass through the Worker (its CPU
+  budget) and must survive Modal's 150 s web-request limit, so the page sends 16 MiB chunks to the
+  Modal app's `upload` endpoint, the one endpoint without proxy auth. The Worker asks the admin API
+  for an upload session; the session's random 32-byte id is the capability (that one file's
+  chunks, its declared size, 24 h), and the endpoint's CORS allows only the settings page's origin.
+- **Chunks are separate files.** Each chunk is checked (length, SHA-256 from the page), written to
+  `uploads/<id>/<index>` and committed on its own, because requests may land on different
+  containers, which see each other's writes only after a commit and a reload. `assemble` (a CPU
+  function) reloads once, joins them into `models/loras/`, commits, then marks the session done
+  and requests the idle-time reload, so a warm ComfyUI sees the file (§3, S5(d)).
+- Saving settings warns about configured LoRAs that are not on the Volume. LoRAs are listed and
+  deleted through the admin API.
 
 ## 5. Config and settings
 
@@ -243,6 +266,7 @@ Install the MCPB. It stays self-updating through the existing bootstrapper. No a
 | Ref HMAC key | Worker state | Signs image references and upload tokens |
 | Agent pairing secret | Worker state, agent | Authenticates the relay |
 | Build nonce | Build secrets, Worker state | One-time callback from the build |
+| LoRA upload session id | Modal Dict, the settings page | Writes one LoRA's chunks to the upload endpoint (24 h) |
 
 **Login.** There is no setup password. A fresh install's URL is not secret: the Worker name is the
 template's `comfy-gen` for nearly everyone, and each account's workers.dev subdomain is public in
@@ -367,7 +391,8 @@ The order puts first what can be built and tested without Modal, Windows or a GP
 2. Worker, web app, bootstrap, release pipeline: the cloud path, tested against any reachable
    ComfyUI.
 3. Modal app and the **first release** (no-GPU users).
-4. Full cloud settings: LoRAs, artists, custom workflows, sandbox uploads.
+4. Full cloud settings: LoRA uploads and per-pack LoRA settings (artists and sandbox uploads came
+   earlier; custom workflows are left to the local and PC generators).
 5. `local` and the MCPB (Node) at parity with the old extension.
 6. Agent and relay. Then retire the old repository.
 
@@ -458,6 +483,20 @@ through its own setup API and Workers Builds:
   the 160 to 540 KB results explains only a few ms of that, and CPU does not track wall time or
   poll count. **Open risk:** well above the free plan's nominal 10 ms; nothing has failed, and the
   S1 SDK failure was at about 2,000 ms. To investigate with probes, as for the M2 figures.
+
+**M4 live, 2026-09-29: LoRA uploads.** On the test install, through normal builds:
+
+- a 305 MB Anima LoRA (19 chunks) and a 46 MB one uploaded from the settings page; both assembled,
+  the 305 MB copy byte-identical on the Volume (SHA-256 read back)
+- found live: the session was marked done before the Volume commit, so the list the page loads next
+  lacked the new file for a few seconds; now marked after the commit (re-checked live), and the
+  page retries finish and status through dropped connections
+- a 46 MB style LoRA with trigger `tstyle`: the tool description lists it; the same prompt without
+  the trigger renders in Anima's default look, with it in the LoRA's flat anime style (cold start,
+  so the new container mounted the file)
+- a chunk sent after the upload finished gets 409; saving a LoRA that is not uploaded warns
+- Worker CPU: the LoRA routes 2 to 4 ms (median), a settings save that checks LoRAs 7 to 10 ms
+- upload speed from this environment's network: 1 to 2.5 MB/s, limited by the environment
 
 **Redeploying under load, 2026-09-29: keep `max_containers=1`.** Modal's docs suggest leaving it
 unset for a singleton Server, so that a redeploy can start the replacement before the old container

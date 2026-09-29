@@ -1,9 +1,9 @@
 # Comfy-Gen-MCP rewrite: build plan
 
-> **Status (2026-09-28):** M0–M3 are built and verified live on the test install
-> `comfy-gen.yuri-f92.workers.dev`. `core` and the Worker were then ported to TypeScript (design doc
-> §3 "Worker CPU budget", §11, appendix), which leaves the Modal app as the only Python. Left for M3:
-> the user's claude.ai check, the `main` branch and the v1.0.0 tag. M5 and M6 (MCPB, agent) are now
+> **Status (2026-09-29):** M0–M4 are built and verified live on the test install
+> `comfy-gen.yuri-f92.workers.dev`; v1.0.0 (M3) is released. `core` and the Worker are TypeScript
+> (design doc §3 "Worker CPU budget", §11, appendix), which leaves the Modal app as the only Python.
+> M4 shipped as LoRAs only (below); it goes out in the next release. M5 and M6 (MCPB, agent) are
 > Node. Module names below are from the Python era; the TypeScript files keep the same split. The
 > rest of this file is the overall plan.
 >
@@ -342,12 +342,16 @@ pointed at any reachable ComfyUI.
 - **Release:** tag v1.0.0. The user goes through the button, then setup, then generates from
   claude.ai.
 
-## M4: full cloud settings
+## M4: full cloud settings (as built: LoRAs)
 
-- LoRA upload and selection, artists and custom workflows (validated against `inventory.json`) in
-  the Worker settings
-- `request_upload` and `edit_image` refs end to end
-- keep-warm applied live
+- Artists, `request_upload`/`edit_image` refs and live keep-warm had already landed in M2 and M3.
+- LoRAs for the Anima family: chunked browser upload straight to the Modal app (upload sessions
+  through the admin API, a no-proxy-auth `upload` endpoint, `assemble`), list and delete, per-pack
+  rows (file, strength, trigger, hidden), and a save-time warning for LoRAs not uploaded
+  (design §4 "LoRAs on the Modal Volume").
+- Dropped after discussion: custom workflows on Modal (only the packs' files and nodes are there;
+  the tool is not offered for a Modal generator) and general model-file uploads. So no
+  `inventory.json`; node inventories are for the PC path (M6).
 
 ## M5: `local` and the MCPB, at parity with the old extension (on the user's machine)
 
