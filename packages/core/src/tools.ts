@@ -86,10 +86,18 @@ export const EDIT_DESC_PATHS =
   "Edit an image using a text prompt. " +
   "image_path can be a local file path (e.g. C:/Users/me/photo.png) or a publicly accessible URL. " +
   "Previously generated images return their saved_path; use that.\n\n" +
-  "If the user uploads an image to the chat to be edited, ask them for its file path on their " +
-  "machine or a public URL instead, as uploaded chat images cannot be accessed directly. On Windows, " +
-  "the user can get a file's path by holding Shift, right-clicking the file, and selecting " +
-  "'Copy as path'.\n\n" +
+  "An image the user pasted or attached in the chat cannot be passed directly. Offer two ways:\n" +
+  "1. They give you the image file's path on their computer. On Windows: hold Shift, right-click the " +
+  "file, 'Copy as path'.\n" +
+  "2. You upload it to Litterbox (litterbox.catbox.moe), a temporary public file host, for one hour, " +
+  "and pass the returned URL. Before doing this, tell the user plainly that the image will be public " +
+  "for that hour to anyone who has or guesses the link, and upload only after they explicitly agree. " +
+  "Never offer or use it for anything else. It needs code execution with network access to " +
+  "litterbox.catbox.moe (in Claude's settings, the default 'package managers only' blocks it). " +
+  "Upload the attached file from the code environment (usually under /mnt/user-data/uploads) with:\n" +
+  "curl -sS -F reqtype=fileupload -F time=1h -F fileToUpload=@<file> https://litterbox.catbox.moe/resources/internals/api.php\n" +
+  "It prints the image's URL (https://litter.catbox.moe/...); pass that as image_path. If the upload " +
+  "fails, say why (most likely the network setting) and ask for the file's path instead.\n\n" +
   EDIT_SIZING +
   EDIT_TIPS;
 
