@@ -88,13 +88,15 @@ not `node.exe`. Fixed after it: a blank settings page with a multi-section extra
 the newer Comfy Desktop's installs, junction duplicates, the watchdog's missing log line, and
 smaller points in the report.
 
-**Earlier list for the user's PC:**
-- `node packages/mcpb/build.mjs vX.Y.Z` (or a release), install `Comfy-Gen-MCP.mcpb` over the old
-  extension; it has the same name, `comfyui-image-gen`
-- Claude Desktop's Node runs the shim; the old install and its models are reused (or a fresh CUDA
-  install from the settings page)
-- the tray icon; a generation, an edit by `saved_path`, two windows at once, quitting Claude Desktop
-  stops ComfyUI
+**Left for M5:**
+- **Fresh install on the user's PC (todo):** move `~/.comfy-gen-mcp` aside, then from Claude
+  Desktop: red tray, install for NVIDIA from the settings page (time it, note the CUDA wheels),
+  shared model folders found again, a pack variant that is nowhere on disk downloads at once with
+  progress, the first generation installs ComfyUI-GGUF from the Comfy Registry. The shared model
+  folders stay untouched: they are what discovery is for.
+- **Release:** a Worker build of the branch on the test install first (the Worker's render moved
+  into core), then the tag (the user pushes it). The release carries the server bundle and the
+  `.mcpb`; installed extensions pick the bundle up within a day.
 
 ## M6: agent and relay, then retirement
 
