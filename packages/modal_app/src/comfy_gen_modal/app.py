@@ -242,7 +242,8 @@ def assemble(upload_id: str) -> None:
     volume.reload()  # the chunks were committed by the upload containers
     s = uploads.assemble(state, VOL, upload_id, time.time())
     volume.commit()
-    if s["state"] == "done":
+    if s["state"] == "assembled":
+        uploads.update(state, s, state="done")  # after the commit, so listings include it
         state["reload_requested_at"] = time.time()  # a warm ComfyUI picks it up when idle
 
 

@@ -117,8 +117,10 @@ def missing(root: str, s: dict) -> list[int]:
 
 
 def assemble(store, root: str, upload_id: str, now: float) -> dict:
-    """Join the chunks into loras/<name>, then drop them. The caller reloads the Volume first and
-    commits after; *store* gets progress in "done" (bytes)."""
+    """Join the chunks into loras/<name>, then drop them; the session ends "assembled" (or "failed").
+    The caller reloads the Volume first, commits after, and only then marks the session "done":
+    a page that sees "done" lists the LoRAs at once (seen live: marked before the commit, the new
+    file was missing from that list). *store* gets progress in "done" (bytes)."""
     s = session(store, upload_id, now)
     if gaps := missing(root, s):
         return update(store, s, state="failed", error=f"missing chunks: {gaps[:10]}")
@@ -137,7 +139,7 @@ def assemble(store, root: str, upload_id: str, now: float) -> dict:
         return update(store, s, state="failed", error="assembled size does not match")
     os.replace(part, dest)
     shutil.rmtree(chunk_dir(root, upload_id), ignore_errors=True)
-    return update(store, s, state="done")
+    return update(store, s, state="assembled")
 
 
 def sweep(store, root: str, now: float) -> int:

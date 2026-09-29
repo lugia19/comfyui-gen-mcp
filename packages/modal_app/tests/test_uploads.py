@@ -56,7 +56,7 @@ def test_upload_and_assemble(tmp_path, small_chunks):
         uploads.put_chunk(store, root, s["id"], i, part, sha(part), NOW)
     assert uploads.missing(root, s) == []
     done = uploads.assemble(store, root, s["id"], NOW)
-    assert done["state"] == "done" and done["done"] == 35
+    assert done["state"] == "assembled" and done["done"] == 35  # "done" only after the commit
     assert (tmp_path / "models/loras/style.safetensors").read_bytes() == data
     assert not (tmp_path / "uploads" / s["id"]).exists()
     assert uploads.list_loras(root) == {"style.safetensors": 35}
