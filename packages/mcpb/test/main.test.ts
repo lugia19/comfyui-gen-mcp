@@ -56,3 +56,21 @@ describe("bind or relay", () => {
   });
 });
 
+
+describe("a foreign server on the port", () => {
+  it("answers with what to do instead of relaying", async () => {
+    const { createServer } = await import("node:http");
+    const home = mkdtempSync(join(tmpdir(), "main-"));
+    const p = paths({ COMFY_GEN_HOME: home });
+    const port = await freePort();
+    saveConfig(p.config, { ...loadConfig(p.config), mcp_port: port });
+    const old = createServer((_req, res) => res.end("not json")).listen(port, "0.0.0.0");
+    await new Promise((r) => old.once("listening", r));
+    const a = proc(home);
+    await a.started;
+    const reply = await a.rpc("tools/list");
+    expect(reply.error.message).toContain("previous Comfy-Gen-MCP");
+    old.close();
+    a.stdin.end();
+  });
+});

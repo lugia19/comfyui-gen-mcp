@@ -47,6 +47,27 @@ function relay(port: number, path: string, body: string): Promise<Reply> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Whether the port's owner is one of ours: /alive answers {version, pid}. The old extension's
+ * server (Python) may still hold the port for a few minutes after an upgrade. */
+async function ownerIsOurs(port: number): Promise<boolean> {
+  let resp: Response;
+  try {
+    resp = await fetch(`http://127.0.0.1:${port}/alive`, { signal: AbortSignal.timeout(5000) });
+  } catch {
+    return true; // nobody answered: relaying finds out, and takes over
+  }
+  try {
+    const body = (await resp.json()) as Record<string, unknown>;
+    return typeof body.version === "string" && typeof body.pid === "number";
+  } catch {
+    return false;
+  }
+}
+
+const FOREIGN_OWNER = (port: number) =>
+  `Another program holds port ${port}, probably the previous Comfy-Gen-MCP's server. Quit it from its ` +
+  `tray icon (or wait a few minutes for it to stop), then restart Claude Desktop.`;
+
 export async function main(opts: MainOptions): Promise<void> {
   const p = opts.paths ?? paths();
   logTo(p.logs);
@@ -83,11 +104,22 @@ export async function main(opts: MainOptions): Promise<void> {
     return t;
   };
 
-  if (!(await becomeOwner())) log.info(`Process ${process.pid} relays to the server on port ${loadConfig(p.config).mcp_port}`);
+  let foreign = false;
+  if (!(await becomeOwner())) {
+    const port = loadConfig(p.config).mcp_port;
+    foreign = !(await ownerIsOurs(port));
+    if (foreign) log.error(FOREIGN_OWNER(port));
+    else log.info(`Process ${process.pid} relays to the server on port ${port}`);
+  }
 
   const handle = async (line: string): Promise<Reply> => {
     for (let attempt = 0; ; attempt++) {
       const cfg = loadConfig(p.config);
+      if (foreign && !owner) {
+        if (await becomeOwner()) continue; // it quit meanwhile
+        foreign = !(await ownerIsOurs(cfg.mcp_port));
+        if (foreign) throw new Error(FOREIGN_OWNER(cfg.mcp_port));
+      }
       if (owner) {
         const req = new Request(`http://127.0.0.1:${owner.port}${cfg.mcp_path}`, {
           method: "POST",
@@ -120,7 +152,7 @@ export async function main(opts: MainOptions): Promise<void> {
       reply = await handle(line);
     } catch (e) {
       log.error("Could not reach the Comfy-Gen server:", e);
-      reply = [502, JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32603, message: `Comfy-Gen server unreachable: ${(e as Error).message}` } })];
+      reply = [502, JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32603, message: `Comfy-Gen-MCP is not available: ${(e as Error).message}` } })];
     }
     const [, body] = reply;
     if (body !== null && id !== null && !closing) stdout.write(body.replace(/\n/g, " ") + "\n");
