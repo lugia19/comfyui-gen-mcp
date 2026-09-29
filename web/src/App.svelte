@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { api, ApiError } from './lib/api.js'
   import Login from './lib/Login.svelte'
+  import LocalSetup from './lib/LocalSetup.svelte'
   import Setup from './lib/Setup.svelte'
   import Settings from './lib/Settings.svelte'
 
@@ -20,9 +21,14 @@
     }
   }
 
+  // The Worker's pages sit behind a login; the Claude Desktop extension's (mode "local") answer
+  // only on this computer, so they have none.
+  let local = $derived(info?.mode === 'local')
+
   async function loggedIn() {
     await refresh()
-    tab = info && info.generator ? 'settings' : 'setup'
+    const ready = info?.mode === 'local' ? info.comfyui.state !== 'not_installed' : info?.generator
+    tab = ready ? 'settings' : 'setup'
   }
 
   async function logout() {
@@ -39,7 +45,7 @@
     {#if info}
       <div class="row">
         <span class="muted">{info.version}</span>
-        <button class="secondary" onclick={logout}>Log out</button>
+        {#if !local}<button class="secondary" onclick={logout}>Log out</button>{/if}
       </div>
     {/if}
   </header>
@@ -54,7 +60,7 @@
       <button class:active={tab === 'settings'} onclick={() => (tab = 'settings')}>Settings</button>
     </nav>
     {#if tab === 'setup'}
-      <Setup {info} {refresh} />
+      {#if local}<LocalSetup {info} {refresh} />{:else}<Setup {info} {refresh} />{/if}
     {:else}
       <Settings {info} {refresh} />
     {/if}

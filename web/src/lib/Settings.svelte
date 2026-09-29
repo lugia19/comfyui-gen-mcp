@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import { api, formatBytes } from './api.js'
+  import CustomWorkflow from './CustomWorkflow.svelte'
   import Loras from './Loras.svelte'
   import Models from './Models.svelte'
 
@@ -43,9 +44,12 @@
 
   const keepWarm = info.schema.find((f) => f.key === 'keep_warm_minutes')
 
-  // LoRA files on the Modal Volume ({name: size}), for the rows' file picker. Other generators have
-  // their own LoRA folder, so there the name is typed.
+  // LoRA files ({name: size}) for the rows' file picker: on the Modal Volume, or locally in the
+  // LoRA folders ComfyUI reads. A ComfyUI the Worker reaches by URL has its own, so there the name is
+  // typed.
+  const local = info.mode === 'local'
   const onModal = info.generator?.kind === 'modal'
+  const pickLoras = onModal || local
   let loraFiles = $state(null)
   let loraError = $state('')
 
@@ -59,7 +63,7 @@
     }
   }
 
-  onMount(() => onModal && loadLoras())
+  onMount(() => pickLoras && loadLoras())
 
   const stem = (name) => (name || '').replace(/\.safetensors$/i, '')
 
@@ -72,7 +76,7 @@
   }
 
   function addLora(pack) {
-    const name = onModal ? Object.keys(loraFiles || {})[0] || '' : ''
+    const name = pickLoras ? Object.keys(loraFiles || {})[0] || '' : ''
     loraRows(pack).push({ name, strength: 1, trigger: stem(name), hidden: false })
   }
 
@@ -164,10 +168,10 @@
       </p>
       {#each rowsOf(current) as row, i (i)}
         <div class="row lora">
-          {#if onModal}
+          {#if pickLoras}
             <select value={row.name} onchange={(e) => setLoraName(row, e.currentTarget.value)} aria-label="LoRA file">
               {#if row.name && loraFiles && !(row.name in loraFiles)}
-                <option value={row.name}>{row.name} (not uploaded)</option>
+                <option value={row.name}>{row.name} ({local ? 'not found' : 'not uploaded'})</option>
               {/if}
               {#each Object.keys(loraFiles || {}) as name (name)}<option value={name}>{name}</option>{/each}
             </select>
@@ -181,11 +185,19 @@
           <button class="secondary" onclick={() => loraRows(current).splice(i, 1)}>Remove</button>
         </div>
       {/each}
-      <button class="secondary" onclick={() => addLora(current)} disabled={onModal && !Object.keys(loraFiles || {}).length}>Add LoRA</button>
-      {#if onModal && loraFiles && !Object.keys(loraFiles).length}<p class="muted">Upload a LoRA file below first.</p>{/if}
+      <button class="secondary" onclick={() => addLora(current)} disabled={pickLoras && !Object.keys(loraFiles || {}).length}>Add LoRA</button>
+      {#if pickLoras && loraFiles && !Object.keys(loraFiles).length}
+        <p class="muted">{local ? 'Put a LoRA file in the LoRAs folder (below) first.' : 'Upload a LoRA file below first.'}</p>
+      {/if}
     {/if}
   </section>
 {/each}
+
+{#if local}
+  <section>
+    <CustomWorkflow value={cfg.custom_workflow} onchange={(v) => (cfg.custom_workflow = v)} />
+  </section>
+{/if}
 
 {#if keepWarm}
   <section>
@@ -200,7 +212,23 @@
 {#each warnings as w}<p class="err">{w}</p>{/each}
 {#if error}<p class="err">{error}</p>{/if}
 
-{#if onModal}
+{#if local}
+  <section>
+    <h2>LoRA files</h2>
+    <p class="muted">.safetensors files in ComfyUI's LoRAs folder, or in a shared models folder.</p>
+    {#each Object.entries(loraFiles || {}) as [name, size] (name)}
+      <div class="row"><span>{name}</span><span class="muted">{formatBytes(size)}</span></div>
+    {/each}
+    <div class="row">
+      <button class="secondary" onclick={() => api('POST', '/open', { which: 'loras' })}>Open LoRAs folder</button>
+      <button class="secondary" onclick={loadLoras}>Refresh</button>
+    </div>
+    {#if loraError}<p class="err">{loraError}</p>{/if}
+  </section>
+  <section>
+    {#key saves}<Models local />{/key}
+  </section>
+{:else if onModal}
   <section>
     <Loras files={loraFiles} reload={loadLoras} />
     {#if loraError}<p class="err">{loraError}</p>{/if}

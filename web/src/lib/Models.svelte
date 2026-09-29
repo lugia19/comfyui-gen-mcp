@@ -2,12 +2,15 @@
   import { onDestroy, onMount } from 'svelte'
   import { api, formatBytes } from './api.js'
 
-  // Download state of the selected packs on the Modal Volume. Polls while anything is in flight.
+  // Download state of the selected packs: on the Modal Volume, or (local) in ComfyUI's models
+  // folder. Polls while anything is in flight. Locally a missing pack waits for a click (or a tool
+  // call); on Modal the Worker starts it.
+  let { local = false } = $props()
   let packs = $state(null)
   let error = $state('')
   let timer = null
 
-  const BUSY = ['queued', 'downloading', 'missing', 'unknown']
+  const BUSY = local ? ['queued', 'downloading'] : ['queued', 'downloading', 'missing', 'unknown']
   const LABEL = { done: 'Ready', queued: 'Queued', downloading: 'Downloading', failed: 'Failed', missing: 'Not downloaded', unknown: 'Unknown' }
 
   async function poll() {
@@ -35,7 +38,7 @@
 </script>
 
 {#if packs && packs.length}
-  <h3>Models on your GPU</h3>
+  <h3>{local ? 'Models' : 'Models on your GPU'}</h3>
   {#each packs as pack (pack.name)}
     <div class="model">
       <div class="row">
@@ -43,6 +46,7 @@
         <span class="muted">{formatBytes(pack.size)}</span>
         <span class:ok={pack.state === 'done'} class:err={pack.state === 'failed'}>{LABEL[pack.state] || pack.state}</span>
         {#if pack.state === 'failed'}<button class="secondary" onclick={() => retry(pack)}>Retry</button>{/if}
+        {#if local && pack.state === 'missing'}<button class="secondary" onclick={() => retry(pack)}>Download</button>{/if}
       </div>
       {#if pack.state === 'downloading' && pack.total}
         <progress max={pack.total} value={pack.done}></progress>
@@ -50,7 +54,10 @@
       {#if pack.error}<p class="err">{pack.error}</p>{/if}
     </div>
   {/each}
-  <p class="muted">Models download once into your Modal Volume. A tool whose model is still downloading says so.</p>
+  <p class="muted">
+    {local ? "Models download once into ComfyUI's models folder, or are found in a shared one." : 'Models download once into your Modal Volume.'}
+    A tool whose model is still downloading says so.
+  </p>
 {/if}
 {#if error}<p class="err">{error}</p>{/if}
 
