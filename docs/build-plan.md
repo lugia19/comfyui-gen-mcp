@@ -52,9 +52,10 @@ process". It shares `core` with the Worker, and the machine side (`packages/loca
 
 1. **`packages/local`**, ported from the old `server/` without Qt:
    - paths (`~/.comfy-gen-mcp`), the config file with the old keys migrated
-   - GPU detection, uv, the comfy-cli install with its environment fixes, reuse of an old install
+   - GPU detection; ComfyUI installed with a pinned uv, no comfy-cli (design §11); reuse of an old
+     install
    - starting ComfyUI on a probed port, stopping it with its process tree, idle stop
-   - the `/comfy-gen/wait` extension written into `custom_nodes`, pack nodes through comfy-cli
+   - the `/comfy-gen/wait` extension written into `custom_nodes`, pack nodes from the Comfy Registry
    - `extra_model_paths.yaml` and the `~/.comfy-registry` shared with Visual-Novelist
    - the model download queue, with state the settings page reads
 2. **The server** (`packages/mcpb/src/server`), in the process that owns the port:

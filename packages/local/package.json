@@ -1,0 +1,9 @@
+{
+  "name": "@comfy-gen/local",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@comfy-gen/core": "*"
+  }
+}
