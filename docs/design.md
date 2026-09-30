@@ -287,8 +287,9 @@ description).
 
 The static site (`site/`, published to GitHub Pages by `.github/workflows/pages.yml`) has the
 prerequisites and the Deploy button, then hands over to the Worker's page. That page is a stepper:
-log in; choose where images are made (Modal, the PC, the PC with Modal while it is off, or a
-ComfyUI URL); that path's steps; connect Claude. Each step ticks itself from the Worker's state:
+log in; choose where images are made (Modal, the PC, the PC with Modal while it is off, or, under
+Advanced, a ComfyUI URL); that path's steps; connect Claude. A fourth choice, "only from Claude
+Desktop", leads to the extension instead, which needs no Worker. Each step ticks itself from the Worker's state:
 the generator set, the models on the Volume, the PC connected, and Claude having connected (the
 first `tools/list` on the connector URL sets `claude_seen` in the `setup` key; a new URL clears
 it). Done steps fold to one line; until Claude has connected, the page opens on Setup rather than

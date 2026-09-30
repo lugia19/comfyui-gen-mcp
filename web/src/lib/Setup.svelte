@@ -6,7 +6,9 @@
   import Step from './Step.svelte'
 
   // The Worker's setup, one step at a time: log in, choose where images are made (Modal, the PC,
-  // both, or a ComfyUI URL), that path's steps, then connect Claude. Each step ticks itself from
+  // both, or, under Advanced, a ComfyUI URL), that path's steps, then connect Claude. Someone who
+  // only uses Claude Desktop on the PC with the GPU is sent to the extension instead: it needs no
+  // Worker. Each step ticks itself from
   // the Worker's state: the Modal deploy, the models on the Volume, the PC connected, Claude having
   // listed the tools.
   let { info, refresh } = $props()
@@ -15,10 +17,13 @@
   const CHOICE_KEY = 'comfy-gen-setup-choice'
   const CHOICES = {
     modal: ['In the cloud, on Modal', 'No GPU needed. Modal only runs, and bills, while it generates.'],
-    pc: ['On my PC', 'A small agent on your PC runs ComfyUI and connects out to this Worker. Nothing to open on your network.'],
+    pc: ['On my PC, for claude.ai and the phone app', 'A small agent on your PC runs ComfyUI and connects out to this Worker. Nothing to open on your network.'],
     both: ['My PC, with Modal while it is off', 'The PC is used whenever it is online; Modal answers the rest of the time.'],
-    url: ['A ComfyUI I already run', 'Advanced: a ComfyUI reachable from the internet.'],
+    desktop: ['On my PC, only from Claude Desktop', 'The Claude Desktop extension does it all on your PC, with no Worker and no accounts.'],
   }
+  const ADVANCED = { url: ['A ComfyUI I already run', 'Reachable from the internet, with its models and nodes already in place.'] }
+  const LABELS = { ...CHOICES, ...ADVANCED }
+  let showAdvanced = $state(false)
 
   // The choice follows what is set up; before anything is, it is remembered in this browser only.
   let picked = $state(null)
@@ -169,13 +174,18 @@
   {/if}
 </Step>
 
-<Step n={2} title="Choose where images are made" status={status(choice)} summary={choice ? CHOICES[choice][0] : ''}>
-  {#each Object.entries(CHOICES) as [key, [label, detail]] (key)}
+<Step n={2} title="Choose where images are made" status={status(choice)} summary={choice ? LABELS[choice][0] : ''}>
+  {#each Object.entries(showAdvanced || choice === 'url' ? LABELS : CHOICES) as [key, [label, detail]] (key)}
     <label class="choice">
       <input type="radio" name="where" value={key} checked={choice === key} onchange={() => choose(key)} />
       <span><b>{label}</b><br /><span class="muted">{detail}</span></span>
     </label>
   {/each}
+  {#if choice !== 'url'}
+    <button type="button" class="secondary" onclick={() => (showAdvanced = !showAdvanced)}>
+      {showAdvanced ? 'Hide advanced' : 'Advanced'}
+    </button>
+  {/if}
   {#if (gen || pc?.paired) && !choice}<p class="muted">Pick one to see its steps.</p>{/if}
 </Step>
 
@@ -265,6 +275,20 @@
   </Step>
 {/if}
 
+{#if choice === 'desktop'}
+  <Step n={3} title="Install the Claude Desktop extension" status="current">
+    <ol>
+      <li>On the PC with the GPU, download <a href="{RELEASE}Comfy-Gen-MCP.mcpb">Comfy-Gen-MCP.mcpb</a> and open it: Claude Desktop installs it.</li>
+      <li>The Comfy-Gen icon appears in the tray. Open its settings page from there, choose your GPU and install ComfyUI (a few minutes; it finds the models of ComfyUI installs you already have).</li>
+      <li>Ask Claude Desktop for an image.</li>
+    </ol>
+    <p class="muted">
+      This Worker is not needed for that. Keep it for later (it costs nothing idle): choose another option here to
+      use claude.ai or the phone app too, or delete it from your Cloudflare dashboard.
+    </p>
+  </Step>
+{/if}
+
 {#if choice === 'url'}
   <Step n={num('url')} title="Connect your ComfyUI" status={status(gen?.kind === 'url')} summary={gen?.kind === 'url' ? gen.base_url : ''}>
     <form onsubmit={saveDirect}>
@@ -277,6 +301,7 @@
   </Step>
 {/if}
 
+{#if choice !== 'desktop'}
 <Step
   n={claudeN}
   title="Connect Claude"
@@ -295,8 +320,9 @@
   <p class="muted">Anyone with this URL can generate images with your setup. Treat it like a password.</p>
   {#if !info.claude_seen}<p class="muted">This step ticks itself once Claude has connected.</p>{/if}
 </Step>
+{/if}
 
-{#if info.claude_seen}
+{#if info.claude_seen && choice !== 'desktop'}
   <section class="finish">
     <h2>You're set</h2>
     <p>In a new chat, with the connector turned on, try:</p>
