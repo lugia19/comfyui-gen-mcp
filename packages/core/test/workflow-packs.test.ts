@@ -132,13 +132,15 @@ describe("packs and config", () => {
   it("normalize cleans LoRA entries and caps keep-warm", () => {
     const cfg = normalize({
       keep_warm_minutes: 500,
+      pc_keep_warm_minutes: 45,
       pack_loras: {
         anima: ["bare.safetensors", { name: " a.safetensors ", strength: 9, trigger: " @x ", hidden: 1 }, { name: "" }, 7,
           { name: "b.safetensors", strength: "0.5" }],
         other: "junk",
       },
     });
-    expect(cfg.keep_warm_minutes).toBe(60);
+    expect([cfg.keep_warm_minutes, cfg.pc_keep_warm_minutes]).toEqual([60, 45]);
+    expect(normalize({ pc_keep_warm_minutes: "x" }).pc_keep_warm_minutes).toBe(DEFAULT_KEEP_WARM_MINUTES);
     expect(cfg.pack_loras).toEqual({
       anima: [
         { name: "bare.safetensors", strength: 1, trigger: "", hidden: false },

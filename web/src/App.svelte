@@ -12,16 +12,10 @@
   let checking = $state(true)
   let tab = $state('setup')
 
-  // Settings pages, one per backend: the Worker's PC and Modal (or ComfyUI URL) each have their
-  // own. The extension has one, for this computer. #settings-<target> opens one directly.
-  let settingsTabs = $derived(
-    !info || info.mode === 'agent' ? []
-    : info.mode === 'local' ? [['machine', 'Settings']]
-    : [
-        ...(info.pc?.paired ? [['pc', 'Settings [Local]']] : []),
-        ...(info.generator?.kind === 'modal' ? [['modal', 'Settings [Modal]']] : []),
-        ...(info.generator?.kind === 'url' ? [['url', 'Settings [Remote]']] : []),
-      ],
+  // One Settings page, for every backend the Worker has (or for this computer, on the extension),
+  // once there is something to set up. #settings opens it directly.
+  let hasSettings = $derived(
+    Boolean(info) && info.mode !== 'agent' && (info.mode === 'local' || Boolean(info.generator) || Boolean(info.pc?.paired)),
   )
 
   async function refresh() {
@@ -58,8 +52,7 @@
     // The Worker's setup is finished once Claude has connected; until then it opens on Setup.
     const ready =
       info?.mode === 'agent' ? false : info?.mode === 'local' ? info.comfyui.state !== 'not_installed' : info?.claude_seen && (info?.generator || info?.pc?.paired)
-    const linked = location.hash.match(/^#settings-(\w+)$/)?.[1]
-    tab = settingsTabs.some(([t]) => t === linked) ? linked : ready ? settingsTabs[0]?.[0] ?? 'setup' : 'setup'
+    tab = hasSettings && (ready || location.hash === '#settings') ? 'settings' : 'setup'
   }
 
   async function logout() {
@@ -92,9 +85,9 @@
   {:else}
     <nav>
       <button class:active={tab === 'setup'} onclick={() => (tab = 'setup')}>Setup</button>
-      {#each settingsTabs as [target, label] (target)}
-        <button class:active={tab === target} onclick={() => (tab = target)}>{label}</button>
-      {/each}
+      {#if hasSettings}
+        <button class:active={tab === 'settings'} onclick={() => (tab = 'settings')}>Settings</button>
+      {/if}
     </nav>
     {#if tab === 'setup'}
       {#if local}
@@ -102,7 +95,7 @@
         <LocalSetup {info} {refresh} />
       {:else}<Setup {info} {refresh} />{/if}
     {:else}
-      {#key tab}<Settings {info} {refresh} target={tab} />{/key}
+      <Settings {info} {refresh} />
     {/if}
   {/if}
 </main>

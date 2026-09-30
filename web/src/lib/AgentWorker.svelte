@@ -63,9 +63,12 @@
     {/if}
     <p class="muted">Claude (claude.ai, the phone app) generates on this PC through your Worker while it is connected.</p>
     <p>
-      <a class="button" href="{worker.url}/#settings-pc" target="_blank" rel="noopener">Edit main settings</a>
+      <a class="button" href="{worker.url}/#settings" target="_blank" rel="noopener">Edit settings</a>
     </p>
-    <p class="muted">Models, styles and LoRAs for this PC are set on your Worker's page, under Settings [Local].</p>
+    <p class="muted">
+      Models, styles and LoRAs are set on your Worker's page, under Settings, for this PC and Modal alike. LoRAs you
+      turn on there are copied between this PC and Modal.
+    </p>
   {:else}
     <p>
       Pair this PC with your Worker: on the Worker's page, the step <b>Run the agent on your PC</b> shows

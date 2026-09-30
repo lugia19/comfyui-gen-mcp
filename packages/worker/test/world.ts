@@ -119,6 +119,10 @@ export class FakeNet {
       return jsonResp({ state: this.uploads[up[1]].state });
     }
     if (up) return jsonResp({ detail: "unknown or expired upload" }, 404);
+    if (method === "POST" && path === "/loras/downloads") {
+      if (!(body.name in this.loras)) return jsonResp({ detail: `no LoRA named ${body.name}` }, 404);
+      return jsonResp({ id: "d".repeat(43) });
+    }
     if (method === "DELETE" && path.startsWith("/loras/")) {
       const name = decodeURIComponent(path.slice(7));
       if (!(name in this.loras)) return jsonResp({ detail: `no LoRA named ${name}` }, 404);

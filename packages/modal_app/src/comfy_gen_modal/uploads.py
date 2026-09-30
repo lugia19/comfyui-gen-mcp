@@ -1,10 +1,14 @@
-"""LoRA uploads from the settings page, in chunks, straight from the browser to the Volume.
+"""LoRA files in and out of the Volume, straight from the browser or the PC agent.
 
-A Modal web request is cut off after 150 s and a LoRA can be hundreds of MB, so the browser sends
+A Modal web request is cut off after 150 s and a LoRA can be hundreds of MB, so uploads come in
 16 MiB chunks. Each chunk is its own file, committed on its own: requests may land on different
 containers, which don't see each other's writes until a commit and a reload. `assemble` then
 reloads once and joins them. The upload session's random id is the capability: whoever holds it can
-write that one file's chunks, nothing else. The Worker creates sessions through the admin API.
+write that one file's chunks and finish it, nothing else.
+
+Downloads (the PC agent copying a LoRA to itself) are sessions too: a random id that reads one file
+for an hour. They answer Range requests, so a download cut off at 150 s resumes. The Worker creates
+both kinds of session through the admin API.
 
 No modal import: the store is anything dict-like (the app's modal.Dict in production), and the
 Volume root is a parameter, so tests run on a temporary directory.
@@ -19,6 +23,7 @@ import shutil
 CHUNK_SIZE = 16 << 20
 MAX_SIZE = 2 << 30  # the largest Anima LoRAs are a few hundred MB
 SESSION_S = 24 * 3600
+DOWNLOAD_S = 3600
 _LORA_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._()\-]{0,150}\.safetensors")
 _ID = re.compile(r"[A-Za-z0-9_\-]{43}")
 
@@ -116,6 +121,18 @@ def missing(root: str, s: dict) -> list[int]:
     return [i for i in range(s["chunks"]) if i not in have]
 
 
+def finish(store, root: str, upload_id: str, now: float) -> tuple[dict, bool]:
+    """Mark an upload whose chunks have all arrived as assembling. Returns the session and whether
+    the caller should start `assemble` (False when it was finished already). The caller reloads the
+    Volume first: the chunks were committed by other containers."""
+    s = session(store, upload_id, now)
+    if s["state"] != "uploading":
+        return s, False
+    if gaps := missing(root, s):
+        raise UploadError(f"{len(gaps)} chunk(s) still missing, first {gaps[0]}", 409)
+    return update(store, s, state="assembling", done=0), True
+
+
 def assemble(store, root: str, upload_id: str, now: float) -> dict:
     """Join the chunks into loras/<name>, then drop them; the session ends "assembled" (or "failed").
     The caller reloads the Volume first, commits after, and only then marks the session "done":
@@ -167,6 +184,30 @@ def delete_lora(root: str, name: object) -> None:
     os.remove(path)
 
 
+def _download_key(download_id: str) -> str:
+    return f"download:{download_id}"
+
+
+def new_download(store, root: str, name: object, now: float) -> dict:
+    name = validate_lora_name(name)
+    if not os.path.isfile(f"{loras_dir(root)}/{name}"):
+        raise UploadError(f"no LoRA named {name}", 404)
+    download_id = secrets.token_urlsafe(32)
+    d = {"id": download_id, "filename": name, "expires": now + DOWNLOAD_S}
+    store[_download_key(download_id)] = d
+    return d
+
+
+def download_path(store, root: str, download_id: str, now: float) -> str:
+    d = store.get(_download_key(download_id)) if _ID.fullmatch(download_id or "") else None
+    if not d or d["expires"] < now:
+        raise UploadError("unknown or expired download", 404)
+    path = f"{loras_dir(root)}/{d['filename']}"
+    if not os.path.isfile(path):
+        raise UploadError(f"{d['filename']} is no longer on the Volume", 404)
+    return path
+
+
 def cors_headers(s: dict, origin: str | None) -> dict[str, str]:
     """CORS for the browser's chunk requests: only the settings page that created the session."""
     if origin != s["origin"]:
@@ -180,15 +221,16 @@ def cors_headers(s: dict, origin: str | None) -> dict[str, str]:
     }
 
 
-def web_app(store, commit, root: str):
-    """The browser-facing FastAPI app: chunk PUTs and status, CORS for the session's origin only.
-    *commit* is an async callable (the Volume's commit.aio). The store's blocking calls run in a
-    thread, off the event loop."""
+def web_app(store, commit, root: str, reload=None, start_assemble=None):
+    """The public FastAPI app: chunk PUTs and status (CORS for the session's origin only), finishing
+    an upload (the agent's; the browser finishes through the Worker), and downloads. *commit* and
+    *reload* are async callables (the Volume's), *start_assemble* an async callable taking the upload
+    id. The store's blocking calls run in a thread, off the event loop."""
     import asyncio
     import time
 
     from fastapi import FastAPI, Request, Response
-    from fastapi.responses import JSONResponse
+    from fastapi.responses import FileResponse, JSONResponse
 
     api = FastAPI()
 
@@ -224,6 +266,30 @@ def web_app(store, commit, root: str):
         if err:
             return err
         body = {"state": s["state"], "chunks": s["chunks"], "received": received(root, s)}
+        if s.get("error"):
+            body["error"] = s["error"]
         return JSONResponse(body, headers=cors_headers(s, request.headers.get("origin")))
+
+    @api.post("/u/{upload_id}/finish")
+    async def finish_upload(upload_id: str):
+        if reload:
+            await reload()
+        try:
+            s, start = await asyncio.to_thread(finish, store, root, upload_id, time.time())
+        except UploadError as e:
+            return JSONResponse({"error": str(e)}, status_code=e.status)
+        if start and start_assemble:
+            await start_assemble(upload_id)
+        return JSONResponse({"state": s["state"]})
+
+    @api.get("/d/{download_id}")
+    async def download(download_id: str):
+        if reload:
+            await reload()
+        try:
+            path = await asyncio.to_thread(download_path, store, root, download_id, time.time())
+        except UploadError as e:
+            return JSONResponse({"error": str(e)}, status_code=e.status)
+        return FileResponse(path, media_type="application/octet-stream")  # answers Range with 206
 
     return api

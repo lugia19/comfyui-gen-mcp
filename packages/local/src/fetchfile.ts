@@ -46,8 +46,13 @@ export async function fetchFile(url: string, dest: string, opts: FetchFileOption
     }
     await new Promise<void>((resolve, reject) => out.end((e?: Error | null) => (e ? reject(e) : resolve())));
   } catch (e) {
-    out.destroy();
-    if (!opts.resume) rmSync(part, { force: true }); // a resumable download keeps what it has
+    if (opts.resume) {
+      // A resumable download keeps what it has: flush it, or the bytes still buffered are lost.
+      await new Promise<void>((resolve) => out.end(() => resolve()));
+    } else {
+      out.destroy();
+      rmSync(part, { force: true });
+    }
     throw e;
   }
   const digest = hash.digest("hex");

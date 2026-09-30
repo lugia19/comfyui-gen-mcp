@@ -10,6 +10,7 @@ import { listen, log, logTo, Machine, machineTray, openExternal, paths, type Pat
 import { AgentApp } from "./app.ts";
 import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts";
 import { agentHandler } from "./handlers.ts";
+import { LoraSync } from "./lora-sync.ts";
 import { RelayClient } from "./relay-client.ts";
 
 export const RESTART_EXIT_CODE = 75;
@@ -50,7 +51,9 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
   // quietly send every image to Modal for days.
   let paused = false;
   const settingsUrl = `http://127.0.0.1:${cfg.port}/`;
+  const sync = new LoraSync({ machine, worker: () => (cfg.worker_url && cfg.secret ? { url: cfg.worker_url, secret: cfg.secret } : null) });
   const handle = agentHandler({
+    sync,
     machine,
     setKeepWarm: (minutes) => {
       if (minutes !== cfg.keep_warm_minutes) {
@@ -69,6 +72,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
       secret: cfg.secret,
       handle,
       hello: () => ({ version: opts.version, platform: process.platform, gpu: machine.comfy.install?.gpu ?? cfg.gpu ?? null, comfyui: machine.comfy.state, paused }),
+      onOpen: () => void sync.sync(),
     });
     client.start();
   };

@@ -3,6 +3,7 @@
 
 import { ComfyUIError, type relay } from "@comfy-gen/core";
 import type { Machine, PackNeeds } from "@comfy-gen/local";
+import type { SyncJob } from "./lora-sync.ts";
 import type { Reply } from "./relay-client.ts";
 
 const ok = (data: unknown): Reply => [200, JSON.stringify(data ?? null)];
@@ -13,6 +14,8 @@ export type HandlerOptions = {
   setKeepWarm(minutes: number): void;
   /** Where the user sees download progress, for "downloading" answers. */
   settingsNote: string;
+  /** LoRA copies to and from Modal: start a round (not awaited), and the copies in progress. */
+  sync?: { sync(): Promise<void>; jobs: Record<string, SyncJob> };
 };
 
 export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Promise<Reply> {
@@ -46,7 +49,10 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
           return ok({ ready: true });
         }
         case "loras":
-          return ok(machine.loras());
+          return ok({ files: machine.loras(), syncing: o.sync?.jobs ?? {} });
+        case "sync":
+          void o.sync?.sync();
+          return ok({ started: Boolean(o.sync) });
         case "download": {
           const pack = args.pack as PackNeeds;
           return ok(machine.downloads.start(pack.name, pack.models ?? []));

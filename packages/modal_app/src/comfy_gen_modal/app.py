@@ -252,8 +252,8 @@ def assemble(upload_id: str) -> None:
 @modal.concurrent(max_inputs=8)
 @modal.asgi_app()
 def upload():
-    """The browser's endpoint for LoRA chunks. No proxy auth: the session id is the capability."""
-    return uploads.web_app(state, volume.commit.aio, VOL)
+    """The public endpoint for LoRA chunks and downloads. No proxy auth: a session id is the capability."""
+    return uploads.web_app(state, volume.commit.aio, VOL, volume.reload.aio, assemble.spawn.aio)
 
 
 # ── admin API (the Worker's) ───────────────────────────────────────────────────
@@ -335,18 +335,23 @@ def admin():
 
     @api.post("/loras/uploads/{upload_id}/finish")
     async def finish_upload(upload_id: str):
+        await volume.reload.aio()
         try:
-            s = await asyncio.to_thread(uploads.session, state, upload_id, time.time())
+            s, start = await asyncio.to_thread(uploads.finish, state, VOL, upload_id, time.time())
         except uploads.UploadError as e:
             raise HTTPException(e.status, str(e)) from None
-        if s["state"] != "uploading":
-            return {"state": s["state"]}
+        if start:
+            await assemble.spawn.aio(upload_id)
+        return {"state": s["state"]}
+
+    @api.post("/loras/downloads")
+    async def create_download(body: dict = Body(...)):
         await volume.reload.aio()
-        if gaps := uploads.missing(VOL, s):
-            raise HTTPException(409, f"{len(gaps)} chunk(s) still missing, first {gaps[0]}")
-        await asyncio.to_thread(uploads.update, state, s, state="assembling", done=0)
-        await assemble.spawn.aio(upload_id)
-        return {"state": "assembling"}
+        try:
+            d = await asyncio.to_thread(uploads.new_download, state, VOL, body.get("name"), time.time())
+        except uploads.UploadError as e:
+            raise HTTPException(e.status, str(e)) from None
+        return {"id": d["id"]}
 
     @api.post("/idle")
     async def set_idle(body: dict = Body(...)):

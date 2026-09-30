@@ -21,6 +21,8 @@ export type RelayClientOptions = {
   secret: string;
   handle: Handler;
   hello: () => Record<string, unknown>;
+  /** Called each time the connection opens (the LoRA sync catches up on what changed meanwhile). */
+  onOpen?: () => void;
   /** For tests: a WebSocket constructor and timers. */
   WebSocketImpl?: typeof WebSocket;
   fetchImpl?: typeof fetch;
@@ -114,6 +116,7 @@ export class RelayClient {
       if (this.ping) clearInterval(this.ping);
       this.ping = setInterval(() => ws.readyState === 1 && ws.send("ping"), PING_MS);
       this.ping.unref?.();
+      this.opts.onOpen?.();
     });
     ws.addEventListener("message", (ev: MessageEvent) => {
       if (ev.data === "pong") return;

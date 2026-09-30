@@ -2,19 +2,27 @@
   import { api, formatBytes } from './api.js'
   import { uploadLora } from './upload.js'
 
-  // One place for LoRAs: each file, with its setup per pack beside it. *cfg* is the page's working
-  // config (its pack_loras is edited in place and saved with the page). *packs* are the packs that
-  // take LoRAs. *where* says where the files are:
-  //   modal    the Modal Volume: upload and delete here
+  // One place for LoRAs: each file, where it is, and its setup per pack beside it. *cfg* is the
+  // page's working config (its pack_loras is edited in place and saved with the page). *packs* are
+  // the packs that take LoRAs. *listing* is null while loading, then
+  //   {backends, files: {name: {backend: size}}, syncing: {name: {to, done, total, error}}, errors}
+  // with backends among:
   //   machine  this computer (the Claude Desktop extension): its LoRA folders, opened from here
-  //   pc       the paired PC: listed through the agent; files go in its LoRA folder
+  //   pc       the Worker's paired PC: its LoRA folders, listed through the agent
+  //   modal    the Modal Volume: upload and delete here
   //   url      a ComfyUI reached by URL: no listing, a file is added by name
-  // *files* is {name: size}, null while loading; *reload* refreshes it.
-  let { cfg, packs, where, files, reload, error: listError = '' } = $props()
+  // With a PC and Modal, the agent copies a LoRA some pack uses to whichever lacks it.
+  let { cfg, packs, listing, reload } = $props()
 
   let progress = $state(null) // {name, phase, done, total} while an upload runs
   let error = $state('')
   let typed = $state('')
+
+  const PLACE = { pc: 'PC', modal: 'Modal' }
+  let backends = $derived(listing?.backends ?? [])
+  let listed = $derived(backends.filter((b) => b !== 'url'))
+  let files = $derived(listing?.files ?? {})
+  let has = (b) => backends.includes(b)
 
   const stem = (name) => (name || '').replace(/\.safetensors$/i, '')
 
@@ -31,7 +39,7 @@
 
   // Every file shown: the ones there, then ones a pack uses that are not (moved, deleted, typed).
   let names = $derived.by(() => {
-    const out = Object.keys(files || {})
+    const out = Object.keys(files)
     for (const pack of packs) for (const e of entries(pack)) if (!out.includes(e.name)) out.push(e.name)
     return out
   })
@@ -55,7 +63,7 @@
     e.currentTarget.value = ''
     if (!file) return
     error = ''
-    if (files && file.name in files && !confirm(`${file.name} is already uploaded. Replace it?`)) return
+    if (files[file.name]?.modal && !confirm(`${file.name} is already uploaded. Replace it?`)) return
     try {
       await uploadLora(file, (p) => (progress = { name: file.name, ...p }))
       // A new file is set up for the first pack right away; the checkboxes change that.
@@ -69,7 +77,8 @@
   }
 
   async function remove(name) {
-    if (!confirm(`Delete ${name} from your Modal Volume?`)) return
+    const also = files[name]?.pc ? ' It stays on your PC, so turn it off in every model first, or it is copied back.' : ''
+    if (!confirm(`Delete ${name} from your Modal Volume?${also}`)) return
     error = ''
     try {
       await api('DELETE', `/loras/${encodeURIComponent(name)}`)
@@ -80,7 +89,22 @@
     }
   }
 
+  // Where a file is, per listed backend: its size, a copy in progress, or missing.
+  function mark(name, where) {
+    const size = files[name]?.[where]
+    if (size !== undefined) return { ok: true, text: `✓ ${formatBytes(size)}` }
+    const job = listing?.syncing?.[name]
+    if (job && job.to === where) {
+      if (job.error) return { err: true, text: `copy failed: ${job.error}` }
+      return { text: `copying${job.total ? ` ${Math.floor((100 * job.done) / job.total)}%` : '…'}` }
+    }
+    if (listing?.errors?.[where]) return { text: '?' }
+    // Missing matters only for a LoRA some model uses (it is then copied over on save).
+    return { err: packs.some((pack) => entryOf(pack, name)), text: '—' }
+  }
+
   let packNames = $derived(packs.map((p) => p.display_name).join(', '))
+  let errors = $derived(Object.entries(listing?.errors ?? {}).map(([b, m]) => `${PLACE[b] ?? b}: ${m}`))
 </script>
 
 <h2>LoRAs</h2>
@@ -88,29 +112,43 @@
   For {packNames}. Tick the models a LoRA should apply to. With a trigger it applies only when the prompt contains that
   word, and Claude is told the trigger unless the LoRA is hidden; without one it always applies. Save to apply.
 </p>
-{#if where === 'modal'}
-  <p class="muted">Files live on your Modal Volume. A GPU that is already running picks up a new one once it is idle.</p>
-{:else if where === 'machine'}
+{#if has('machine')}
   <p class="muted">.safetensors files in ComfyUI's LoRAs folder, or in a shared models folder.</p>
-{:else if where === 'pc'}
-  <p class="muted">.safetensors files in your PC's LoRA folders: open them from the agent's page on the PC, then Refresh.</p>
+{/if}
+{#if has('pc')}
+  <p class="muted">
+    To add one from your PC, put the .safetensors file in ComfyUI's LoRAs folder there (the agent's page has an
+    <b>Open LoRAs folder</b> button), then press Refresh here.
+  </p>
+{/if}
+{#if has('modal')}
+  <p class="muted">
+    {#if has('pc')}Or upload it to your Modal Volume below.{:else}Files live on your Modal Volume.{/if}
+    A GPU that is already running picks up a new one once it is idle.
+  </p>
+{/if}
+{#if has('pc') && has('modal')}
+  <p class="muted">
+    A LoRA you turn on is copied to whichever of the two lacks it, by the agent on your PC, once you save.
+  </p>
 {/if}
 
-{#if where !== 'url' && files === null}
+{#if !listing}
   <p class="muted">Loading…</p>
 {:else if !names.length}
-  <p class="muted">{where === 'modal' ? 'None uploaded yet.' : where === 'url' ? 'None added yet.' : 'None found yet.'}</p>
+  <p class="muted">{listed.length ? 'None yet.' : 'None added yet.'}</p>
 {/if}
 
 {#each names as name (name)}
-  {@const there = where === 'url' || (files && name in files)}
   <div class="file">
     <div class="row head">
       <b class="name">{name}</b>
-      {#if files && name in files}<span class="muted">{formatBytes(files[name])}</span>{/if}
-      {#if !there}<span class="err">{where === 'modal' ? 'not uploaded' : 'not found'}</span>{/if}
-      {#if where === 'modal' && there}
-        <button class="secondary" onclick={() => remove(name)} disabled={!!progress}>Delete</button>
+      {#each listed as where (where)}
+        {@const m = mark(name, where)}
+        <span class="place" class:ok={m.ok} class:err={m.err} class:muted={!m.ok && !m.err}>{#if PLACE[where]}<b>{PLACE[where]}</b>&nbsp;{/if}{m.text}</span>
+      {/each}
+      {#if files[name]?.modal}
+        <button class="secondary" onclick={() => remove(name)} disabled={!!progress}>Delete{has('pc') ? ' from Modal' : ''}</button>
       {/if}
     </div>
     {#each packs as pack (pack.config_key)}
@@ -127,39 +165,41 @@
   </div>
 {/each}
 
-{#if where === 'modal'}
-  {#if progress}
-    <p>
-      {progress.phase === 'upload' ? 'Uploading' : 'Saving'} {progress.name}…
-      <span class="muted">{formatBytes(progress.done) || '0 MB'} of {formatBytes(progress.total)}</span>
-    </p>
-    <progress max={progress.total} value={progress.done}></progress>
-  {:else}
-    <label class="upload">
-      <span class="button">Upload LoRA</span>
-      <input type="file" accept=".safetensors" onchange={pick} />
-    </label>
-  {/if}
-{:else if where === 'machine'}
-  <div class="row">
-    <button class="secondary" onclick={() => api('POST', '/open', { which: 'loras' })}>Open LoRAs folder</button>
-    <button class="secondary" onclick={reload}>Refresh</button>
-  </div>
-{:else if where === 'pc'}
-  <button class="secondary" onclick={reload}>Refresh</button>
+{#if progress}
+  <p>
+    {progress.phase === 'upload' ? 'Uploading' : 'Saving'} {progress.name}…
+    <span class="muted">{formatBytes(progress.done) || '0 MB'} of {formatBytes(progress.total)}</span>
+  </p>
+  <progress max={progress.total} value={progress.done}></progress>
 {:else}
+  <div class="row">
+    {#if has('modal')}
+      <label class="upload">
+        <span class="button">Upload LoRA{has('pc') ? ' to Modal' : ''}</span>
+        <input type="file" accept=".safetensors" onchange={pick} />
+      </label>
+    {/if}
+    {#if has('machine')}
+      <button class="secondary" onclick={() => api('POST', '/open', { which: 'loras' })}>Open LoRAs folder</button>
+    {/if}
+    {#if listed.length}<button class="secondary" onclick={reload}>Refresh</button>{/if}
+  </div>
+{/if}
+{#if has('url')}
   <div class="row">
     <input type="text" bind:value={typed} placeholder="file.safetensors" aria-label="LoRA file name" />
     <button class="secondary" onclick={addTyped} disabled={!typed.trim()}>Add</button>
   </div>
 {/if}
-{#if error || listError}<p class="err">{error || listError}</p>{/if}
+{#if error}<p class="err">{error}</p>{/if}
+{#each errors as e}<p class="err">{e}</p>{/each}
 
 <style>
   .file { border-top: 1px solid var(--border); padding: 8px 0; }
-  .head { justify-content: space-between; }
+  .head { gap: 4px 14px; }
   .head button { margin-top: 0; }
-  .name { flex: 1; overflow-wrap: anywhere; }
+  .name { flex: 1; overflow-wrap: anywhere; min-width: 160px; }
+  .place { white-space: nowrap; }
   .pack { margin: 4px 0 0 4px; flex-wrap: nowrap; }
   .use { display: flex; gap: 6px; align-items: center; margin: 0; font-weight: normal; min-width: 130px; }
   .pack .strength { width: 72px; }

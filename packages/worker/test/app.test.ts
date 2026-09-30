@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fromBase64, fromHex, OutputImage, refs, utf8 } from "@comfy-gen/core";
 import { png } from "../../core/test/fake-comfy.ts";
 import { REQUEST_BUDGET, type App } from "../src/app.ts";
+import { PC_OFFLINE } from "../src/hooks.ts";
 import { cacheEntry } from "../src/store.ts";
 import * as updates from "../src/updates.ts";
 import golden from "../../core/test/golden.json" with { type: "json" };
@@ -267,14 +268,15 @@ describe("Modal models", () => {
     await withModal(app);
     const cookie = await login(app);
     net.seedState = { anima_turbo: { state: "done", done: 9, total: 9 }, z_image_turbo: { state: "downloading", done: 1, total: 4 } };
-    const list = (await body(await app.handle(request("GET", "/api/models", undefined, cookie)))).packs;
-    const packs = Object.fromEntries(list.map((p: any) => [p.name, p]));
+    const models = await body(await app.handle(request("GET", "/api/models", undefined, cookie)));
+    expect(models.backends).toEqual(["modal"]);
+    const packs = Object.fromEntries(models.packs.map((p: any) => [p.name, p.on.modal]));
     expect([packs.anima_turbo.state, packs.z_image_turbo.done, packs.flux2klein_edit.state]).toEqual(["done", 1, "missing"]);
-    expect(packs.anima_turbo.size).toBeGreaterThan(5e9);
+    expect(models.packs[0].size).toBeGreaterThan(5e9);
     net.adminCalls = [];
     await app.handle(request("GET", "/api/models", undefined, cookie));
     expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["/seed/flux2klein_edit", "/seed/z_image_turbo"]); // anima is recorded
-    const retry = await app.handle(request("POST", "/api/models/seed", { pack: "flux2klein_edit" }, cookie));
+    const retry = await app.handle(request("POST", "/api/models/seed", { pack: "flux2klein_edit", backend: "modal" }, cookie));
     expect((await body(retry)).started).toBe(true);
   });
 
@@ -335,7 +337,9 @@ describe("LoRAs", () => {
     await withUploads(app);
     const cookie = await login(app);
     net.loras = { "old.safetensors": 5 };
-    expect(await body(await app.handle(request("GET", "/api/loras", undefined, cookie)))).toEqual({ loras: { "old.safetensors": 5 } });
+    expect(await body(await app.handle(request("GET", "/api/loras", undefined, cookie)))).toEqual({
+      backends: ["modal"], files: { "old.safetensors": { modal: 5 } }, syncing: {}, errors: {},
+    });
 
     const created = await body(await app.handle(request("POST", "/api/loras/uploads", { filename: "style.safetensors", size: 40 }, cookie)));
     expect(created).toEqual({ id: "u".repeat(43), chunk_size: 16, chunks: 3, upload_url: `https://up.example/u/${"u".repeat(43)}` });
@@ -362,7 +366,8 @@ describe("LoRAs", () => {
     const r = await app.handle(request("POST", "/api/loras/uploads", { filename: "a.safetensors", size: 1 }, cookie));
     expect(r.status).toBe(409);
     await withGenerator(app);
-    expect((await app.handle(request("GET", "/api/loras", undefined, cookie))).status).toBe(400);
+    const listing = await body(await app.handle(request("GET", "/api/loras", undefined, cookie)));
+    expect(listing).toMatchObject({ backends: ["url"], files: {} }); // a ComfyUI by URL has no listing
   });
 
   it("saving warns about LoRAs that are not uploaded", async () => {
@@ -374,7 +379,7 @@ describe("LoRAs", () => {
     const cfg = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
     cfg.pack_loras = { anima: [{ name: "here.safetensors", trigger: "@a" }, { name: "gone.safetensors" }] };
     const resp = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
-    expect(resp.warnings).toEqual(["The LoRA gone.safetensors is not uploaded: generations will fail until it is."]);
+    expect(resp.warnings).toEqual(["The LoRA gone.safetensors is not on your Modal Volume: generations will fail until it is."]);
     expect(resp.config.pack_loras.anima[0]).toEqual({ name: "here.safetensors", strength: 1, trigger: "@a", hidden: false });
     net.adminCalls = [];
     cfg.pack_loras = {};
@@ -461,35 +466,70 @@ describe("the PC path", () => {
     expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).pc).toEqual({ paired: false });
   });
 
-  it("each backend has its own settings; Claude's tool descriptions come from the PC's while one is paired", async () => {
+  it("one config serves every backend; saving applies it to the PC too", async () => {
     const { app, pc } = world();
     await withModal(app);
-    await app.store.saveConfig({ pack_settings: { anima: { artist_list: "@modal_artist" } }, keep_warm_minutes: 7 });
+    await app.store.updateSetup({ seeded: ["anima_turbo", "z_image_turbo", "flux2klein_edit"] });
     const { cookie } = await pair(app);
     const state = async () => body(await app.handle(request("GET", "/api/state", undefined, cookie)));
-    // Until the PC's settings are first saved, they are a copy of the Modal ones.
-    expect((await state()).pc_config).toEqual((await state()).config);
+    expect((await state()).pc_config).toBeUndefined();
+    const cfg = { ...(await state()).config, pack_settings: { anima: { artist_list: "@one_artist" } }, keep_warm_minutes: 7, pc_keep_warm_minutes: 12 };
 
-    const put = await body(await app.handle(request("PUT", "/api/pc/config", { config: { pack_settings: { anima: { artist_list: "@pc_artist" } }, keep_warm_minutes: 12 } }, cookie)));
+    const put = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
     expect(put.warnings).toEqual([]);
-    expect(pc.controlCalls.some(([op]) => op === "download")).toBe(true); // newly chosen packs start downloading
-    const after = await state();
-    expect(after.pc_config.keep_warm_minutes).toBe(12);
-    expect(after.config.keep_warm_minutes).toBe(7); // Modal's untouched
+    expect(pc.controlCalls.filter(([op]) => op === "download").length).toBe(3); // the PC downloads the selected packs
+    expect(pc.controlCalls.at(-1)![0]).toBe("sync"); // and copies LoRAs
 
     const illustrated = async () => (await mcp(app, "tools/list"))[1].result.tools.find((t: any) => t.name === "generate_illustrated_image").description;
-    expect(await illustrated()).toContain("@pc_artist");
-    expect(await illustrated()).not.toContain("@modal_artist");
+    expect(await illustrated()).toContain("@one_artist");
 
     pc.controlCalls.length = 0;
     await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } });
-    expect(pc.controlCalls.find(([op]) => op === "ensure")![1].keep_warm_minutes).toBe(12); // the PC's settings
+    expect(pc.controlCalls.find(([op]) => op === "ensure")![1].keep_warm_minutes).toBe(12); // the PC's keep-warm
 
     pc.connected = false; // saving while the PC is off: a warning, and no wait for it
-    const off = await body(await app.handle(request("PUT", "/api/pc/config", { config: after.pc_config }, cookie)));
+    pc.controlCalls.length = 0;
+    const off = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
     expect(off.warnings.join()).toContain("offline");
-    await app.handle(request("DELETE", "/api/pc", undefined, cookie)); // unpaired: back to Modal's
-    expect(await illustrated()).toContain("@modal_artist");
+    expect(pc.controlCalls).toEqual([]);
+  });
+
+  it("warns only about LoRAs that no backend has", async () => {
+    const { app, net, pc } = world();
+    await app.store.updateSecrets({
+      generator: { kind: "modal", base_url: COMFY, admin_url: ADMIN, upload_url: "https://up.example/", headers: {} },
+    });
+    await app.store.updateSetup({ seeded: ["anima_turbo", "z_image_turbo", "flux2klein_edit"] });
+    const { cookie } = await pair(app);
+    net.loras = { "modal.safetensors": 1 };
+    pc.controls.loras = () => [200, { files: { "pc.safetensors": 2 }, syncing: {} }];
+    const cfg = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
+    cfg.pack_loras = { anima: [{ name: "modal.safetensors" }, { name: "pc.safetensors" }, { name: "gone.safetensors" }] };
+    const resp = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
+    expect(resp.warnings).toEqual(["The LoRA gone.safetensors is not on your PC or your Modal Volume: generations will fail until it is."]);
+  });
+
+  it("the agent's LoRA sync: push what only the PC has, pull what only Modal has", async () => {
+    const { app, net } = world();
+    await app.store.updateSecrets({
+      generator: { kind: "modal", base_url: COMFY, admin_url: ADMIN, upload_url: "https://up.example/", headers: {} },
+    });
+    const { secret } = await pair(app);
+    const sync = (loras: unknown, auth = secret) =>
+      app.handle(request("POST", "/agent/sync", { loras }, { authorization: `Bearer ${auth}` }));
+    expect((await sync({}, "wrong")).status).toBe(401);
+    expect(await body(await sync({}))).toEqual({ push: [], pull: [], errors: [] }); // no LoRAs set up
+
+    net.loras = { "modal.safetensors": 30, "both.safetensors": 1, "unused.safetensors": 9 };
+    await app.store.saveConfig({ pack_loras: { anima: [{ name: "modal.safetensors" }, { name: "pc.safetensors" }, { name: "both.safetensors" }, { name: "nowhere.safetensors" }] } });
+    const plan = await body(await sync({ "pc.safetensors": 40, "both.safetensors": 1, "mine.safetensors": 5 }));
+    expect(plan.push).toEqual([{ name: "pc.safetensors", size: 40, upload_url: `https://up.example/u/${"u".repeat(43)}`, chunk_size: 16, chunks: 3 }]);
+    expect(plan.pull).toEqual([{ name: "modal.safetensors", size: 30, url: `https://up.example/d/${"d".repeat(43)}` }]);
+    expect(plan.errors).toEqual([]);
+    expect(net.adminCalls.find((c) => c[1] === "/loras/uploads")![2].origin).toBe(`https://${HOST}`);
+
+    await withGenerator(app); // no Modal: nothing to copy
+    expect(await body(await sync({ "pc.safetensors": 40 }))).toEqual({ push: [], pull: [], errors: [] });
   });
 
   it("generates on the PC when it is online, on Modal when it is not", async () => {
@@ -585,19 +625,34 @@ describe("the PC path", () => {
     expect(toolText(dl)).toContain("downloading: 12%");
   });
 
-  it("shows the PC's LoRA files and model downloads on the settings page", async () => {
-    const { app, pc } = world();
+  it("shows the PC's LoRA files and model downloads beside Modal's", async () => {
+    const { app, pc, net } = world();
+    await withModal(app);
+    await app.store.updateSetup({ seeded: ["anima_turbo", "z_image_turbo", "flux2klein_edit"] });
     const { cookie } = await pair(app);
-    pc.controls.loras = () => [200, { "mine.safetensors": 123 }];
+    net.loras = { "both.safetensors": 7 };
+    pc.controls.loras = () => [200, { files: { "mine.safetensors": 123, "both.safetensors": 7 }, syncing: { "x.safetensors": { to: "pc", done: 1, total: 2 } } }];
     pc.controls.models = (args) => [200, args.packs.map((p: any) => ({ name: p.name, state: "downloading", done: 1, total: 4 }))];
     pc.controls.download = (args) => [200, { state: "queued", done: 0, total: args.pack.models.length }];
-    expect(await body(await app.handle(request("GET", "/api/pc/loras", undefined, cookie)))).toEqual({ loras: { "mine.safetensors": 123 } });
-    const { packs } = await body(await app.handle(request("GET", "/api/pc/models", undefined, cookie)));
-    expect(packs.length).toBeGreaterThan(0);
-    expect(packs[0]).toMatchObject({ state: "downloading", total: 4, size: expect.any(Number), display_name: expect.any(String) });
-    const seeded = await app.handle(request("POST", "/api/pc/models/seed", { pack: packs[0].name }, cookie));
+    expect(await body(await app.handle(request("GET", "/api/loras", undefined, cookie)))).toEqual({
+      backends: ["pc", "modal"],
+      files: { "mine.safetensors": { pc: 123 }, "both.safetensors": { pc: 7, modal: 7 } },
+      syncing: { "x.safetensors": { to: "pc", done: 1, total: 2 } },
+      errors: {},
+    });
+    const models = await body(await app.handle(request("GET", "/api/models", undefined, cookie)));
+    expect(models.backends).toEqual(["pc", "modal"]);
+    expect(models.packs[0]).toMatchObject({ on: { pc: { state: "downloading", total: 4 }, modal: { state: "done" } }, size: expect.any(Number) });
+    const onlyModal = await body(await app.handle(request("GET", "/api/models?backend=modal", undefined, cookie)));
+    expect([onlyModal.backends, onlyModal.packs[0].on]).toEqual([["modal"], { modal: { state: "done" } }]);
+    const seeded = await app.handle(request("POST", "/api/models/seed", { pack: models.packs[0].name, backend: "pc" }, cookie));
     expect((await body(seeded)).state).toBe("queued");
-    pc.connected = false;
-    expect((await app.handle(request("GET", "/api/pc/loras", undefined, cookie))).status).toBe(503);
+
+    pc.connected = false; // offline: listed as such at once, not waited for
+    pc.controlCalls.length = 0;
+    const loras = await body(await app.handle(request("GET", "/api/loras", undefined, cookie)));
+    expect([loras.errors.pc, loras.files]).toEqual([PC_OFFLINE, { "both.safetensors": { modal: 7 } }]);
+    expect((await body(await app.handle(request("GET", "/api/models", undefined, cookie)))).packs[0].on.pc).toEqual({ state: "offline" });
+    expect(pc.controlCalls).toEqual([]);
   });
 });

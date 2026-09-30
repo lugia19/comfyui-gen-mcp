@@ -48,6 +48,18 @@ def test_template_bindings_match_the_release():
     assert template["name"] not in ("comfy-gen-mcp", "comfy-dxt")  # CLAUDE.md hard rule
 
 
+def test_every_worker_route_runs_the_worker_first():
+    # Other paths are the static settings app: a POST to one answers 405 before the Worker runs.
+    # One path per route in App.handle and index.ts; a new route needs its pattern.
+    patterns = deploy.read_jsonc((WORKER / "wrangler.jsonc").read_text())["assets"]["run_worker_first"]
+
+    def runs(path):
+        return any(path.startswith(p[:-1]) if p.endswith("/*") else path == p for p in patterns)
+
+    for path in ("/mcp/x", "/img/x", "/upload/x", "/build-callback", "/api/state", "/agent", "/agent/sync"):
+        assert runs(path), path
+
+
 def test_merge_takes_identity_from_the_template_and_the_rest_from_the_release():
     release = {
         "$schema": "x", "name": "comfy-gen", "main": "src/index.ts", "compatibility_date": "2027-01-01",

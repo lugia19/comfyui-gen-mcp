@@ -273,8 +273,13 @@ description).
   containers, which see each other's writes only after a commit and a reload. `assemble` (a CPU
   function) reloads once, joins them into `models/loras/`, commits, then marks the session done
   and requests the idle-time reload, so a warm ComfyUI sees the file (§3, S5(d)).
-- Saving settings warns about configured LoRAs that are not on the Volume. LoRAs are listed and
-  deleted through the admin API.
+- Saving settings warns about configured LoRAs that no backend has (the Volume, or the paired PC).
+  LoRAs are listed and deleted through the admin API.
+- **Copies to and from the PC** (§9, "LoRA sync") use the same endpoint: the agent sends chunks to
+  an upload session and finishes it with `POST /u/<id>/finish` (the session id is already the
+  capability to write that file), and downloads from `GET /d/<id>`, a download session the admin
+  API creates (a random id that reads one LoRA for an hour). Downloads answer `Range`, so one cut
+  off at 150 s resumes.
 
 ## 5. Config and settings
 
@@ -283,22 +288,23 @@ description).
   JSON file for the MCPB.
 - One Svelte settings app, rendered from the declarative settings schema, served by the Worker
   (behind a Cloudflare-token login and a cookie session) and by the MCPB's local server.
-- One idle setting, "keep warm for N minutes", applies to Modal's `scaledown_window` (live, through
-  `update_autoscaler`, S5) and to the agent's idle stop.
+- Keep-warm is the one setting per backend: `keep_warm_minutes` applies to Modal's
+  `scaledown_window` (live, through `update_autoscaler`, S5) and to the extension's idle stop;
+  `pc_keep_warm_minutes` to the agent's idle stop (idle time on the PC costs nothing).
 - If both the PC and Modal are configured, the PC is used when online and Modal when it is not.
-- **Each backend has its own settings** (decided after the from-scratch test): packs, styles,
-  LoRAs and keep-warm. The Worker keeps the PC's in `pc_config` beside `config` (Modal's, or a
-  ComfyUI URL's); until first saved, `pc_config` reads as a copy of `config`. The settings app has a
-  tab per backend: **Settings [Local]** (the PC), **Settings [Modal]** (or **[Remote]** for a URL);
-  the extension has one, for its computer. `#settings-<target>` opens a tab directly.
-- **Claude sees one tool list,** and its descriptions (styles, LoRA triggers, packs) cannot change
-  with which backend is online. While a PC is paired they come from the PC's settings; each call
-  then runs with the settings of the backend that answers it. The Modal tab warns that its styles,
-  LoRAs and triggers must be kept in step with the PC's by hand.
-- **One LoRA section per tab,** by file: each LoRA file with its setup beside it (which packs,
-  strength, trigger, hidden), and upload and delete on Modal. Packs sharing a settings key share
-  their LoRAs (Anima and Anima Turbo). A new trigger is the file name, with the `@` that Anima's
-  artist tags use for packs whose styles are @tags.
+- **One config for every backend** (decided 2026-09-30, after trying one per backend): Claude sees
+  one tool list, and its descriptions (styles, LoRA triggers, packs) cannot change with which
+  backend is online, so separate settings needed a "keep these the same by hand" warning. What
+  really differs per backend is its files, so the one Settings page shows those per backend:
+  - **Models:** a row per selected pack, with a mark per backend (PC, Modal: ready, downloading,
+    missing with a Download button). Saving starts the downloads on every backend
+    (`GET /api/models` returns `{backends, packs: [{…, on: {backend: status}}]}`).
+  - **LoRAs:** a row per file, with where it is (PC, Modal, or copying) and its setup beside it
+    (which packs, strength, trigger, hidden); upload and delete on Modal. Packs sharing a settings
+    key share their LoRAs (Anima and Anima Turbo). A new trigger is the file name, with the `@` that
+    Anima's artist tags use for packs whose styles are @tags. A LoRA some pack uses is copied to
+    whichever of the PC and Modal lacks it (§9, "LoRA sync").
+- The extension's page is the same, for its one computer. `#settings` opens the page directly.
 
 ## 6. Setup flows
 
@@ -383,7 +389,8 @@ result, pick the GPU and install ComfyUI (or keep the old extension's). No accou
 | Ref HMAC key | Worker state | Signs image references and upload tokens |
 | Agent pairing secret | Worker state, `agent.json` | Authenticates the relay: the agent's `Authorization: Bearer`, checked before the WebSocket upgrade. It travels in the pairing link's fragment, which browsers do not send |
 | Build nonce | Build secrets, Worker state | One-time callback from the build |
-| LoRA upload session id | Modal Dict, the settings page | Writes one LoRA's chunks to the upload endpoint (24 h) |
+| LoRA upload session id | Modal Dict, the settings page or the agent | Writes one LoRA's chunks to the upload endpoint, and finishes it (24 h) |
+| LoRA download session id | Modal Dict, the agent | Reads one LoRA from the upload endpoint (1 h) |
 
 **Login.** There is no setup password. A fresh install's URL is not secret: the Worker name is the
 template's `comfy-gen` for nearly everyone, and each account's workers.dev subdomain is public in
@@ -451,7 +458,7 @@ a header and its chunks in one synchronous run, so messages never interleave.
 | Message | Direction | Carries |
 |---|---|---|
 | `http` | Worker → agent | One ComfyUI request (method, path, params, headers, body); the agent calls its ComfyUI inside a job, so the idle stop waits |
-| `control` | Worker → agent | An agent operation: `ensure` (start ComfyUI, install the pack's nodes, check or start its model downloads), `loras`, `models`, `download`, `status` |
+| `control` | Worker → agent | An agent operation: `ensure` (start ComfyUI, install the pack's nodes, check or start its model downloads), `loras` (its files and the LoRA copies in progress), `models`, `download`, `sync` (start a LoRA sync), `status` |
 | `reply` | agent → Worker | `{id, status}` and the body |
 | `hello` | agent → Worker | On connecting, and again when paused or resumed: version, platform, GPU, ComfyUI state, `paused`; the latest is kept with the socket for the settings page |
 
@@ -479,8 +486,18 @@ every image to Modal for days.
 The agent (`packages/agent`) reconnects at once after a drop, then backs off (1 s to 60 s),
 resetting after a connection that lasted a minute; it pings every 20 s, answered by the runtime.
 Its settings page (loopback only) is the MCPB's machine setup plus the pairing section; pack
-settings stay on the Worker, whose settings page lists the PC's LoRAs and model status through
-`/api/pc/*`.
+settings stay on the Worker, whose settings page lists the PC's LoRAs and model status beside
+Modal's (`/api/loras`, `/api/models`).
+
+**LoRA sync.** A LoRA some pack uses should be on every backend that may answer. The agent posts
+its LoRA files (`{name: size}`) to `POST /agent/sync` (the pairing secret, as for `/agent`); the
+Worker answers with a plan: files only the PC has are **pushed** (an upload session per file, the
+agent sending the chunks as the settings page would), files only the Volume has are **pulled** (a
+download session per file). The bytes go between the PC and Modal directly, never through the
+Worker, which spends one admin call per file (at most 20 per plan; the agent asks again after a
+round that copied something). The agent syncs on each connection and when the Worker sends
+`sync` after a settings save; copies in progress show on the settings page. Nothing is deleted:
+a file removed from one side is copied back while a pack still uses it.
 
 ## 10. Repository
 

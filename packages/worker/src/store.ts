@@ -1,8 +1,7 @@
 // The Worker's state, in the State Durable Object (index.ts), cached per isolate.
 //
-// Four keys, read on most requests, written rarely:
-//   config     the user config (@comfy-gen/core config shape): Modal's, or a ComfyUI URL's
-//   pc_config  the paired PC's config, the same shape; until first saved, a copy of config
+// Three keys, read on most requests, written rarely:
+//   config   the user config (@comfy-gen/core config shape), for every backend
 //   secrets  generated keys, the Cloudflare token and discovery, the generator's URL and headers
 //   setup    setup progress: the current build and its nonce, packs known to be downloaded
 //
@@ -63,18 +62,6 @@ export class Store {
   async saveConfig(raw: unknown): Promise<Config> {
     const cfg = normalize(raw);
     await this.put("config", cfg);
-    return cfg;
-  }
-
-  /** The PC's settings: its own once saved, before that the Modal settings it started from. */
-  async pcConfig(): Promise<Config> {
-    const own = await this.get<Record<string, any> | null>("pc_config");
-    return own ? normalize(own) : this.config();
-  }
-
-  async savePcConfig(raw: unknown): Promise<Config> {
-    const cfg = normalize(raw);
-    await this.put("pc_config", cfg);
     return cfg;
   }
 

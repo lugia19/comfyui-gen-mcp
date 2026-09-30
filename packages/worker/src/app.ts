@@ -41,6 +41,16 @@ export function selectedPacks(cfg: Config): Pack[] {
   return select(GROUPS, cfg.pack_selections);
 }
 
+// A sync plan creates one Modal session per file: keep it well inside the subrequest limit. The
+// agent asks again once a round is done, for the rest.
+export const SYNC_MAX_FILES = 20;
+
+/** What the agent needs to know about a pack to download or check it. */
+const needs = (p: Pack) => ({ name: p.name, display_name: p.display_name ?? p.name, models: p.models ?? [], required_nodes: p.required_nodes ?? {} });
+
+/** Every LoRA file some pack is set up to use. */
+const wantedLoras = (cfg: Config): string[] => [...new Set(Object.values(cfg.pack_loras).flat().map((l) => l.name as string))];
+
 const hmacKey = (s: Secrets) => fromHex(s.hmac_key);
 
 export class App {
@@ -68,6 +78,7 @@ export class App {
       if (path.startsWith("/img/") && req.method === "GET") return await this.image(path.slice(5));
       if (path.startsWith("/upload/") && req.method === "POST") return await this.upload(req, path.slice(8));
       if (path === "/build-callback" && req.method === "POST") return await this.buildCallback(req);
+      if (path === "/agent/sync" && req.method === "POST") return await this.agentSync(req, url);
       if (path.startsWith("/api/")) return await this.api(req, url, path.slice(4));
     } catch (e) {
       if (e instanceof cloudflare.CloudflareError) return error(502, e.message);
@@ -80,13 +91,62 @@ export class App {
    * secret is checked first, so the agent can tell "not paired" (401) from "paired" (426 to a plain
    * GET) without opening a socket. */
   async agentRefusal(req: Request): Promise<Response | null> {
+    const refused = await this.agentUnauthorized(req);
+    if (refused) return refused;
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return error(426, "expected a WebSocket");
+    return null;
+  }
+
+  private async agentUnauthorized(req: Request): Promise<Response | null> {
     const s = await this.fresh.secrets(); // fresh: a pairing made a moment ago must work at once
     const presented = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
     if (!s.agent_secret || !presented || !safeEqual(presented, s.agent_secret)) {
       return error(401, "This PC is not paired with this Worker. Paste a fresh pairing link from its settings page.");
     }
-    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return error(426, "expected a WebSocket");
     return null;
+  }
+
+  /**
+   * The agent's LoRA sync (design §9): it posts the LoRA files it has, and gets back what to copy.
+   * A LoRA some pack uses that is on the PC but not on the Modal Volume is pushed (an upload session
+   * the agent sends chunks to); one on the Volume but not the PC is pulled (a download session). The
+   * bytes go between the PC and Modal directly. Nothing is deleted.
+   */
+  private async agentSync(req: Request, url: URL): Promise<Response> {
+    const refused = await this.agentUnauthorized(req);
+    if (refused) return refused;
+    const s = await this.fresh.secrets();
+    const body = await bodyJson(req);
+    const pcFiles: Record<string, unknown> = body.loras && typeof body.loras === "object" ? body.loras : {};
+    const plan = { push: [] as any[], pull: [] as any[], errors: [] as string[] };
+    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
+    const wanted = wantedLoras(await this.fresh.config());
+    if (!admin || !wanted.length) return json(plan);
+    if (!s.generator.upload_url) return json({ ...plan, errors: ["Update the Modal app (run setup again) to copy LoRAs to and from it."] });
+    const base = String(s.generator.upload_url).replace(/\/+$/, "");
+    try {
+      const onModal = await admin.loras();
+      for (const name of wanted) {
+        if (plan.push.length + plan.pull.length >= SYNC_MAX_FILES) break;
+        try {
+          if (name in pcFiles && !(name in onModal)) {
+            const size = Number(pcFiles[name]);
+            const session = await admin.createUpload(name, size, url.origin);
+            plan.push.push({ name, size, upload_url: `${base}/u/${session.id}`, chunk_size: session.chunk_size, chunks: session.chunks });
+          } else if (name in onModal && !(name in pcFiles)) {
+            const download = await admin.createDownload(name);
+            plan.pull.push({ name, size: onModal[name], url: `${base}/d/${download.id}` });
+          }
+        } catch (e) {
+          if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+          plan.errors.push(`${name}: ${e.message}`);
+        }
+      }
+    } catch (e) {
+      if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+      plan.errors.push(`Could not list the LoRAs on Modal: ${e.message}`);
+    }
+    return json(plan);
   }
 
   async scheduled(): Promise<string> {
@@ -121,6 +181,22 @@ export class App {
     return Boolean(s.agent_secret && this.p.relay);
   }
 
+  /** Whether the paired PC's agent is connected now. One Durable Object call, no waiting. */
+  private async pcConnected(): Promise<boolean> {
+    try {
+      return (await this.p.relay!.status()).connected;
+    } catch {
+      return false; // the relay object is unreachable: offline
+    }
+  }
+
+  /** A control call to the agent. Check pcConnected first: to an offline PC this waits for it. */
+  private async pcControl(op: string, args?: unknown): Promise<{ ok: true; data: any } | { ok: false; message: string }> {
+    const r = await this.p.relay!.control(op, args);
+    if (r.offline) return { ok: false, message: PC_OFFLINE };
+    return relay.controlResult(r.status, r.body);
+  }
+
   /**
    * The generator for a call: the PC when it is paired and connected (or when it is all there is:
    * its hooks then say it is offline), otherwise the configured one (Modal, or a ComfyUI URL).
@@ -148,11 +224,8 @@ export class App {
     const s = await this.store.secrets();
     if (!safeEqual(secret.replace(/^\/+|\/+$/g, ""), s.mcp_secret)) return error(404, "not found");
     if (req.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
-    // Claude sees one tool list, built from the PC's settings while one is paired; each call then
-    // runs with the settings of the backend that answers it.
-    const modalCfg = await this.store.config();
-    const pcCfg = this.pcPaired(s) ? await this.store.pcConfig() : null;
-    const specs = new Brain(PACKS, pcCfg ?? modalCfg, null as unknown as ComfyUIClient, "refs").specs;
+    const cfg = await this.store.config(); // one config for every backend: Claude sees one tool list
+    const specs = new Brain(PACKS, cfg, null as unknown as ComfyUIClient, "refs").specs;
     const served = new Set(specs.map((spec) => spec.name));
     const key = hmacKey(s);
 
@@ -163,12 +236,11 @@ export class App {
       if (gen.paused) return [[text(`Error: ${PC_PAUSED}`)], true];
       if (name === "request_upload") return uploads.requestUpload(args, url.origin, key, this.p.now());
       const settingsUrl = `${url.origin}/`;
-      const cfg = gen.kind === "pc" ? pcCfg! : modalCfg;
       const backend: refs.Backend = gen.kind === "pc" ? "pc" : "main";
       const source = (b: refs.Backend) => this.clientFor(s, b); // an image id from the other backend
       const hooks =
         gen.kind === "pc"
-          ? new PcHooks(gen.client, key, this.fetch, this.store, settingsUrl, this.p.relay!, cfg.keep_warm_minutes, source)
+          ? new PcHooks(gen.client, key, this.fetch, this.store, settingsUrl, this.p.relay!, cfg.pc_keep_warm_minutes, source)
           : new WorkerHooks(gen.client, key, this.fetch, modalAdmin.forGenerator(this.fetch, s.generator), this.store, settingsUrl, "main", source);
       const brain = new Brain(PACKS, cfg, gen.client, "refs", { hooks });
       return render(await brain.call(name, args), gen.client, url.origin, key, backend);
@@ -263,25 +335,14 @@ export class App {
     }
 
     if (sub === "/state" && req.method === "GET") return json(await this.state(url, s));
-    if (sub === "/config" && req.method === "PUT") {
-      const old = await this.fresh.config();
-      const cfg = await this.fresh.saveConfig((await bodyJson(req)).config);
-      const admin = modalAdmin.forGenerator(this.fetch, s.generator);
-      const warnings = admin ? await this.applyToModal(admin, cfg, old.keep_warm_minutes !== cfg.keep_warm_minutes) : [];
-      if (admin) warnings.push(...(await missingLoras(admin, cfg)));
-      return json({ config: cfg, warnings });
-    }
+    if (sub === "/config" && req.method === "PUT") return this.saveConfig(req, s);
     if (sub === "/loras" || sub.startsWith("/loras/")) return this.loras(req, url, sub, s);
-    if (sub === "/models" && req.method === "GET") return this.models(s);
+    if (sub === "/models" && req.method === "GET") return this.models(url, s);
     if (sub === "/models/seed" && req.method === "POST") return this.seedPack(req, s);
     if (sub === "/setup/generator" && req.method === "POST") return this.setupGenerator(req);
     if (sub === "/setup/build" && req.method === "POST") return this.startBuild(req, url, s);
     if (sub === "/setup/build" && req.method === "GET") return this.buildState(url, s);
     if (sub === "/pc/pair" && req.method === "POST") return this.pair(url);
-    if (sub.startsWith("/pc/") && this.pcPaired(s)) {
-      const r = await this.pcApi(req, sub);
-      if (r) return r;
-    }
     if (sub === "/pc" && req.method === "DELETE") {
       await this.fresh.updateSecrets({ agent_secret: null });
       await this.p.relay?.drop();
@@ -307,7 +368,6 @@ export class App {
       claude_seen: setup.claude_seen ?? null,
       pc: await this.pcState(url, s),
       config: await this.fresh.config(),
-      pc_config: this.pcPaired(s) ? await this.fresh.pcConfig() : null,
       schema: SETTINGS_SCHEMA,
       packs: PACK_METADATA,
     };
@@ -319,46 +379,6 @@ export class App {
     await this.p.relay?.drop();
     const s = await this.fresh.secrets();
     return json({ link: pairingLink(url, s.agent_secret) });
-  }
-
-  /** The settings pages' view of the PC, through the agent: LoRA files, model downloads. */
-  private async pcApi(req: Request, sub: string): Promise<Response | null> {
-    const relayStub = this.p.relay!;
-    const ask = async (op: string, args?: unknown) => {
-      const r = await relayStub.control(op, args);
-      if (r.offline) return error(503, PC_OFFLINE);
-      const result = relay.controlResult(r.status, r.body);
-      return result.ok ? json(result.data) : error(502, result.message);
-    };
-    const needs = (p: Pack) => ({ name: p.name, display_name: p.display_name ?? p.name, models: p.models ?? [], required_nodes: p.required_nodes ?? {} });
-    if (sub === "/pc/loras" && req.method === "GET") {
-      const resp = await ask("loras");
-      return resp.ok ? json({ loras: await resp.json() }) : resp;
-    }
-    if (sub === "/pc/config" && req.method === "PUT") {
-      const cfg = await this.fresh.savePcConfig((await bodyJson(req)).config);
-      // As the extension does: a newly chosen pack starts downloading now, if the PC is online.
-      // (A status check first: a control call to an offline PC waits for it to come back.)
-      if (!(await relayStub.status()).connected) {
-        return json({ config: cfg, warnings: ["Your PC is offline: its models download when it is next asked for an image."] });
-      }
-      for (const pack of selectedPacks(cfg)) await relayStub.control("download", { pack: needs(pack) });
-      return json({ config: cfg, warnings: [] });
-    }
-    if (sub === "/pc/models" && req.method === "GET") {
-      const packs = selectedPacks(await this.fresh.pcConfig());
-      const resp = await ask("models", { packs: packs.map(needs) });
-      if (!resp.ok) return resp;
-      const status = new Map(((await resp.json()) as any[]).map((s) => [s.name, s]));
-      return json({ packs: packs.map((p) => ({ name: p.name, display_name: p.display_name ?? p.name, tool_name: p.tool_name, size: downloadSize(p), ...status.get(p.name) })) });
-    }
-    if (sub === "/pc/models/seed" && req.method === "POST") {
-      const wanted = (await bodyJson(req)).pack;
-      const pack = PACKS.find((p) => p.name === wanted);
-      if (!pack) return error(400, "no such pack");
-      return ask("download", { pack: needs(pack) });
-    }
-    return null;
   }
 
   private async pcState(url: URL, s: Secrets) {
@@ -394,14 +414,75 @@ export class App {
     return json({ ok: true }, 200, { "Set-Cookie": auth.cookieHeader(session) });
   }
 
-  /** LoRA files on the Modal Volume, and upload sessions for the settings page. The browser sends the
+  /**
+   * Saving the settings applies them to every backend: Modal's keep-warm and downloads, the PC's
+   * downloads and a LoRA sync. Warns about LoRAs no backend has.
+   */
+  private async saveConfig(req: Request, s: Secrets): Promise<Response> {
+    const old = await this.fresh.config();
+    const cfg = await this.fresh.saveConfig((await bodyJson(req)).config);
+    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
+    const warnings = admin ? await this.applyToModal(admin, cfg, old.keep_warm_minutes !== cfg.keep_warm_minutes) : [];
+    const pcOnline = this.pcPaired(s) && (await this.pcConnected());
+    if (this.pcPaired(s) && !pcOnline) {
+      warnings.push("Your PC is offline: its models download, and LoRAs are copied, when it is next online.");
+    } else if (pcOnline) {
+      // As the extension does: a newly chosen pack starts downloading now.
+      for (const pack of selectedPacks(cfg)) await this.pcControl("download", { pack: needs(pack) });
+      await this.pcControl("sync");
+    }
+    if (wantedLoras(cfg).length && (admin || pcOnline)) warnings.push(...missingLoras(cfg, await this.loraListing(s)));
+    return json({ config: cfg, warnings });
+  }
+
+  /**
+   * The LoRA files on each backend that has a listing, for the settings page: {backends, files:
+   * {name: {backend: size}}, syncing: the agent's copies in progress, errors: {backend: message}}.
+   * A ComfyUI reached by URL is listed as a backend with no files.
+   */
+  private async loraListing(s: Secrets) {
+    const out = {
+      backends: [] as string[],
+      files: {} as Record<string, Record<string, number>>,
+      syncing: {} as Record<string, unknown>,
+      errors: {} as Record<string, string>,
+    };
+    const add = (backend: string, list: Record<string, number>) => {
+      for (const [name, size] of Object.entries(list ?? {})) (out.files[name] ??= {})[backend] = size;
+    };
+    if (this.pcPaired(s)) {
+      out.backends.push("pc");
+      const r = (await this.pcConnected()) ? await this.pcControl("loras") : { ok: false as const, message: PC_OFFLINE };
+      if (r.ok) {
+        add("pc", r.data?.files ?? {});
+        out.syncing = r.data?.syncing ?? {};
+      } else {
+        out.errors.pc = r.message;
+      }
+    }
+    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
+    if (admin) {
+      out.backends.push("modal");
+      try {
+        add("modal", await admin.loras());
+      } catch (e) {
+        if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+        out.errors.modal = e.message;
+      }
+    } else if (s.generator?.kind === "url") {
+      out.backends.push("url");
+    }
+    return out;
+  }
+
+  /** LoRA files on every backend, and upload sessions for the settings page. The browser sends the
    * bytes to the app's upload endpoint itself; this only creates, finishes and reports sessions. */
   private async loras(req: Request, url: URL, sub: string, s: Secrets): Promise<Response> {
+    if (sub === "/loras" && req.method === "GET") return json(await this.loraListing(s));
     const admin = modalAdmin.forGenerator(this.fetch, s.generator);
     if (!admin) return error(400, "LoRAs can be uploaded only to the Modal GPU");
     const m = /^\/loras\/uploads\/([\w-]+)(\/finish)?$/.exec(sub);
     try {
-      if (sub === "/loras" && req.method === "GET") return json({ loras: await admin.loras() });
       if (sub === "/loras/uploads" && req.method === "POST") {
         if (!s.generator.upload_url) return error(409, "Update the Modal app first (run setup again): it has no upload endpoint yet");
         const body = await bodyJson(req);
@@ -420,29 +501,53 @@ export class App {
     return error(404, "not found");
   }
 
-  /** Download state of the selected packs on Modal, for the pages to poll. */
-  private async models(s: Secrets): Promise<Response> {
-    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
-    if (!admin) return json({ packs: [] });
-    const out = [];
-    for (const pack of selectedPacks(await this.fresh.config())) {
-      let status: Record<string, any>;
-      try {
-        status = await modalAdmin.packStatus(admin, this.fresh, pack);
-      } catch (e) {
-        if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-        status = { state: "unknown", error: e.message };
-      }
-      out.push({ name: pack.name, display_name: pack.display_name ?? pack.name, tool_name: pack.tool_name, size: downloadSize(pack), ...status });
+  /**
+   * Download state of the selected packs on each backend, for the pages to poll: {backends, packs:
+   * [{name, display_name, tool_name, size, on: {backend: status}}]}. ?backend= limits it to one.
+   */
+  private async models(url: URL, s: Secrets): Promise<Response> {
+    const only = url.searchParams.get("backend");
+    const packs = selectedPacks(await this.fresh.config());
+    const on: Record<string, any>[] = packs.map(() => ({}));
+    const backends: string[] = [];
+    if (this.pcPaired(s) && (!only || only === "pc")) {
+      backends.push("pc");
+      const r = (await this.pcConnected()) ? await this.pcControl("models", { packs: packs.map(needs) }) : null;
+      const status = new Map<string, any>(r?.ok ? (r.data as any[]).map((st) => [st.name, st]) : []);
+      packs.forEach((p, i) => {
+        on[i].pc = !r ? { state: "offline" } : r.ok ? status.get(p.name) ?? { state: "unknown" } : { state: "unknown", error: r.message };
+      });
     }
-    return json({ packs: out });
+    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
+    if (admin && (!only || only === "modal")) {
+      backends.push("modal");
+      for (const [i, pack] of packs.entries()) {
+        try {
+          on[i].modal = await modalAdmin.packStatus(admin, this.fresh, pack);
+        } catch (e) {
+          if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+          on[i].modal = { state: "unknown", error: e.message };
+        }
+      }
+    }
+    return json({
+      backends,
+      packs: packs.map((p, i) => ({ name: p.name, display_name: p.display_name ?? p.name, tool_name: p.tool_name, size: downloadSize(p), on: on[i] })),
+    });
   }
 
+  /** Start downloading a pack on one backend: {pack, backend: "modal" | "pc"}. */
   private async seedPack(req: Request, s: Secrets): Promise<Response> {
+    const body = await bodyJson(req);
+    const pack = PACKS.find((p) => p.name === body.pack);
+    if (!pack) return error(400, "no such pack");
+    if (body.backend === "pc") {
+      if (!this.pcPaired(s)) return error(400, "no PC is paired");
+      const r = await this.pcControl("download", { pack: needs(pack) });
+      return r.ok ? json(r.data) : error(r.message === PC_OFFLINE ? 503 : 502, r.message);
+    }
     const admin = modalAdmin.forGenerator(this.fetch, s.generator);
-    const wanted = (await bodyJson(req)).pack;
-    const pack = PACKS.find((p) => p.name === wanted);
-    if (!admin || !pack) return error(400, "no such pack, or the GPU is not on Modal");
+    if (!admin) return error(400, "the GPU is not on Modal");
     try {
       return json(await admin.seed(pack));
     } catch (e) {
@@ -488,18 +593,18 @@ export class App {
   }
 }
 
-/** Warnings for configured LoRAs whose file is not on the Volume. One admin call, only when some are set. */
-async function missingLoras(admin: modalAdmin.ModalAdmin, cfg: Config): Promise<string[]> {
-  const wanted = Object.values(cfg.pack_loras).flat().map((l) => l.name);
-  if (!wanted.length) return [];
-  let have: Record<string, number>;
-  try {
-    have = await admin.loras();
-  } catch (e) {
-    if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-    return [`Could not check the LoRA files: ${e.message}`];
+/** Warnings for configured LoRAs that no listed backend has. One on some backend but not another
+ * gets none: the agent copies it. */
+function missingLoras(cfg: Config, listing: { backends: string[]; files: Record<string, unknown>; errors: Record<string, string> }): string[] {
+  const listed = listing.backends.filter((b) => b !== "url" && !listing.errors[b]);
+  const unchecked = listing.backends.filter((b) => listing.errors[b] && !(b === "pc" && listing.errors[b] === PC_OFFLINE));
+  const where = listed.map((b) => (b === "pc" ? "your PC" : "your Modal Volume")).join(" or ");
+  const out = unchecked.map((b) => `Could not check the LoRA files on ${b === "pc" ? "your PC" : "Modal"}: ${listing.errors[b]}`);
+  if (!listed.length) return out;
+  for (const name of wantedLoras(cfg)) {
+    if (!(name in listing.files)) out.push(`The LoRA ${name} is not on ${where}: generations will fail until it is.`);
   }
-  return [...new Set(wanted)].filter((n) => !(n in have)).map((n) => `The LoRA ${n} is not uploaded: generations will fail until it is.`);
+  return out;
 }
 
 /** What the agent's settings page takes: the Worker's address and the secret, in one paste. The

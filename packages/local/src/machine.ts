@@ -113,14 +113,24 @@ export class Machine {
 
   /** LoRA files ComfyUI can load: {name: size}, ours first, then the shared folders'. */
   loras(): Record<string, number> {
-    const out: Record<string, number> = {};
+    return Object.fromEntries(Object.entries(this.loraPaths()).map(([name, path]) => [name, statSync(path).size]));
+  }
+
+  /** LoRA files ComfyUI can load: {name: path}, ours first, then the shared folders'. */
+  loraPaths(): Record<string, string> {
+    const out: Record<string, string> = {};
     for (const d of this.comfy.models.folders().loras ?? []) {
       if (!existsSync(d)) continue;
       for (const name of readdirSync(d)) {
-        if (name.endsWith(".safetensors") && !(name in out)) out[name] = statSync(join(d, name)).size;
+        if (name.endsWith(".safetensors") && !(name in out)) out[name] = join(d, name);
       }
     }
     return out;
+  }
+
+  /** Our own LoRA folder, where new ones go. */
+  get lorasDir(): string {
+    return join(this.comfy.models.ownModels, "loras");
   }
 
   /** The machine's part of a settings page's state. */
@@ -163,7 +173,7 @@ export class Machine {
     if (sub === "/open" && m === "POST") {
       const which = (await bodyJson(req)).which;
       const dirs: Record<string, string> = { models: this.comfy.models.ownModels, logs: this.p.logs };
-      dirs.loras = join(dirs.models, "loras");
+      dirs.loras = this.lorasDir;
       if (this.comfy.install) dirs.output = join(this.comfy.install.dir, "output");
       if (!(which in dirs)) return error(400, "unknown folder");
       (this.opts.openFolder ?? openExternal)(dirs[which]);

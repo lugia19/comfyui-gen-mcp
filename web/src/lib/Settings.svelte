@@ -4,15 +4,15 @@
   import LoraSection from './LoraSection.svelte'
   import Models from './Models.svelte'
 
-  // The settings of one backend. *target*:
-  //   machine  this computer (the Claude Desktop extension)
-  //   pc       the Worker's paired PC: its own settings, saved on the Worker
-  //   modal    the Worker's Modal generator
-  //   url      the Worker's ComfyUI reached by URL
-  // Each is independent: its packs, styles, LoRAs and keep-warm.
-  let { info, refresh, target } = $props()
-  // Read once: each page is remounted when its tab is opened (App's {#key}).
-  const fixed = untrack(() => ({ target, info }))
+  // The settings: the extension's, for this computer, or the Worker's, for every backend it has
+  // (your PC, Modal or a ComfyUI URL). One config: Claude sees one set of tools. What differs per
+  // backend is only which models and LoRA files it has, shown per backend below, and keep-warm.
+  let { info, refresh } = $props()
+  // Read once: the page is remounted each time its tab is opened.
+  const fixed = untrack(() => ({ info }))
+  const machine = fixed.info.mode === 'local'
+  const pcPaired = !machine && Boolean(fixed.info.pc?.paired)
+  const modal = !machine && fixed.info.generator?.kind === 'modal'
 
   const MP = 1024 * 1024
   const TOOL_TITLES = {
@@ -22,7 +22,7 @@
   }
 
   // A working copy; saved as a whole.
-  let cfg = $state($state.snapshot(fixed.target === 'pc' ? fixed.info.pc_config : fixed.info.config))
+  let cfg = $state($state.snapshot(fixed.info.config))
   let saving = $state(false)
   let message = $state('')
   let error = $state('')
@@ -49,28 +49,26 @@
     packSettings(pack).max_pixels = Math.round(mp * MP)
   }
 
-  const keepWarm = fixed.info.schema.find((f) => f.key === 'keep_warm_minutes')
+  // Keep-warm per backend: the extension's own, Modal's (costs money while idle), the PC's.
+  const keepWarms = fixed.info.schema
+    .filter((f) => (f.key === 'keep_warm_minutes' ? machine || modal : f.pc ? pcPaired : false))
+    .map((f) => (f.key === 'keep_warm_minutes' && pcPaired ? { ...f, title: 'Keep warm on Modal (minutes)' } : f))
   // Packs that take LoRAs, one entry per settings key: packs sharing a key share their LoRAs
   // (Anima and Anima Turbo).
   const loraPacks = Object.values(
     Object.groupBy(fixed.info.packs.flatMap((g) => g.packs).filter((p) => p.supports_loras), (p) => p.config_key),
   ).map((same) => ({ ...same[0], display_name: same.map((p) => p.display_name).join(' / ') }))
-  // With a PC paired, Claude is told the PC's settings; the others only run what they are asked.
-  const syncWarning = fixed.target !== 'pc' && fixed.target !== 'machine' && fixed.info.pc?.paired
-
-  // LoRA files ({name: size}): a ComfyUI reached by URL has no listing.
-  const filesPath = { machine: '/loras', pc: '/pc/loras', modal: '/loras' }[fixed.target]
-  let loraFiles = $state(null)
-  let loraError = $state('')
+  // LoRA files on each backend. This computer's list is mapped to the Worker's shape.
+  let loraListing = $state(null)
 
   async function loadLoras() {
-    if (!filesPath) return
     try {
-      loraFiles = (await api('GET', filesPath)).loras
-      loraError = ''
+      const got = await api('GET', '/loras')
+      loraListing = machine
+        ? { backends: ['machine'], files: Object.fromEntries(Object.entries(got.loras).map(([n, size]) => [n, { machine: size }])), syncing: {}, errors: {} }
+        : got
     } catch (e) {
-      loraFiles = {}
-      loraError = e.message
+      loraListing = { backends: [], files: {}, syncing: {}, errors: { [machine ? 'machine' : 'the Worker']: e.message } }
     }
   }
   onMount(loadLoras)
@@ -80,12 +78,13 @@
     message = ''
     error = ''
     try {
-      const saved = await api('PUT', target === 'pc' ? '/pc/config' : '/config', { config: cfg })
+      const saved = await api('PUT', '/config', { config: cfg })
       cfg = saved.config
       warnings = saved.warnings || []
       saves += 1
       message = 'Saved. New chats pick up tool changes; existing chats keep the tools they started with.'
       await refresh()
+      await loadLoras() // saving starts copies between the PC and Modal
     } catch (e) {
       error = e.message
     } finally {
@@ -93,16 +92,6 @@
     }
   }
 </script>
-
-{#if syncWarning}
-  <section class="warn">
-    <p>
-      <b>Your PC is paired, so Claude's tools are described from Settings [Local]:</b> its styles, LoRA triggers and
-      models. These settings are what Modal uses while the PC is off. Keep the styles, LoRAs and triggers here the same
-      as the PC's by hand, or Modal will do something other than what Claude was told.
-    </p>
-  </section>
-{/if}
 
 {#each info.packs as group (group.tool_name)}
   {@const current = selectedPack(group)}
@@ -163,31 +152,23 @@
 
 {#if loraPacks.length}
   <section>
-    <LoraSection {cfg} packs={loraPacks} where={target} files={loraFiles} reload={loadLoras} error={loraError} />
+    <LoraSection {cfg} packs={loraPacks} listing={loraListing} reload={loadLoras} />
   </section>
 {/if}
 
-{#if keepWarm}
+{#each keepWarms as f (f.key)}
   <section>
-    <h2>{keepWarm.title}</h2>
-    <p class="muted">{keepWarm.description}</p>
-    <input type="number" min={keepWarm.min} max={keepWarm.max} bind:value={cfg.keep_warm_minutes} />
+    <h2>{f.title}</h2>
+    <p class="muted">{f.description}</p>
+    <input type="number" min={f.min} max={f.max} bind:value={cfg[f.key]} />
   </section>
-{/if}
+{/each}
 
 <button onclick={save} disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
 {#if message}<p class="ok">{message}</p>{/if}
 {#each warnings as w}<p class="err">{w}</p>{/each}
 {#if error}<p class="err">{error}</p>{/if}
 
-{#if target === 'machine'}
-  <section>{#key saves}<Models local />{/key}</section>
-{:else if target === 'pc'}
-  <section>{#key saves}<Models local path="/pc/models" title="Models on your PC" />{/key}</section>
-{:else if target === 'modal'}
-  <section>{#key saves}<Models />{/key}</section>
+{#if machine || pcPaired || modal}
+  <section>{#key saves}<Models local={machine} />{/key}</section>
 {/if}
-
-<style>
-  .warn { border-color: var(--err); }
-</style>

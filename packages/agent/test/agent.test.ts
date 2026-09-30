@@ -73,14 +73,17 @@ describe("RelayClient", () => {
       secret: "sec",
       handle: async (m) => [200, `echo ${(m.header as any).path ?? (m.header as any).op}`],
       hello: () => ({ gpu: "nvidia" }),
+      onOpen: () => opened++,
       WebSocketImpl: FakeWS as any,
     });
+    let opened = 0;
     client.start();
     const ws = FakeWS.last;
     expect(ws.url).toBe("wss://w.example/agent");
     expect(ws.opts.headers).toMatchObject({ Authorization: "Bearer sec", "User-Agent": "comfy-gen-agent" });
     ws.open();
     expect(client.state).toBe("connected");
+    expect(opened).toBe(1); // the LoRA sync catches up on each connection
     expect(JSON.parse(ws.sent[0] as string)).toMatchObject({ kind: "hello", info: { gpu: "nvidia" } });
     ws.deliver(relay.encodeMessage({ kind: "http", id: "r1", method: "GET", path: "/history/p1" }));
     await tick();
@@ -167,7 +170,9 @@ describe("agent handlers", () => {
       downloads: { status: () => ({ state: "done", done: 0, total: 0 }) },
     } as unknown as Machine;
     let keepWarm = 0;
-    const handle = agentHandler({ machine, setKeepWarm: (m) => (keepWarm = m), settingsNote: "x" });
+    let syncs = 0;
+    const sync = { sync: async () => void syncs++, jobs: { "b.safetensors": { to: "pc" as const, done: 1, total: 2 } } };
+    const handle = agentHandler({ machine, setKeepWarm: (m) => (keepWarm = m), settingsNote: "x", sync });
     const call = async (header: any, body: Uint8Array = new Uint8Array()) => {
       const [status, out] = await handle({ header, body });
       return [status, typeof out === "string" ? out : fromUtf8(out)];
@@ -177,7 +182,11 @@ describe("agent handlers", () => {
     expect(keepWarm).toBe(12);
     expect(await call({ kind: "control", id: "3", op: "ensure", args: { pack: { name: "big" } } })).toEqual([500, "The Big model is downloading: 5% of 9.0 GB."]);
     expect((await call({ kind: "control", id: "4", op: "inventory" }))[0]).toBe(400); // custom workflows were removed
-    expect(await call({ kind: "control", id: "5", op: "loras" })).toEqual([200, '{"a.safetensors":3}']);
+    expect(JSON.parse((await call({ kind: "control", id: "5", op: "loras" }))[1] as string)).toEqual({
+      files: { "a.safetensors": 3 }, syncing: sync.jobs,
+    });
+    expect(await call({ kind: "control", id: "7", op: "sync" })).toEqual([200, '{"started":true}']);
+    expect(syncs).toBe(1);
     expect((await call({ kind: "control", id: "6", op: "nope" }))[0]).toBe(400);
     srv.close();
   });

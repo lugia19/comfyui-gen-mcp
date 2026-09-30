@@ -56,7 +56,7 @@
   let buildError = $state('')
   let packs = $state(null)
   let deployed = $derived(gen?.kind === 'modal')
-  let modelsReady = $derived(deployed && packs !== null && packs.every((p) => p.state === 'done'))
+  let modelsReady = $derived(deployed && packs !== null && packs.every((p) => p.on.modal?.state === 'done'))
 
   // Modal shows a new token only inside `modal token set --token-id ak-… --token-secret as-…`.
   function splitCommand() {
@@ -250,7 +250,7 @@
     {#if deployed}
       <p>The models download straight into your Modal account (about 20 GB for the default choices, a few minutes).
         You can go on to the next step meanwhile.</p>
-      <Models onchange={(p) => (packs = p)} />
+      <Models backend="modal" onchange={(p) => (packs = p)} />
     {/if}
   </Step>
 {/if}

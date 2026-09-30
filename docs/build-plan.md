@@ -165,23 +165,16 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
 
 ## Next: from the from-scratch test (2026-09-30)
 
-- **Separate settings per backend: Settings [Local] and Settings [Modal].** Done 2026-09-30 (design
-  §5), with the unified LoRA section and the `@` in pre-filled triggers. Decided after the test:
-  entirely independent settings pages, shown by mode. With PC and Modal on one page, the test
-  install had three LoRA places ("LoRAs" under the Anima pack, a PC "LoRA files" and a Modal "LoRA
-  files") and two model lists ("Models on your PC", "Models on your GPU"), and a LoRA uploaded to
-  the Modal Volume was configured for a pack the PC also runs, where the file does not exist. Each
-  page should also have one LoRAs section that uploads (or lists) a file and sets it up in the same
-  place: upload separate from **Add LoRA** (disabled until a file exists) makes no sense to a user.
-  - Decided: claude.ai sees one tool list, and the descriptions are built from settings (LoRA
-    triggers, artist styles, packs); they cannot change with which backend is online. In the
-    PC-with-Modal mode they are built from the PC's settings. Modal runs the same tools and does
-    what it can with its own settings. Settings [Modal] warns that its LoRAs, triggers and styles
-    are not what Claude is told in this mode, so the user must keep them in sync with the PC's.
-  - The trigger pre-filled from a LoRA's filename drops the `@` that Anima's artist tags use
-    (`zzzhodazzz` for a LoRA whose trigger is `@zzzhodazzz`).
-- **Agent page: an "Edit main settings" button.** Done 2026-09-30: it opens the Worker's
-  `#settings-pc`. The agent's page says "Model and style settings
+- **Settings per backend, then back to one.** 2026-09-30: first split into Settings [Local] and
+  Settings [Modal] (the test install had three LoRA places and two model lists on one page, and a
+  LoRA uploaded to Modal configured for a pack the PC runs without it). Reverted the same day
+  (design §5): Claude sees one tool list, so two configs needed a "keep them in sync by hand"
+  warning; only the files differ per backend. Now one Settings page and one config, with a models
+  list and a LoRA list that show each backend's state, `pc_keep_warm_minutes` as the one
+  per-backend setting, and the agent copying LoRAs between the PC and Modal (design §9, "LoRA
+  sync"). Kept from the split: one LoRA section by file, and the `@` in pre-filled triggers.
+- **Agent page: an "Edit settings" button.** Done 2026-09-30: it opens the Worker's
+  `#settings`. The agent's page says "Model and style settings
   are on the Worker's page" in small text with a bare link. Make it a prominent **Edit main
   settings** button that opens the Worker's settings.
 - **Remove custom workflows.** Done 2026-09-30 (design §3, "Custom workflows (removed)"). Decided 2026-09-30: `generate_custom_image` goes. It is barely

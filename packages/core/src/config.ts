@@ -9,6 +9,7 @@
 //   pack_settings     {config_key: {artist_list: string, max_pixels: number}}
 //   pack_loras        {config_key: [{name, strength, trigger, hidden}]}
 //   keep_warm_minutes integer, how long an idle generator stays up
+//   pc_keep_warm_minutes  the same for the Worker's paired PC, where idle time costs nothing
 
 import { isPlainObject } from "./bytes.ts";
 
@@ -23,6 +24,7 @@ export type Config = {
   pack_settings: Record<string, { artist_list?: string; max_pixels?: number }>;
   pack_loras: Record<string, any[]>;
   keep_warm_minutes: number;
+  pc_keep_warm_minutes: number;
   [key: string]: any;
 };
 
@@ -31,10 +33,12 @@ export const DEFAULTS: Config = {
   pack_settings: {},
   pack_loras: {},
   keep_warm_minutes: DEFAULT_KEEP_WARM_MINUTES,
+  pc_keep_warm_minutes: DEFAULT_KEEP_WARM_MINUTES,
 };
 
 // Each field: key, title, description, type ("int" | "bool" | "text"), default,
-// min/max for ints, advanced for grouping. The settings app renders these.
+// min/max for ints, advanced for grouping, pc for the Worker's paired PC only. The settings app
+// renders these.
 export const SETTINGS_SCHEMA = [
   {
     key: "keep_warm_minutes",
@@ -46,6 +50,16 @@ export const SETTINGS_SCHEMA = [
     default: DEFAULT_KEEP_WARM_MINUTES,
     min: 1,
     max: KEEP_WARM_MAX,
+  },
+  {
+    key: "pc_keep_warm_minutes",
+    title: "Keep warm on your PC (minutes)",
+    description: "How long ComfyUI keeps the model loaded on your PC after the last image.",
+    type: "int",
+    default: DEFAULT_KEEP_WARM_MINUTES,
+    min: 1,
+    max: KEEP_WARM_MAX,
+    pc: true,
   },
 ];
 
@@ -61,7 +75,7 @@ export function normalize(raw: unknown): Config {
     if (REMOVED.has(key)) continue;
     if (!(key in DEFAULTS)) {
       cfg[key] = structuredClone(val); // a newer version's or a frontend's key: keep it
-    } else if (key === "keep_warm_minutes") {
+    } else if (key === "keep_warm_minutes" || key === "pc_keep_warm_minutes") {
       if (Number.isInteger(val) && val > 0) cfg[key] = Math.min(val, KEEP_WARM_MAX);
     } else if (key === "pack_loras") {
       if (isPlainObject(val)) cfg[key] = Object.fromEntries(Object.entries(val).map(([k, list]) => [k, loraEntries(list)]));

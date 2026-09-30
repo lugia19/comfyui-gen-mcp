@@ -138,3 +138,54 @@ def test_web_app(tmp_path, small_chunks):
     assert bad.headers["access-control-allow-origin"] == ORIGIN  # the browser can read the error
     assert client.get(url, headers={"Origin": ORIGIN}).json() == {"state": "uploading", "chunks": 2, "received": [0]}
     assert client.put("/u/nope/0", content=b"x").status_code == 404
+
+
+def test_finish_through_the_web_app(tmp_path, small_chunks):
+    store, root, started, reloads = {}, str(tmp_path), [], []
+
+    async def commit():
+        pass
+
+    async def reload():
+        reloads.append(1)
+
+    async def start(upload_id):
+        started.append(upload_id)
+
+    client = TestClient(uploads.web_app(store, commit, root, reload, start))
+    s = uploads.new_session(store, "a.safetensors", 15, ORIGIN, 4_000_000_000)
+    client.put(f"/u/{s['id']}/0", content=b"a" * 10, headers={"X-Chunk-Sha256": sha(b"a" * 10)})
+    early = client.post(f"/u/{s['id']}/finish")
+    assert early.status_code == 409 and "missing" in early.json()["error"] and started == []
+    client.put(f"/u/{s['id']}/1", content=b"b" * 5, headers={"X-Chunk-Sha256": sha(b"b" * 5)})
+    assert client.post(f"/u/{s['id']}/finish").json() == {"state": "assembling"}
+    assert client.post(f"/u/{s['id']}/finish").json() == {"state": "assembling"}  # a retry starts nothing
+    assert started == [s["id"]] and len(reloads) == 3
+    assert client.post("/u/nope/finish").status_code == 404
+
+
+def test_downloads(tmp_path):
+    store, root = {}, str(tmp_path)
+    (tmp_path / "models/loras").mkdir(parents=True)
+    data = os.urandom(100)
+    (tmp_path / "models/loras/a.safetensors").write_bytes(data)
+    with pytest.raises(UploadError) as e:
+        uploads.new_download(store, root, "b.safetensors", NOW)
+    assert e.value.status == 404
+    with pytest.raises(UploadError):
+        uploads.new_download(store, root, "../x.safetensors", NOW)
+
+    async def noop():
+        pass
+
+    client = TestClient(uploads.web_app(store, noop, root, noop))
+    d = uploads.new_download(store, root, "a.safetensors", 4_000_000_000)
+    whole = client.get(f"/d/{d['id']}")
+    assert whole.status_code == 200 and whole.content == data
+    rest = client.get(f"/d/{d['id']}", headers={"Range": "bytes=60-"})  # resuming a cut download
+    assert rest.status_code == 206 and rest.content == data[60:]
+    assert client.get("/d/nope").status_code == 404
+    old = uploads.new_download(store, root, "a.safetensors", 1_000_000_000)  # long expired
+    assert client.get(f"/d/{old['id']}").status_code == 404
+    os.remove(tmp_path / "models/loras/a.safetensors")
+    assert "no longer" in client.get(f"/d/{d['id']}").json()["error"]
