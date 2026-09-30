@@ -193,7 +193,10 @@ func supervise(node, shimPath string, out io.Writer, open bool) {
 	crashes := 0
 	for {
 		cmd := exec.Command(node, shimPath, "--app", "agent")
-		cmd.Env = append(os.Environ(), "COMFY_GEN_OPEN_SETTINGS="+map[bool]string{true: "1", false: "0"}[open])
+		// The agent watches this pid and ends with the launcher (on Windows, ending a process leaves
+		// its children running).
+		cmd.Env = append(os.Environ(), "COMFY_GEN_OPEN_SETTINGS="+map[bool]string{true: "1", false: "0"}[open],
+			fmt.Sprintf("COMFY_GEN_LAUNCHER_PID=%d", os.Getpid()))
 		cmd.Stdout, cmd.Stderr = out, out
 		hideWindow(cmd)
 		open = false

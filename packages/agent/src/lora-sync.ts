@@ -84,14 +84,18 @@ export class LoraSync {
     for (const p of pull) this.jobs[p.name] = { to: "pc", done: 0, total: p.size };
     let copied = 0;
     const run = async (name: string, copy: () => Promise<void>) => {
+      const where = this.jobs[name].to === "pc" ? "this PC" : "Modal";
+      const started = Date.now();
       try {
-        log.info(`LoRA sync: copying ${name} to ${this.jobs[name].to === "pc" ? "this PC" : "Modal"}`);
+        log.info(`LoRA sync: copying ${name} to ${where}`);
         await copy();
+        const mb = (this.jobs[name].total / 1e6).toFixed(1);
+        log.info(`LoRA sync: ${name} copied to ${where} (${mb} MB in ${((Date.now() - started) / 1000).toFixed(1)} s)`);
         delete this.jobs[name];
         copied++;
       } catch (e) {
         this.jobs[name].error = (e as Error).message;
-        log.warn(`LoRA sync: ${name}:`, (e as Error).message);
+        log.warn(`LoRA sync: copying ${name} to ${where} failed:`, (e as Error).message);
       }
     };
     for (const p of push) await run(p.name, () => this.push(p));

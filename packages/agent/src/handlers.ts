@@ -1,6 +1,8 @@
 // What the agent does for the Worker: ComfyUI requests, relayed to the local ComfyUI as they are,
 // and operations on the machine (the same Machine the MCPB runs).
 
+import { readFile } from "node:fs/promises";
+import { resolve, sep } from "node:path";
 import { ComfyUIError, type relay } from "@comfy-gen/core";
 import { UploadError, type Machine, type PackNeeds } from "@comfy-gen/local";
 import type { SyncJob } from "./lora-sync.ts";
@@ -18,12 +20,44 @@ export type HandlerOptions = {
   sync?: { sync(): Promise<void>; jobs: Record<string, SyncJob> };
 };
 
+const VIEW_TYPES = new Set(["output", "input", "temp"]);
+
+/**
+ * An image ComfyUI would serve at /view, read from its folders: for when ComfyUI is stopped (the
+ * idle stop), so a PC image's link and edits by image_id keep working without starting it. Null if
+ * there is no such file. `preview` is ignored: the original is sent (its size is what callers read).
+ */
+export async function viewFromDisk(dir: string | undefined, params: Record<string, string> | undefined): Promise<Uint8Array | null> {
+  const p = params ?? {};
+  const type = p.type || "output";
+  if (!dir || !VIEW_TYPES.has(type) || !p.filename) return null;
+  const root = resolve(dir, type);
+  const path = resolve(root, p.subfolder ?? "", p.filename);
+  if (!path.startsWith(root + sep)) return null; // no way out of the folder
+  try {
+    return new Uint8Array(await readFile(path));
+  } catch {
+    return null;
+  }
+}
+
 export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Promise<Reply> {
   const { machine } = o;
   const comfy = machine.comfy;
 
-  const http = (h: relay.HttpMessage, body: Uint8Array): Promise<Reply> =>
-    comfy.job(async () => {
+  const fromDisk = async (h: relay.HttpMessage): Promise<Reply | null> => {
+    if (h.method !== "GET" || h.path !== "/view") return null;
+    const data = await viewFromDisk(comfy.install?.dir, h.params);
+    return data ? [200, data] : null;
+  };
+
+  const http = async (h: relay.HttpMessage, body: Uint8Array): Promise<Reply> => {
+    // Reading an image back does not start a stopped ComfyUI.
+    if (comfy.state !== "running" && comfy.state !== "starting") {
+      const served = await fromDisk(h);
+      if (served) return served;
+    }
+    return comfy.job(async () => {
       const base = comfy.url;
       if (!base || comfy.state === "not_installed") return [503, "ComfyUI is not running on your PC."];
       const query = h.params ? "?" + new URLSearchParams(h.params).toString() : "";
@@ -35,9 +69,10 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
         });
         return [resp.status, new Uint8Array(await resp.arrayBuffer())];
       } catch (e) {
-        return [503, `ComfyUI on your PC did not answer: ${(e as Error).message}`];
+        return (await fromDisk(h)) ?? [503, `ComfyUI on your PC did not answer: ${(e as Error).message}`];
       }
     });
+  };
 
   const control = async (h: relay.ControlMessage, body: Uint8Array): Promise<Reply> => {
     const args = (h.args ?? {}) as Record<string, any>;

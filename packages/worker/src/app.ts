@@ -474,14 +474,17 @@ export class App {
       files: {} as Record<string, Record<string, number>>,
       syncing: {} as Record<string, unknown>,
       errors: {} as Record<string, string>,
+      offline: [] as string[], // backends not reachable now (the PC off): not an error, nothing listed
     };
     const add = (backend: string, list: Record<string, number>) => {
       for (const [name, size] of Object.entries(list ?? {})) (out.files[name] ??= {})[backend] = size;
     };
     if (this.pcPaired(s)) {
       out.backends.push("pc");
-      const r = (await this.pcConnected()) ? await this.pcControl("loras") : { ok: false as const, message: PC_OFFLINE };
-      if (r.ok) {
+      const r = (await this.pcConnected()) ? await this.pcControl("loras") : null;
+      if (!r || (!r.ok && r.message === PC_OFFLINE)) {
+        out.offline.push("pc");
+      } else if (r.ok) {
         add("pc", r.data?.files ?? {});
         out.syncing = r.data?.syncing ?? {};
       } else {
@@ -680,9 +683,12 @@ export class App {
 
 /** Warnings for configured LoRAs that no listed backend has. One on some backend but not another
  * gets none: the agent copies it. */
-function missingLoras(cfg: Config, listing: { backends: string[]; files: Record<string, unknown>; errors: Record<string, string> }): string[] {
-  const listed = listing.backends.filter((b) => b !== "url" && !listing.errors[b]);
-  const unchecked = listing.backends.filter((b) => listing.errors[b] && !(b === "pc" && listing.errors[b] === PC_OFFLINE));
+function missingLoras(
+  cfg: Config,
+  listing: { backends: string[]; files: Record<string, unknown>; errors: Record<string, string>; offline: string[] },
+): string[] {
+  const listed = listing.backends.filter((b) => b !== "url" && !listing.errors[b] && !listing.offline.includes(b));
+  const unchecked = listing.backends.filter((b) => listing.errors[b]);
   const where = listed.map((b) => (b === "pc" ? "your PC" : "your Modal Volume")).join(" or ");
   const out = unchecked.map((b) => `Could not check the LoRA files on ${b === "pc" ? "your PC" : "Modal"}: ${listing.errors[b]}`);
   if (!listed.length) return out;

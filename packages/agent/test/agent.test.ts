@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +7,7 @@ import { ComfyUIError, fromUtf8, relay, utf8 } from "@comfy-gen/core";
 import { createHash } from "node:crypto";
 import { LoraRegistry, LoraUploads, paths, type Machine } from "@comfy-gen/local";
 import { loadAgentConfig, parsePairingLink, saveAgentConfig } from "../src/config.ts";
-import { agentHandler } from "../src/handlers.ts";
+import { agentHandler, viewFromDisk } from "../src/handlers.ts";
 import { RelayClient } from "../src/relay-client.ts";
 
 describe("pairing link", () => {
@@ -205,5 +205,37 @@ describe("agent handlers", () => {
     expect((await call({ kind: "control", id: "13", op: "lora_delete", args: { name: "u.safetensors" } }))[0]).toBe(404);
     expect((await call({ kind: "control", id: "6", op: "nope" }))[0]).toBe(400);
     srv.close();
+  });
+});
+
+describe("images while ComfyUI is stopped", () => {
+  it("serves /view from ComfyUI's folders, and nothing outside them", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "comfy-"));
+    mkdirSync(join(dir, "output", "sub"), { recursive: true });
+    writeFileSync(join(dir, "output", "comfy-gen_00007_.png"), "png!");
+    writeFileSync(join(dir, "output", "sub", "b.png"), "sub!");
+    writeFileSync(join(dir, "secret.txt"), "no");
+    const get = async (params: Record<string, string>) => {
+      const data = await viewFromDisk(dir, params);
+      return data && fromUtf8(data);
+    };
+    expect(await get({ filename: "comfy-gen_00007_.png", type: "output", subfolder: "" })).toBe("png!");
+    expect(await get({ filename: "comfy-gen_00007_.png", preview: "webp;1" })).toBe("png!"); // the original
+    expect(await get({ filename: "b.png", subfolder: "sub" })).toBe("sub!");
+    expect(await get({ filename: "../secret.txt" })).toBeNull();
+    expect(await get({ filename: "secret.txt", subfolder: ".." })).toBeNull();
+    expect(await get({ filename: "x.png", type: "models" })).toBeNull();
+    expect(await viewFromDisk(undefined, { filename: "comfy-gen_00007_.png" })).toBeNull();
+
+    // Through the handler: ComfyUI stopped, the image still comes back, and nothing starts it.
+    let jobs = 0;
+    const machine = {
+      comfy: { url: null, state: "stopped", install: { dir }, job: (fn: () => Promise<unknown>) => (jobs++, fn()) },
+    } as unknown as Machine;
+    const handle = agentHandler({ machine, setKeepWarm: () => {}, settingsNote: "x" });
+    const [status, body] = await handle({ header: { kind: "http", id: "1", method: "GET", path: "/view", params: { filename: "comfy-gen_00007_.png", type: "output" } }, body: new Uint8Array() });
+    expect([status, fromUtf8(body as Uint8Array), jobs]).toEqual([200, "png!", 0]);
+    const [missing] = await handle({ header: { kind: "http", id: "2", method: "GET", path: "/view", params: { filename: "nope.png" } }, body: new Uint8Array() });
+    expect(missing).toBe(503);
   });
 });

@@ -173,6 +173,15 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   list and a LoRA list that show each backend's state, `pc_keep_warm_minutes` as the one
   per-backend setting, and the agent copying LoRAs between the PC and Modal (design §9, "LoRA
   sync"). Kept from the split: one LoRA section by file, and the `@` in pre-filled triggers.
+- **v1.3.5 test report fixes.** Done 2026-09-30:
+  - A PC image's link and edits failed once keep-warm had stopped ComfyUI: `/view` is served from
+    disk (design §9).
+  - Ending the launcher left the agent running: the agent ends with it (design §9).
+  - With the PC offline, the LoRA list showed "PC ?" on every row and a red error contradicting
+    the save's note: it shows "offline", with one note.
+  - Suggested triggers drop training suffixes (`huke-step00000900` → `@huke`).
+  - Delete says "Deleting…"; the Setup page names the GPU and OS (not `nvidia`, `win32`).
+  - The agent logs why it stops, uncaught errors, its exit code, and each LoRA copy's end.
 - **A failed Modal deploy says why.** Done 2026-09-30: an account with no card made `modal deploy`
   fail ("Please add a payment method to use L4 GPU functions."), while the build carried on and the
   page showed nothing. Now the reason reaches the Modal step, a card is the first instruction, and

@@ -49,3 +49,8 @@ export const TOKEN_TEMPLATE_URL =
 // Guide screenshots live on the project site, not in this app (which the local bundle also embeds).
 export const GUIDE = 'https://lugia19.github.io/comfyui-gen-mcp/guide/'
 export const hideFigure = (e) => (e.currentTarget.parentElement.hidden = true)
+
+/** Short names for the agent's GPU kinds (its hello's `gpu`). */
+export const GPU_NAMES = { nvidia: 'NVIDIA', amd: 'AMD', intel: 'Intel Arc', mac: 'Apple silicon', cpu: 'CPU only' }
+export const gpuName = (id) => GPU_NAMES[id] ?? id
+export const platformName = (p) => ({ win32: 'Windows', darwin: 'macOS', linux: 'Linux' })[p] ?? p

@@ -12,6 +12,7 @@ import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts"
 import { agentHandler } from "./handlers.ts";
 import { LoraSync } from "./lora-sync.ts";
 import { RelayClient } from "./relay-client.ts";
+import { launcherPid, watchParent } from "./watchdog.ts";
 
 export const RESTART_EXIT_CODE = 75;
 const RESTART_WHEN_QUIET_MS = 10 * 60_000; // an update waits for this long without generations
@@ -31,6 +32,13 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
   const p = opts.paths ?? paths();
   const openSettings = process.env.COMFY_GEN_OPEN_SETTINGS;
   logTo(p.logs);
+  // So an ending always leaves a line in the log (one once ended with none).
+  process.on("uncaughtException", (e) => {
+    log.error("Uncaught:", e);
+    exit(1);
+  });
+  process.on("unhandledRejection", (e) => log.error("Unhandled rejection:", e));
+  process.on("exit", (code) => log.info(`Exiting (code ${code})`));
   let cfg: AgentConfig = loadAgentConfig(p);
   const exit = opts.exit ?? ((code: number) => process.exit(code));
 
@@ -123,9 +131,10 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     : null;
 
   let closing = false;
-  const close = async () => {
+  const close = async (reason = "asked to") => {
     if (closing) return;
     closing = true;
+    log.info(`Stopping (${reason})`);
     client?.stop();
     tray?.stop();
     await new Promise<void>((r) => server.close(() => r()));
@@ -133,8 +142,10 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     await machine.comfy.stop();
   };
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    process.once(signal, () => void close().then(() => exit(0)));
+    process.once(signal, () => void close(signal).then(() => exit(0)));
   }
+  const launcher = launcherPid();
+  if (launcher) watchParent(launcher, () => void close("the launcher ended").then(() => exit(0)));
 
   let restart: NodeJS.Timeout | null = null;
   const restartWhenIdle = (tag: string) => {
@@ -143,7 +154,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     restart = setInterval(() => {
       if (!machine.idleFor(RESTART_WHEN_QUIET_MS)) return;
       clearInterval(restart!);
-      void close().then(() => exit(RESTART_EXIT_CODE));
+      void close(`restarting into ${tag}`).then(() => exit(RESTART_EXIT_CODE));
     }, 60_000);
   };
   return { app, close, restartWhenIdle };

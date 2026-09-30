@@ -5,7 +5,8 @@
   // One place for LoRAs: each file, where it is, and its setup per pack beside it. *cfg* is the
   // page's working config (its pack_loras is edited in place and saved with the page). *packs* are
   // the packs that take LoRAs. *listing* is null while loading, then
-  //   {backends, files: {name: {backend: size}}, syncing: {name: {to, done, total, error}}, errors}
+  //   {backends, files: {name: {backend: size}}, syncing: {name: {to, done, total, error}}, errors,
+  //    offline: backends not reachable now (the PC off), nothing listed for them}
   // with backends among:
   //   machine  this computer (the Claude Desktop extension)
   //   pc       the Worker's paired PC, listed through the agent
@@ -32,9 +33,18 @@
 
   const stem = (name) => (name || '').replace(/\.safetensors$/i, '')
 
+  // A training run's suffixes are no part of a trigger: huke-step00000900 is @huke, and
+  // ashraely_v6-step00001200 is @ashraely. Only after a separator, so style2 stays style2.
+  const SUFFIX = /[-_. ](?:(?:step|epoch|ep|e|s)?\d+|v\d+(?:\.\d+)*)$/i
+  const bare = (s) => {
+    let out = s
+    while (SUFFIX.test(out)) out = out.replace(SUFFIX, '')
+    return out || s
+  }
+
   // Anima's artist styles are @tags, and so are the triggers of style LoRAs made for it.
   const triggerFor = (pack, name) => {
-    const s = stem(name)
+    const s = bare(stem(name))
     return pack.default_artist_list?.trim().startsWith('@') && !s.startsWith('@') ? `@${s}` : s
   }
 
@@ -83,10 +93,13 @@
     }
   }
 
+  let deleting = $state(null) // the file being deleted, until the list shows it gone
+
   async function remove(name) {
     const where = listed.length > 1 ? ' from your PC and your Modal Volume' : ''
     if (!confirm(`Delete ${name}${where}? It is turned off in every model.`)) return
     error = ''
+    deleting = name
     try {
       const r = await api('DELETE', `/loras/${encodeURIComponent(name)}`)
       if (r.errors?.length) error = r.errors.join(' ')
@@ -94,6 +107,8 @@
       await reload()
     } catch (err) {
       error = err.message
+    } finally {
+      deleting = null
     }
   }
 
@@ -106,6 +121,7 @@
       if (job.error) return { err: true, text: `copy failed: ${job.error}` }
       return { text: `copying${job.total ? ` ${Math.floor((100 * job.done) / job.total)}%` : '…'}` }
     }
+    if (listing?.offline?.includes(where)) return { text: 'offline' }
     if (listing?.errors?.[where]) return { text: '?' }
     // Missing matters only for a LoRA some model uses (it is then copied over on save).
     return { err: packs.some((pack) => entryOf(pack, name)), text: '—' }
@@ -132,6 +148,11 @@
 {#if has('modal')}
   <p class="muted">A GPU that is already running picks up a new LoRA once it is idle.</p>
 {/if}
+{#if listing?.offline?.includes('pc')}
+  <p class="muted">
+    Your PC is offline: {has('modal') ? 'it gets new LoRAs when it is next online' : 'uploads need it online'}.
+  </p>
+{/if}
 
 {#if !listing}
   <p class="muted">Loading…</p>
@@ -148,7 +169,9 @@
         <span class="place" class:ok={m.ok} class:err={m.err} class:muted={!m.ok && !m.err}>{#if PLACE[where]}<b>{PLACE[where]}</b>&nbsp;{/if}{m.text}</span>
       {/each}
       {#if files[name] && listed.length}
-        <button class="secondary" onclick={() => remove(name)} disabled={!!progress}>Delete</button>
+        <button class="secondary" onclick={() => remove(name)} disabled={!!progress || deleting !== null}>
+          {deleting === name ? 'Deleting…' : 'Delete'}
+        </button>
       {/if}
     </div>
     {#each packs as pack (pack.config_key)}

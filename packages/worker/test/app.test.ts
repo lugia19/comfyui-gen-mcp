@@ -361,7 +361,7 @@ describe("LoRAs", () => {
     const cookie = await login(app);
     net.loras = { "old.safetensors": 5 };
     expect(await body(await app.handle(request("GET", "/api/loras", undefined, cookie)))).toEqual({
-      backends: ["modal"], files: { "old.safetensors": { modal: 5 } }, syncing: {}, errors: {},
+      backends: ["modal"], files: { "old.safetensors": { modal: 5 } }, syncing: {}, errors: {}, offline: [],
     });
 
     const created = await body(await app.handle(request("POST", "/api/loras/uploads", { filename: "style.safetensors", size: 40 }, cookie)));
@@ -722,6 +722,7 @@ describe("the PC path", () => {
       files: { "mine.safetensors": { pc: 123 }, "both.safetensors": { pc: 7, modal: 7 } },
       syncing: { "x.safetensors": { to: "pc", done: 1, total: 2 } },
       errors: {},
+      offline: [],
     });
     const models = await body(await app.handle(request("GET", "/api/models", undefined, cookie)));
     expect(models.backends).toEqual(["pc", "modal"]);
@@ -734,7 +735,7 @@ describe("the PC path", () => {
     pc.connected = false; // offline: listed as such at once, not waited for
     pc.controlCalls.length = 0;
     const loras = await body(await app.handle(request("GET", "/api/loras", undefined, cookie)));
-    expect([loras.errors.pc, loras.files]).toEqual([PC_OFFLINE, { "both.safetensors": { modal: 7 } }]);
+    expect([loras.offline, loras.errors, loras.files]).toEqual([["pc"], {}, { "both.safetensors": { modal: 7 } }]);
     expect((await body(await app.handle(request("GET", "/api/models", undefined, cookie)))).packs[0].on.pc).toEqual({ state: "offline" });
     expect(pc.controlCalls).toEqual([]);
   });

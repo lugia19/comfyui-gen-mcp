@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { api, GUIDE, hideFigure } from './api.js'
+  import { api, GUIDE, gpuName, hideFigure, platformName } from './api.js'
   import BuildLog from './BuildLog.svelte'
   import Models from './Models.svelte'
   import Step from './Step.svelte'
@@ -308,7 +308,7 @@
     n={num('pc')}
     title="Run the agent on your PC"
     status={status(pc?.connected)}
-    summary={pc?.connected ? `${pc.info?.paused ? 'Paused' : 'Connected'}${pc.info?.gpu ? `, GPU: ${pc.info.gpu}` : ''}` : ''}
+    summary={pc?.connected ? `${pc.info?.paused ? 'Paused' : 'Connected'}${pc.info?.gpu ? `, GPU: ${gpuName(pc.info.gpu)}` : ''}` : ''}
   >
     {#if !pc?.paired}
       <p>First, make the link that lets your PC connect to this Worker.</p>
@@ -342,7 +342,7 @@
           {:else}
             <b class="ok">Connected</b> <span class="muted">since {since(pc.since)}</span>
           {/if}
-          {#if pc.info}<span class="muted">· agent {pc.info.version} on {pc.info.platform}{#if pc.info.gpu}, GPU: {pc.info.gpu}{/if}</span>{/if}
+          {#if pc.info}<span class="muted">· agent {pc.info.version} on {platformName(pc.info.platform)}{#if pc.info.gpu}, GPU: {gpuName(pc.info.gpu)}{/if}</span>{/if}
         </p>
         <p class="muted">The agent starts with your PC from now on. {choice === 'both' ? 'While the PC is off, Modal answers.' : ''}</p>
       {:else}
