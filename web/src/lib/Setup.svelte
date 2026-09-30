@@ -355,7 +355,7 @@
     <p><i>"Draw a lighthouse on a cliff at dusk, in watercolor."</i></p>
     <p class="muted">
       Then ask for a change ("make it stormy"), or attach an image to edit. Styles, models and LoRAs are
-      under <b>Settings</b>.
+      in the <b>Settings</b> tabs.
     </p>
   </section>
 {/if}

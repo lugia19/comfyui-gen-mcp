@@ -137,8 +137,11 @@ export class App {
     const s = await this.store.secrets();
     if (!safeEqual(secret.replace(/^\/+|\/+$/g, ""), s.mcp_secret)) return error(404, "not found");
     if (req.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
-    const cfg = await this.store.config();
-    const specs = new Brain(PACKS, cfg, null as unknown as ComfyUIClient, "refs").specs;
+    // Claude sees one tool list, built from the PC's settings while one is paired; each call then
+    // runs with the settings of the backend that answers it.
+    const modalCfg = await this.store.config();
+    const pcCfg = this.pcPaired(s) ? await this.store.pcConfig() : null;
+    const specs = new Brain(PACKS, pcCfg ?? modalCfg, null as unknown as ComfyUIClient, "refs").specs;
     const served = new Set(specs.map((spec) => spec.name));
     const key = hmacKey(s);
 
@@ -148,6 +151,7 @@ export class App {
       if (!gen) return [[text(`Error: the image generator is not set up yet. Finish setup at ${url.origin}/`)], true];
       if (name === "request_upload") return uploads.requestUpload(args, url.origin, key, this.p.now());
       const settingsUrl = `${url.origin}/`;
+      const cfg = gen.kind === "pc" ? pcCfg! : modalCfg;
       const hooks =
         gen.kind === "pc"
           ? new PcHooks(gen.client, key, this.fetch, this.store, settingsUrl, this.p.relay!, cfg.keep_warm_minutes)
@@ -288,6 +292,7 @@ export class App {
       claude_seen: setup.claude_seen ?? null,
       pc: await this.pcState(url, s),
       config: await this.fresh.config(),
+      pc_config: this.pcPaired(s) ? await this.fresh.pcConfig() : null,
       schema: SETTINGS_SCHEMA,
       packs: PACK_METADATA,
     };
@@ -315,8 +320,18 @@ export class App {
       const resp = await ask("loras");
       return resp.ok ? json({ loras: await resp.json() }) : resp;
     }
+    if (sub === "/pc/config" && req.method === "PUT") {
+      const cfg = await this.fresh.savePcConfig((await bodyJson(req)).config);
+      // As the extension does: a newly chosen pack starts downloading now, if the PC is online.
+      // (A status check first: a control call to an offline PC waits for it to come back.)
+      if (!(await relayStub.status()).connected) {
+        return json({ config: cfg, warnings: ["Your PC is offline: its models download when it is next asked for an image."] });
+      }
+      for (const pack of selectedPacks(cfg)) await relayStub.control("download", { pack: needs(pack) });
+      return json({ config: cfg, warnings: [] });
+    }
     if (sub === "/pc/models" && req.method === "GET") {
-      const packs = selectedPacks(await this.fresh.config());
+      const packs = selectedPacks(await this.fresh.pcConfig());
       const resp = await ask("models", { packs: packs.map(needs) });
       if (!resp.ok) return resp;
       const status = new Map(((await resp.json()) as any[]).map((s) => [s.name, s]));

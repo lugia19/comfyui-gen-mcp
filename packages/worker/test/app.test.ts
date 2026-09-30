@@ -455,6 +455,37 @@ describe("the PC path", () => {
     expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).pc).toEqual({ paired: false });
   });
 
+  it("each backend has its own settings; Claude's tool descriptions come from the PC's while one is paired", async () => {
+    const { app, pc } = world();
+    await withModal(app);
+    await app.store.saveConfig({ pack_settings: { anima: { artist_list: "@modal_artist" } }, keep_warm_minutes: 7 });
+    const { cookie } = await pair(app);
+    const state = async () => body(await app.handle(request("GET", "/api/state", undefined, cookie)));
+    // Until the PC's settings are first saved, they are a copy of the Modal ones.
+    expect((await state()).pc_config).toEqual((await state()).config);
+
+    const put = await body(await app.handle(request("PUT", "/api/pc/config", { config: { pack_settings: { anima: { artist_list: "@pc_artist" } }, keep_warm_minutes: 12 } }, cookie)));
+    expect(put.warnings).toEqual([]);
+    expect(pc.controlCalls.some(([op]) => op === "download")).toBe(true); // newly chosen packs start downloading
+    const after = await state();
+    expect(after.pc_config.keep_warm_minutes).toBe(12);
+    expect(after.config.keep_warm_minutes).toBe(7); // Modal's untouched
+
+    const illustrated = async () => (await mcp(app, "tools/list"))[1].result.tools.find((t: any) => t.name === "generate_illustrated_image").description;
+    expect(await illustrated()).toContain("@pc_artist");
+    expect(await illustrated()).not.toContain("@modal_artist");
+
+    pc.controlCalls.length = 0;
+    await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } });
+    expect(pc.controlCalls.find(([op]) => op === "ensure")![1].keep_warm_minutes).toBe(12); // the PC's settings
+
+    pc.connected = false; // saving while the PC is off: a warning, and no wait for it
+    const off = await body(await app.handle(request("PUT", "/api/pc/config", { config: after.pc_config }, cookie)));
+    expect(off.warnings.join()).toContain("offline");
+    await app.handle(request("DELETE", "/api/pc", undefined, cookie)); // unpaired: back to Modal's
+    expect(await illustrated()).toContain("@modal_artist");
+  });
+
   it("generates on the PC when it is online, on Modal when it is not", async () => {
     const { app, pc, comfy, net } = world();
     await withModal(app);

@@ -165,7 +165,8 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
 
 ## Next: from the from-scratch test (2026-09-30)
 
-- **Separate settings per backend: Settings [Local] and Settings [Modal].** Decided after the test:
+- **Separate settings per backend: Settings [Local] and Settings [Modal].** Done 2026-09-30 (design
+  §5), with the unified LoRA section and the `@` in pre-filled triggers. Decided after the test:
   entirely independent settings pages, shown by mode. With PC and Modal on one page, the test
   install had three LoRA places ("LoRAs" under the Anima pack, a PC "LoRA files" and a Modal "LoRA
   files") and two model lists ("Models on your PC", "Models on your GPU"), and a LoRA uploaded to

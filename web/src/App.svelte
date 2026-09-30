@@ -12,6 +12,18 @@
   let checking = $state(true)
   let tab = $state('setup')
 
+  // Settings pages, one per backend: the Worker's PC and Modal (or ComfyUI URL) each have their
+  // own. The extension has one, for this computer. #settings-<target> opens one directly.
+  let settingsTabs = $derived(
+    !info || info.mode === 'agent' ? []
+    : info.mode === 'local' ? [['machine', 'Settings']]
+    : [
+        ...(info.pc?.paired ? [['pc', 'Settings [Local]']] : []),
+        ...(info.generator?.kind === 'modal' ? [['modal', 'Settings [Modal]']] : []),
+        ...(info.generator?.kind === 'url' ? [['url', 'Settings [Remote]']] : []),
+      ],
+  )
+
   async function refresh() {
     try {
       info = await api('GET', '/state')
@@ -46,7 +58,8 @@
     // The Worker's setup is finished once Claude has connected; until then it opens on Setup.
     const ready =
       info?.mode === 'agent' ? false : info?.mode === 'local' ? info.comfyui.state !== 'not_installed' : info?.claude_seen && (info?.generator || info?.pc?.paired)
-    tab = ready ? 'settings' : 'setup'
+    const linked = location.hash.match(/^#settings-(\w+)$/)?.[1]
+    tab = settingsTabs.some(([t]) => t === linked) ? linked : ready ? settingsTabs[0]?.[0] ?? 'setup' : 'setup'
   }
 
   async function logout() {
@@ -79,7 +92,9 @@
   {:else}
     <nav>
       <button class:active={tab === 'setup'} onclick={() => (tab = 'setup')}>Setup</button>
-      <button class:active={tab === 'settings'} onclick={() => (tab = 'settings')}>Settings</button>
+      {#each settingsTabs as [target, label] (target)}
+        <button class:active={tab === target} onclick={() => (tab = target)}>{label}</button>
+      {/each}
     </nav>
     {#if tab === 'setup'}
       {#if local}
@@ -87,7 +102,7 @@
         <LocalSetup {info} {refresh} />
       {:else}<Setup {info} {refresh} />{/if}
     {:else}
-      <Settings {info} {refresh} />
+      {#key tab}<Settings {info} {refresh} target={tab} />{/key}
     {/if}
   {/if}
 </main>

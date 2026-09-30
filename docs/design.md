@@ -281,6 +281,19 @@ description).
 - One idle setting, "keep warm for N minutes", applies to Modal's `scaledown_window` (live, through
   `update_autoscaler`, S5) and to the agent's idle stop.
 - If both the PC and Modal are configured, the PC is used when online and Modal when it is not.
+- **Each backend has its own settings** (decided after the from-scratch test): packs, styles,
+  LoRAs and keep-warm. The Worker keeps the PC's in `pc_config` beside `config` (Modal's, or a
+  ComfyUI URL's); until first saved, `pc_config` reads as a copy of `config`. The settings app has a
+  tab per backend: **Settings [Local]** (the PC), **Settings [Modal]** (or **[Remote]** for a URL);
+  the extension has one, for its computer. `#settings-<target>` opens a tab directly.
+- **Claude sees one tool list,** and its descriptions (styles, LoRA triggers, packs) cannot change
+  with which backend is online. While a PC is paired they come from the PC's settings; each call
+  then runs with the settings of the backend that answers it. The Modal tab warns that its styles,
+  LoRAs and triggers must be kept in step with the PC's by hand.
+- **One LoRA section per tab,** by file: each LoRA file with its setup beside it (which packs,
+  strength, trigger, hidden), and upload and delete on Modal. Packs sharing a settings key share
+  their LoRAs (Anima and Anima Turbo). A new trigger is the file name, with the `@` that Anima's
+  artist tags use for packs whose styles are @tags.
 
 ## 6. Setup flows
 
