@@ -79,5 +79,6 @@ const manifest = JSON.parse(readFileSync(join(here, "manifest.json"), "utf8"));
 manifest.version = tag === "dev" ? "0.0.0-dev" : version;
 writeFileSync(join(stage, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
 
-execFileSync("npx", ["--yes", "@anthropic-ai/mcpb@2", "pack", stage, join(dist, "Comfy-Gen-MCP.mcpb")], { stdio: "inherit", shell: process.platform === "win32" });
+// The packer is a pinned devDependency (npm ci installs it): nothing is fetched at build time.
+execFileSync("npx", ["--no", "mcpb", "pack", stage, join(dist, "Comfy-Gen-MCP.mcpb")], { stdio: "inherit", shell: process.platform === "win32" });
 console.log(`built ${tag}: ${relative(root, bundleOut)} (${(statSync(bundleOut).size / 1e6).toFixed(2)} MB), ${relative(root, join(dist, "Comfy-Gen-MCP.mcpb"))}`);
