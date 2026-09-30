@@ -309,6 +309,10 @@ export class App {
       // A deploy resets keep-warm to the app's default, and a fresh install has no models yet.
       const admin = modalAdmin.forGenerator(this.fetch, generator);
       if (admin) warnings = await this.applyToModal(admin, await this.fresh.config(), true);
+      await this.fresh.updateSetup({ modal_error: null });
+    } else if (typeof data.modal_error === "string" || String(data.modal_result ?? "").startsWith("failed")) {
+      // The setup page shows Modal's reason (no card on file, a bad token) and offers Try again.
+      await this.fresh.updateSetup({ modal_error: String(data.modal_error || data.modal_result).slice(0, 500) });
     }
     return json({ ok: true, warnings });
   }
@@ -370,6 +374,7 @@ export class App {
       generator: gen ? { kind: gen.kind ?? null, base_url: gen.base_url ?? null } : null,
       build: setup.build ?? null,
       update_build: setup.update_build ?? null,
+      modal_error: setup.modal_error ?? null,
       connector_url: `${url.origin}/mcp/${s.mcp_secret}`,
       claude_seen: setup.claude_seen ?? null,
       pc: await this.pcState(url, s),
@@ -658,7 +663,7 @@ export class App {
       { COMFY_GEN_CALLBACK: `${url.origin}/build-callback` },
     );
     const build = await cloudflare.startBuild(this.fetch, s.cf_token, s.cf_account_id, s.cf_trigger, s.cf_branch || "main");
-    await this.fresh.updateSetup({ build, build_nonce: nonce });
+    await this.fresh.updateSetup({ build, build_nonce: nonce, modal_error: null });
     return json({ build });
   }
 

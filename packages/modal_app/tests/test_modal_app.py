@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from comfy_gen_modal.deploy import proxy_token
+from comfy_gen_modal.deploy import modal_error, proxy_token
 from comfy_gen_modal.models import needed, rel_path, validate_models, validate_pack_name
 
 MODEL = {"url": "https://huggingface.co/x/y/resolve/main/m.safetensors", "subfolder": "vae",
@@ -80,3 +80,20 @@ def test_app_defines_what_deploy_looks_up():
     assert mod.app.name == mod.APP_NAME == "comfy-gen"
     assert all(isinstance(getattr(mod, n), modal.Function) for n in ("seed", "admin", "upload", "assemble"))
     assert "comfy_gen:" in mod.EXTRA_PATHS and "  diffusion_models: diffusion_models" in mod.EXTRA_PATHS
+
+
+PAYMENT_LOG = """Built image im-gefkBmufHh1oFqRfPbgzr9 in 4.65s
+
+
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ Please add a payment method to use L4 GPU functions.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+"""
+
+
+def test_modal_error_reads_the_error_panel():
+    assert modal_error(PAYMENT_LOG) == "Please add a payment method to use L4 GPU functions."
+    two_lines = "╭─ Error ─────╮\n│ Token missing. Could not │\n│ authenticate client.     │\n╰─────────────╯\n"
+    assert modal_error(two_lines) == "Token missing. Could not authenticate client."
+    assert modal_error("building...\nsomething broke\n\n") == "something broke"
+    assert modal_error("") == "modal deploy failed"

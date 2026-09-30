@@ -173,6 +173,10 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   list and a LoRA list that show each backend's state, `pc_keep_warm_minutes` as the one
   per-backend setting, and the agent copying LoRAs between the PC and Modal (design §9, "LoRA
   sync"). Kept from the split: one LoRA section by file, and the `@` in pre-filled triggers.
+- **A failed Modal deploy says why.** Done 2026-09-30: an account with no card made `modal deploy`
+  fail ("Please add a payment method to use L4 GPU functions."), while the build carried on and the
+  page showed nothing. Now the reason reaches the Modal step, a card is the first instruction, and
+  Try again reuses the stored token (design §6).
 - **LoRAs: one way in.** Done 2026-09-30 (design §4): every LoRA comes through Upload LoRA; no
   "drop it in the folder and Refresh". With Modal the upload goes to the Volume and the agent copies
   it to the PC; with a PC alone it goes to the agent through the Worker's relay; the extension

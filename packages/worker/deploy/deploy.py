@@ -74,19 +74,21 @@ def merge(release: dict, template: dict, version: str) -> dict:
     return cfg
 
 
-def deploy_modal(src: Path) -> tuple[dict | None, str]:
+def deploy_modal(src: Path) -> tuple[dict | None, str, str | None]:
     """Run the Modal app's own deploy script (comfy_gen_modal.deploy). It writes the URLs and proxy
-    token as JSON."""
+    token as JSON, or {"error": Modal's reason} when the deploy failed. Returns (the URLs, a one-word
+    result for the log, the reason)."""
     if not (os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET")):
-        return None, "skipped (no Modal token)"
+        return None, "skipped (no Modal token)", None
     print("== Modal", flush=True)
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "modal.json"
         cmd = [os.environ.get("UV", "uv"), "run", "--package", "comfy-gen-modal", "--no-dev", "python", "-m", "comfy_gen_modal.deploy", "--out", str(out)]
         result = subprocess.run(cmd, cwd=src)
-        if result.returncode != 0 or not out.exists():
-            return None, f"failed (exit {result.returncode})"
-        return json.loads(out.read_text()), "ok"
+        data = json.loads(out.read_text()) if out.exists() else {}
+        if result.returncode != 0 or "server_url" not in data:
+            return None, f"failed (exit {result.returncode})", data.get("error")
+        return data, "ok", None
 
 
 def callback(body: dict) -> None:
@@ -121,8 +123,8 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="wrangler --dry-run: build, deploy nothing")
     args = ap.parse_args()
 
-    modal, modal_result = deploy_modal(args.src)
-    print(f"modal: {modal_result}", flush=True)
+    modal, modal_result, modal_error = deploy_modal(args.src)
+    print(f"modal: {modal_result}" + (f": {modal_error}" if modal_error else ""), flush=True)
 
     worker = args.src / "packages" / "worker"
     template = read_jsonc((args.template / "wrangler.jsonc").read_text())
@@ -142,9 +144,15 @@ def main() -> int:
     report = {"stage": "deployed" if deployed else "failed", "version": args.version, "modal_result": modal_result}
     if modal:
         report["modal"] = modal
+    if modal_result.startswith("failed"):
+        report["modal_error"] = modal_error or f"the deploy {modal_result}; the log above says why"
     callback(report)
     if deployed and url:
-        print(f"\n{'=' * 64}\nYour Worker is ready. Open it to finish the setup:\n\n    {url}\n{'=' * 64}", flush=True)
+        if "modal_error" in report:
+            head = f"The Worker is deployed, but Modal failed: {report['modal_error']}\nFix that, then press Try again on the Worker's page:"
+        else:
+            head = "Your Worker is ready. Open it to finish the setup:"
+        print(f"\n{'=' * 64}\n{head}\n\n    {url}\n{'=' * 64}", flush=True)
     return 0 if deployed else 1
 
 

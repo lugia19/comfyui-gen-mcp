@@ -4,6 +4,9 @@ MODAL_TOKEN_SECRET are build secrets:
 
     uv run --package comfy-gen-modal --no-dev python -m comfy_gen_modal.deploy --out modal.json
 
+On failure it writes {"error": <Modal's reason>} instead, for the setup page to show ("Please add a
+payment method to use L4 GPU functions." on an account with no card), and exits 1.
+
 The Worker reaches ComfyUI and the admin API with a proxy token. It is minted once and kept in the
 app's Dict, so update builds reuse it instead of piling up tokens in the user's workspace.
 """
@@ -12,8 +15,37 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
+
+
+def modal_error(output: str) -> str:
+    """Modal's reason for a failed command: the text of its boxed "Error" panel, else the last line."""
+    lines = output.splitlines()
+    for i, line in enumerate(lines):
+        if re.match(r"\s*╭─+ ?Error", line):
+            body = []
+            for inner in lines[i + 1:]:
+                if inner.strip().startswith("╰"):
+                    break
+                body.append(inner.strip().strip("│").strip())
+            text = " ".join(t for t in body if t)
+            if text:
+                return text
+    rest = [line.strip() for line in lines if line.strip()]
+    return rest[-1] if rest else "modal deploy failed"
+
+
+def run_deploy() -> tuple[int, str]:
+    """`modal deploy`, its output streamed to the build log as it comes and also kept."""
+    proc = subprocess.Popen([sys.executable, "-m", "modal", "deploy", "-m", "comfy_gen_modal.app"],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    kept = []
+    for line in proc.stdout:
+        print(line, end="", flush=True)
+        kept.append(line)
+    return proc.wait(), "".join(kept)
 
 
 def proxy_token(stored: dict | None, create) -> tuple[dict, bool]:
@@ -29,7 +61,11 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="where to write the JSON for the Worker's build callback")
     args = ap.parse_args()
 
-    subprocess.run([sys.executable, "-m", "modal", "deploy", "-m", "comfy_gen_modal.app"], check=True)
+    code, output = run_deploy()
+    if code != 0:
+        with open(args.out, "w") as fh:
+            json.dump({"error": modal_error(output)}, fh)
+        return 1
 
     import modal
 

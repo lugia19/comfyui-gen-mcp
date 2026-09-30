@@ -250,6 +250,29 @@ describe("settings API", () => {
     expect(seeds.map((c) => c[2].pack).sort()).toEqual(["anima_turbo", "flux2klein_edit", "z_image_turbo"]);
     expect(seeds.every((c) => c[2].models.length)).toBe(true);
   });
+
+  it("a failed Modal deploy shows its reason, and Try again reuses the stored token", async () => {
+    const { app, net } = world();
+    const cookie = await login(app);
+    await app.handle(request("POST", "/api/setup/build", { modal_token_id: "ak-1", modal_token_secret: "as-1" }, cookie));
+    let nonce = net.buildVars.COMFY_GEN_NONCE.value;
+    const reason = "Please add a payment method to use L4 GPU functions.";
+    await app.handle(request("POST", "/build-callback", { nonce, stage: "deployed", modal_result: "failed (exit 1)", modal_error: reason }));
+    const state = async () => body(await app.handle(request("GET", "/api/state", undefined, cookie)));
+    expect([(await state()).modal_error, (await state()).generator]).toEqual([reason, null]);
+
+    // Try again: no token fields, so the stored ones stay; only the nonce changes.
+    const retry = await app.handle(request("POST", "/api/setup/build", {}, cookie));
+    expect((await body(retry)).build).toBe("build2");
+    expect(net.buildVars.MODAL_TOKEN_SECRET).toEqual({ value: "as-1", is_secret: true });
+    expect(net.buildVars.COMFY_GEN_NONCE.value).not.toBe(nonce);
+    expect((await state()).modal_error).toBeNull(); // hidden while the new build runs
+    nonce = net.buildVars.COMFY_GEN_NONCE.value;
+    await app.handle(request("POST", "/build-callback", { nonce, stage: "deployed", modal_result: "failed (exit 1)" }));
+    expect((await state()).modal_error).toBe("failed (exit 1)"); // no reason came: the result, at least
+    await app.handle(request("POST", "/build-callback", { nonce, modal: { server_url: "https://m.modal.run", admin_url: ADMIN } }));
+    expect([(await state()).modal_error, (await state()).generator.kind]).toEqual([null, "modal"]);
+  });
 });
 
 describe("Modal models", () => {

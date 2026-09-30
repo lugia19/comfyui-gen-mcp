@@ -355,6 +355,11 @@ ComfyUI) above their usual sections.
    for each selected pack. The setup page streams the build logs, then the downloads (about 20 GB
    for the defaults, about 3 minutes). A tool whose models are not on the Volume yet answers with
    the download's progress instead of failing inside ComfyUI.
+   If `modal deploy` fails, the build still deploys the Worker, and the callback carries Modal's
+   own reason (the text of its Error panel, such as "Please add a payment method to use L4 GPU
+   functions." on an account with no card, seen in the from-scratch test). The setup page shows it
+   in the Modal step, with the fix for a missing card, and **Try again** starts a build without
+   token fields: the build secrets keep the stored token, which Modal would not show again.
 7. The user copies the connector URL into claude.ai.
 
 ### GPU owner

@@ -175,6 +175,30 @@ def test_modal_failure_still_deploys_the_worker_and_says_so(build, monkeypatch):
     assert build.go() == 0
     body = build.posts[0][2]
     assert body["stage"] == "deployed" and body["modal_result"] == "failed (exit 1)" and "modal" not in body
+    assert body["modal_error"].startswith("the deploy failed (exit 1)")
+
+
+def test_modal_failure_reason_reaches_the_callback_and_the_banner(build, monkeypatch, capsys):
+    monkeypatch.setenv("MODAL_TOKEN_ID", "ak-1")
+    monkeypatch.setenv("MODAL_TOKEN_SECRET", "as-1")
+    monkeypatch.setenv("COMFY_GEN_CALLBACK", "https://w/build-callback")
+    monkeypatch.setenv("COMFY_GEN_NONCE", "n")
+    build.wrangler_out = "Deployed\n  https://comfy-gen.me.workers.dev\n"
+    real_run = deploy.subprocess.run
+
+    def run(cmd, cwd=None, **kw):
+        if "comfy_gen_modal.deploy" in cmd:  # the Modal script writes Modal's reason and fails
+            Path(cmd[cmd.index("--out") + 1]).write_text(json.dumps({"error": "Please add a payment method to use L4 GPU functions."}))
+            return subprocess.CompletedProcess(cmd, 1)
+        return real_run(cmd, cwd=cwd, **kw)
+
+    monkeypatch.setattr(deploy.subprocess, "run", run)
+    assert build.go() == 0
+    assert build.posts[0][2]["modal_error"] == "Please add a payment method to use L4 GPU functions."
+    out = capsys.readouterr().out
+    assert "modal: failed (exit 1): Please add a payment method" in out
+    assert "Modal failed: Please add a payment method" in out and "Try again" in out
+    assert "Your Worker is ready" not in out
 
 
 def test_callback_retries_once_on_a_server_error(build, monkeypatch):
