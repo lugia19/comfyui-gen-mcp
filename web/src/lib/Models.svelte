@@ -5,7 +5,8 @@
   // Download state of the selected packs: on the Modal Volume, or (local) in ComfyUI's models
   // folder. Polls while anything is in flight. Locally a missing pack waits for a click (or a tool
   // call); on Modal the Worker starts it.
-  let { local = false } = $props()
+  // *path*: /models (this machine, or Modal), or /pc/models (the paired PC, through the Worker).
+  let { local = false, path = '/models', title = '' } = $props()
   let packs = $state(null)
   let error = $state('')
   let timer = null
@@ -15,7 +16,7 @@
 
   async function poll() {
     try {
-      packs = (await api('GET', '/models')).packs
+      packs = (await api('GET', path)).packs
       error = ''
     } catch (e) {
       error = e.message
@@ -25,7 +26,7 @@
 
   async function retry(pack) {
     try {
-      await api('POST', '/models/seed', { pack: pack.name })
+      await api('POST', `${path}/seed`, { pack: pack.name })
       clearTimeout(timer)
       await poll()
     } catch (e) {
@@ -38,7 +39,7 @@
 </script>
 
 {#if packs && packs.length}
-  <h3>{local ? 'Models' : 'Models on your GPU'}</h3>
+  <h3>{title || (local ? 'Models' : 'Models on your GPU')}</h3>
   {#each packs as pack (pack.name)}
     <div class="model">
       <div class="row">

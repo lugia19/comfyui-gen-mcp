@@ -474,6 +474,22 @@ describe("the PC path", () => {
     expect(toolText(dl)).toContain("downloading: 12%");
   });
 
+  it("shows the PC's LoRA files and model downloads on the settings page", async () => {
+    const { app, pc } = world();
+    const { cookie } = await pair(app);
+    pc.controls.loras = () => [200, { "mine.safetensors": 123 }];
+    pc.controls.models = (args) => [200, args.packs.map((p: any) => ({ name: p.name, state: "downloading", done: 1, total: 4 }))];
+    pc.controls.download = (args) => [200, { state: "queued", done: 0, total: args.pack.models.length }];
+    expect(await body(await app.handle(request("GET", "/api/pc/loras", undefined, cookie)))).toEqual({ loras: { "mine.safetensors": 123 } });
+    const { packs } = await body(await app.handle(request("GET", "/api/pc/models", undefined, cookie)));
+    expect(packs.length).toBeGreaterThan(0);
+    expect(packs[0]).toMatchObject({ state: "downloading", total: 4, size: expect.any(Number), display_name: expect.any(String) });
+    const seeded = await app.handle(request("POST", "/api/pc/models/seed", { pack: packs[0].name }, cookie));
+    expect((await body(seeded)).state).toBe("queued");
+    pc.connected = false;
+    expect((await app.handle(request("GET", "/api/pc/loras", undefined, cookie))).status).toBe(503);
+  });
+
   it("offers custom workflows once a PC is paired, checked against its nodes, and not on Modal", async () => {
     const { app, pc } = world();
     const workflow = { "1": { class_type: "EmptyImage", inputs: {}, _meta: { title: "Prompt" } }, "2": { class_type: "SaveImage", inputs: {} } };

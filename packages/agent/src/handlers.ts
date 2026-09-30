@@ -50,6 +50,10 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
           return ok([...(await comfy.nodeClasses())]);
         case "loras":
           return ok(machine.loras());
+        case "download": {
+          const pack = args.pack as PackNeeds;
+          return ok(machine.downloads.start(pack.name, pack.models ?? []));
+        }
         case "models":
           return ok(((args.packs ?? []) as PackNeeds[]).map((p) => ({ name: p.name, ...machine.downloads.status(p.name, p.models ?? []) })));
         case "status":

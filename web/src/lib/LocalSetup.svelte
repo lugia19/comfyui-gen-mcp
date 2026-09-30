@@ -190,6 +190,7 @@
   </form>
 </section>
 
+{#if info.mode !== 'agent'}
 <section>
   <h2>Connect Claude</h2>
   <p>Claude Desktop connects through the extension by itself. Nothing to do here.</p>
@@ -198,6 +199,7 @@
     phone, use a Worker install instead.
   </p>
 </section>
+{/if}
 
 {#if error}<p class="err">{error}</p>{/if}
 

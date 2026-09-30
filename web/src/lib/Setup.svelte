@@ -2,6 +2,7 @@
   import { api } from './api.js'
   import BuildLog from './BuildLog.svelte'
   import Models from './Models.svelte'
+  import PcSection from './PcSection.svelte'
 
   let { info, refresh } = $props()
 
@@ -116,6 +117,8 @@
   {/if}
 </section>
 
+<PcSection {info} {refresh} />
+
 <section>
   <h2>2. Connect Claude</h2>
   <p>Add this URL in claude.ai: <b>Settings → Connectors → Add custom connector</b>.</p>
@@ -127,5 +130,5 @@
     <button class="secondary" onclick={rotate}>Make a new URL</button>
   </div>
   <p class="muted">Anyone with this URL can generate images on your GPU account. Treat it like a password.</p>
-  {#if !info.generator}<p class="muted">It works once step 1 is done.</p>{/if}
+  {#if !info.generator && !info.pc?.paired}<p class="muted">It works once step 1 is done, or a PC is paired.</p>{/if}
 </section>

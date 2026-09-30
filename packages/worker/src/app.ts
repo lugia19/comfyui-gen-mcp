@@ -273,6 +273,10 @@ export class App {
     if (sub === "/setup/build" && req.method === "POST") return this.startBuild(req, url, s);
     if (sub === "/setup/build" && req.method === "GET") return this.buildState(url, s);
     if (sub === "/pc/pair" && req.method === "POST") return this.pair(url);
+    if (sub.startsWith("/pc/") && this.pcPaired(s)) {
+      const r = await this.pcApi(req, sub);
+      if (r) return r;
+    }
     if (sub === "/pc" && req.method === "DELETE") {
       await this.fresh.updateSecrets({ agent_secret: null });
       await this.p.relay?.drop();
@@ -307,6 +311,36 @@ export class App {
     await this.p.relay?.drop();
     const s = await this.fresh.secrets();
     return json({ link: pairingLink(url, s.agent_secret) });
+  }
+
+  /** The settings pages' view of the PC, through the agent: LoRA files, model downloads. */
+  private async pcApi(req: Request, sub: string): Promise<Response | null> {
+    const relayStub = this.p.relay!;
+    const ask = async (op: string, args?: unknown) => {
+      const r = await relayStub.control(op, args);
+      if (r.offline) return error(503, PC_OFFLINE);
+      const result = relay.controlResult(r.status, r.body);
+      return result.ok ? json(result.data) : error(502, result.message);
+    };
+    const needs = (p: Pack) => ({ name: p.name, display_name: p.display_name ?? p.name, models: p.models ?? [], required_nodes: p.required_nodes ?? {} });
+    if (sub === "/pc/loras" && req.method === "GET") {
+      const resp = await ask("loras");
+      return resp.ok ? json({ loras: await resp.json() }) : resp;
+    }
+    if (sub === "/pc/models" && req.method === "GET") {
+      const packs = selectedPacks(await this.fresh.config());
+      const resp = await ask("models", { packs: packs.map(needs) });
+      if (!resp.ok) return resp;
+      const status = new Map(((await resp.json()) as any[]).map((s) => [s.name, s]));
+      return json({ packs: packs.map((p) => ({ name: p.name, display_name: p.display_name ?? p.name, tool_name: p.tool_name, size: downloadSize(p), ...status.get(p.name) })) });
+    }
+    if (sub === "/pc/models/seed" && req.method === "POST") {
+      const wanted = (await bodyJson(req)).pack;
+      const pack = PACKS.find((p) => p.name === wanted);
+      if (!pack) return error(400, "no such pack");
+      return ask("download", { pack: needs(pack) });
+    }
+    return null;
   }
 
   private async pcState(url: URL, s: Secrets) {

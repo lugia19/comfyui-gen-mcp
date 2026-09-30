@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { api, ApiError } from './lib/api.js'
   import Login from './lib/Login.svelte'
+  import AgentWorker from './lib/AgentWorker.svelte'
   import LocalSetup from './lib/LocalSetup.svelte'
   import Setup from './lib/Setup.svelte'
   import Settings from './lib/Settings.svelte'
@@ -23,11 +24,14 @@
 
   // The Worker's pages sit behind a login; the Claude Desktop extension's (mode "local") answer
   // only on this computer, so they have none.
-  let local = $derived(info?.mode === 'local')
+  // mode "agent": the PC agent's page, its machine and its Worker; the pack settings are on the Worker.
+  let local = $derived(info?.mode === 'local' || info?.mode === 'agent')
+  let agent = $derived(info?.mode === 'agent')
 
   async function loggedIn() {
     await refresh()
-    const ready = info?.mode === 'local' ? info.comfyui.state !== 'not_installed' : info?.generator
+    const ready =
+      info?.mode === 'agent' ? false : info?.mode === 'local' ? info.comfyui.state !== 'not_installed' : info?.generator || info?.pc?.paired
     tab = ready ? 'settings' : 'setup'
   }
 
@@ -54,6 +58,9 @@
     <p class="muted">Loading…</p>
   {:else if !info}
     <Login onlogin={loggedIn} />
+  {:else if agent}
+    <AgentWorker {info} {refresh} />
+    <LocalSetup {info} {refresh} />
   {:else}
     <nav>
       <button class:active={tab === 'setup'} onclick={() => (tab = 'setup')}>Setup</button>

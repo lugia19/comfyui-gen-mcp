@@ -49,13 +49,16 @@
   // typed.
   const local = info.mode === 'local'
   const onModal = info.generator?.kind === 'modal'
-  const pickLoras = onModal || local
+  // A paired PC generates when it is online: its LoRA files come first.
+  const onPc = Boolean(info.pc?.paired)
+  const pickLoras = onModal || local || onPc
+  const customWorkflows = local || onPc || info.generator?.kind === 'url'
   let loraFiles = $state(null)
   let loraError = $state('')
 
   async function loadLoras() {
     try {
-      loraFiles = (await api('GET', '/loras')).loras
+      loraFiles = (await api('GET', onPc ? '/pc/loras' : '/loras')).loras
       loraError = ''
     } catch (e) {
       loraFiles = {}
@@ -63,7 +66,21 @@
     }
   }
 
-  onMount(() => pickLoras && loadLoras())
+  // With a PC and Modal both, the picker shows the PC's files; Modal's upload list keeps its own.
+  let modalLoras = $state(null)
+  async function loadModalLoras() {
+    try {
+      modalLoras = (await api('GET', '/loras')).loras
+    } catch (e) {
+      modalLoras = {}
+      loraError = e.message
+    }
+  }
+
+  onMount(() => {
+    if (pickLoras) loadLoras()
+    if (onPc && onModal) loadModalLoras()
+  })
 
   const stem = (name) => (name || '').replace(/\.safetensors$/i, '')
 
@@ -193,7 +210,7 @@
   </section>
 {/each}
 
-{#if local}
+{#if customWorkflows}
   <section>
     <CustomWorkflow value={cfg.custom_workflow} onchange={(v) => (cfg.custom_workflow = v)} />
   </section>
@@ -228,9 +245,23 @@
   <section>
     {#key saves}<Models local />{/key}
   </section>
-{:else if onModal}
+{:else if onPc}
   <section>
-    <Loras files={loraFiles} reload={loadLoras} />
+    <h2>LoRA files</h2>
+    <p class="muted">The .safetensors files in your PC's LoRA folders (open them from the agent's tray icon).</p>
+    {#each Object.entries(loraFiles || {}) as [name, size] (name)}
+      <div class="row"><span>{name}</span><span class="muted">{formatBytes(size)}</span></div>
+    {/each}
+    <button class="secondary" onclick={loadLoras}>Refresh</button>
+    {#if loraError}<p class="err">{loraError}</p>{/if}
+  </section>
+  <section>
+    {#key saves}<Models local path="/pc/models" title="Models on your PC" />{/key}
+  </section>
+{/if}
+{#if onModal && !local}
+  <section>
+    <Loras files={onPc ? modalLoras : loraFiles} reload={onPc ? loadModalLoras : loadLoras} />
     {#if loraError}<p class="err">{loraError}</p>{/if}
   </section>
   <section>
