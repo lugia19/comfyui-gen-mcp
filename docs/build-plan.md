@@ -199,7 +199,9 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   then never show until a reload. Keep checking the PC list while Settings is open, backing off
   as checks go unanswered: each one that finds nothing new or gets no reply from the PC waits
   longer before the next (say 5 s doubling up to a few minutes), and any change resets it to 5 s.
-  Each check is a Worker round trip to the PC, so read its `cpuTimeMs`.
+  The Modal list gets the same backoff: it now re-checks every 5 s for as long as a pack is
+  missing or unknown. Each check is a Worker round trip (to the PC or to Modal), so read its
+  `cpuTimeMs`.
 - **`edit_image` output size.** Its description says the result "comes back at the resolution it
   went in at" unless the input is very large. On Modal with Flux 2 Klein 4B (Edit), a 768×768 upload
   came back 2048×2048 and a 1152×896 generation came back 2320×1808: small inputs are scaled up.
