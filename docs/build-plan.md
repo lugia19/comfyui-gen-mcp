@@ -172,14 +172,17 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   the Modal Volume was configured for a pack the PC also runs, where the file does not exist. Each
   page should also have one LoRAs section that uploads (or lists) a file and sets it up in the same
   place: upload separate from **Add LoRA** (disabled until a file exists) makes no sense to a user.
-  - Open: claude.ai sees one tool list, and the descriptions are built from settings (LoRA
-    triggers, artist styles, packs). In the PC-with-Modal mode they must come from somewhere: the
-    union, with each request routed to a backend that has what it asks for (a Modal-only trigger
-    goes to Modal even while the PC is on); or the PC's settings, with Modal ignoring what it
-    cannot honour; or no combined mode. Custom workflows already work the first way (PC only,
-    "offline" when it is off).
+  - Decided: claude.ai sees one tool list, and the descriptions are built from settings (LoRA
+    triggers, artist styles, packs); they cannot change with which backend is online. In the
+    PC-with-Modal mode they are built from the PC's settings. Modal runs the same tools and does
+    what it can with its own settings. Settings [Modal] warns that its LoRAs, triggers and styles
+    are not what Claude is told in this mode, so the user must keep them in sync with the PC's.
   - The trigger pre-filled from a LoRA's filename drops the `@` that Anima's artist tags use
-    (`zzzhodazzz` for a LoRA whose trigger is `@zzzhodazzz`).- **`edit_image` output size.** Its description says the result "comes back at the resolution it
+    (`zzzhodazzz` for a LoRA whose trigger is `@zzzhodazzz`).
+- **Agent page: an "Edit main settings" button.** The agent's page says "Model and style settings
+  are on the Worker's page" in small text with a bare link. Make it a prominent **Edit main
+  settings** button that opens the Worker's settings.
+- **`edit_image` output size.** Its description says the result "comes back at the resolution it
   went in at" unless the input is very large. On Modal with Flux 2 Klein 4B (Edit), a 768×768 upload
   came back 2048×2048 and a 1152×896 generation came back 2320×1808: small inputs are scaled up.
   Either keep the input size or change the description.
