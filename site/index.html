@@ -67,11 +67,32 @@
   </section>
 
   <section>
-    <h2>Have a GPU? Run it on your PC</h2>
+    <h2>Have a GPU? Use it from claude.ai and your phone</h2>
     <p>
-      The Claude Desktop extension installs and runs ComfyUI locally. For now, get it from
-      <a href="https://github.com/lugia19/comfy-gen-mcp">the current version's repository</a>; this project
-      replaces it soon.
+      Deploy the Worker as above (the Modal token is optional: add it and Modal takes over while your
+      PC is off). A small agent on your PC connects out to the Worker, so there is no port to open and
+      no tunnel.
+    </p>
+    <ol>
+      <li>On your Worker's page, under <b>Your PC</b>, copy the pairing link.</li>
+      <li>Download and run the agent for your system:
+        <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/comfy-gen-agent-windows-x64.exe">Windows</a>,
+        <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/comfy-gen-agent-macos-arm64">macOS (Apple silicon)</a>,
+        <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/comfy-gen-agent-macos-x64">macOS (Intel)</a>,
+        <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/comfy-gen-agent-linux-x64">Linux</a>.
+        It is not signed yet: on Windows choose <b>More info → Run anyway</b>; on macOS right-click it and choose <b>Open</b>.</li>
+      <li>Its page opens in your browser: paste the pairing link, then install ComfyUI (it finds the
+        models of ComfyUI installs you already have).</li>
+    </ol>
+    <p class="muted">The agent starts with your PC, runs ComfyUI only while it is used, and updates itself.</p>
+  </section>
+
+  <section>
+    <h2>Claude Desktop only</h2>
+    <p>
+      The <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/Comfy-Gen-MCP.mcpb">Claude Desktop extension</a> installs and runs ComfyUI on
+      your PC, with no accounts. Open the file to install it in Claude Desktop, then open its settings
+      page from the tray icon to pick your GPU and install ComfyUI.
     </p>
   </section>
 
