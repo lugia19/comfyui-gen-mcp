@@ -59,11 +59,11 @@ describe("MCP route", () => {
     expect((await w.local("/mcp/wrong", rpc("tools/list"))).status).toBe(404);
   });
 
-  it("offers the custom workflow tool when one is set", async () => {
+  it("ignores a stored custom workflow (the feature was removed)", async () => {
     const w = world();
-    saveConfig(w.p.config, { ...w.cfg(), custom_workflow: { workflow: { "1": { class_type: "EmptyImage", inputs: {}, _meta: { title: "Prompt" } } }, prompt_node_title: "Prompt" } });
+    saveConfig(w.p.config, { ...w.cfg(), custom_workflow: { workflow: { "1": { class_type: "EmptyImage", inputs: {} } } } });
     const listed = await (await w.local(w.cfg().mcp_path, rpc("tools/list"))).json();
-    expect(listed.result.tools.map((t: any) => t.name)).toContain("generate_custom_image");
+    expect(listed.result.tools.map((t: any) => t.name)).not.toContain("generate_custom_image");
   });
 });
 
@@ -102,15 +102,6 @@ describe("settings API", () => {
     expect(w.downloadsStarted()).toBe(1); // saving starts the selected packs' downloads
     expect((await put({ extra_models_dir: "/no/such/dir" })).status).toBe(400);
     expect((await put({ comfyui_url: "ftp://x" })).status).toBe(400);
-  });
-
-  it("warns on save about custom workflow nodes a running ComfyUI lacks", async () => {
-    const w = world();
-    (w.comfy as any).state = "running";
-    const workflow = { "1": { class_type: "EmptyImage", inputs: {}, _meta: { title: "Prompt" } }, "2": { class_type: "NoSuchNode", inputs: {} } };
-    const r = await (await w.local("/api/config", { method: "PUT", body: JSON.stringify({ config: { custom_workflow: { workflow, prompt_node_title: "Prompt" } } }) })).json();
-    expect(r.warnings.join()).toContain("NoSuchNode");
-    expect(r.warnings.join()).not.toContain("EmptyImage");
   });
 
   it("lists LoRAs, opens folders, starts installs", async () => {

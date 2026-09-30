@@ -57,12 +57,6 @@ export const UPLOAD_SCHEMA = {
   required: ["filename"],
 };
 
-export const CUSTOM_DESC =
-  "Generate an image using the user's custom ComfyUI workflow. " +
-  "Use natural language to describe the image. " +
-  "The aspect_ratio parameter controls image shape: " +
-  "square (1:1), portrait (3:4), landscape (4:3), tall (9:16), wide (16:9). Default is square.";
-
 export const FETCH_DESC =
   "Fetch the result of an image generation that is still in progress. " +
   "Use this when a generation tool returns a request_token instead of an image.";
@@ -120,7 +114,7 @@ export const UPLOAD_DESC =
 
 // Tools defined here rather than by a generation pack. A pack whose tool_name is one of these (the
 // edit packs back edit_image) is data for that tool, not a tool of its own.
-export const STATIC_TOOLS = new Set(["generate_custom_image", "edit_image", "fetch_result", "request_upload"]);
+export const STATIC_TOOLS = new Set(["edit_image", "fetch_result", "request_upload"]);
 
 /**
  * Final tool description for a selected pack. A tool with several packs uses
@@ -164,7 +158,6 @@ export function toolSpecs(allPacks: Pack[], cfg: Config, imageMode: ImageMode): 
   const specs: ToolSpec[] = selected
     .filter((p) => !STATIC_TOOLS.has(p.tool_name))
     .map((p) => ({ name: p.tool_name, description: describe(p, groups, cfg), inputSchema: GENERATION_SCHEMA }));
-  if (cfg.custom_workflow) specs.push({ name: "generate_custom_image", description: CUSTOM_DESC, inputSchema: GENERATION_SCHEMA });
   if (selected.some((p) => p.tool_name === "edit_image")) {
     if (imageMode === "paths") {
       specs.push({ name: "edit_image", description: EDIT_DESC_PATHS, inputSchema: EDIT_SCHEMA_PATHS });

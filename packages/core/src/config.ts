@@ -8,7 +8,6 @@
 //   pack_selections   {tool_name: pack_name}
 //   pack_settings     {config_key: {artist_list: string, max_pixels: number}}
 //   pack_loras        {config_key: [{name, strength, trigger, hidden}]}
-//   custom_workflow   {workflow: {...API format...}, prompt_node_title: string} or null
 //   keep_warm_minutes integer, how long an idle generator stays up
 
 import { isPlainObject } from "./bytes.ts";
@@ -23,7 +22,6 @@ export type Config = {
   pack_selections: Record<string, string>;
   pack_settings: Record<string, { artist_list?: string; max_pixels?: number }>;
   pack_loras: Record<string, any[]>;
-  custom_workflow: { workflow: Record<string, any>; prompt_node_title?: string } | null;
   keep_warm_minutes: number;
   [key: string]: any;
 };
@@ -32,11 +30,10 @@ export const DEFAULTS: Config = {
   pack_selections: {},
   pack_settings: {},
   pack_loras: {},
-  custom_workflow: null,
   keep_warm_minutes: DEFAULT_KEEP_WARM_MINUTES,
 };
 
-// Each field: key, title, description, type ("int" | "bool" | "text" | "workflow"), default,
+// Each field: key, title, description, type ("int" | "bool" | "text"), default,
 // min/max for ints, advanced for grouping. The settings app renders these.
 export const SETTINGS_SCHEMA = [
   {
@@ -50,25 +47,20 @@ export const SETTINGS_SCHEMA = [
     min: 1,
     max: KEEP_WARM_MAX,
   },
-  {
-    key: "custom_workflow",
-    title: "Custom workflow",
-    description: "A ComfyUI workflow exported in API format. When set, it backs the generate_custom_image tool.",
-    type: "workflow",
-    default: null,
-    advanced: true,
-  },
 ];
+
+// Settings of removed features, dropped on read so the next save forgets them: custom_workflow
+// (custom workflows, removed 2026-09-30).
+const REMOVED = new Set(["custom_workflow"]);
 
 /** Fill in defaults and drop wrongly typed known values. Unknown keys are kept. Never throws. */
 export function normalize(raw: unknown): Config {
   const cfg = structuredClone(DEFAULTS);
   if (!isPlainObject(raw)) return cfg;
   for (const [key, val] of Object.entries(raw)) {
+    if (REMOVED.has(key)) continue;
     if (!(key in DEFAULTS)) {
       cfg[key] = structuredClone(val); // a newer version's or a frontend's key: keep it
-    } else if (key === "custom_workflow") {
-      if (val === null || (isPlainObject(val) && isPlainObject(val.workflow))) cfg[key] = structuredClone(val);
     } else if (key === "keep_warm_minutes") {
       if (Number.isInteger(val) && val > 0) cfg[key] = Math.min(val, KEEP_WARM_MAX);
     } else if (key === "pack_loras") {

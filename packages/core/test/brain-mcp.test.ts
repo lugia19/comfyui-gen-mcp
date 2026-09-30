@@ -19,8 +19,8 @@ describe("tools", () => {
     expect(names(refs)).toContain("request_upload");
     expect(paths.find((s) => s.name === "edit_image")!.inputSchema.required).toEqual(["prompt", "image_path"]);
     expect(refs.find((s) => s.name === "edit_image")!.inputSchema.required).toEqual(["prompt", "image"]);
-    expect(names(paths)).not.toContain("generate_custom_image");
-    expect(names(toolSpecs(BUILTIN, normalize({ custom_workflow: { workflow: {} } }), "paths"))).toContain("generate_custom_image");
+    // Custom workflows were removed: a stored custom_workflow no longer adds a tool.
+    expect(names(toolSpecs(BUILTIN, normalize({ custom_workflow: { workflow: {} } }), "paths"))).toEqual(names(paths));
     expect(names(paths).at(-1)).toBe("fetch_result");
   });
 
@@ -48,14 +48,13 @@ class PathHooks extends Hooks {
   }
 }
 
-function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; inventory?: Set<string>; budget?: number } = {}) {
+function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number } = {}) {
   const comfy = new FakeComfy();
   const client = fastClient(comfy, { coldStartS: 60, requestBudget: opts.budget ?? null });
   const brain = (o: typeof opts = {}) =>
     new Brain(BUILTIN, o.cfg ?? opts.cfg ?? {}, client, "paths", {
       hooks: o.hooks ?? opts.hooks ?? new PathHooks(),
       waitS: o.waitS ?? opts.waitS,
-      inventory: o.inventory ?? opts.inventory,
     });
   return { comfy, client, brain };
 }
@@ -102,13 +101,6 @@ describe("brain", () => {
     expect(out).toEqual(new Failed("Models are downloading."));
   });
 
-  it("the inventory check names missing nodes", async () => {
-    const { comfy, brain } = setup();
-    const out = await brain({ inventory: new Set(["KSampler"]) }).call("generate_realistic_image", { prompt: "x" });
-    expect((out as Failed).message).toContain("UnetLoaderGGUF (from ComfyUI-GGUF)");
-    expect(comfy.prompts).toEqual([]);
-  });
-
   it("edit, single and multi", async () => {
     const hooks = new PathHooks();
     const { comfy, brain } = setup({ hooks });
@@ -126,23 +118,10 @@ describe("brain", () => {
     expect(hooks.ensured).toEqual([edit.name, edit.name]);
   });
 
-  it("custom workflow", async () => {
-    const wf = {
-      "1": { class_type: "KSamplerAdvanced", inputs: { noise_seed: 0, positive: ["2", 0] } },
-      "2": { class_type: "CLIPTextEncode", inputs: { text: "" } },
-    };
-    const { comfy, brain } = setup();
-    expect(await brain({ cfg: { custom_workflow: { workflow: wf } } }).call("generate_custom_image", { prompt: "hello" })).toBeInstanceOf(Done);
-    expect(comfy.prompts[0]["2"].inputs.text).toBe("hello");
-    expect(comfy.prompts[0]["1"].inputs.noise_seed).not.toBe(0);
-    const bad = await brain({ cfg: { custom_workflow: { workflow: { nodes: [] } } } }).call("generate_custom_image", { prompt: "x" });
-    expect((bad as Failed).message).toContain("API format");
-  });
-
   it("unknown tools throw UnknownTool", async () => {
     const { brain } = setup();
     await expect(brain().call("no_such_tool", {})).rejects.toBeInstanceOf(UnknownTool);
-    await expect(brain().call("generate_custom_image", { prompt: "x" })).rejects.toBeInstanceOf(UnknownTool); // not configured
+    await expect(brain({ cfg: { custom_workflow: { workflow: {} } } }).call("generate_custom_image", { prompt: "x" })).rejects.toBeInstanceOf(UnknownTool); // removed
   });
 
   it("an exhausted request budget becomes a token", async () => {

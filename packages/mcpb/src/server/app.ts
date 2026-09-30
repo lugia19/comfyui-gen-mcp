@@ -104,8 +104,7 @@ export class LocalApp {
     const { machine } = this.s;
     const comfy = machine.comfy;
     const client = () => new ComfyUIClient(new ComfyTransport(() => comfy.url));
-    const brain = (c: ComfyUIClient, inventory: Set<string> | null = null) =>
-      new Brain(PACKS, cfg, c, "paths", { hooks: new LocalHooks(machine, c, this.settingsUrl), inventory });
+    const brain = (c: ComfyUIClient) => new Brain(PACKS, cfg, c, "paths", { hooks: new LocalHooks(machine, c, this.settingsUrl) });
     const specs = brain(client()).specs;
     const served = new Set(specs.map((spec) => spec.name));
 
@@ -113,16 +112,13 @@ export class LocalApp {
       if (!served.has(name)) throw new UnknownTool(name);
       return comfy.job(async () => {
         const c = client();
-        let inventory: Set<string> | null = null;
         try {
-          // A custom workflow is checked against what this ComfyUI has; packs install their nodes.
-          if (name === "generate_custom_image") inventory = await comfy.nodeClasses();
           if (name === "fetch_result") await comfy.ensureRunning();
         } catch (e) {
           if (e instanceof ComfyUIError) return [[textBlock(`Error: ${e.message}`)], true];
           throw e;
         }
-        return this.render(await brain(c, inventory).call(name, args), c);
+        return this.render(await brain(c).call(name, args), c);
       });
     };
     return new McpHandler("Comfy-Gen-MCP", this.s.version, specs, call, INSTRUCTIONS);
@@ -193,8 +189,6 @@ export class LocalApp {
     const cfg = this.s.saveConfig(merged);
     this.s.downloadSelected(); // a newly chosen pack starts downloading now, not at its first use
     const warnings = this.missingLoras(cfg);
-    const missing = cfg.custom_workflow ? await this.s.machine.missingNodes(cfg.custom_workflow.workflow) : [];
-    if (missing.length) warnings.push(`The custom workflow uses node(s) this ComfyUI does not have: ${missing.join(", ")}. Install them, or it will fail.`);
     if (current.comfyui_url !== cfg.comfyui_url || current.extra_models_dir !== cfg.extra_models_dir) {
       if (this.s.machine.comfy.state === "running") warnings.push("Restart ComfyUI (Setup tab) for the change to take effect.");
     }

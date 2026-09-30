@@ -11,9 +11,9 @@ import { roundHalfEven } from "./bytes.ts";
 import { ComfyUIClient, ComfyUIError, type OutputImage } from "./comfyui.ts";
 import { normalize, type Config } from "./config.ts";
 import { UnknownTool } from "./mcp.ts";
-import { groupByTool, prepare, requiredNodes, select, type Pack } from "./packs.ts";
+import { groupByTool, prepare, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
-import { buildPrompt, classTypes, parseCustomWorkflow, splitLossless, type NodeField, type Workflow } from "./workflow.ts";
+import { buildPrompt, splitLossless, type NodeField, type Workflow } from "./workflow.ts";
 
 export const DEFAULT_WAIT_S = 240; // the MCP client gives up at 300 s (S8)
 
@@ -72,14 +72,13 @@ export class Hooks {
   }
 }
 
-export type BrainOptions = { hooks?: Hooks; inventory?: Set<string> | null; waitS?: number };
+export type BrainOptions = { hooks?: Hooks; waitS?: number };
 
 export class Brain {
   readonly cfg: Config;
   readonly specs: ToolSpec[];
   private client: ComfyUIClient;
   private hooks: Hooks;
-  private inventory: Set<string> | null;
   private waitS: number;
   // Raw selected packs by tool. They are prepared (LoRAs, budget) only when called, so a request
   // pays for one pack, not all of them.
@@ -89,7 +88,6 @@ export class Brain {
     this.cfg = normalize(cfg);
     this.client = client;
     this.hooks = opts.hooks ?? new Hooks();
-    this.inventory = opts.inventory ?? null;
     this.waitS = opts.waitS ?? DEFAULT_WAIT_S;
     this.specs = toolSpecs(packs, this.cfg, imageMode);
     this.selected = Object.fromEntries(select(groupByTool(packs), this.cfg.pack_selections).map((p) => [p.tool_name, p]));
@@ -99,7 +97,6 @@ export class Brain {
   async call(name: string, args: Record<string, any>): Promise<Outcome> {
     if (name === "fetch_result") return this.fetch(args);
     if (name === "edit_image" && "edit_image" in this.selected) return this.edit(args);
-    if (name === "generate_custom_image" && this.cfg.custom_workflow) return this.custom(args);
     if (name in this.selected && !STATIC_TOOLS.has(name)) return this.generate(this.selected[name], args);
     throw new UnknownTool(name);
   }
@@ -115,20 +112,6 @@ export class Brain {
       maxPixels: pack.max_pixels ?? 1_048_576,
       loraToggles: pack.lora_toggles,
     });
-    return this.run(pack, wf, lossless);
-  }
-
-  private async custom(args: Record<string, any>): Promise<Outcome> {
-    const prompt = String(args.prompt || "").trim();
-    if (!prompt) return new Failed("prompt is required.");
-    const [, lossless] = splitLossless(String(args.aspect_ratio || "square"));
-    let pack: Pack;
-    try {
-      pack = customPack(this.cfg.custom_workflow!);
-    } catch (e) {
-      return new Failed(`The custom workflow is invalid: ${(e as Error).message}`);
-    }
-    const wf = buildPrompt(pack.workflow, prompt, pack.prompt_node_id, pack.seed_nodes);
     return this.run(pack, wf, lossless);
   }
 
@@ -166,10 +149,6 @@ export class Brain {
   }
 
   private async run(pack: Pack, wf: Workflow, lossless: boolean, ensured = false): Promise<Outcome> {
-    if (this.inventory) {
-      const missing = [...classTypes(wf)].filter((c) => !this.inventory!.has(c)).sort();
-      if (missing.length) return new Failed(missingNodesMessage(missing, requiredNodes(pack)));
-    }
     let promptId: string;
     try {
       if (!ensured) await this.hooks.ensure(pack);
@@ -193,21 +172,6 @@ export class Brain {
       throw e;
     }
   }
-}
-
-/** A synthetic pack for the user's custom workflow. Throws if it can't be used. */
-export function customPack(custom: { workflow?: unknown; prompt_node_title?: string }): Pack {
-  const [wf, promptNode, samplers] = parseCustomWorkflow(custom.workflow, custom.prompt_node_title || null);
-  return {
-    name: "custom",
-    display_name: "Custom workflow",
-    tool_name: "generate_custom_image",
-    tool_description: "",
-    workflow: wf,
-    prompt_node_id: promptNode,
-    seed_nodes: samplers.map((sid) => ({ node_id: sid, field: wf[sid].class_type === "KSamplerAdvanced" ? "noise_seed" : "seed" })),
-    models: [],
-  };
 }
 
 /**
@@ -240,13 +204,4 @@ export function editWorkflow(pack: Pack, images: ResolvedImage[]): [Workflow, st
     wf[nodeId].inputs.megapixels = Math.min(Math.max(mp, 0.01), 16.0);
   });
   return [wf, String(pack["prompt_node_id" + sfx]), pack["seed_nodes" + sfx]];
-}
-
-/** User-facing text for node classes the generator doesn't have. */
-export function missingNodesMessage(missing: string[], known: Record<string, string>): string {
-  const named = missing.map((cls) => (cls in known ? `${cls} (from ${known[cls]})` : cls));
-  return (
-    "This generator does not have the node(s) this workflow needs: " + named.join(", ") + ". " +
-    "Install them in its ComfyUI, then try again."
-  );
 }

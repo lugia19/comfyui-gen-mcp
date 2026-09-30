@@ -45,9 +45,6 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
           await machine.ensurePack(args.pack as PackNeeds, o.settingsNote);
           return ok({ ready: true });
         }
-        case "inventory":
-          await comfy.ensureRunning();
-          return ok([...(await comfy.nodeClasses())]);
         case "loras":
           return ok(machine.loras());
         case "download": {

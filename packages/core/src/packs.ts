@@ -106,11 +106,6 @@ export function prepare(pack: Pack, cfg: Config): Pack {
   return out;
 }
 
-/** Custom node classes the pack needs, mapped to the node package providing them. */
-export function requiredNodes(pack: Pack): Record<string, string> {
-  return { ...(pack.required_nodes ?? {}) };
-}
-
 /** Total bytes of the pack's model files, for the settings UI. */
 export function downloadSize(pack: Pack): number {
   return (pack.models ?? []).reduce((n, m) => n + (Number(m.size_bytes) || 0), 0);

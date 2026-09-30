@@ -11,11 +11,11 @@ import {
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
-import { ENSURE_TIMEOUT_S, PC_OFFLINE, PcHooks, WorkerHooks } from "./hooks.ts";
+import { PC_OFFLINE, PcHooks, WorkerHooks } from "./hooks.ts";
 import * as modalAdmin from "./modal-admin.ts";
 import { bodyJson, error, json, withUserAgent, type Fetch, type Platform } from "./platform.ts";
 import { render, text } from "./render.ts";
-import { RelayTransport, type RelayStub } from "./relay.ts";
+import { RelayTransport } from "./relay.ts";
 import { Store, type Secrets } from "./store.ts";
 import * as updates from "./updates.ts";
 import * as uploads from "./uploads.ts";
@@ -138,12 +138,7 @@ export class App {
     if (!safeEqual(secret.replace(/^\/+|\/+$/g, ""), s.mcp_secret)) return error(404, "not found");
     if (req.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
     const cfg = await this.store.config();
-    // Custom workflows are for a generator with the user's own models and nodes (the PC path, a
-    // ComfyUI URL); Modal has only the packs' files, so the tool is offered only with one of those.
-    // The setting is kept either way.
-    const customOk = this.pcPaired(s) || s.generator?.kind === "url";
-    const specsCfg = customOk ? cfg : { ...cfg, custom_workflow: null };
-    const specs = new Brain(PACKS, specsCfg, null as unknown as ComfyUIClient, "refs").specs;
+    const specs = new Brain(PACKS, cfg, null as unknown as ComfyUIClient, "refs").specs;
     const served = new Set(specs.map((spec) => spec.name));
     const key = hmacKey(s);
 
@@ -152,23 +147,12 @@ export class App {
       const gen = await this.generator(s);
       if (!gen) return [[text(`Error: the image generator is not set up yet. Finish setup at ${url.origin}/`)], true];
       if (name === "request_upload") return uploads.requestUpload(args, url.origin, key, this.p.now());
-      if (name === "generate_custom_image" && gen.kind === "modal") {
-        return [[text(`Error: custom workflows run on your PC. ${PC_OFFLINE}`)], true];
-      }
       const settingsUrl = `${url.origin}/`;
       const hooks =
         gen.kind === "pc"
           ? new PcHooks(gen.client, key, this.fetch, this.store, settingsUrl, this.p.relay!, cfg.keep_warm_minutes)
           : new WorkerHooks(gen.client, key, this.fetch, modalAdmin.forGenerator(this.fetch, s.generator), this.store, settingsUrl);
-      let inventory: Set<string> | null = null;
-      if (name === "generate_custom_image" && gen.kind === "pc") {
-        try {
-          inventory = await pcInventory(this.p.relay!);
-        } catch (e) {
-          return [[text(`Error: ${(e as Error).message}`)], true];
-        }
-      }
-      const brain = new Brain(PACKS, specsCfg, gen.client, "refs", { hooks, inventory });
+      const brain = new Brain(PACKS, cfg, gen.client, "refs", { hooks });
       return render(await brain.call(name, args), gen.client, url.origin, key);
     };
 
@@ -492,13 +476,4 @@ async function missingLoras(admin: modalAdmin.ModalAdmin, cfg: Config): Promise<
  * secret is in the fragment, which browsers never send, should the link be opened. */
 export function pairingLink(url: URL, secret: string): string {
   return `${url.origin}/agent#${secret}`;
-}
-
-/** The node classes the PC's ComfyUI has, for checking a custom workflow. */
-async function pcInventory(stub: RelayStub): Promise<Set<string>> {
-  const r = await stub.control("inventory", undefined, ENSURE_TIMEOUT_S);
-  if (r.offline) throw new Error(PC_OFFLINE);
-  const result = relay.controlResult(r.status, r.body);
-  if (!result.ok) throw new Error(result.message);
-  return new Set(result.data as string[]);
 }

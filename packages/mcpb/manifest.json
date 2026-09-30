@@ -31,10 +31,6 @@
       "description": "Generate a realistic or general-purpose image"
     },
     {
-      "name": "generate_custom_image",
-      "description": "Generate an image with your own ComfyUI workflow"
-    },
-    {
       "name": "edit_image",
       "description": "Edit an image by its path on this computer, or a URL"
     },

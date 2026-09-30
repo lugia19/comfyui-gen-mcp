@@ -176,7 +176,7 @@ describe("agent handlers", () => {
     expect(await call({ kind: "control", id: "2", op: "ensure", args: { pack: { name: "p" }, keep_warm_minutes: 12 } })).toEqual([200, '{"ready":true}']);
     expect(keepWarm).toBe(12);
     expect(await call({ kind: "control", id: "3", op: "ensure", args: { pack: { name: "big" } } })).toEqual([500, "The Big model is downloading: 5% of 9.0 GB."]);
-    expect(await call({ kind: "control", id: "4", op: "inventory" })).toEqual([200, '["KSampler"]']);
+    expect((await call({ kind: "control", id: "4", op: "inventory" }))[0]).toBe(400); // custom workflows were removed
     expect(await call({ kind: "control", id: "5", op: "loras" })).toEqual([200, '{"a.safetensors":3}']);
     expect((await call({ kind: "control", id: "6", op: "nope" }))[0]).toBe(400);
     srv.close();

@@ -36,8 +36,6 @@ export const MODEL_LOADERS: Record<string, number> = {
   CheckpointLoader: 0,
 };
 
-export const SAMPLERS = ["KSampler", "KSamplerAdvanced"];
-
 /** Strip a trailing ":lossless" marker (case-insensitive). Only a trailing match, so drive colons survive. */
 export function splitLossless(value: string): [string, boolean] {
   const s = (value || "").trim();
@@ -174,51 +172,4 @@ export function injectLoras(workflow: Workflow, loras: Lora[], target?: { model?
   }
   for (const [nodeId, key] of modelConsumers) workflow[nodeId].inputs[key] = modelHead;
   return toggles;
-}
-
-/**
- * Validate a custom API-format workflow: [workflow, promptNodeId, samplerIds]. The prompt node is
- * the one titled *promptNodeTitle* (case-insensitive) if given, else a node titled "prompt", else
- * the first KSampler's positive input. Throws with a message meant for the user.
- */
-export function parseCustomWorkflow(wf: unknown, promptNodeTitle?: string | null): [Workflow, string, string[]] {
-  if (!isPlainObject(wf) || "nodes" in wf || !Object.keys(wf).length || !Object.values(wf).every(isPlainObject)) {
-    throw new Error(
-      "The workflow is not in API format. In ComfyUI, enable dev mode " +
-        "(Settings > Enable Dev mode Options) and use 'Save (API Format)' / 'Export (API)' " +
-        "instead of the regular Save.",
-    );
-  }
-  const workflow = wf as Workflow;
-  const samplers = Object.keys(workflow).filter((id) => SAMPLERS.includes(workflow[id].class_type));
-  const title = (node: Node) => String(node._meta?.title ?? "").trim().toLowerCase();
-
-  if (promptNodeTitle) {
-    const wanted = promptNodeTitle.trim().toLowerCase();
-    for (const [nodeId, node] of Object.entries(workflow)) {
-      if (title(node) === wanted) return [workflow, nodeId, samplers];
-    }
-    const available = Object.entries(workflow).map(([id, n]) => `  ${id}: ${n._meta?.title ?? "(no title)"}`);
-    throw new Error(`No node titled '${promptNodeTitle}' in the workflow.\nAvailable nodes:\n` + available.join("\n"));
-  }
-  if (!samplers.length) {
-    throw new Error(
-      "The workflow has no KSampler and no prompt node title is configured. Set the prompt node title in settings.",
-    );
-  }
-  for (const [nodeId, node] of Object.entries(workflow)) {
-    if (title(node) === "prompt") return [workflow, nodeId, samplers];
-  }
-  const positive = workflow[samplers[0]].inputs?.positive;
-  if (!(Array.isArray(positive) && positive.length)) {
-    throw new Error("Could not find the prompt node: the first KSampler has no positive input link.");
-  }
-  return [workflow, String(positive[0]), samplers];
-}
-
-/** Every node class a workflow uses, for validating against a generator's inventory. */
-export function classTypes(workflow: Workflow): Set<string> {
-  const out = new Set<string>();
-  for (const n of Object.values(workflow)) if (isPlainObject(n) && n.class_type) out.add(String(n.class_type));
-  return out;
 }

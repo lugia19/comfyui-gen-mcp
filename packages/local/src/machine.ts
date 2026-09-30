@@ -123,18 +123,6 @@ export class Machine {
     return out;
   }
 
-  /** A workflow's node classes this ComfyUI lacks, when it is running (else nothing is known yet). */
-  async missingNodes(workflow: Record<string, any>): Promise<string[]> {
-    if (this.comfy.state !== "running" && this.comfy.state !== "external") return [];
-    let have: Set<string>;
-    try {
-      have = await this.comfy.nodeClasses();
-    } catch {
-      return [];
-    }
-    return [...new Set(Object.values(workflow).map((n: any) => String(n?.class_type ?? "")))].filter((c) => c && !have.has(c)).sort();
-  }
-
   /** The machine's part of a settings page's state. */
   async state(gpuSetting = "") {
     const comfy = this.comfy;

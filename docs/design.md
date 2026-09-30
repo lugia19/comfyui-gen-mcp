@@ -212,18 +212,14 @@ one 17 to 19 ms, an edit 9 ms. Generations are the rare, tolerated overrun. Rule
 Generations wait through the held `/comfy-gen/wait` request (§3 "Waiting"), so a warm one makes
 about three fetches.
 
-### Custom workflows
+### Custom workflows (removed)
 
-**Being removed** (decided 2026-09-30, see the build plan): too much machinery for a barely used,
-untestable feature. The description below holds until the removal lands.
-
-For generators with the user's own models and nodes: the MCPB's local ComfyUI and the PC agent.
-The Worker does not offer `generate_custom_image` when the generator is Modal (decided in M4): the
-Modal image has only core ComfyUI plus ComfyUI-GGUF and the Volume only the packs' model files, so
-a custom workflow there could only rearrange the packs. The setting is kept in the config, so a user
-who later adds a PC generator gets the tool. Validation against the generator's node inventory
-(`Brain`'s `inventory` option, `missingNodesMessage`) is for the PC path, where the agent reports
-its inventory live; nothing builds an `inventory.json` for Modal.
+A `generate_custom_image` tool ran a workflow the user pasted in (API format), on the MCPB and the
+PC. Removed 2026-09-30: barely used, untestable beyond a few graphs (it takes any graph with any
+nodes), and it threaded through every layer (config, a prompt-node guesser, a node-inventory check
+over the relay, its own tool and settings editor, a Modal exclusion). People with their own
+workflows already run ComfyUI and can point the MCPB or the agent at it ("Your own ComfyUI"). A
+stored `custom_workflow` setting is dropped on read.
 
 ## 4. Images, references, uploads, edits
 
@@ -437,7 +433,7 @@ a header and its chunks in one synchronous run, so messages never interleave.
 | Message | Direction | Carries |
 |---|---|---|
 | `http` | Worker → agent | One ComfyUI request (method, path, params, headers, body); the agent calls its ComfyUI inside a job, so the idle stop waits |
-| `control` | Worker → agent | An agent operation: `ensure` (start ComfyUI, install the pack's nodes, check or start its model downloads), `inventory` (node classes for custom workflows), `loras`, `models`, `download`, `status` |
+| `control` | Worker → agent | An agent operation: `ensure` (start ComfyUI, install the pack's nodes, check or start its model downloads), `loras`, `models`, `download`, `status` |
 | `reply` | agent → Worker | `{id, status}` and the body |
 | `hello` | agent → Worker | On connecting: version, platform, GPU, ComfyUI state, kept with the socket for the settings page |
 
@@ -446,8 +442,7 @@ ComfyUI client, held waits and the brain are unchanged. A call with no agent con
 for a reconnect, then fails with "your PC is offline"; one whose agent drops mid-call fails with
 "the connection to your PC dropped". Timeouts: 120 s for a ComfyUI request (a held wait is 50 s),
 30 s for control, 240 s for `ensure`. The generator is chosen per call: the PC when paired and
-connected, else Modal, else the offline message. Custom workflows are offered once a PC is paired
-and checked against its live inventory. An `image_id` names a file on the generator that made it,
+connected, else Modal, else the offline message. An `image_id` names a file on the generator that made it,
 so editing a Modal image while the PC answers (or the reverse) finds no file.
 
 Measured on the test install (appendix, "M6 live"): a warm relayed generation costs the Worker a
@@ -542,7 +537,7 @@ The order puts first what can be built and tested without Modal, Windows or a GP
    ComfyUI.
 3. Modal app and the **first release** (no-GPU users).
 4. Full cloud settings: LoRA uploads and per-pack LoRA settings (artists and sandbox uploads came
-   earlier; custom workflows are left to the local and PC generators).
+   earlier; custom workflows, left to the local and PC generators then, were later removed).
 5. `local` and the MCPB (Node) at parity with the old extension.
 6. Agent and relay. Then retire the old repository.
 

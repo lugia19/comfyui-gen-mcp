@@ -384,18 +384,15 @@ describe("LoRAs", () => {
   });
 });
 
-describe("custom workflows", () => {
-  const workflow = { "1": { class_type: "EmptyImage", inputs: {}, _meta: { title: "Prompt" } }, "2": { class_type: "SaveImage", inputs: {} } };
-
-  it("are offered for a generator with the user's own nodes, not on Modal", async () => {
+describe("custom workflows (removed)", () => {
+  it("a stored custom workflow adds no tool and is forgotten on the next save", async () => {
     const { app } = world();
-    await app.store.saveConfig({ custom_workflow: { workflow, prompt_node_title: "Prompt" } });
+    const workflow = { "1": { class_type: "EmptyImage", inputs: {} } };
+    await app.store.saveConfig({ custom_workflow: { workflow } });
     await withGenerator(app);
-    const names = async () => (await mcp(app, "tools/list"))[1].result.tools.map((t: any) => t.name);
-    expect(await names()).toContain("generate_custom_image");
-    await withModal(app);
-    expect(await names()).not.toContain("generate_custom_image");
-    expect((await app.store.config()).custom_workflow).not.toBeNull(); // kept for the PC path
+    const names = (await mcp(app, "tools/list"))[1].result.tools.map((t: any) => t.name);
+    expect(names).not.toContain("generate_custom_image");
+    expect("custom_workflow" in (await app.store.config())).toBe(false);
   });
 });
 
@@ -504,27 +501,5 @@ describe("the PC path", () => {
     expect((await body(seeded)).state).toBe("queued");
     pc.connected = false;
     expect((await app.handle(request("GET", "/api/pc/loras", undefined, cookie))).status).toBe(503);
-  });
-
-  it("offers custom workflows once a PC is paired, checked against its nodes, and not on Modal", async () => {
-    const { app, pc } = world();
-    const workflow = { "1": { class_type: "EmptyImage", inputs: {}, _meta: { title: "Prompt" } }, "2": { class_type: "SaveImage", inputs: {} } };
-    await app.store.saveConfig({ custom_workflow: { workflow, prompt_node_title: "Prompt" } });
-    await withModal(app);
-    const names = async () => (await mcp(app, "tools/list"))[1].result.tools.map((t: any) => t.name);
-    expect(await names()).not.toContain("generate_custom_image");
-    await pair(app);
-    expect(await names()).toContain("generate_custom_image");
-    const [, ok] = await mcp(app, "tools/call", { name: "generate_custom_image", arguments: { prompt: "x" } });
-    expect(ok.result.isError).toBe(false);
-    expect(pc.comfy.prompts.length).toBe(1);
-
-    pc.controls.inventory = () => [200, ["SaveImage"]];
-    const [, missing] = await mcp(app, "tools/call", { name: "generate_custom_image", arguments: { prompt: "x" } }, 2);
-    expect(toolText(missing)).toContain("EmptyImage");
-
-    pc.connected = false; // falls back to Modal, which can't run it
-    const [, off] = await mcp(app, "tools/call", { name: "generate_custom_image", arguments: { prompt: "x" } }, 3);
-    expect(toolText(off)).toContain("custom workflows run on your PC");
   });
 });

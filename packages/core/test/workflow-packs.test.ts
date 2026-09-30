@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize } from "../src/config.ts";
 import { builtinPacks, configKey, groupByTool, prepare, select, supportsLoras, validate } from "../src/packs.ts";
-import { buildPrompt, calcDimensions, classTypes, injectLoras, parseCustomWorkflow, splitLossless, type Workflow } from "../src/workflow.ts";
+import { buildPrompt, calcDimensions, injectLoras, splitLossless, type Workflow } from "../src/workflow.ts";
 
 const smallWorkflow = (): Workflow => ({
   "1": { class_type: "UNETLoader", inputs: { unet_name: "m.safetensors" } },
@@ -68,28 +68,6 @@ describe("workflow", () => {
   it("injectLoras without a loader throws", () => {
     expect(() => injectLoras({ "1": { class_type: "KSampler", inputs: {} } }, [{ name: "a" }])).toThrow();
   });
-
-  it("parseCustomWorkflow rejects the UI format", () => {
-    expect(() => parseCustomWorkflow({ nodes: [], links: [] })).toThrow(/API format/);
-  });
-
-  it("parseCustomWorkflow finds the prompt node", () => {
-    const wf = smallWorkflow();
-    expect(parseCustomWorkflow(wf)).toEqual([wf, "3", ["2"]]); // traced from the KSampler's positive input
-    expect(parseCustomWorkflow(wf, "positive")[1]).toBe("3"); // by title, case-insensitive
-    wf["4"]._meta = { title: "Prompt" };
-    expect(parseCustomWorkflow(wf)[1]).toBe("4"); // a node titled "prompt" wins over tracing
-    expect(() => parseCustomWorkflow(wf, "missing")).toThrow(/No node titled/);
-  });
-
-  it("the first KSampler is the lowest node id, whatever the JSON order", () => {
-    const wf = JSON.parse('{"10": {"class_type": "KSampler", "inputs": {"positive": ["20", 0]}}, "3": {"class_type": "KSampler", "inputs": {"positive": ["30", 0]}}}');
-    expect(parseCustomWorkflow(wf)[1]).toBe("30");
-  });
-
-  it("classTypes", () => {
-    expect(classTypes(smallWorkflow())).toEqual(new Set(["UNETLoader", "KSampler", "CLIPTextEncode", "EmptyLatentImage", "ModelSamplingAuraFlow"]));
-  });
 });
 
 describe("packs and config", () => {
@@ -143,11 +121,12 @@ describe("packs and config", () => {
     expect(cfg.pack_loras).toEqual({});
     expect(cfg.comfyui_url).toBe("http://x");
     expect(normalize(null)).toEqual(DEFAULTS);
-    const raw = { custom_workflow: { workflow: { "1": {} } } };
+    const raw = { pack_settings: { anima: { artist_list: "@a" } } };
     const out = normalize(raw);
-    (out.custom_workflow!.workflow["1"] as any).x = 1;
-    expect(raw).toEqual({ custom_workflow: { workflow: { "1": {} } } }); // a deep copy
-    expect(normalize({ custom_workflow: "nope" }).custom_workflow).toBeNull();
+    out.pack_settings.anima.artist_list = "changed";
+    expect(raw.pack_settings.anima.artist_list).toBe("@a"); // a deep copy
+    // A removed feature's setting is dropped, so the next save forgets it.
+    expect("custom_workflow" in normalize({ custom_workflow: { workflow: { "1": {} } } })).toBe(false);
   });
 
   it("normalize cleans LoRA entries and caps keep-warm", () => {

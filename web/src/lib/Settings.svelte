@@ -1,7 +1,6 @@
 <script>
   import { onMount } from 'svelte'
   import { api, formatBytes } from './api.js'
-  import CustomWorkflow from './CustomWorkflow.svelte'
   import Loras from './Loras.svelte'
   import Models from './Models.svelte'
 
@@ -52,7 +51,6 @@
   // A paired PC generates when it is online: its LoRA files come first.
   const onPc = Boolean(info.pc?.paired)
   const pickLoras = onModal || local || onPc
-  const customWorkflows = local || onPc || info.generator?.kind === 'url'
   let loraFiles = $state(null)
   let loraError = $state('')
 
@@ -209,12 +207,6 @@
     {/if}
   </section>
 {/each}
-
-{#if customWorkflows}
-  <section>
-    <CustomWorkflow value={cfg.custom_workflow} onchange={(v) => (cfg.custom_workflow = v)} />
-  </section>
-{/if}
 
 {#if keepWarm}
   <section>

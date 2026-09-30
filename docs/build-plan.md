@@ -182,7 +182,7 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
 - **Agent page: an "Edit main settings" button.** The agent's page says "Model and style settings
   are on the Worker's page" in small text with a bare link. Make it a prominent **Edit main
   settings** button that opens the Worker's settings.
-- **Remove custom workflows.** Decided 2026-09-30: `generate_custom_image` goes. It is barely
+- **Remove custom workflows.** Done 2026-09-30 (design §3, "Custom workflows (removed)"). Decided 2026-09-30: `generate_custom_image` goes. It is barely
   documented, it threads through every layer (the config field, `parseCustomWorkflow`'s guessing of
   prompt node and samplers, `customPack` in `brain.ts`, the node-inventory check and the relay's
   `inventory` operation, its tool spec, `CustomWorkflow.svelte` and its Worker and MCPB routes, the

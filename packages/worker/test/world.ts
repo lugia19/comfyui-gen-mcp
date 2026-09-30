@@ -141,7 +141,6 @@ export class FakeRelay implements RelayStub {
   connected = true;
   controls: Record<string, (args: any) => [number, unknown]> = {
     ensure: () => [200, { ok: true }],
-    inventory: () => [200, ["EmptyImage", "SaveImage", "KSampler"]],
   };
   controlCalls: [string, any][] = [];
   dropped = 0;
