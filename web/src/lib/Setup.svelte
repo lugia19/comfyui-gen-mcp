@@ -234,7 +234,7 @@
     <details class="guide">
       <summary>New to Modal? Show me how</summary>
       <ol>
-        <li><a href="https://modal.com/signup" target="_blank" rel="noopener">Sign up for Modal</a> (with GitHub or Google).</li>
+        <li><a href="https://modal.com/signup" target="_blank" rel="noopener">Sign up for Modal</a> (with GitHub is simplest: the same account your Worker's copy lives in).</li>
         <li>Add a card: <b>Settings → Usage &amp; billing → Manage payment details</b>. Modal needs one on file to run
           GPUs; the $30 of free compute each month is used first.</li>
         <li>Then make the token as below.</li>

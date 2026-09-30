@@ -25,6 +25,7 @@
     h1 { font-size: 2rem; margin: 0 0 4px; }
     h2 { font-size: 1.2rem; margin: 0 0 12px; }
     .lede { color: var(--muted); margin: 0 0 32px; }
+    .tip { border-left: 3px solid var(--border); padding-left: 10px; }
     section { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; margin: 0 0 16px; }
     a { color: var(--accent); }
     code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
@@ -60,13 +61,15 @@
       <a href="#desktop">the Claude Desktop extension</a>.</p>
     <p><b>You need:</b></p>
     <ul>
-      <li>A <a href="https://dash.cloudflare.com/sign-up">Cloudflare account</a> (the free plan is enough) and a
-        <a href="https://github.com/signup">GitHub account</a>. The deploy keeps a small copy of the setup in your GitHub,
+      <li>A <a href="https://github.com/signup">GitHub account</a>. The deploy keeps a small copy of the setup in your GitHub,
         which is how your Worker updates itself.</li>
+      <li>A <a href="https://dash.cloudflare.com/sign-up">Cloudflare account</a> (the free plan is enough).</li>
       <li>A claude.ai plan that can add custom connectors.</li>
       <li>For the cloud: a <a href="https://modal.com/signup">Modal account</a> with a card on file (new accounts get $30 of free compute a month).
         For your PC: an NVIDIA GPU (AMD on Linux), or an Apple silicon Mac.</li>
     </ul>
+    <p class="tip"><b>Tip:</b> Cloudflare and Modal both let you sign up with GitHub (<b>Continue with GitHub</b>).
+      Make the GitHub account first and use it for both: one login instead of three.</p>
     <p><b>Steps:</b></p>
     <ol>
       <li>Click the button. Cloudflare opens in a new tab with a form: pick your GitHub account under
