@@ -552,6 +552,26 @@ describe("the PC path", () => {
     expect(toolText(stuck)).toContain("on your PC");
   });
 
+  it("a PC paused from its tray takes no requests: Modal answers, or the tools say it is paused", async () => {
+    const { app, pc, comfy } = world();
+    const { cookie } = await pair(app);
+    pc.paused = true;
+    const [, alone] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } });
+    expect(alone.result.isError).toBe(true);
+    expect(toolText(alone)).toContain("Your PC is paused");
+    expect(pc.comfy.prompts.length).toBe(0);
+    const state = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
+    expect(state.pc).toMatchObject({ connected: true, info: { paused: true } }); // shown as paused, not offline
+
+    await withGenerator(app); // with another generator, it answers instead
+    const [, other] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } }, 2);
+    expect(other.result.isError).toBe(false);
+    expect(comfy.prompts.length).toBe(1);
+    pc.paused = false;
+    await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } }, 3);
+    expect(pc.comfy.prompts.length).toBe(1); // back on the PC
+  });
+
   it("says the PC is offline when there is nothing else, and passes the agent's errors on", async () => {
     const { app, pc } = world();
     await pair(app);

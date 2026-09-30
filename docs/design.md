@@ -453,7 +453,7 @@ a header and its chunks in one synchronous run, so messages never interleave.
 | `http` | Worker → agent | One ComfyUI request (method, path, params, headers, body); the agent calls its ComfyUI inside a job, so the idle stop waits |
 | `control` | Worker → agent | An agent operation: `ensure` (start ComfyUI, install the pack's nodes, check or start its model downloads), `loras`, `models`, `download`, `status` |
 | `reply` | agent → Worker | `{id, status}` and the body |
-| `hello` | agent → Worker | On connecting: version, platform, GPU, ComfyUI state, kept with the socket for the settings page |
+| `hello` | agent → Worker | On connecting, and again when paused or resumed: version, platform, GPU, ComfyUI state, `paused`; the latest is kept with the socket for the settings page |
 
 On the Worker, `RelayTransport` is core's `Transport` over the object's `request()`, so the
 ComfyUI client, held waits and the brain are unchanged. A call with no agent connected waits 10 s
@@ -469,6 +469,12 @@ median 10 ms of CPU (8 to 19, as on the Modal path) and the Relay object 0 to 3 
 crosses in 1 s each way. Durable Object duration cannot outgrow the free plan: one object billed at
 128 MB, active around the clock, is 10,800 GB-s a day of the 13,000 allowed, and a hibernating
 socket is not active. Requests: about 10 per generation, against 100,000 a day.
+
+**Pause.** The agent's tray has "Stop taking image requests": the agent stays connected but sends
+a hello with `paused: true`, and the Worker then treats the PC as not there: Modal answers, or,
+with no other generator, the tools say the PC is paused. The Worker's page shows it paused, not
+offline. The pause is not saved: a restart takes requests again, so a forgotten pause cannot send
+every image to Modal for days.
 
 The agent (`packages/agent`) reconnects at once after a drop, then backs off (1 s to 60 s),
 resetting after a connection that lasted a minute; it pings every 20 s, answered by the runtime.

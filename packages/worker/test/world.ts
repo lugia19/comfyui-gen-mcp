@@ -144,6 +144,7 @@ export class FakeRelay implements RelayStub {
   };
   controlCalls: [string, any][] = [];
   dropped = 0;
+  paused = false; // the agent's tray pause, as its hello reports it
 
   async request(req: RelayRequest): Promise<RelayReply> {
     if (!this.connected) return { status: 503, body: utf8("offline"), offline: true };
@@ -161,7 +162,7 @@ export class FakeRelay implements RelayStub {
   }
 
   async status(): Promise<RelayStatus> {
-    return { connected: this.connected, since: this.connected ? 1000 : null, info: this.connected ? { version: "t", gpu: "nvidia" } : null };
+    return { connected: this.connected, since: this.connected ? 1000 : null, info: this.connected ? { version: "t", gpu: "nvidia", paused: this.paused } : null };
   }
 
   async drop(): Promise<void> {

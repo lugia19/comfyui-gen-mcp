@@ -45,6 +45,10 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
   await machine.comfy.refresh();
 
   let client: RelayClient | null = null;
+  // Paused from the tray: connected, but not taking image requests (the Worker uses Modal, or says
+  // the PC is paused). Not saved: a restart takes requests again, so a forgotten pause cannot
+  // quietly send every image to Modal for days.
+  let paused = false;
   const settingsUrl = `http://127.0.0.1:${cfg.port}/`;
   const handle = agentHandler({
     machine,
@@ -64,7 +68,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
       workerUrl: cfg.worker_url,
       secret: cfg.secret,
       handle,
-      hello: () => ({ version: opts.version, platform: process.platform, gpu: machine.comfy.install?.gpu ?? cfg.gpu ?? null, comfyui: machine.comfy.state }),
+      hello: () => ({ version: opts.version, platform: process.platform, gpu: machine.comfy.install?.gpu ?? cfg.gpu ?? null, comfyui: machine.comfy.state, paused }),
     });
     client.start();
   };
@@ -80,6 +84,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     },
     reconnect,
     relay: () => client,
+    paused: () => paused,
     web: opts.web,
   });
 
@@ -101,7 +106,17 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
 
   const trouble = () =>
     !cfg.worker_url ? "not paired with a Worker" : client && client.state !== "connected" ? "not connected to your Worker" : null;
-  const tray = opts.trayIcons ? await machineTray(machine, opts.trayIcons, settingsUrl, trouble) : null;
+  const tray = opts.trayIcons
+    ? await machineTray(machine, opts.trayIcons, settingsUrl, trouble, {
+        title: () => (paused ? "Take image requests again" : "Stop taking image requests"),
+        note: () => (paused ? "not taking requests" : null),
+        onClick: () => {
+          paused = !paused;
+          log.info(paused ? "Paused: not taking image requests" : "Taking image requests again");
+          client?.refreshHello();
+        },
+      })
+    : null;
 
   let closing = false;
   const close = async () => {

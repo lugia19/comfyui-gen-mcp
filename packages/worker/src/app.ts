@@ -11,7 +11,7 @@ import {
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
-import { PC_OFFLINE, PcHooks, WorkerHooks } from "./hooks.ts";
+import { PC_OFFLINE, PC_PAUSED, PcHooks, WorkerHooks } from "./hooks.ts";
 import * as modalAdmin from "./modal-admin.ts";
 import { bodyJson, error, json, withUserAgent, type Fetch, type Platform } from "./platform.ts";
 import { render, text } from "./render.ts";
@@ -126,15 +126,19 @@ export class App {
    * its hooks then say it is offline), otherwise the configured one (Modal, or a ComfyUI URL).
    * One Durable Object call when a PC is paired.
    */
-  private async generator(s: Secrets): Promise<{ kind: "pc" | "modal" | "url"; client: ComfyUIClient } | null> {
+  private async generator(s: Secrets): Promise<{ kind: "pc" | "modal" | "url"; client: ComfyUIClient; paused?: boolean } | null> {
     if (this.pcPaired(s)) {
       let online = false;
+      let paused = false; // from the agent's tray: connected, but not taking requests
       try {
-        online = (await this.p.relay!.status()).connected;
+        const st = await this.p.relay!.status();
+        online = st.connected;
+        paused = st.connected && st.info?.paused === true;
       } catch {
         // the relay object is unreachable: treat the PC as offline
       }
-      if (online || !s.generator?.base_url) return { kind: "pc", client: this.pcClient() };
+      if (online && !paused) return { kind: "pc", client: this.pcClient() };
+      if (!s.generator?.base_url) return { kind: "pc", client: this.pcClient(), paused };
     }
     const client = this.client(s.generator);
     return client ? { kind: s.generator.kind === "modal" ? "modal" : "url", client } : null;
@@ -156,6 +160,7 @@ export class App {
       if (!served.has(name)) throw new UnknownTool(name);
       const gen = await this.generator(s);
       if (!gen) return [[text(`Error: the image generator is not set up yet. Finish setup at ${url.origin}/`)], true];
+      if (gen.paused) return [[text(`Error: ${PC_PAUSED}`)], true];
       if (name === "request_upload") return uploads.requestUpload(args, url.origin, key, this.p.now());
       const settingsUrl = `${url.origin}/`;
       const cfg = gen.kind === "pc" ? pcCfg! : modalCfg;

@@ -137,6 +137,8 @@ export class WorkerHooks extends Hooks {
   }
 }
 
+export const PC_PAUSED =
+  "Your PC is paused: it is not taking image requests. Take requests again from the Comfy-Gen tray icon on it, then try again.";
 export const PC_OFFLINE =
   "Your PC is offline. Start it (the Comfy-Gen agent starts with it), or check its tray icon, then try again.";
 // Starting ComfyUI and installing a node package can take minutes; the MCP client gives up at 5.

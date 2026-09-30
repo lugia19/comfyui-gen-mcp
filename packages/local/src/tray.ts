@@ -140,37 +140,68 @@ const STATE_COLORS: Record<string, TrayColor> = {
   running: "green", external: "green", stopped: "yellow", starting: "yellow", failed: "red", not_installed: "red",
 };
 
+/** An extra tray item for one program (the agent's pause), and the note it adds to the status. */
+export type TrayExtra = { title: () => string; onClick: () => void; note: () => string | null };
+
 /**
  * The tray for a machine: Open settings, the status, Restart and Stop ComfyUI. The icon's color is
  * the state at a glance: green running, yellow stopped or starting, red when something needs the
  * user (ComfyUI failed or is not installed, a download failed, or whatever *trouble* reports, such
- * as the agent's lost connection).
+ * as the agent's lost connection). A requested Restart or Stop shows "Starting…" or "Stopping…" at
+ * once, not the old state until it is done. *extra* adds a program's own item after the status
+ * (the agent's pause); its note shows in the status and turns green yellow.
  */
 export async function machineTray(
   machine: Machine,
   icons: Record<TrayColor, Uint8Array>,
   settingsUrl: string,
   trouble: () => string | null = () => null,
+  extra?: TrayExtra,
 ): Promise<Tray | null> {
   const { comfy, downloads } = machine;
+  let action: string | null = null; // "starting" or "stopping" while a tray action runs
   const status = () => {
-    const extra = trouble() ?? (downloads.failed() ? "a model download failed" : null);
-    return `ComfyUI: ${comfy.state.replace("_", " ")}${extra ? ` (${extra})` : ""}`;
+    const note = trouble() ?? (downloads.failed() ? "a model download failed" : null) ?? extra?.note() ?? null;
+    const state = action ? `${action}…` : comfy.state.replace("_", " ");
+    return `ComfyUI: ${state}${note ? ` (${note})` : ""}`;
   };
-  const color = (): TrayColor => (trouble() || downloads.failed() ? "red" : STATE_COLORS[comfy.state] ?? "yellow");
+  const color = (): TrayColor => {
+    if (trouble() || downloads.failed()) return "red";
+    if (action) return "yellow";
+    const byState = STATE_COLORS[comfy.state] ?? "yellow";
+    return byState === "green" && extra?.note() ? "yellow" : byState;
+  };
   let shown = color();
-  const t = await Tray.start(machine.p, icons[shown], `Comfy-Gen-MCP: ${status()}`, [
+  let shownTip = `Comfy-Gen-MCP: ${status()}`;
+  const items: TrayItem[] = [
     { title: "Open settings", onClick: () => openExternal(settingsUrl) },
     { title: status() }, // enabled: a disabled item is too faint to read (seen on Windows); clicking does nothing
-    { title: "Restart ComfyUI", onClick: () => void comfy.restart().catch((e) => log.error("Restart failed:", e)) },
-    { title: "Stop ComfyUI", onClick: () => void comfy.stop() },
-  ]);
-  if (t) {
-    setInterval(() => {
-      t.update(1, { title: status() });
-      const now = color();
-      if (now !== shown) t.setIcon(icons[(shown = now)], `Comfy-Gen-MCP: ${status()}`);
-    }, 2000).unref();
+    ...(extra ? [{ title: extra.title(), onClick: () => (extra.onClick(), refresh()) }] : []),
+    { title: "Restart ComfyUI", onClick: () => run("starting", () => comfy.restart()) },
+    { title: "Stop ComfyUI", onClick: () => run("stopping", () => comfy.stop()) },
+  ];
+  const t = await Tray.start(machine.p, icons[shown], shownTip, items);
+
+  function refresh(): void {
+    if (!t) return;
+    t.update(1, { title: status() });
+    if (extra) t.update(2, { title: extra.title() });
+    const now = color();
+    const tip = `Comfy-Gen-MCP: ${status()}`;
+    if (now !== shown || tip !== shownTip) t.setIcon(icons[(shown = now)], (shownTip = tip));
   }
+
+  function run(label: string, act: () => Promise<unknown>): void {
+    action = label;
+    refresh();
+    act()
+      .catch((e) => log.error(`${label} ComfyUI failed:`, e))
+      .finally(() => {
+        action = null;
+        refresh();
+      });
+  }
+
+  if (t) setInterval(refresh, 2000).unref();
   return t;
 }

@@ -180,7 +180,8 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
     are not what Claude is told in this mode, so the user must keep them in sync with the PC's.
   - The trigger pre-filled from a LoRA's filename drops the `@` that Anima's artist tags use
     (`zzzhodazzz` for a LoRA whose trigger is `@zzzhodazzz`).
-- **Agent page: an "Edit main settings" button.** The agent's page says "Model and style settings
+- **Agent page: an "Edit main settings" button.** Done 2026-09-30: it opens the Worker's
+  `#settings-pc`. The agent's page says "Model and style settings
   are on the Worker's page" in small text with a bare link. Make it a prominent **Edit main
   settings** button that opens the Worker's settings.
 - **Remove custom workflows.** Done 2026-09-30 (design §3, "Custom workflows (removed)"). Decided 2026-09-30: `generate_custom_image` goes. It is barely
@@ -200,13 +201,16 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   An edit by `image_id` of an older image can silently edit a different one. The id needs the
   backend in it (or unique output names per backend); ids are a stored format pinned by
   `test/golden.json`, so this needs a migration that keeps old ids resolving to Modal.
-- **Tray tooltip shows actions in progress.** When Start or Stop ComfyUI is requested, the tooltip
+- **Tray tooltip shows actions in progress.** Done 2026-09-30 (the status item and tooltip say
+  "starting…" or "stopping…" at once). When Start or Stop ComfyUI is requested, the tooltip
   should say "Starting…" or "Stopping…" right away, not keep the old state until the action is done.
-- **Agent tray: a Stop option for serving.** Sometimes the PC should not answer image requests at
+- **Agent tray: a Stop option for serving.** Done 2026-09-30 (design §9, "Pause"; not saved across
+  restarts). Sometimes the PC should not answer image requests at
   all (gaming, say). The tray menu needs a toggle that stops the agent taking requests without
   quitting it, so Modal answers (or, PC-only, the tools say the PC is paused); the Worker's page
   should show it as paused rather than offline.
-- **"Models on your PC" goes stale.** `Models.svelte` re-checks only while a pack is queued or
+- **"Models on your PC" goes stale.** Done 2026-09-30 (both lists back off from 5 s to 5 minutes);
+  its `cpuTimeMs` is still to be read on the next live test. `Models.svelte` re-checks only while a pack is queued or
   downloading, and for the PC "Not downloaded" is not busy, so a page opened with every PC model
   missing checks once and stops. Downloads a tool call starts (the first image asks for its model)
   then never show until a reload. Keep checking the PC list while Settings is open, backing off

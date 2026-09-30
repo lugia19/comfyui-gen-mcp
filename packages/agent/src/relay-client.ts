@@ -162,6 +162,11 @@ export class RelayClient {
     this.timer.unref?.();
   }
 
+  /** Tell the Worker what changed (the pause), with a fresh hello: it keeps the latest. */
+  refreshHello(): void {
+    if (this.state === "connected") this.send(relay.encodeMessage({ kind: "hello", info: this.opts.hello() }));
+  }
+
   private send(frames: (string | Uint8Array)[]): void {
     const ws = this.ws;
     if (!ws || ws.readyState !== 1) return;

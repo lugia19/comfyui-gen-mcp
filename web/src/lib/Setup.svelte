@@ -260,7 +260,7 @@
     n={num('pc')}
     title="Run the agent on your PC"
     status={status(pc?.connected)}
-    summary={pc?.connected ? `Connected${pc.info?.gpu ? `, GPU: ${pc.info.gpu}` : ''}` : ''}
+    summary={pc?.connected ? `${pc.info?.paused ? 'Paused' : 'Connected'}${pc.info?.gpu ? `, GPU: ${pc.info.gpu}` : ''}` : ''}
   >
     {#if !pc?.paired}
       <p>First, make the link that lets your PC connect to this Worker.</p>
@@ -289,7 +289,11 @@
       </ol>
       {#if pc.connected}
         <p>
-          <b class="ok">Connected</b> <span class="muted">since {since(pc.since)}</span>
+          {#if pc.info?.paused}
+            <b>Paused</b> <span class="muted">from its tray icon: not taking image requests{choice === 'both' ? ', so Modal answers' : ''}.</span>
+          {:else}
+            <b class="ok">Connected</b> <span class="muted">since {since(pc.since)}</span>
+          {/if}
           {#if pc.info}<span class="muted">· agent {pc.info.version} on {pc.info.platform}{#if pc.info.gpu}, GPU: {pc.info.gpu}{/if}</span>{/if}
         </p>
         <p class="muted">The agent starts with your PC from now on. {choice === 'both' ? 'While the PC is off, Modal answers.' : ''}</p>

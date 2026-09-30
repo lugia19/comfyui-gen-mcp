@@ -58,6 +58,9 @@
       <span class="muted">to <code>{worker.url}</code></span>
     </p>
     {#if worker.error}<p class="err">{worker.error}</p>{/if}
+    {#if worker.paused}
+      <p><b>Paused:</b> not taking image requests. Take them again from the Comfy-Gen tray icon.</p>
+    {/if}
     <p class="muted">Claude (claude.ai, the phone app) generates on this PC through your Worker while it is connected.</p>
     <p>
       <a class="button" href="{worker.url}/#settings-pc" target="_blank" rel="noopener">Edit main settings</a>

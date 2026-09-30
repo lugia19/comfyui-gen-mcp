@@ -17,6 +17,8 @@ export type AgentServices = {
   /** (Re)connect with the current pairing, or disconnect if there is none. */
   reconnect(): void;
   relay(): RelayClient | null;
+  /** Paused from the tray: not taking image requests. */
+  paused?(): boolean;
   web: WebFiles;
 };
 
@@ -100,6 +102,7 @@ export class AgentApp {
         state: client?.state ?? "unpaired",
         error: client?.lastError ?? null,
         since: client?.connectedSince ?? null,
+        paused: this.s.paused?.() ?? false,
       },
       config: { comfyui_url: cfg.comfyui_url, extra_models_dir: cfg.extra_models_dir },
     };
