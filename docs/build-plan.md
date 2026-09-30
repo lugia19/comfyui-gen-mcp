@@ -182,6 +182,15 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
 - **Agent page: an "Edit main settings" button.** The agent's page says "Model and style settings
   are on the Worker's page" in small text with a bare link. Make it a prominent **Edit main
   settings** button that opens the Worker's settings.
+- **Remove custom workflows.** Decided 2026-09-30: `generate_custom_image` goes. It is barely
+  documented, it threads through every layer (the config field, `parseCustomWorkflow`'s guessing of
+  prompt node and samplers, `customPack` in `brain.ts`, the node-inventory check and the relay's
+  `inventory` operation, its tool spec, `CustomWorkflow.svelte` and its Worker and MCPB routes, the
+  Modal exclusion and the PC-offline answer), and it cannot be tested beyond a few workflows, since
+  it takes any graph with any nodes. People with their own workflows already run ComfyUI, and can
+  point the agent at it ("Your own ComfyUI"). Removing it first also shrinks the settings split and
+  the image-id fix. A `custom_workflow` already stored in the State DO is ignored on read (not
+  pinned by `test/golden.json`, so no migration). Do it before those two.
 - **Image ids collide between the PC and Modal.** An id is a signed `[type, subfolder, filename]`
   (`refs.ts`) with no backend in it, and each ComfyUI numbers its outputs from
   `comfy-gen_00001_.png`. On the test install the PC's first image (a fox) got exactly the id of

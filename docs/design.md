@@ -214,6 +214,9 @@ about three fetches.
 
 ### Custom workflows
 
+**Being removed** (decided 2026-09-30, see the build plan): too much machinery for a barely used,
+untestable feature. The description below holds until the removal lands.
+
 For generators with the user's own models and nodes: the MCPB's local ComfyUI and the PC agent.
 The Worker does not offer `generate_custom_image` when the generator is Modal (decided in M4): the
 Modal image has only core ComfyUI plus ComfyUI-GGUF and the Volume only the packs' model files, so
