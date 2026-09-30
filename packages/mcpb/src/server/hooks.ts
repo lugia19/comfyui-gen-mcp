@@ -1,16 +1,14 @@
-// The MCPB's machine hooks for the brain: the local ComfyUI must be running with the pack's nodes
-// and models; edit_image takes paths on this machine (Claude Desktop runs here) or URLs.
+// The MCPB's machine hooks for the brain: the local ComfyUI must be ready for the pack (Machine's
+// ensurePack, shared with the agent); edit_image takes paths on this machine (Claude Desktop runs
+// here) or URLs.
 
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  ComfyUIError, Hooks, downloadSize, imageSize, refs, requiredNodes, sniffMime,
-  type ComfyUIClient, type Pack, type ResolvedImage,
-} from "@comfy-gen/core";
-import { USER_AGENT, type LocalComfy, type ModelDownloads } from "@comfy-gen/local";
+import { ComfyUIError, Hooks, imageSize, refs, sniffMime, type ComfyUIClient, type Pack, type ResolvedImage } from "@comfy-gen/core";
+import { USER_AGENT, type Machine } from "@comfy-gen/local";
 
 export const MAX_IMAGE_BYTES = 50_000_000;
 // ComfyUI's own annotated names ("sub/file.png [output]"), as the result text gives them for a
@@ -18,39 +16,23 @@ export const MAX_IMAGE_BYTES = 50_000_000;
 const ANNOTATED = / \[(output|input|temp)\]$/;
 
 export class LocalHooks extends Hooks {
-  private comfy: LocalComfy;
-  private downloads: ModelDownloads;
+  private machine: Machine;
   private client: ComfyUIClient;
   private settingsUrl: string;
 
-  constructor(comfy: LocalComfy, downloads: ModelDownloads, client: ComfyUIClient, settingsUrl: string) {
+  constructor(machine: Machine, client: ComfyUIClient, settingsUrl: string) {
     super();
-    this.comfy = comfy;
-    this.downloads = downloads;
+    this.machine = machine;
     this.client = client;
     this.settingsUrl = settingsUrl;
   }
 
+  get comfy() {
+    return this.machine.comfy;
+  }
+
   async ensure(pack: Pack): Promise<void> {
-    await this.comfy.refresh();
-    if (this.comfy.state === "not_installed") await this.comfy.ensureRunning(); // throws: install first
-    const managed = this.comfy.state !== "external";
-    if (managed && pack.models?.length) {
-      const name = pack.display_name ?? pack.name;
-      let status = this.downloads.status(pack.name, pack.models);
-      if (status.state === "missing" || status.state === "failed") status = this.downloads.start(pack.name, pack.models);
-      if (status.state !== "done") {
-        const pct = status.total ? Math.floor((100 * status.done) / status.total) : 0;
-        const gb = (n: number) => `${(n / 1e9).toFixed(1)} GB`;
-        const part = status.total < downloadSize(pack) ? ` (the rest of its ${gb(downloadSize(pack))} is already on this computer)` : "";
-        throw new ComfyUIError(
-          `The ${name} model is downloading: ${pct}% of ${gb(status.total)}${part}. ` +
-            `Try again when it is done; progress is on the settings page, ${this.settingsUrl}`,
-        );
-      }
-    }
-    await this.comfy.ensureRunning();
-    await this.comfy.ensureNodes(requiredNodes(pack));
+    await this.machine.ensurePack(pack, this.settingsUrl);
   }
 
   async resolveImage(arg: string): Promise<ResolvedImage> {

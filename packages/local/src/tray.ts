@@ -8,7 +8,11 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { fetchFile, log, run, type Paths } from "@comfy-gen/local";
+import { fetchFile } from "./fetchfile.ts";
+import { log } from "./log.ts";
+import type { Machine } from "./machine.ts";
+import type { Paths } from "./paths.ts";
+import { openExternal, run } from "./proc.ts";
 
 const TARBALL = "https://registry.npmjs.org/systray2/-/systray2-2.1.4.tgz";
 const TARBALL_SHA256 = "24a176933952c4db79026dcec25c7acf48e5c1cee5d94bc6b87740060bc8ed00";
@@ -129,4 +133,44 @@ export class Tray {
     this.send({ type: "exit" });
     setTimeout(() => this.child.kill(), 500).unref();
   }
+}
+
+export type TrayColor = "yellow" | "green" | "red";
+const STATE_COLORS: Record<string, TrayColor> = {
+  running: "green", external: "green", stopped: "yellow", starting: "yellow", failed: "red", not_installed: "red",
+};
+
+/**
+ * The tray for a machine: Open settings, the status, Restart and Stop ComfyUI. The icon's color is
+ * the state at a glance: green running, yellow stopped or starting, red when something needs the
+ * user (ComfyUI failed or is not installed, a download failed, or whatever *trouble* reports, such
+ * as the agent's lost connection).
+ */
+export async function machineTray(
+  machine: Machine,
+  icons: Record<TrayColor, Uint8Array>,
+  settingsUrl: string,
+  trouble: () => string | null = () => null,
+): Promise<Tray | null> {
+  const { comfy, downloads } = machine;
+  const status = () => {
+    const extra = trouble() ?? (downloads.failed() ? "a model download failed" : null);
+    return `ComfyUI: ${comfy.state.replace("_", " ")}${extra ? ` (${extra})` : ""}`;
+  };
+  const color = (): TrayColor => (trouble() || downloads.failed() ? "red" : STATE_COLORS[comfy.state] ?? "yellow");
+  let shown = color();
+  const t = await Tray.start(machine.p, icons[shown], `Comfy-Gen-MCP: ${status()}`, [
+    { title: "Open settings", onClick: () => openExternal(settingsUrl) },
+    { title: status() }, // enabled: a disabled item is too faint to read (seen on Windows); clicking does nothing
+    { title: "Restart ComfyUI", onClick: () => void comfy.restart().catch((e) => log.error("Restart failed:", e)) },
+    { title: "Stop ComfyUI", onClick: () => void comfy.stop() },
+  ]);
+  if (t) {
+    setInterval(() => {
+      t.update(1, { title: status() });
+      const now = color();
+      if (now !== shown) t.setIcon(icons[(shown = now)], `Comfy-Gen-MCP: ${status()}`);
+    }, 2000).unref();
+  }
+  return t;
 }

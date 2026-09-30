@@ -10,20 +10,14 @@ import { request as httpRequest } from "node:http";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { McpHandler, toolSpecs } from "@comfy-gen/core";
-import { loadConfig, log, logTo, openExternal, paths, type Paths } from "@comfy-gen/local";
-import { PACKS, type Services } from "./server/app.ts";
+import { loadConfig, log, logTo, machineTray, paths, type Paths, type Tray, type TrayColor, type WebFiles } from "@comfy-gen/local";
+import { PACKS } from "./server/app.ts";
 import { startServer, type RunningServer } from "./server/server.ts";
-import { Tray } from "./tray.ts";
-
-export type TrayColor = "yellow" | "green" | "red";
-const STATE_COLORS: Record<string, TrayColor> = {
-  running: "green", external: "green", stopped: "yellow", starting: "yellow", failed: "red", not_installed: "red",
-};
 
 export type MainOptions = {
   version: string;
   waitExtension: string;
-  web: Services["web"];
+  web: WebFiles;
   trayIcons?: Record<TrayColor, Uint8Array>; // .ico on Windows, .png elsewhere
   paths?: Paths;
   stdin?: Readable;
@@ -97,28 +91,8 @@ export async function main(opts: MainOptions): Promise<void> {
     return true;
   };
 
-  // The icon's color is the state at a glance: green running, yellow stopped or starting, red when
-  // something needs the user (ComfyUI failed or is not installed, a download failed).
-  const startTray = async (server: RunningServer, icons: Record<TrayColor, Uint8Array>): Promise<Tray | null> => {
-    const { comfy, downloads } = server.app.s;
-    const status = () => `ComfyUI: ${comfy.state.replace("_", " ")}${downloads.failed() ? " (a model download failed)" : ""}`;
-    const color = (): TrayColor => (downloads.failed() ? "red" : STATE_COLORS[comfy.state] ?? "yellow");
-    let shown = color();
-    const t = await Tray.start(p, icons[shown], `Comfy-Gen-MCP: ${status()}`, [
-      { title: "Open settings", onClick: () => openExternal(server.app.settingsUrl) },
-      { title: status() }, // enabled: a disabled item is too faint to read (seen on Windows); clicking does nothing
-      { title: "Restart ComfyUI", onClick: () => void comfy.restart().catch((e) => log.error("Restart failed:", e)) },
-      { title: "Stop ComfyUI", onClick: () => void comfy.stop() },
-    ]);
-    if (t) {
-      setInterval(() => {
-        t.update(1, { title: status() });
-        const now = color();
-        if (now !== shown) t.setIcon(icons[(shown = now)], `Comfy-Gen-MCP: ${status()}`);
-      }, 2000).unref();
-    }
-    return t;
-  };
+  const startTray = (server: RunningServer, icons: Record<TrayColor, Uint8Array>): Promise<Tray | null> =>
+    machineTray(server.app.s.machine, icons, server.app.settingsUrl);
 
   let foreign = false;
   if (!(await becomeOwner())) {

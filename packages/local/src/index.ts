@@ -13,3 +13,6 @@ export * from "./models.ts";
 export * from "./discover.ts";
 export * from "./downloads.ts";
 export * from "./comfyui.ts";
+export * from "./http.ts";
+export * from "./machine.ts";
+export * from "./tray.ts";

@@ -2,8 +2,8 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadConfig, ModelDownloads, ModelLocator, paths, saveConfig, type LocalComfy } from "@comfy-gen/local";
-import { LocalApp, type InstallState, type Services } from "../src/server/app.ts";
+import { loadConfig, Machine, ModelLocator, paths, saveConfig, type LocalComfy } from "@comfy-gen/local";
+import { LocalApp, type Services } from "../src/server/app.ts";
 
 const PORT = 9247;
 
@@ -25,16 +25,17 @@ function world(overrides: Partial<Services> = {}) {
     nodeClasses: async () => new Set(["EmptyImage", "SaveImage"]),
     job: (fn: () => Promise<unknown>) => fn(),
   } as unknown as LocalComfy;
-  const installState: InstallState = { state: "idle", gpu: null, lines: [], error: null };
+  const machine = new Machine({
+    paths: p, settings: () => loadConfig(p.config), saveGpu: () => {}, waitExtension: "", comfy, openFolder: (path) => opened.push(path),
+  });
+  machine.startInstall = (gpu) => void installs.push(gpu);
+  machine.detectedGpu = async () => "nvidia";
   const services: Services = {
-    paths: p, version: "1.2.3", port: PORT,
+    version: "1.2.3", port: PORT,
     config: () => loadConfig(p.config),
     saveConfig: (cfg) => (saveConfig(p.config, cfg), loadConfig(p.config)),
-    comfy, downloads: new ModelDownloads(models_), downloadSelected: () => void downloadsStarted++,
-    install: { state: () => installState, start: (gpu) => installs.push(gpu) },
-    detectedGpu: async () => "nvidia",
+    machine, downloadSelected: () => void downloadsStarted++,
     web: (path) => (path === "/index.html" ? { body: new TextEncoder().encode("<html>app</html>"), type: "text/html" } : null),
-    openFolder: (path) => opened.push(path),
     ...overrides,
   };
   const app = new LocalApp(services);
