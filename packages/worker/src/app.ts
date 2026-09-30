@@ -107,6 +107,16 @@ export class App {
     });
   }
 
+  private pcClient(): ComfyUIClient {
+    return new ComfyUIClient(new RelayTransport(this.p.relay!), { requestBudget: PC_REQUEST_BUDGET, sleep: this.p.sleep, now: this.p.now });
+  }
+
+  /** The client for images on *backend* (an image id names it), or null if it is not set up. */
+  private clientFor(s: Secrets, backend: refs.Backend): ComfyUIClient | null {
+    if (backend === "pc") return this.pcPaired(s) ? this.pcClient() : null;
+    return this.client(s.generator);
+  }
+
   private pcPaired(s: Secrets): boolean {
     return Boolean(s.agent_secret && this.p.relay);
   }
@@ -124,10 +134,7 @@ export class App {
       } catch {
         // the relay object is unreachable: treat the PC as offline
       }
-      if (online || !s.generator?.base_url) {
-        const client = new ComfyUIClient(new RelayTransport(this.p.relay!), { requestBudget: PC_REQUEST_BUDGET, sleep: this.p.sleep, now: this.p.now });
-        return { kind: "pc", client };
-      }
+      if (online || !s.generator?.base_url) return { kind: "pc", client: this.pcClient() };
     }
     const client = this.client(s.generator);
     return client ? { kind: s.generator.kind === "modal" ? "modal" : "url", client } : null;
@@ -152,12 +159,14 @@ export class App {
       if (name === "request_upload") return uploads.requestUpload(args, url.origin, key, this.p.now());
       const settingsUrl = `${url.origin}/`;
       const cfg = gen.kind === "pc" ? pcCfg! : modalCfg;
+      const backend: refs.Backend = gen.kind === "pc" ? "pc" : "main";
+      const source = (b: refs.Backend) => this.clientFor(s, b); // an image id from the other backend
       const hooks =
         gen.kind === "pc"
-          ? new PcHooks(gen.client, key, this.fetch, this.store, settingsUrl, this.p.relay!, cfg.keep_warm_minutes)
-          : new WorkerHooks(gen.client, key, this.fetch, modalAdmin.forGenerator(this.fetch, s.generator), this.store, settingsUrl);
+          ? new PcHooks(gen.client, key, this.fetch, this.store, settingsUrl, this.p.relay!, cfg.keep_warm_minutes, source)
+          : new WorkerHooks(gen.client, key, this.fetch, modalAdmin.forGenerator(this.fetch, s.generator), this.store, settingsUrl, "main", source);
       const brain = new Brain(PACKS, cfg, gen.client, "refs", { hooks });
-      return render(await brain.call(name, args), gen.client, url.origin, key);
+      return render(await brain.call(name, args), gen.client, url.origin, key, backend);
     };
 
     const handler = new McpHandler("Comfy-Gen-MCP", this.version, specs, call, INSTRUCTIONS);
@@ -170,15 +179,16 @@ export class App {
 
   private async image(ref: string): Promise<Response> {
     const s = await this.store.secrets();
-    let image;
+    let image, backend;
     try {
-      image = await refs.verify(ref, hmacKey(s));
+      ({ image, backend } = await refs.verify(ref, hmacKey(s)));
     } catch (e) {
       if (e instanceof refs.RefError) return error(404, "not found");
       throw e;
     }
-    const client = (await this.generator(s))?.client;
-    if (!client) return error(503, "generator not set up");
+    // Served by the backend that made it, whichever answers calls now.
+    const client = this.clientFor(s, backend);
+    if (!client) return error(404, backend === "pc" ? "the PC that made this image is no longer paired" : "generator not set up");
     try {
       const resp = await client.view(image);
       return new Response(resp.content, {
@@ -193,9 +203,9 @@ export class App {
 
   private async upload(req: Request, token: string): Promise<Response> {
     const s = await this.store.secrets();
-    const client = (await this.generator(s))?.client;
-    if (!client) return error(503, "generator not set up");
-    return uploads.receive(token, new Uint8Array(await req.arrayBuffer()), client, hmacKey(s), this.p.now());
+    const gen = await this.generator(s);
+    if (!gen) return error(503, "generator not set up");
+    return uploads.receive(token, new Uint8Array(await req.arrayBuffer()), gen.client, hmacKey(s), this.p.now(), gen.kind === "pc" ? "pc" : "main");
   }
 
   // ── builds ────────────────────────────────────────────────────────

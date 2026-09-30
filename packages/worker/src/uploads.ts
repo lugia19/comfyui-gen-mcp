@@ -75,7 +75,14 @@ export async function requestUpload(args: Record<string, any>, baseUrl: string, 
 }
 
 /** POST /upload/<token>: store the body in ComfyUI's input folder, answer with its image id. */
-export async function receive(token: string, body: Uint8Array, client: ComfyUIClient, key: Uint8Array, now: number): Promise<Response> {
+export async function receive(
+  token: string,
+  body: Uint8Array,
+  client: ComfyUIClient,
+  key: Uint8Array,
+  now: number,
+  backend: refs.Backend = "main",
+): Promise<Response> {
   let nonce: string;
   try {
     nonce = await refs.checkUpload(token, key, now);
@@ -86,7 +93,7 @@ export async function receive(token: string, body: Uint8Array, client: ComfyUICl
   if (!body.length) return error(400, "empty body");
   try {
     const [image, mime] = await storeInput(client, body, nonce);
-    return json({ image_id: await refs.sign(image, key), bytes: body.length, mime });
+    return json({ image_id: await refs.sign(image, key, backend), bytes: body.length, mime });
   } catch (e) {
     if (e instanceof BadImage) return error(e.status, e.message);
     if (e instanceof ComfyUIError) return error(502, e.message);

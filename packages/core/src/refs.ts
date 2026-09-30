@@ -6,6 +6,12 @@
 // Upload tokens carry an expiry and a random nonce, also signed. The upload they authorize lands
 // under a name derived from the nonce, so a replay within the expiry overwrites the same file.
 //
+// An image lives on the backend that made it (or took the upload), and each ComfyUI numbers its
+// files from comfy-gen_00001_, so an id also names its backend. The main generator's ids (Modal,
+// or a ComfyUI URL) are [type, subfolder, filename], the format every id had before the PC path;
+// the paired PC's add a fourth element, "pc". So ids issued before the PC existed keep resolving
+// to the main generator.
+//
 // The formats are a compatibility surface (test/golden.json pins them): ids in users' chats must
 // keep verifying. Ids for non-ASCII names issued by v0 (the Python Worker) spell them as \uXXXX in
 // the payload; those still verify, and new ones spell them directly.
@@ -17,6 +23,9 @@ import { EXTENSIONS } from "./images.ts";
 const MAC_BYTES = 16;
 const TYPES = ["output", "input"];
 export const UPLOAD_SUBFOLDER = "comfy-gen-uploads";
+
+/** Where an image lives: the main generator, or the paired PC. */
+export type Backend = "main" | "pc";
 
 /** A reference or token is malformed, forged or expired. The message is meant for the model. */
 export class RefError extends Error {
@@ -41,13 +50,14 @@ function decode(payload: string): unknown {
 }
 
 /** The image id the model sees. */
-export async function sign(image: OutputImage, key: Uint8Array): Promise<string> {
-  const payload = toBase64Url(utf8(JSON.stringify([image.type, image.subfolder, image.filename])));
+export async function sign(image: OutputImage, key: Uint8Array, backend: Backend = "main"): Promise<string> {
+  const fields = [image.type, image.subfolder, image.filename, ...(backend === "pc" ? ["pc"] : [])];
+  const payload = toBase64Url(utf8(JSON.stringify(fields)));
   return `${payload}.${await mac(key, payload)}`;
 }
 
-/** The image a reference points at. Throws RefError if it isn't one of ours. */
-export async function verify(ref: string, key: Uint8Array): Promise<OutputImage> {
+/** The image a reference points at, and its backend. Throws RefError if it isn't one of ours. */
+export async function verify(ref: string, key: Uint8Array): Promise<{ image: OutputImage; backend: Backend }> {
   const payload = await check(key, ref, "image id");
   let parsed: unknown;
   try {
@@ -55,12 +65,14 @@ export async function verify(ref: string, key: Uint8Array): Promise<OutputImage>
   } catch {
     throw new RefError("Invalid image id.");
   }
-  if (!Array.isArray(parsed) || parsed.length !== 3) throw new RefError("Invalid image id.");
+  if (!Array.isArray(parsed) || !(parsed.length === 3 || (parsed.length === 4 && parsed[3] === "pc"))) {
+    throw new RefError("Invalid image id.");
+  }
   const [kind, subfolder, filename] = parsed;
   if (!TYPES.includes(kind) || typeof filename !== "string" || typeof subfolder !== "string") {
     throw new RefError("Invalid image id.");
   }
-  return new OutputImage(filename, subfolder, kind);
+  return { image: new OutputImage(filename, subfolder, kind), backend: parsed.length === 4 ? "pc" : "main" };
 }
 
 /** A token authorizing one upload until now + ttlS. */

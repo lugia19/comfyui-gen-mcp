@@ -21,8 +21,16 @@ describe("golden: what users hold", () => {
   it("image ids: ASCII ones are identical, and every v0 id verifies", async () => {
     for (const { image, ref } of g.refs) {
       const img = new OutputImage(image[2], image[1], image[0]);
-      expect(await refs.verify(ref, KEY)).toEqual(img);
+      expect(await refs.verify(ref, KEY)).toEqual({ image: img, backend: "main" }); // ids from before the PC: the main generator
       if (/^[\x00-\x7f]*$/.test(image.join(""))) expect(await refs.sign(img, KEY)).toBe(ref);
+    }
+  });
+
+  it("image ids of the paired PC name it (added 2026-09-30)", async () => {
+    for (const { image, ref } of g.refs_pc) {
+      const img = new OutputImage(image[2], image[1], image[0]);
+      expect(await refs.verify(ref, KEY)).toEqual({ image: img, backend: "pc" });
+      expect(await refs.sign(img, KEY, "pc")).toBe(ref);
     }
   });
 

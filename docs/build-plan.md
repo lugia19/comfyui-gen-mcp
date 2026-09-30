@@ -192,7 +192,8 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   point the agent at it ("Your own ComfyUI"). Removing it first also shrinks the settings split and
   the image-id fix. A `custom_workflow` already stored in the State DO is ignored on read (not
   pinned by `test/golden.json`, so no migration). Do it before those two.
-- **Image ids collide between the PC and Modal.** An id is a signed `[type, subfolder, filename]`
+- **Image ids collide between the PC and Modal.** Done 2026-09-30 (design §4): the PC's ids add
+  `"pc"`, the main generator's keep the old format, `golden.json` pins both. An id is a signed `[type, subfolder, filename]`
   (`refs.ts`) with no backend in it, and each ComfyUI numbers its outputs from
   `comfy-gen_00001_.png`. On the test install the PC's first image (a fox) got exactly the id of
   Modal's first image (a girl by a window), and that id's `/img/` address then served the fox.

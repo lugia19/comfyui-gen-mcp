@@ -229,7 +229,12 @@ stored `custom_workflow` setting is dropped on read.
 - **References are opaque.** Claude sees an id, the brain maps it to a ComfyUI filename it owns. Never
   paths from the model (path traversal on the PC, cross-reading on a shared volume). An id is the
   ComfyUI location signed with an HMAC under the Worker's secret, so it cannot be forged and needs
-  no storage.
+  no storage. It also names its backend, since each ComfyUI numbers its outputs from
+  `comfy-gen_00001_`: the main generator's ids are `[type, subfolder, filename]`, the format of
+  every id before the PC path, and the PC's add `"pc"`. So ids issued before the PC resolve to the
+  main generator, `/img/` serves each id from its own backend, and an edit of the other backend's
+  image copies it into the answering ComfyUI's inputs first. (Found in the from-scratch test: the
+  PC's first image had exactly the id of Modal's first image.)
 - **Results are inline WebP.** claude.ai does not support `resource_link` (it shows "Resource links
   are not currently supported" and the model sees only the name and URL), while inline
   `ImageContent` is shown to the user and seen by the model, WebP included (S2, S2c). Every result
@@ -455,8 +460,9 @@ ComfyUI client, held waits and the brain are unchanged. A call with no agent con
 for a reconnect, then fails with "your PC is offline"; one whose agent drops mid-call fails with
 "the connection to your PC dropped". Timeouts: 120 s for a ComfyUI request (a held wait is 50 s),
 30 s for control, 240 s for `ensure`. The generator is chosen per call: the PC when paired and
-connected, else Modal, else the offline message. An `image_id` names a file on the generator that made it,
-so editing a Modal image while the PC answers (or the reverse) finds no file.
+connected, else Modal, else the offline message. An `image_id` names the backend that made it
+(§4): editing a Modal image while the PC answers copies it to the PC first, and the reverse copies
+from the PC, which fails with a clear message while the PC is off.
 
 Measured on the test install (appendix, "M6 live"): a warm relayed generation costs the Worker a
 median 10 ms of CPU (8 to 19, as on the Modal path) and the Relay object 0 to 3 ms; a 3 MB image

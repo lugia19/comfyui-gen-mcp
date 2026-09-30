@@ -80,7 +80,7 @@ describe("MCP", () => {
     expect(fromBase64(image.data)).toEqual(comfy.viewBody);
     expect(comfy.calls.find((c) => c[1] === "/view")![2]!.preview).toBe("webp;90");
     const ref = info.text.split("image_id: ")[1].split("\n")[0];
-    expect((await refs.verify(ref, fromHex((await secretsOf(app)).hmac_key))).filename).toBe("comfy-gen_00001_.png");
+    expect(await refs.verify(ref, fromHex((await secretsOf(app)).hmac_key))).toMatchObject({ image: { filename: "comfy-gen_00001_.png" }, backend: "main" });
     expect(info.text).toContain("/img/" + ref);
     const comfyCalls = net.calls.filter((c) => c[1].startsWith(COMFY));
     expect(comfyCalls.every((c) => c[2]["X-Test"] === "1")).toBe(true); // generator headers on every call
@@ -503,6 +503,47 @@ describe("the PC path", () => {
     expect(toolText(onModal)).toContain("being downloaded to your GPU");
     expect(pc.comfy.prompts.length).toBe(1);
     expect(net.adminCalls.length).toBeGreaterThan(0);
+  });
+
+  it("image ids name their backend: the PC's first image and the main generator's don't collide", async () => {
+    const { app, pc, comfy } = world();
+    await withGenerator(app);
+    await pair(app);
+    const key = fromHex((await secretsOf(app)).hmac_key);
+    const fox = png(64, 32);
+    const girl = png(32, 64);
+    pc.comfy.viewBody = fox;
+    comfy.viewBody = girl;
+    const bytes = async (r: Response) => new Uint8Array(await r.arrayBuffer());
+    const idOf = (r: any) => r.result.content.find((c: any) => c.text?.includes("image_id: ")).text.split("image_id: ")[1].split("\n")[0];
+
+    const [, onPc] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a fox" } });
+    pc.connected = false;
+    const [, onMain] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a girl" } }, 2);
+    const [pcId, mainId] = [idOf(onPc), idOf(onMain)];
+    // Both ComfyUIs named their first output comfy-gen_00001_.png; the ids still differ.
+    expect((await refs.verify(pcId, key)).image).toEqual((await refs.verify(mainId, key)).image);
+    expect(pcId).not.toBe(mainId);
+    // Ids from before the PC existed are the main generator's.
+    expect(mainId).toBe(await refs.sign(new OutputImage("comfy-gen_00001_.png", "", "output"), key));
+
+    pc.connected = true; // /img/ serves each from its own backend, whichever answers calls now
+    expect(await bytes(await app.handle(request("GET", `/img/${pcId}`)))).toEqual(fox);
+    expect(await bytes(await app.handle(request("GET", `/img/${mainId}`)))).toEqual(girl);
+
+    // Editing the main generator's image while the PC answers copies it to the PC first.
+    const uploads = pc.comfy.uploads.length;
+    const [, edited] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "at night", image: mainId } }, 3);
+    expect(edited.result.isError).toBe(false);
+    expect(pc.comfy.uploads.length).toBe(uploads + 1);
+    const sent = pc.comfy.uploads.at(-1)!;
+    expect(Buffer.from(sent).includes(Buffer.from(girl))).toBe(true); // the main generator's image, copied
+
+    // A PC image edited while the PC is off: the main generator cannot fetch it, and says so.
+    pc.connected = false;
+    const [, stuck] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "at night", image: pcId } }, 4);
+    expect(stuck.result.isError).toBe(true);
+    expect(toolText(stuck)).toContain("on your PC");
   });
 
   it("says the PC is offline when there is nothing else, and passes the agent's errors on", async () => {

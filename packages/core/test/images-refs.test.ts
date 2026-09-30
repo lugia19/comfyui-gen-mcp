@@ -51,7 +51,10 @@ describe("refs", () => {
   it("round trip, and tampering is rejected", async () => {
     const img = new OutputImage("comfy-gen_00001_.png", "sub", "output");
     const ref = await refs.sign(img, KEY);
-    expect(await refs.verify(ref, KEY)).toEqual(img);
+    expect(await refs.verify(ref, KEY)).toEqual({ image: img, backend: "main" });
+    const pcRef = await refs.sign(img, KEY, "pc");
+    expect(pcRef).not.toBe(ref); // the same file name on the PC is a different image
+    expect(await refs.verify(pcRef, KEY)).toEqual({ image: img, backend: "pc" });
     await expect(refs.verify(ref, utf8("other key".repeat(4)))).rejects.toBeInstanceOf(refs.RefError);
     const mac = ref.split(".")[1];
     const forged = (await refs.sign(new OutputImage("../../etc/passwd", "", "output"), utf8("attacker".repeat(4)))).split(".")[0];

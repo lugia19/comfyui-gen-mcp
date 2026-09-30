@@ -5,6 +5,10 @@
     {"image": ["input", "comfy-gen-uploads", "upload-abc.png"], "ref": "WyJpbnB1dCIsImNvbWZ5LWdlbi11cGxvYWRzIiwidXBsb2FkLWFiYy5wbmciXQ._6UatItAsTlEonMgRWIfgQ"},
     {"image": ["output", "sub dir", "café ☕.png"], "ref": "WyJvdXRwdXQiLCJzdWIgZGlyIiwiY2FmXHUwMGU5IFx1MjYxNS5wbmciXQ.XiTxwuBNuUPNn2MvAXs4_A"}
   ],
+  "refs_pc": [
+    {"image": ["output", "", "comfy-gen_00001_.png"], "ref": "WyJvdXRwdXQiLCIiLCJjb21meS1nZW5fMDAwMDFfLnBuZyIsInBjIl0.U_rOMcs55CHXTxgEXkDmHg"},
+    {"image": ["input", "comfy-gen-uploads", "upload-abc.png"], "ref": "WyJpbnB1dCIsImNvbWZ5LWdlbi11cGxvYWRzIiwidXBsb2FkLWFiYy5wbmciLCJwYyJd.uVkr-L-q8bd1jsoeIrJvKg"}
+  ],
   "upload_tokens": [
     {"now": 1800000000, "ttl": 600, "token": "WzE4MDAwMDA2MDAsIk5vbmNlXzEyMy1hYmMiXQ.LenX5vdMA2qvuLKQgDc9Iw", "nonce": "Nonce_123-abc"}
   ],

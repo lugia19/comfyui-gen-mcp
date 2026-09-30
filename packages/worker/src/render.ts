@@ -6,7 +6,13 @@ import { ComfyUIError, inlineImage, refs, textBlock, type ComfyUIClient, type Co
 export const text = textBlock;
 
 /** [content blocks, isError] for an outcome. */
-export async function render(outcome: Outcome, client: ComfyUIClient, baseUrl: string, hmacKey: Uint8Array): Promise<[Content[], boolean]> {
+export async function render(
+  outcome: Outcome,
+  client: ComfyUIClient,
+  baseUrl: string,
+  hmacKey: Uint8Array,
+  backend: refs.Backend = "main",
+): Promise<[Content[], boolean]> {
   if (outcome.kind === "pending") return [[text(outcome.text())], false];
   if (outcome.kind === "failed") return [[text(outcome.text())], true];
   const content: Content[] = [];
@@ -17,7 +23,7 @@ export async function render(outcome: Outcome, client: ComfyUIClient, baseUrl: s
       if (!(e instanceof ComfyUIError)) throw e;
       return [[text(`Error: the image was generated but could not be fetched: ${e.message}`)], true];
     }
-    const ref = await refs.sign(image, hmacKey);
+    const ref = await refs.sign(image, hmacKey, backend);
     content.push(text(`image_id: ${ref}\nFull resolution: ${baseUrl}/img/${ref}`));
   }
   return [content, false];
