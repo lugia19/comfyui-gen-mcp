@@ -171,6 +171,10 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   LoRAs section should upload a file and set it up in the same place. While there, the trigger
   pre-filled from the filename drops the `@` that Anima's artist tags use (`zzzhodazzz` for a LoRA
   whose trigger is `@zzzhodazzz`).
+- **`edit_image` output size.** Its description says the result "comes back at the resolution it
+  went in at" unless the input is very large. On Modal with Flux 2 Klein 4B (Edit), a 768×768 upload
+  came back 2048×2048 and a 1152×896 generation came back 2320×1808: small inputs are scaled up.
+  Either keep the input size or change the description.
 
 ## Verification
 
