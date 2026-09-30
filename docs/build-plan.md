@@ -193,6 +193,12 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   all (gaming, say). The tray menu needs a toggle that stops the agent taking requests without
   quitting it, so Modal answers (or, PC-only, the tools say the PC is paused); the Worker's page
   should show it as paused rather than offline.
+- **"Models on your PC" goes stale.** `Models.svelte` re-checks only while a pack is queued or
+  downloading, and for the PC "Not downloaded" is not busy, so a page opened with every PC model
+  missing checks once and stops. Downloads a tool call starts (the first image asks for its model)
+  then never show until a reload. Keep checking the PC list while Settings is open, slower (15 to
+  30 s) when nothing is in flight; each check is a Worker round trip to the PC, so read its
+  `cpuTimeMs`.
 - **`edit_image` output size.** Its description says the result "comes back at the resolution it
   went in at" unless the input is very large. On Modal with Flux 2 Klein 4B (Edit), a 768×768 upload
   came back 2048×2048 and a 1152×896 generation came back 2320×1808: small inputs are scaled up.
