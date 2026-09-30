@@ -165,12 +165,23 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
 
 ## Next: from the from-scratch test (2026-09-30)
 
-- **Unify LoRAs in Settings.** The page splits them in two: "LoRA files" at the bottom (upload,
-  delete) and "LoRAs" under the Anima pack (**Add LoRA**: pick a file, strength, trigger, hidden),
-  which stays disabled until a file is uploaded. Separating them makes no sense to a user: one
-  LoRAs section should upload a file and set it up in the same place. While there, the trigger
-  pre-filled from the filename drops the `@` that Anima's artist tags use (`zzzhodazzz` for a LoRA
-  whose trigger is `@zzzhodazzz`).
+- **Separate settings per backend: Settings [Local] and Settings [Modal].** Decided after the test:
+  entirely independent settings pages, shown by mode. With PC and Modal on one page, the test
+  install had three LoRA places ("LoRAs" under the Anima pack, a PC "LoRA files" and a Modal "LoRA
+  files") and two model lists ("Models on your PC", "Models on your GPU"), and a LoRA uploaded to
+  the Modal Volume was configured for a pack the PC also runs, where the file does not exist. Each
+  page should also have one LoRAs section that uploads (or lists) a file and sets it up in the same
+  place: upload separate from **Add LoRA** (disabled until a file exists) makes no sense to a user.
+  - Open: claude.ai sees one tool list, and the descriptions are built from settings (LoRA
+    triggers, artist styles, packs). In the PC-with-Modal mode they must come from somewhere: the
+    union, with each request routed to a backend that has what it asks for (a Modal-only trigger
+    goes to Modal even while the PC is on); or the PC's settings, with Modal ignoring what it
+    cannot honour; or no combined mode. Custom workflows already work the first way (PC only,
+    "offline" when it is off).
+  - The trigger pre-filled from a LoRA's filename drops the `@` that Anima's artist tags use
+    (`zzzhodazzz` for a LoRA whose trigger is `@zzzhodazzz`).
+- **Agent page model names.** Its model list shows the internal id (`z_image_turbo`) where the
+  Worker shows "Z-Image Turbo".
 - **`edit_image` output size.** Its description says the result "comes back at the resolution it
   went in at" unless the input is very large. On Modal with Flux 2 Klein 4B (Edit), a 768×768 upload
   came back 2048×2048 and a 1152×896 generation came back 2320×1808: small inputs are scaled up.
