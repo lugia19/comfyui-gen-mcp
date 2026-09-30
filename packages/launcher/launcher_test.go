@@ -83,7 +83,7 @@ func TestUnpacksBothArchiveKinds(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dir, "t", "bin", "node")); string(b) != "#!node" {
 		t.Errorf("node: %q", b)
 	}
-	if l, _ := os.Readlink(filepath.Join(dir, "t", "bin", "npx")); l != "../lib/npx" {
+	if l, _ := os.Readlink(filepath.Join(dir, "t", "bin", "npx")); l != filepath.FromSlash("../lib/npx") {
 		t.Errorf("npx link: %q", l)
 	}
 	z := filepath.Join(dir, "a.zip")
@@ -94,10 +94,12 @@ func TestUnpacksBothArchiveKinds(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dir, "z", "node.exe")); string(b) != "MZ" {
 		t.Errorf("node.exe: %q", b)
 	}
-	evil := filepath.Join(dir, "evil.tar.gz")
-	os.WriteFile(evil, tarGz(t, []entry{{name: "node-v1/bin/x", link: "/etc/passwd"}}), 0o644)
-	if err := untar(evil, filepath.Join(dir, "e")); err == nil {
-		t.Error("an absolute link was accepted")
+	for _, link := range []string{"/etc/passwd", "../../outside"} {
+		evil := filepath.Join(dir, "evil.tar.gz")
+		os.WriteFile(evil, tarGz(t, []entry{{name: "node-v1/bin/x", link: link}}), 0o644)
+		if err := untar(evil, filepath.Join(dir, "e")); err == nil {
+			t.Errorf("a link to %s was accepted", link)
+		}
 	}
 }
 

@@ -132,10 +132,14 @@ func inside(dest, name string) (string, error) {
 		return "", nil
 	}
 	path := filepath.Join(dest, filepath.FromSlash(rest))
-	if !strings.HasPrefix(path, filepath.Clean(dest)+string(filepath.Separator)) {
+	if !within(dest, path) {
 		return "", fmt.Errorf("an entry outside the archive: %s", name)
 	}
 	return path, nil
+}
+
+func within(dest, path string) bool {
+	return strings.HasPrefix(filepath.Clean(path), filepath.Clean(dest)+string(filepath.Separator))
 }
 
 func unzip(archive, dest string) error {
@@ -204,8 +208,9 @@ func untar(archive, dest string) error {
 			err = writeFile(path, tr, hdr.FileInfo().Mode()|0o644)
 		case tar.TypeSymlink:
 			// npm and npx: relative links within the archive
-			if filepath.IsAbs(hdr.Linkname) {
-				return fmt.Errorf("an absolute link in the archive: %s", hdr.Name)
+			target := filepath.Join(filepath.Dir(path), filepath.FromSlash(hdr.Linkname))
+			if strings.HasPrefix(hdr.Linkname, "/") || filepath.IsAbs(hdr.Linkname) || !within(dest, target) {
+				return fmt.Errorf("a link out of the archive: %s -> %s", hdr.Name, hdr.Linkname)
 			}
 			if err = os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
 				err = os.Symlink(hdr.Linkname, path)
