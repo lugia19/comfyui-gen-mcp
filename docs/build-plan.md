@@ -144,6 +144,14 @@ guides instead, after the user's from-scratch test, whose screenshots they illus
 - **Worker page, the Modal step:** a guide to setting up a Modal account (sign-up, a card on file,
   creating the token).
 
+Built 2026-09-30, waiting for screenshots: the three guides are in place (`site/index.html`, the
+Modal step in `web/src/lib/Setup.svelte`), with image slots that stay hidden until the files exist
+in `site/guide/`: `github-connect`, `github-install`, `deploy-form`, `build-log`, `build-done`,
+`worker-visit`, `modal-signup`, `modal-billing`, `modal-tokens`, `modal-token-created` (PNG). The
+Worker page loads its Modal images from the published site, so they appear once `main` has them.
+The button and menu names in the guides ("Create and deploy", "Git account", "Usage and Billing")
+are from memory and get checked against the real screens then.
+
 **Hosted setup, set aside.** A service that takes the user's tokens and does the whole setup
 (Cloudflare's API from a server, since the API refuses browser calls; Cloudflare OAuth exists since
 2026-06, Modal's is not open to third parties) would drop GitHub and fit on one page. But without

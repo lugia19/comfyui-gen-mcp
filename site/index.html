@@ -31,6 +31,12 @@
     ol, ul { padding-left: 22px; margin: 8px 0; }
     li { margin: 4px 0; }
     .muted { color: var(--muted); font-size: 0.93rem; }
+    details.guide { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 10px 0; }
+    details.guide summary { cursor: pointer; font-weight: 600; }
+    figure { margin: 10px 0 14px; }
+    figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; }
+    figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+    #after { border-color: var(--accent); }
     .button {
       display: inline-block; background: var(--accent); color: var(--accent-text); text-decoration: none;
       font-weight: 600; padding: 10px 18px; border-radius: 8px; margin: 8px 0;
@@ -54,25 +60,58 @@
       <a href="#desktop">the Claude Desktop extension</a>.</p>
     <p><b>You need:</b></p>
     <ul>
-      <li>A <a href="https://dash.cloudflare.com/sign-up">Cloudflare account</a> (the free plan is enough) with GitHub connected.</li>
+      <li>A <a href="https://dash.cloudflare.com/sign-up">Cloudflare account</a> (the free plan is enough) and a
+        <a href="https://github.com/signup">GitHub account</a>. The deploy keeps a small copy of the setup in your GitHub,
+        which is how your Worker updates itself.</li>
       <li>A claude.ai plan that can add custom connectors.</li>
       <li>For the cloud: a <a href="https://modal.com/signup">Modal account</a> with a card on file (new accounts get $30 of free compute a month).
         For your PC: an NVIDIA GPU (AMD on Linux), or an Apple silicon Mac.</li>
     </ul>
     <p><b>Steps:</b></p>
     <ol>
-      <li>Click the button and wait for the first deploy (about 3 minutes). There is nothing to fill in.</li>
-      <li>Open your Worker: <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code> (Cloudflare shows the
-        link when the deploy finishes). Its page takes you through the rest, one step at a time: log in,
-        choose where the images are made, set that up, and connect Claude.</li>
+      <li>Click the button. Cloudflare opens in a new tab and asks you to connect GitHub the first time
+        (see below), then shows a short form: keep the name <code>comfy-gen</code> and click
+        <b>Create and deploy</b>.</li>
+      <li>Wait for the first deploy, about 3 minutes, then open your Worker. This page shows how to find its
+        address once you have clicked the button.</li>
+      <li>Your Worker's page takes you through the rest, one step at a time: log in, choose where the images
+        are made, set that up, and connect Claude.</li>
     </ol>
-    <a class="button" href="https://deploy.workers.cloudflare.com/?url=https://github.com/lugia19/comfyui-gen-mcp/tree/main/bootstrap">
+    <details class="guide">
+      <summary>Connecting GitHub to Cloudflare (the first time only)</summary>
+      <ol>
+        <li>On Cloudflare's deploy page, under <b>Git account</b>, choose <b>Connect GitHub</b>.</li>
+        <li>GitHub asks you to install the Cloudflare app: pick your account, leave <b>All repositories</b> or
+          choose <b>Only select repositories</b> (the deploy creates a new one), and click <b>Install</b>.</li>
+        <li>You are back on the deploy page with your GitHub account selected.</li>
+      </ol>
+      <figure><img src="guide/github-connect.png" alt="Cloudflare's deploy page, asking to connect a Git account" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The deploy page before GitHub is connected.</figcaption></figure>
+      <figure><img src="guide/github-install.png" alt="GitHub's page to install the Cloudflare app" loading="lazy" onerror="this.parentElement.remove()"><figcaption>GitHub's install page for the Cloudflare app.</figcaption></figure>
+      <figure><img src="guide/deploy-form.png" alt="The deploy form with the project and repository names" loading="lazy" onerror="this.parentElement.remove()"><figcaption>Connected: keep the names and create.</figcaption></figure>
+    </details>
+    <a class="button" id="deploy" target="_blank" rel="noopener" href="https://deploy.workers.cloudflare.com/?url=https://github.com/lugia19/comfyui-gen-mcp/tree/main/bootstrap">
       Deploy to Cloudflare
     </a>
+    <p class="muted"><a href="#after" id="show-after">Already clicked it? Show how to find your Worker.</a></p>
     <p class="muted">
       Updates install themselves: the Worker checks for a new release daily and redeploys, and the
       agent on your PC updates itself too.
     </p>
+  </section>
+
+  <section id="after" hidden>
+    <h2>Next: find your Worker</h2>
+    <ol>
+      <li>In the Cloudflare tab, the build runs for about 3 minutes. Its log is on the page.</li>
+      <li>When it finishes, the last lines of the log show your Worker's address,
+        <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>. Open it.</li>
+      <li>Lost the tab? In the <a href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noopener">Cloudflare dashboard</a>,
+        open <b>Workers &amp; Pages</b>, then <b>comfy-gen</b>: its address is under <b>Domains &amp; Routes</b>, or click <b>Visit</b>.</li>
+    </ol>
+    <figure><img src="guide/build-log.png" alt="The build log while the Worker deploys" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The build running.</figcaption></figure>
+    <figure><img src="guide/build-done.png" alt="The end of the build log with the Worker's address" loading="lazy" onerror="this.parentElement.remove()"><figcaption>Done: the address is at the end of the log.</figcaption></figure>
+    <figure><img src="guide/worker-visit.png" alt="The Worker's page in the Cloudflare dashboard with its Visit button" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The Worker in the dashboard.</figcaption></figure>
+    <p>Your Worker's page takes it from there.</p>
   </section>
 
   <section id="desktop">
@@ -86,5 +125,13 @@
 
   <p class="muted">Source and issues: <a href="https://github.com/lugia19/comfyui-gen-mcp">github.com/lugia19/comfyui-gen-mcp</a></p>
 </main>
+<script>
+  // The Deploy button opens Cloudflare in a new tab; this tab shows what comes next.
+  const after = document.getElementById("after");
+  const reveal = () => { after.hidden = false; after.scrollIntoView({ behavior: "smooth", block: "start" }); };
+  document.getElementById("deploy").addEventListener("click", () => setTimeout(reveal, 300));
+  document.getElementById("show-after").addEventListener("click", (e) => { e.preventDefault(); reveal(); });
+  if (location.hash === "#after") after.hidden = false;
+</script>
 </body>
 </html>
