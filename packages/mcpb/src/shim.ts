@@ -3,7 +3,11 @@
 // or shipped in the .mcpb, and runs it in this process. At most once a day it looks up the latest
 // release (the github.com/<repo>/releases/latest redirect, as the Worker's update check does) and
 // downloads that release's bundle in the background, for the next start. Keep this file small and
-// stable: it only changes when users reinstall the extension.
+// stable: it only changes when users reinstall the extension or the launcher.
+//
+// With `--app agent` (the launcher, packages/launcher) it runs the PC agent instead: the
+// comfy-gen-agent.mjs asset, cached in app/agent/<tag>/. The agent runs for days, so the check
+// repeats while it runs, and a newer bundle is handed to its updateReady(), which restarts into it.
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -13,16 +17,17 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO = "lugia19/comfyui-gen-mcp";
 const RELEASES = process.env.COMFY_GEN_RELEASES_URL || `https://github.com/${REPO}/releases`;
-const BUNDLE = "comfy-gen-server.mjs";
+const APP = process.argv.includes("--app") ? process.argv[process.argv.indexOf("--app") + 1] : "server";
+const BUNDLE = `comfy-gen-${APP}.mjs`;
 const CHECK_EVERY_MS = 24 * 3600 * 1000;
 const KEEP = 2; // cached bundles kept: the newest and one to fall back to
 const UA = { "User-Agent": "comfy-gen-shim" };
 
 const home = process.env.COMFY_GEN_HOME || join(homedir(), ".comfy-gen-mcp");
-const appDir = join(home, "app");
+const appDir = APP === "server" ? join(home, "app") : join(home, "app", APP);
 const shipped = join(dirname(fileURLToPath(import.meta.url)), "bundle"); // <tag>/comfy-gen-server.mjs
 
-const say = (msg: string) => process.stderr.write(`[comfy-gen shim] ${msg}\n`); // stdout is MCP
+const say = (msg: string) => process.stderr.write(`[comfy-gen shim] ${msg}\n`); // the server's stdout is MCP
 
 type Tag = [string, number[]];
 function parseTag(tag: string): Tag | null {
@@ -87,7 +92,7 @@ async function update(force: boolean): Promise<void> {
   const tag = await latestTag();
   if (!tag) throw new Error("could not read the latest release tag");
   if (!bundles().some(([t]) => t === tag)) {
-    say(`downloading server ${tag}`);
+    say(`downloading ${APP} ${tag}`);
     await download(tag);
   }
   const cached = readdirSync(appDir).map(parseTag).filter((t): t is Tag => t !== null);
@@ -95,30 +100,53 @@ async function update(force: boolean): Promise<void> {
   for (const [old] of cached.slice(KEEP)) rmSync(join(appDir, old), { recursive: true, force: true });
 }
 
+const failed = (e: unknown) => void say(`update check failed: ${(e as Error).message}`);
+
+type Bundle = { start?: () => Promise<void>; updateReady?: (tag: string) => void };
+const broken = new Set<string>(); // bundles that failed to load in this process: never offered
+
+/** For a long-running bundle (the agent): tell it when the first check brought a newer bundle, and
+ * repeat the check while it runs. */
+function watchUpdates(running: string, mod: Bundle, first: Promise<void>): void {
+  const current = parseTag(running);
+  const notify = mod.updateReady;
+  if (!current || !notify) return;
+  const offer = () => {
+    const newest = parseTag(bundles().find(([t]) => !broken.has(t))?.[0] ?? "");
+    if (newest && newer(newest, current)) notify(newest[0]);
+  };
+  void first.then(offer);
+  setInterval(() => void update(false).then(offer, failed), 3600 * 1000).unref();
+}
+
 async function run(): Promise<void> {
-  const override = process.env.COMFY_GEN_SERVER_BUNDLE; // development: a local build
+  if (APP !== "server" && APP !== "agent") throw new Error(`unknown app ${APP}`);
+  const override = process.env[`COMFY_GEN_${APP.toUpperCase()}_BUNDLE`]; // development: a local build
   let candidates = override ? [["dev", override] as [string, string]] : bundles();
+  let checking = Promise.resolve();
   if (!override) {
-    const checking = update(!candidates.length);
+    const first = update(!candidates.length);
     if (!candidates.length) {
-      await checking; // nothing to run yet: this one we wait for
+      await first; // nothing to run yet: this one we wait for
       candidates = bundles();
-    } else {
-      checking.catch((e) => say(`update check failed: ${(e as Error).message}`));
     }
+    checking = first.catch(failed);
   }
   for (const [tag, path] of candidates) {
-    let mod: { start?: () => Promise<void> };
+    let mod: Bundle;
     try {
       mod = await import(pathToFileURL(path).href);
     } catch (e) {
-      say(`server ${tag} failed to load, trying an older one: ${(e as Error).message}`);
+      say(`${APP} ${tag} failed to load, trying an older one: ${(e as Error).message}`);
+      broken.add(tag);
       continue;
     }
-    say(`running server ${tag}`);
-    return mod.start!();
+    say(`running ${APP} ${tag}`);
+    await mod.start!();
+    watchUpdates(tag, mod, checking);
+    return;
   }
-  throw new Error("no server bundle could be loaded");
+  throw new Error(`no ${APP} bundle could be loaded`);
 }
 
 run().catch((e) => {

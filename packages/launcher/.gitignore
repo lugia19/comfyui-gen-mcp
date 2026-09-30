@@ -1,0 +1,2 @@
+# Copied from packages/mcpb/dist by build.mjs, for go:embed
+shim.mjs

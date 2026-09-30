@@ -1,12 +1,19 @@
 // The agent process: started at boot by the launcher (through the shim), one per machine (its
 // settings port is the lock). It runs the machine (local's Machine: ComfyUI, installs, downloads),
 // its settings page on 127.0.0.1, the tray, and the relay connection to the paired Worker.
+//
+// The launcher's contract (packages/launcher/main.go): COMFY_GEN_OPEN_SETTINGS=1 when the user
+// started it by hand (open the settings page), 0 when it started at login or restarts us; exit code
+// RESTART_EXIT_CODE asks it to start us again at once (into a newer bundle), 0 to stay stopped.
 
 import { listen, log, logTo, Machine, machineTray, openExternal, paths, type Paths, type TrayColor, type WebFiles } from "@comfy-gen/local";
 import { AgentApp } from "./app.ts";
 import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts";
 import { agentHandler } from "./handlers.ts";
 import { RelayClient } from "./relay-client.ts";
+
+export const RESTART_EXIT_CODE = 75;
+const RESTART_WHEN_QUIET_MS = 10 * 60_000; // an update waits for this long without generations
 
 export type AgentOptions = {
   version: string;
@@ -17,8 +24,11 @@ export type AgentOptions = {
   exit?: (code: number) => void;
 };
 
-export async function startAgent(opts: AgentOptions): Promise<{ app: AgentApp; close(): Promise<void> }> {
+export type Agent = { app: AgentApp; close(): Promise<void>; restartWhenIdle(tag: string): void };
+
+export async function startAgent(opts: AgentOptions): Promise<Agent> {
   const p = opts.paths ?? paths();
+  const openSettings = process.env.COMFY_GEN_OPEN_SETTINGS;
   logTo(p.logs);
   let cfg: AgentConfig = loadAgentConfig(p);
   const exit = opts.exit ?? ((code: number) => process.exit(code));
@@ -79,14 +89,15 @@ export async function startAgent(opts: AgentOptions): Promise<{ app: AgentApp; c
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "EADDRINUSE") throw e;
     // Already running (started at boot, then again by hand): show that one's page instead.
-    log.info("The agent is already running; opening its settings page");
-    openExternal(settingsUrl);
+    log.info("The agent is already running");
+    if (openSettings !== "0") openExternal(settingsUrl);
     exit(0);
     throw e;
   }
   log.info(`Comfy-Gen agent ${opts.version}: settings on ${settingsUrl}`);
   reconnect();
-  if (!cfg.worker_url) openExternal(settingsUrl); // first run: pairing and install happen there
+  // Unpaired, pairing and install happen there; started by hand, the user expects to see something.
+  if (!cfg.worker_url || openSettings === "1") openExternal(settingsUrl);
 
   const trouble = () =>
     !cfg.worker_url ? "not paired with a Worker" : client && client.state !== "connected" ? "not connected to your Worker" : null;
@@ -105,5 +116,16 @@ export async function startAgent(opts: AgentOptions): Promise<{ app: AgentApp; c
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.once(signal, () => void close().then(() => exit(0)));
   }
-  return { app, close };
+
+  let restart: NodeJS.Timeout | null = null;
+  const restartWhenIdle = (tag: string) => {
+    if (restart) return;
+    log.info(`Comfy-Gen agent ${tag} is downloaded; restarting into it once nothing has run for ${RESTART_WHEN_QUIET_MS / 60_000} minutes`);
+    restart = setInterval(() => {
+      if (!machine.idleFor(RESTART_WHEN_QUIET_MS)) return;
+      clearInterval(restart!);
+      void close().then(() => exit(RESTART_EXIT_CODE));
+    }, 60_000);
+  };
+  return { app, close, restartWhenIdle };
 }

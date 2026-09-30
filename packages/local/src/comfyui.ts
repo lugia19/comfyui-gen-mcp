@@ -225,6 +225,11 @@ export class LocalComfy {
     return this.ensureRunning();
   }
 
+  /** How long nothing has used ComfyUI, in ms: 0 while a job runs. */
+  quietFor(): number {
+    return this.busy ? 0 : Date.now() - this.lastUsed;
+  }
+
   /** Run *fn* as a job: the idle stop waits for it. */
   async job<T>(fn: () => Promise<T>): Promise<T> {
     this.busy++;

@@ -1,7 +1,7 @@
 # Comfy-Gen-MCP design
 
-Status (2026-09-29): v1.1.0 released (cloud path with LoRAs); the MCPB (M5) and the agent (M6) are
-next. This document is the source of truth for the design; the appendix holds the measurements
+Status (2026-09-30): v1.1.0 released (cloud path with LoRAs). The MCPB (M5) is tested and waits
+for v1.2.0; the agent and relay (M6) are built and in testing. This document is the source of truth for the design; the appendix holds the measurements
 behind it. `docs/build-plan.md` tracks the work.
 
 Product name: Comfy-Gen-MCP. Repository: `lugia19/comfyui-gen-mcp`. The previous implementation lives
@@ -28,11 +28,29 @@ GPU is. Targets:
 | Worker | Cloudflare Worker (TypeScript), free plan | The brain. MCP endpoint, settings and setup app, image route, config in a Durable Object, cron jobs, relay mailbox |
 | ComfyUI | Modal, a PC, or localhost | The generator. We ship no handler code: ComfyUI's own HTTP API is the interface |
 | Modal app | User's Modal workspace | ComfyUI server on an L4, a Volume, a seed function, a small admin web endpoint |
-| Agent | GPU owner's PC, via the Go launcher | ComfyUI install and lifecycle, model downloads, idle stop, relays the Worker's ComfyUI calls to local ComfyUI |
+| Agent | GPU owner's PC: a Go launcher running a Node bundle | ComfyUI install and lifecycle, model downloads, idle stop, tray, a loopback settings page; relays the Worker's ComfyUI calls to local ComfyUI (§9) |
 | MCPB | Claude Desktop | A stdio shim that loads the latest server bundle; one Claude Desktop process runs the local server (MCP, settings page, tray, ComfyUI lifecycle), the others relay to it |
 | Static site | GitHub Pages | Prerequisites, the Deploy button, then "open your Worker" |
 
-Separate existing repo, unchanged in role: the Go launcher (`pygo-bootstrap`).
+The agent's launcher (`packages/launcher`, Go) is the one native program: a 6 MB download per
+platform (Windows x64, macOS arm64 and x64, Linux x64), unsigned (SmartScreen and Gatekeeper warn
+once). On each start it:
+
+- copies itself into `~/.comfy-gen-mcp/bin/` and registers that copy to start at login (the HKCU
+  `Run` key on Windows, a LaunchAgent on macOS, an XDG autostart entry on Linux); `--uninstall`
+  removes the entry
+- fetches Node (an LTS pinned in `node.go`, checked against the release's SHA-256 pinned beside
+  it) into `~/.comfy-gen-mcp/node/<version>/`, once
+- runs the MCPB's shim, embedded, as `node shim.mjs --app agent`, hidden, and restarts it: at once
+  on exit code 75 (the agent restarting into a downloaded update), after a backoff on a crash, not
+  on 0 (another agent already runs; the second one opened the first one's page)
+- tells the agent whether to open its settings page (started by hand: yes; at login or on a
+  restart: only while unpaired)
+
+The shim in agent mode loads `comfy-gen-agent.mjs` from `app/agent/<tag>/`, as for the MCPB. The
+agent runs for days, so the shim repeats the daily check while it runs and hands a newer bundle to
+the agent, which restarts into it once nothing has used ComfyUI for 10 minutes. A new launcher (a
+new Node) is a new download; running it installs it over the old one.
 
 ### Modes
 
@@ -44,8 +62,8 @@ Separate existing repo, unchanged in role: the Go launcher (`pygo-bootstrap`).
 
 Rule: an MCPB install and a Worker install are separate; a machine uses one or the other. The MCPB
 is for Claude Desktop only: it has no tunnel and no remote route, and remote use (claude.ai, mobile)
-goes through a Worker, with the PC agent (M6) when the GPU is at home. Both read the same config
-schema, so switching keeps settings.
+goes through a Worker, with the PC agent when the GPU is at home. The agent uses the same folder
+(ComfyUI, models, uv) with its own `agent.json`; like the MCPB, one or the other per machine.
 
 ### The MCPB process
 
@@ -289,9 +307,19 @@ description).
 
 ### GPU owner
 
-Steps 1 to 3 without the Modal token. Download the agent through the launcher, paste the pairing
-code. The agent auto-starts at boot, starts ComfyUI on the first job, stops it after the idle window.
-Modal can be added later as the fallback.
+1. Steps 1 to 3 without the Modal token (the Modal step can be skipped).
+2. The Worker's setup page, under "Your PC", makes a pairing link: `https://<worker>/agent#<secret>`.
+3. The user downloads the launcher for their OS from the release and runs it. It installs itself,
+   fetches Node, starts the agent and opens the agent's page on `127.0.0.1:9248`.
+4. There they paste the pairing link, then install ComfyUI as in the MCPB (GPU choice; other
+   installs' model folders are found and used). The agent connects to the Worker and keeps the
+   connection; the Worker's page shows it connected, with its GPU and ComfyUI state.
+5. From then on the agent starts at login, starts ComfyUI on the first job, downloads a pack's
+   missing models when a tool needs them, and stops ComfyUI after the idle window.
+
+Modal can be added (or kept) as the fallback: each call uses the PC when it is connected and Modal
+otherwise. A new pairing link replaces the old secret (the connected agent is dropped); "Unpair"
+removes it.
 
 ### Claude Desktop only
 
@@ -305,7 +333,9 @@ result, pick the GPU and install ComfyUI (or keep the old extension's). No accou
   downloads the release's `deploy.sh`, so the user's copy never goes stale and there is no fork
   sync. One build updates both the Worker and the Modal app. Packs, tool descriptions and workflow
   templates ship with the code: a new pack is a release.
-- **Agent:** through the launcher, as today.
+- **Agent:** the launcher's shim loads the latest release's agent bundle, checking daily while
+  the agent runs, and the agent restarts into a new one when idle (§2). The launcher changes only
+  with a new Node; it is downloaded again by hand.
 - **MCPB:** the shim loads the latest release's server bundle (§2, "The MCPB process"); the
   `.mcpb` itself changes rarely.
 - No token, no updates. There is no fallback path to maintain.
@@ -320,7 +350,7 @@ result, pick the GPU and install ComfyUI (or keep the old extension's). No accou
 | Modal token pair | Build secrets only | `modal deploy` during builds |
 | Modal proxy token | Worker state, Modal Dict | Calls to the ComfyUI server and admin endpoint |
 | Ref HMAC key | Worker state | Signs image references and upload tokens |
-| Agent pairing secret | Worker state, agent | Authenticates the relay |
+| Agent pairing secret | Worker state, `agent.json` | Authenticates the relay: the agent's `Authorization: Bearer`, checked before the WebSocket upgrade. It travels in the pairing link's fragment, which browsers do not send |
 | Build nonce | Build secrets, Worker state | One-time callback from the build |
 | LoRA upload session id | Modal Dict, the settings page | Writes one LoRA's chunks to the upload endpoint (24 h) |
 
@@ -335,7 +365,7 @@ make. Setup needs that token anyway; the latest one replaces the stored one. The
 lasts a year; a new browser logs in with a fresh token from the same link. Under `wrangler dev`,
 `DEV_WORKER_HOST` names the deployed Worker to prove ownership of.
 
-Any Python code that calls a Worker (build callbacks, the upload snippet, the agent) sends its own
+Any code that calls a Worker from outside (build callbacks, the upload snippet, the agent) sends its own
 `User-Agent`: Cloudflare answers urllib's default `Python-urllib/x.y` with Error 1010 before the
 Worker runs (S4).
 
@@ -376,6 +406,38 @@ Worker runs (S4).
 - The Durable Object and its migration are declared in the bootstrap template from the first
   release, so adding the PC path later needs no template change.
 
+**As built (M6).** `GET /agent` checks the pairing secret (401 without it, so the agent can tell
+"unpaired" from "not a WebSocket", 426), then forwards the upgrade to the one `Relay` object. A new
+connection replaces the old (close 4000: "another agent connected"); unpairing or a new pairing
+link closes it with 4001. After either, or a 401, the agent retries only every 5 minutes, and at
+once when it is given a new link.
+
+The protocol (`core/relay.ts`, shared by both ends): a message is a JSON header in a text frame,
+followed by its body in binary frames of at most 1 MiB, the header saying how many. Each side sends
+a header and its chunks in one synchronous run, so messages never interleave.
+
+| Message | Direction | Carries |
+|---|---|---|
+| `http` | Worker → agent | One ComfyUI request (method, path, params, headers, body); the agent calls its ComfyUI inside a job, so the idle stop waits |
+| `control` | Worker → agent | An agent operation: `ensure` (start ComfyUI, install the pack's nodes, check or start its model downloads), `inventory` (node classes for custom workflows), `loras`, `models`, `download`, `status` |
+| `reply` | agent → Worker | `{id, status}` and the body |
+| `hello` | agent → Worker | On connecting: version, platform, GPU, ComfyUI state, kept with the socket for the settings page |
+
+On the Worker, `RelayTransport` is core's `Transport` over the object's `request()`, so the
+ComfyUI client, held waits and the brain are unchanged. A call with no agent connected waits 10 s
+for a reconnect, then fails with "your PC is offline"; one whose agent drops mid-call fails with
+"the connection to your PC dropped". Timeouts: 120 s for a ComfyUI request (a held wait is 50 s),
+30 s for control, 240 s for `ensure`. The generator is chosen per call: the PC when paired and
+connected, else Modal, else the offline message. Custom workflows are offered once a PC is paired
+and checked against its live inventory. An `image_id` names a file on the generator that made it,
+so editing a Modal image while the PC answers (or the reverse) finds no file.
+
+The agent (`packages/agent`) reconnects at once after a drop, then backs off (1 s to 60 s),
+resetting after a connection that lasted a minute; it pings every 20 s, answered by the runtime.
+Its settings page (loopback only) is the MCPB's machine setup plus the pairing section; pack
+settings stay on the Worker, whose settings page lists the PC's LoRAs and model status through
+`/api/pc/*`.
+
 ## 10. Repository
 
 **One authored repository.** TypeScript in npm workspaces, plus the Python that runs on Modal:
@@ -387,13 +449,15 @@ Worker runs (S4).
 | `modal_app` | Modal app, admin endpoint, build-time deploy script | Python (Modal, build image) |
 | `local` | ComfyUI install, launch, stop, downloads, node install, idle stop, tray; shared by `agent` and `mcpb` | Node |
 | `mcpb` | the shim (the `.mcpb`) and the server bundle it loads (a release asset); single process, §2 | Node (Claude Desktop's bundled runtime) |
-| `agent` | `local` plus the relay client | Node |
+| `agent` | `local` plus the relay client and the agent's settings routes (`comfy-gen-agent.mjs`, a release asset) | Node, started by the launcher |
+| `launcher` | the agent's launcher: installs itself, Node and the login entry, supervises the agent | Go, one binary per platform |
 | `web` | Svelte settings and setup app | browser |
 | `site` | static landing page | browser |
 | `bootstrap` | what the Deploy button copies: wrangler config and `package.json` with the deploy stub | Workers Builds |
 
 `core` exports its TypeScript source directly (no build step): wrangler bundles it into the Worker,
-and the MCPB and agent will bundle it too. `web` stays outside the workspaces with its own lockfile,
+and the MCPB and agent bundle it with esbuild (`packages/mcpb/build.mjs` builds both bundles and the
+shim the launcher embeds). `web` stays outside the workspaces with its own lockfile,
 and its built `dist` is committed so deploys need no web build.
 
 Packs ship inside `core` as JSON modules, so the Worker bundle, the MCPB and the agent all get them

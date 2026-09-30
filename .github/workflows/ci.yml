@@ -22,7 +22,7 @@ jobs:
       - run: uv run --python ${{ matrix.python }} pytest
 
   node:
-    # core, local, the MCPB and the Worker in TypeScript: typecheck, vitest, and the MCPB build.
+    # core, local, the MCPB, the agent and the Worker in TypeScript: typecheck, vitest, and the build.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +33,29 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: node packages/mcpb/build.mjs
+
+  launcher:
+    # The PC agent's launcher in Go: tests on each OS it ships for, then the release build.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: packages/launcher/go.mod
+          cache-dependency-path: packages/launcher/go.sum
+      - run: npm ci
+      - run: node packages/mcpb/build.mjs
+      - run: go vet ./... && go test ./...
+        working-directory: packages/launcher
+      - run: node packages/launcher/build.mjs
+        if: runner.os == 'Linux'
 
   web:
     # web/dist is committed (deploys have no node); it must match its source.

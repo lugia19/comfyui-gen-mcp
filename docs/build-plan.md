@@ -3,9 +3,9 @@
 What is built, how it ships, and what comes next. `docs/design.md` holds the design and the measured
 results behind it; this file only tracks the work.
 
-**Status (2026-09-29):** M0–M4 are built. v1.0.0 (M3) and v1.1.0 (M4) are released, and the test
-install `comfy-gen.yuri-f92.workers.dev` runs v1.1.0. M5 is built and tested here (Linux, CPU
-ComfyUI); it waits for the check on the user's Windows PC, then a release.
+**Status (2026-09-30):** M0–M5 are built. v1.0.0 (M3) and v1.1.0 (M4) are released; M5 passed the
+user's Windows test and goes out as v1.2.0. M6 (agent, relay, launcher) is built and tested here;
+the live measurements and the user's PC test are left.
 
 ## Built
 
@@ -100,17 +100,30 @@ smaller points in the report.
 
 ## M6: agent and relay, then retirement
 
-- **Worker side, done here:** the Relay Durable Object (hibernating WebSocket, measured in S6)
-  carrying `Response`-shaped messages, a `RelayTransport` for `core`, and pairing. Tested against a
-  stand-in agent through `wrangler dev`.
-  - The agent reconnects at once after a drop.
-  - The Worker waits a few seconds for it before failing a call (S6: drops every few minutes to few
-    hours).
-- **Agent, done locally:** the M5 machine side, plus the relay client (WebSocket, pairing secret,
-  its own User-Agent), plus the tray. It starts at boot.
-  - It reports its node inventory live, for custom workflows.
-- **Choosing a generator:** if both the PC and Modal are configured, the PC is used when it is
-  online and Modal otherwise.
+Built (design §2 "The agent's launcher", §6 "GPU owner", §9 "As built"):
+
+- **Worker:** the Relay Durable Object, `RelayTransport`, `GET /agent` with the pairing secret,
+  pairing and unpairing, the generator chosen per call (PC, then Modal), `PcHooks.ensure` over the
+  relay, custom workflows checked against the PC's inventory, `/api/pc/*` for the settings page.
+- **Machine side in `local`:** the settings API routes, pack readiness and the tray, shared by the
+  MCPB and the agent.
+- **Agent** (`packages/agent`): relay client, control operations, `agent.json`, its settings page
+  (machine setup plus pairing), restart into a downloaded update when idle.
+- **Launcher** (`packages/launcher`, Go): installs itself and the login entry, fetches the pinned
+  Node, runs the shim in agent mode and supervises it. `release.yml` publishes the agent bundle and
+  four launcher binaries.
+
+Tested here: `wrangler dev` plus the agent plus a CPU ComfyUI (pairing; relayed generation, 11 s
+cold and 0.3 s warm; a 3 MB image both ways; the agent killed mid-call, then restarted; offline
+after 10 s), the settings pages in Chromium, and the Linux launcher (Node download and checksum,
+agent start, update from a stand-in release server and restart into it).
+
+Left:
+- A branch build on the test install, and the agent here against it: the WebSocket message size,
+  the relay's overhead, Worker `cpuTimeMs` for relayed calls, and Durable Object duration for a
+  day of use.
+- **On the user's PC**, from a release: the launcher (SmartScreen, install, start at login after a
+  reboot), pairing, generation from claude.ai mobile, the PC off (Modal answers), the PC back.
 - **Last:** a final "install the new version" commit to the old repository, then archive it (never
   delete it).
 

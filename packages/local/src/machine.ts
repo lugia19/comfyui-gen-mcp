@@ -49,6 +49,13 @@ export class Machine {
     return this.installState;
   }
 
+  /** Nothing running or used for *ms*: no install, no model download, no ComfyUI job. */
+  idleFor(ms: number): boolean {
+    if (this.installState.state === "running" || this.comfy.state === "starting") return false;
+    if (this.downloads.jobs().some((j) => j.state === "queued" || j.state === "downloading")) return false;
+    return this.comfy.quietFor() >= ms;
+  }
+
   detectedGpu(): Promise<string> {
     return (this.gpuGuess ??= detectGpu());
   }

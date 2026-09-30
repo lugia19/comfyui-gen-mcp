@@ -3,7 +3,10 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { Machine } from "../src/machine.ts";
+import { paths } from "../src/paths.ts";
+import { loadConfig } from "../src/config.ts";
 import { fetchFile } from "../src/fetchfile.ts";
 import { comfyDir, torchBackend } from "../src/install.ts";
 import { freePort, portFree } from "../src/comfyui.ts";
@@ -89,5 +92,28 @@ describe("machine helpers", () => {
     expect(r.code).toBe(3);
     expect(lines.sort()).toEqual(["a", "b"]);
     expect((await run("no-such-binary-xyz", [])).code).toBeNull();
+  });
+});
+
+describe("Machine.idleFor", () => {
+  it("counts from the last ComfyUI job, and not while one runs", async () => {
+    vi.useFakeTimers();
+    try {
+      const p = paths({ COMFY_GEN_HOME: dir() });
+      const machine = new Machine({ paths: p, settings: () => loadConfig(p.config), saveGpu: () => {}, waitExtension: "" });
+      vi.advanceTimersByTime(60_000);
+      expect(machine.idleFor(30_000)).toBe(true);
+      let finish!: () => void;
+      const job = machine.comfy.job(() => new Promise<void>((r) => (finish = r)));
+      vi.advanceTimersByTime(60_000);
+      expect(machine.idleFor(30_000)).toBe(false); // running
+      finish();
+      await job;
+      expect(machine.idleFor(30_000)).toBe(false); // just finished
+      vi.advanceTimersByTime(31_000);
+      expect(machine.idleFor(30_000)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
