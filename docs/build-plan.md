@@ -182,6 +182,17 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
 - **Agent page: an "Edit main settings" button.** The agent's page says "Model and style settings
   are on the Worker's page" in small text with a bare link. Make it a prominent **Edit main
   settings** button that opens the Worker's settings.
+- **Image ids collide between the PC and Modal.** An id is a signed `[type, subfolder, filename]`
+  (`refs.ts`) with no backend in it, and each ComfyUI numbers its outputs from
+  `comfy-gen_00001_.png`. On the test install the PC's first image (a fox) got exactly the id of
+  Modal's first image (a girl by a window), and that id's `/img/` address then served the fox.
+  An edit by `image_id` of an older image can silently edit a different one. The id needs the
+  backend in it (or unique output names per backend); ids are a stored format pinned by
+  `test/golden.json`, so this needs a migration that keeps old ids resolving to Modal.
+- **Agent tray: a Stop option for serving.** Sometimes the PC should not answer image requests at
+  all (gaming, say). The tray menu needs a toggle that stops the agent taking requests without
+  quitting it, so Modal answers (or, PC-only, the tools say the PC is paused); the Worker's page
+  should show it as paused rather than offline.
 - **`edit_image` output size.** Its description says the result "comes back at the resolution it
   went in at" unless the input is very large. On Modal with Flux 2 Klein 4B (Edit), a 768×768 upload
   came back 2048×2048 and a 1152×896 generation came back 2320×1808: small inputs are scaled up.
