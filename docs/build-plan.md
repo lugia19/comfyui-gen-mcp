@@ -129,6 +129,29 @@ Left:
 - **Last:** a final "install the new version" commit to the old repository, then archive it (never
   delete it).
 
+## Next: setup guides
+
+Decided 2026-09-30: the install stays the Deploy button with GitHub and Workers Builds. Its update
+path, a full redeploy by wrangler in a fresh build that also redeploys Modal, is worth the one-time
+friction. A hosted setup service was weighed and set aside; the reasoning is below. The friction gets
+guides instead, after the user's from-scratch test, whose screenshots they illustrate:
+
+- **Landing page, below the Deploy button:** the button opens Cloudflare in a new tab. Clicking it
+  reveals a guide, with screenshots, to finding the Worker's address once the deploy finishes: the
+  banner at the end of the build log, or the Worker's page in the dashboard.
+- **Landing page:** a guide to linking GitHub with Cloudflare, which happens inside the Deploy
+  page.
+- **Worker page, the Modal step:** a guide to setting up a Modal account (sign-up, a card on file,
+  creating the token).
+
+**Hosted setup, set aside.** A service that takes the user's tokens and does the whole setup
+(Cloudflare's API from a server, since the API refuses browser calls; Cloudflare OAuth exists since
+2026-06, Modal's is not open to third parties) would drop GitHub and fit on one page. But without
+Workers Builds, which only builds from a GitHub, GitLab or Cursor Origin repository connected
+through the user's own app install, updates would need a new mechanism: the Worker uploading
+itself, and a Modal updater in the user's workspace (which could run deploy.sh itself), plus a third
+path for PC-only users. Revisit if users get stuck at the GitHub step specifically.
+
 ## Verification
 
 - **Every change:** `npm run typecheck`, `npm test` and `uv run pytest` (CI also runs Python 3.14,
