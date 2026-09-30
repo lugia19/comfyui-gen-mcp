@@ -4,8 +4,8 @@ What is built, how it ships, and what comes next. `docs/design.md` holds the des
 results behind it; this file only tracks the work.
 
 **Status (2026-09-30):** M0–M5 are built. v1.0.0 (M3) and v1.1.0 (M4) are released; M5 passed the
-user's Windows test and goes out as v1.2.0. M6 (agent, relay, launcher) is built and tested here;
-the live measurements and the user's PC test are left.
+user's Windows test and goes out as v1.2.0. M6 (agent, relay, launcher) is built and tested here
+and on the test install; a release and the user's PC test are left.
 
 ## Built
 
@@ -118,10 +118,11 @@ cold and 0.3 s warm; a 3 MB image both ways; the agent killed mid-call, then res
 after 10 s), the settings pages in Chromium, and the Linux launcher (Node download and checksum,
 agent start, update from a stand-in release server and restart into it).
 
+Then live on the test install through a branch build (design appendix, "M6 live"): relayed
+generation, 3 MB both ways, Worker CPU as on the Modal path, offline answer, Durable Object cost.
+
 Left:
-- A branch build on the test install, and the agent here against it: the WebSocket message size,
-  the relay's overhead, Worker `cpuTimeMs` for relayed calls, and Durable Object duration for a
-  day of use.
+- A release (the launcher binaries exist only in releases).
 - **On the user's PC**, from a release: the launcher (SmartScreen, install, start at login after a
   reboot), pairing, generation from claude.ai mobile, the PC off (Modal answers), the PC back.
 - **Last:** a final "install the new version" commit to the old repository, then archive it (never

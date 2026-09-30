@@ -432,6 +432,12 @@ connected, else Modal, else the offline message. Custom workflows are offered on
 and checked against its live inventory. An `image_id` names a file on the generator that made it,
 so editing a Modal image while the PC answers (or the reverse) finds no file.
 
+Measured on the test install (appendix, "M6 live"): a warm relayed generation costs the Worker a
+median 10 ms of CPU (8 to 19, as on the Modal path) and the Relay object 0 to 3 ms; a 3 MB image
+crosses in 1 s each way. Durable Object duration cannot outgrow the free plan: one object billed at
+128 MB, active around the clock, is 10,800 GB-s a day of the 13,000 allowed, and a hibernating
+socket is not active. Requests: about 10 per generation, against 100,000 a day.
+
 The agent (`packages/agent`) reconnects at once after a drop, then backs off (1 s to 60 s),
 resetting after a connection that lasted a minute; it pings every 20 s, answered by the runtime.
 Its settings page (loopback only) is the MCPB's machine setup plus the pairing section; pack
@@ -752,5 +758,21 @@ Worker to agent and back: 19 to 37 ms.
 - For the agent (M6): reconnect at once after a drop and reset the backoff after any connection
   that lasted; the spike's reset only ran on a clean close, so its delay climbed to 60 s. The Worker
   should wait a few seconds for the agent to come back before failing a relayed call.
+
+**M6 live, 2026-09-30: the relay on Cloudflare.** The test install on the M6 branch, the agent in
+this container (started by the Linux launcher) with a CPU ComfyUI, a two-node custom workflow.
+
+- Outbound WebSocket from the agent: opens in 0.6 to 0.8 s; `ping` answered by the runtime in
+  about 60 ms without waking the object.
+- Generation through the relay: 16 s cold (ComfyUI started by the agent), 0.66 to 1.2 s warm.
+- Worker CPU (`cpuTimeMs`): `/mcp` warm generation median 10 ms (8 to 19), cold 19; the Relay
+  object 0 to 3 ms per invocation, about 10 invocations per generation.
+- A 3 MB PNG (random pixels) uploaded through the relay in 1.0 s (Worker 9 ms CPU) and read back in
+  0.84 s (7 ms), byte-identical: the 1 MiB chunking passes the platform's message limit.
+- The agent stopped (SIGTERM to the launcher): ComfyUI stopped, the Worker's state showed the PC
+  disconnected, and a custom workflow answered "your PC is offline" at once (Modal configured, so
+  no wait for a reconnect).
+- The launcher, same run: Node downloaded and checked, agent v8 started, v9 found on a stand-in
+  release server, and the restart into v9 came after exactly the 10 quiet minutes.
 
 **S8, 2026-09-28: the client timeout is 5 minutes.**
