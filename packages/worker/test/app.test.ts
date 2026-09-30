@@ -109,6 +109,12 @@ describe("MCP", () => {
     expect(r.result.isError).toBe(false);
     const loads = Object.values<any>(comfy.prompts.at(-1)!).filter((n) => n.class_type === "LoadImage").map((n) => n.inputs.image);
     expect(loads[0]).toMatch(/^comfy-gen-uploads\/upload-.*\.png$/);
+    // The input keeps its size: its pixels, not the pack's 4 MP budget (768×768 came back 2048×2048).
+    comfy.viewBody = png(640, 480); // what /view answers for the uploaded file
+    [, r] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "add a hat", image: imageId } }, 2);
+    const scale2 = Object.values<any>(comfy.prompts.at(-1)!).find((n) => n.class_type === "ImageScaleToTotalPixels");
+    expect(scale2.inputs.megapixels).toBeCloseTo((640 * 480) / 1_048_576, 3);
+    expect(comfy.calls.some(([, path, params]) => path === "/view" && params?.preview === "webp;1")).toBe(true);
 
     clock.t += 3600; // the link expires
     expect((await app.handle(request("POST", `/upload/${token}`, png()))).status).toBe(403);

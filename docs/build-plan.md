@@ -215,7 +215,10 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   The Modal list gets the same backoff: it now re-checks every 5 s for as long as a pack is
   missing or unknown. Each check is a Worker round trip (to the PC or to Modal), so read its
   `cpuTimeMs`.
-- **`edit_image` output size.** Its description says the result "comes back at the resolution it
+- **`edit_image` output size.** Done 2026-09-30: the description was right, the code was not. An
+  input given by `image_id` resolved without a size, so the edit graph's scale node fell back to
+  the pack's whole budget (4 MP) and upscaled it. The Worker now reads the size from a quality-1
+  WebP of the image (`/view?preview=webp;1`, a few KB). Its description says the result "comes back at the resolution it
   went in at" unless the input is very large. On Modal with Flux 2 Klein 4B (Edit), a 768×768 upload
   came back 2048×2048 and a 1152×896 generation came back 2320×1808: small inputs are scaled up.
   Either keep the input size or change the description.

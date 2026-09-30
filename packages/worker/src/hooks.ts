@@ -81,8 +81,20 @@ export class WorkerHooks extends Hooks {
       throw new ComfyUIError(`${e.message} Pass an image_id from an earlier result or from request_upload, or a public https URL.`);
     }
     const { image, backend } = found;
-    if (backend === this.backend) return [image.loadValue(), null]; // ComfyUI has it; outputs from our packs are within budget
+    if (backend === this.backend) return [image.loadValue(), await this.sizeOf(image)]; // ComfyUI has it
     return this.fromOtherBackend(image, backend);
+  }
+
+  /** An image's size, which the edit graph needs: it scales its input to min(input pixels, the
+   * pack's budget), and without the size it scaled every input up to the budget (768×768 came
+   * back 2048×2048). A quality-1 WebP of it carries the dimensions in a few KB. */
+  private async sizeOf(image: OutputImage): Promise<[number, number] | null> {
+    try {
+      return imageSize((await this.client.view(image, "webp;1")).content);
+    } catch (e) {
+      if (e instanceof ComfyUIError) return null;
+      throw e;
+    }
   }
 
   /** An image the other backend made (or took the upload of): copied into this ComfyUI's inputs. */
