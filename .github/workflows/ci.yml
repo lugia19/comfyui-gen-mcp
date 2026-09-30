@@ -35,7 +35,7 @@ jobs:
       - run: node packages/mcpb/build.mjs
 
   launcher:
-    # The PC agent's launcher in Go: tests on each OS it ships for, then the release build.
+    # The PC agent's launcher in Go: the release build and the tests, on each OS it ships for.
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -52,10 +52,11 @@ jobs:
           cache-dependency-path: packages/launcher/go.sum
       - run: npm ci
       - run: node packages/mcpb/build.mjs
+      # Copies the shim in for go:embed, and cross-compiles every release target.
+      - run: node packages/launcher/build.mjs
       - run: go vet ./... && go test ./...
         working-directory: packages/launcher
-      - run: node packages/launcher/build.mjs
-        if: runner.os == 'Linux'
+        shell: bash
 
   web:
     # web/dist is committed (deploys have no node); it must match its source.
