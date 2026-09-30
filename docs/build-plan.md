@@ -163,6 +163,15 @@ through the user's own app install, updates would need a new mechanism: the Work
 itself, and a Modal updater in the user's workspace (which could run deploy.sh itself), plus a third
 path for PC-only users. Revisit if users get stuck at the GitHub step specifically.
 
+## Next: from the from-scratch test (2026-09-30)
+
+- **Unify LoRAs in Settings.** The page splits them in two: "LoRA files" at the bottom (upload,
+  delete) and "LoRAs" under the Anima pack (**Add LoRA**: pick a file, strength, trigger, hidden),
+  which stays disabled until a file is uploaded. Separating them makes no sense to a user: one
+  LoRAs section should upload a file and set it up in the same place. While there, the trigger
+  pre-filled from the filename drops the `@` that Anima's artist tags use (`zzzhodazzz` for a LoRA
+  whose trigger is `@zzzhodazzz`).
+
 ## Verification
 
 - **Every change:** `npm run typecheck`, `npm test` and `uv run pytest` (CI also runs Python 3.14,
