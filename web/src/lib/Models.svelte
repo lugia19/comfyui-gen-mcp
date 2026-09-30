@@ -6,7 +6,8 @@
   // folder. Polls while anything is in flight. Locally a missing pack waits for a click (or a tool
   // call); on Modal the Worker starts it.
   // *path*: /models (this machine, or Modal), or /pc/models (the paired PC, through the Worker).
-  let { local = false, path = '/models', title = '' } = $props()
+  // *onchange* hears the packs after each check (the setup page ticks its models step with it).
+  let { local = false, path = '/models', title = '', onchange = null } = $props()
   let packs = $state(null)
   let error = $state('')
   let timer = null
@@ -18,6 +19,7 @@
     try {
       packs = (await api('GET', path)).packs
       error = ''
+      onchange?.(packs)
     } catch (e) {
       error = e.message
     }

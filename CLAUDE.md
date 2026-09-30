@@ -44,10 +44,11 @@ Measure with Workers Logs `cpuTimeMs` when a change could move it (the appendix 
   and the agent share: config, ComfyUI install and lifecycle with uv, downloads; Node APIs),
   `packages/mcpb` (the Claude Desktop extension: shim, bind-or-relay entry, local server, tray;
   `node packages/mcpb/build.mjs [tag]` builds `comfy-gen.mjs`, the one bundle holding the server
-  and the agent, the shim and the `.mcpb`), `packages/agent` (the PC agent: relay client and its settings routes over `local`) and
-  `packages/launcher` (Go, not a workspace: the agent's launcher; `node packages/launcher/build.mjs
-  [tag]` after the MCPB build, `go test ./...` in its folder). `web/` (Svelte settings app) stays
-  outside, with its own lockfile; its built `web/dist` is committed.
+  and the agent, the shim and the `.mcpb`), `packages/agent` (the PC agent: relay client and its
+  settings routes over `local`) and `packages/launcher` (Go, not a workspace: the agent's
+  launcher; `node packages/launcher/build.mjs [tag]` after the MCPB build, `go test ./...` in its
+  folder). `web/` (Svelte settings app) stays outside, with its own lockfile; its built `web/dist`
+  is committed.
 - Python that remains, as a uv workspace: `packages/modal_app` (runs on Modal and in the Workers
   Build). The build step `packages/worker/deploy/deploy.{sh,py}` is stdlib Python and must stay at
   that path: published `deploy.sh` releases call it there.

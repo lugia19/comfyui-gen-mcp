@@ -3,6 +3,7 @@
   import { api, ApiError } from './lib/api.js'
   import Login from './lib/Login.svelte'
   import AgentWorker from './lib/AgentWorker.svelte'
+  import Checklist from './lib/Checklist.svelte'
   import LocalSetup from './lib/LocalSetup.svelte'
   import Setup from './lib/Setup.svelte'
   import Settings from './lib/Settings.svelte'
@@ -28,10 +29,23 @@
   let local = $derived(info?.mode === 'local' || info?.mode === 'agent')
   let agent = $derived(info?.mode === 'agent')
 
+  // The machine pages' checklist: the agent pairs and installs; the extension only installs.
+  let installed = $derived(local && info.comfyui.state !== 'not_installed')
+  let checklist = $derived(
+    !local ? []
+    : [
+        ...(agent
+          ? [{ title: 'Pair with your Worker', done: info.worker.state === 'connected', hint: info.worker.paired ? 'Waiting for the Worker to accept the connection.' : "Paste the pairing link from your Worker's page below." }]
+          : []),
+        { title: 'Install ComfyUI', done: installed, hint: 'Choose your GPU below and click Install. It takes a few minutes.' },
+      ],
+  )
+
   async function loggedIn() {
     await refresh()
+    // The Worker's setup is finished once Claude has connected; until then it opens on Setup.
     const ready =
-      info?.mode === 'agent' ? false : info?.mode === 'local' ? info.comfyui.state !== 'not_installed' : info?.generator || info?.pc?.paired
+      info?.mode === 'agent' ? false : info?.mode === 'local' ? info.comfyui.state !== 'not_installed' : info?.claude_seen && (info?.generator || info?.pc?.paired)
     tab = ready ? 'settings' : 'setup'
   }
 
@@ -59,6 +73,7 @@
   {:else if !info}
     <Login onlogin={loggedIn} />
   {:else if agent}
+    <Checklist items={checklist} done="Ask Claude for an image, on claude.ai or the phone app: it is made on this PC." />
     <AgentWorker {info} {refresh} />
     <LocalSetup {info} {refresh} />
   {:else}
@@ -67,7 +82,10 @@
       <button class:active={tab === 'settings'} onclick={() => (tab = 'settings')}>Settings</button>
     </nav>
     {#if tab === 'setup'}
-      {#if local}<LocalSetup {info} {refresh} />{:else}<Setup {info} {refresh} />{/if}
+      {#if local}
+        <Checklist items={checklist} done="Ask Claude Desktop for an image." />
+        <LocalSetup {info} {refresh} />
+      {:else}<Setup {info} {refresh} />{/if}
     {:else}
       <Settings {info} {refresh} />
     {/if}

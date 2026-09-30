@@ -1,22 +1,57 @@
 <script>
+  import { onDestroy, onMount } from 'svelte'
   import { api } from './api.js'
   import BuildLog from './BuildLog.svelte'
   import Models from './Models.svelte'
-  import PcSection from './PcSection.svelte'
+  import Step from './Step.svelte'
 
+  // The Worker's setup, one step at a time: log in, choose where images are made (Modal, the PC,
+  // both, or a ComfyUI URL), that path's steps, then connect Claude. Each step ticks itself from
+  // the Worker's state: the Modal deploy, the models on the Volume, the PC connected, Claude having
+  // listed the tools.
   let { info, refresh } = $props()
 
+  const RELEASE = 'https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/'
+  const CHOICE_KEY = 'comfy-gen-setup-choice'
+  const CHOICES = {
+    modal: ['In the cloud, on Modal', 'No GPU needed. Modal only runs, and bills, while it generates.'],
+    pc: ['On my PC', 'A small agent on your PC runs ComfyUI and connects out to this Worker. Nothing to open on your network.'],
+    both: ['My PC, with Modal while it is off', 'The PC is used whenever it is online; Modal answers the rest of the time.'],
+    url: ['A ComfyUI I already run', 'Advanced: a ComfyUI reachable from the internet.'],
+  }
+
+  // The choice follows what is set up; before anything is, it is remembered in this browser only.
+  let picked = $state(null)
+  try {
+    picked = localStorage.getItem(CHOICE_KEY)
+  } catch {}
+  let gen = $derived(info.generator)
+  let pc = $derived(info.pc)
+  let choice = $derived(
+    gen?.kind === 'url' ? 'url'
+    : (gen?.kind === 'modal' || info.build) && pc?.paired ? 'both'
+    : gen?.kind === 'modal' || info.build ? (picked === 'both' ? 'both' : 'modal')
+    : pc?.paired ? (picked === 'both' ? 'both' : 'pc')
+    : picked,
+  )
+  let wantModal = $derived(choice === 'modal' || choice === 'both')
+  let wantPc = $derived(choice === 'pc' || choice === 'both')
+
+  function choose(c) {
+    picked = c
+    try {
+      localStorage.setItem(CHOICE_KEY, c)
+    } catch {}
+  }
+
+  // Modal
   let modalId = $state('')
   let modalSecret = $state('')
   let buildBusy = $state(false)
   let buildError = $state('')
-
-  let showDirect = $state(false)
-  let directUrl = $state('')
-  let directBusy = $state(false)
-  let directError = $state('')
-
-  let copied = $state(false)
+  let packs = $state(null)
+  let deployed = $derived(gen?.kind === 'modal')
+  let modelsReady = $derived(deployed && packs !== null && packs.every((p) => p.state === 'done'))
 
   async function deployModal(e) {
     e.preventDefault()
@@ -33,6 +68,11 @@
     }
   }
 
+  // A ComfyUI URL
+  let directUrl = $state('')
+  let directBusy = $state(false)
+  let directError = $state('')
+
   async function saveDirect(e) {
     e.preventDefault()
     directBusy = true
@@ -47,6 +87,41 @@
     }
   }
 
+  // The PC
+  let pcBusy = $state(false)
+  let pcError = $state('')
+  let copiedLink = $state(false)
+
+  async function pair(again) {
+    if (again && !confirm('Make a new pairing link? The PC paired now disconnects until you paste the new link into it.')) return
+    pcBusy = true
+    pcError = ''
+    try {
+      await api('POST', '/pc/pair')
+      await refresh()
+    } catch (e) {
+      pcError = e.message
+    } finally {
+      pcBusy = false
+    }
+  }
+
+  async function unpair() {
+    if (!confirm('Unpair this PC? It disconnects, and images go to Modal (if set up) instead.')) return
+    await api('DELETE', '/pc')
+    await refresh()
+  }
+
+  async function copyLink() {
+    await navigator.clipboard.writeText(pc.link)
+    copiedLink = true
+    setTimeout(() => (copiedLink = false), 1500)
+  }
+
+  // Claude
+  let copied = $state(false)
+  let generatorReady = $derived(Boolean(gen) || Boolean(pc?.connected))
+
   async function copyConnector() {
     await navigator.clipboard.writeText(info.connector_url)
     copied = true
@@ -54,59 +129,144 @@
   }
 
   async function rotate() {
-    if (!confirm('Make a new connector URL? The old one stops working, so you will need to update it in claude.ai.')) return
+    if (!confirm('Make a new connector URL? The old one stops working, so you will need to add the new one in claude.ai.')) return
     await api('POST', '/setup/rotate-connector')
     await refresh()
   }
+
+  // Waiting on something outside this page: the PC connecting, Claude adding the connector.
+  let timer = null
+  function poll() {
+    timer = setTimeout(async () => {
+      if ((pc?.paired && !pc.connected) || (generatorReady && !info.claude_seen)) await refresh().catch(() => {})
+      poll()
+    }, 5000)
+  }
+  onMount(poll)
+  onDestroy(() => clearTimeout(timer))
+
+  const since = (t) => (t ? new Date(t).toLocaleString() : '')
+  const status = (done, ready = true) => (done ? 'done' : ready ? 'current' : 'todo')
+
+  // Step numbers follow the chosen path.
+  let steps = $derived.by(() => {
+    const list = []
+    if (wantModal) list.push('deploy', 'models')
+    if (wantPc) list.push('pc')
+    if (choice === 'url') list.push('url')
+    return list
+  })
+  const num = (id) => 3 + steps.indexOf(id)
+  let claudeN = $derived(3 + steps.length)
 </script>
 
-{#if info.cloudflare}
-  <p class="muted">
-    Worker <code>{info.cloudflare.script}</code> in account <code>{info.cloudflare.account_id}</code>. Logging in
-    again with a new token replaces the stored one.
-  </p>
+<Step n={1} title="Log in" status="done" summary={info.cloudflare ? `Worker ${info.cloudflare.script}` : 'Logged in'}>
+  {#if info.cloudflare}
+    <p class="muted">
+      Worker <code>{info.cloudflare.script}</code> in account <code>{info.cloudflare.account_id}</code>. Logging in
+      again with a new token replaces the stored one.
+    </p>
+  {/if}
+</Step>
+
+<Step n={2} title="Choose where images are made" status={status(choice)} summary={choice ? CHOICES[choice][0] : ''}>
+  {#each Object.entries(CHOICES) as [key, [label, detail]] (key)}
+    <label class="choice">
+      <input type="radio" name="where" value={key} checked={choice === key} onchange={() => choose(key)} />
+      <span><b>{label}</b><br /><span class="muted">{detail}</span></span>
+    </label>
+  {/each}
+  {#if (gen || pc?.paired) && !choice}<p class="muted">Pick one to see its steps.</p>{/if}
+</Step>
+
+{#if wantModal}
+  <Step n={num('deploy')} title="Deploy ComfyUI to Modal" status={status(deployed)} summary={deployed ? 'ComfyUI runs on Modal' : ''}>
+    <p>
+      Images are generated by ComfyUI on <a href="https://modal.com" target="_blank" rel="noopener">Modal</a>, in
+      your own account. New accounts get $30 of free compute a month; a card must be on file.
+    </p>
+    <ol>
+      <li>In Modal, open <b>Settings → API Tokens</b> and click <b>New Token</b>.</li>
+      <li>Paste both parts here. They are stored only as build secrets, used to deploy ComfyUI into your Modal account.</li>
+    </ol>
+    <p class="muted">The first deploy takes about 5 minutes: it builds the ComfyUI image.</p>
+    <form onsubmit={deployModal}>
+      <label for="mid">Token ID</label>
+      <input id="mid" type="text" bind:value={modalId} placeholder="ak-…" autocomplete="off" />
+      <label for="msec">Token secret</label>
+      <input id="msec" type="password" bind:value={modalSecret} placeholder="as-…" autocomplete="off" />
+      <button type="submit" disabled={buildBusy || !modalId.trim() || !modalSecret.trim()}>
+        {buildBusy ? 'Starting…' : deployed ? 'Deploy again' : 'Deploy to Modal'}
+      </button>
+      {#if buildError}<p class="err">{buildError}</p>{/if}
+    </form>
+    {#if info.build}
+      {#key info.build}<BuildLog onfinished={refresh} />{/key}
+    {/if}
+  </Step>
+
+  <Step
+    n={num('models')}
+    title="Download the models"
+    status={status(modelsReady, deployed)}
+    summary={modelsReady ? 'On your Modal Volume' : ''}
+  >
+    {#if deployed}
+      <p>The models download straight into your Modal account (about 20 GB for the default choices, a few minutes).
+        You can go on to the next step meanwhile.</p>
+      <Models onchange={(p) => (packs = p)} />
+    {/if}
+  </Step>
 {/if}
 
-<section>
-  <h2>1. GPU</h2>
-  {#if info.generator}
-    <p class="ok">
-      Ready: {info.generator.kind === 'modal' ? 'ComfyUI on Modal' : 'a ComfyUI at'} <code>{info.generator.base_url}</code>.
-    </p>
-    {#if info.generator.kind === 'modal'}<Models />{/if}
-  {/if}
-  <p>
-    Images are generated by ComfyUI on <a href="https://modal.com" target="_blank" rel="noopener">Modal</a>, which
-    only runs (and bills) while generating. New accounts get $30 of free compute a month; a card must be on file.
-  </p>
-  <ol>
-    <li>In Modal, open <b>Settings → API Tokens</b> and click <b>New Token</b>.</li>
-    <li>Paste both parts here. They are stored only as build secrets, used to deploy ComfyUI into your Modal account.</li>
-  </ol>
-  <p class="muted">
-    The first deploy takes about 5 minutes (it builds the ComfyUI image). The models then download
-    straight into your Modal account, about 20 GB for the default choices.
-  </p>
-  <form onsubmit={deployModal}>
-    <label for="mid">Token ID</label>
-    <input id="mid" type="text" bind:value={modalId} placeholder="ak-…" autocomplete="off" />
-    <label for="msec">Token secret</label>
-    <input id="msec" type="password" bind:value={modalSecret} placeholder="as-…" autocomplete="off" />
-    <button type="submit" disabled={buildBusy || !modalId.trim() || !modalSecret.trim()}>
-      {buildBusy ? 'Starting…' : 'Deploy to Modal'}
-    </button>
-    {#if buildError}<p class="err">{buildError}</p>{/if}
-  </form>
-  {#if info.build}
-    {#key info.build}<BuildLog onfinished={refresh} />{/key}
-  {/if}
+{#if wantPc}
+  <Step
+    n={num('pc')}
+    title="Run the agent on your PC"
+    status={status(pc?.connected)}
+    summary={pc?.connected ? `Connected${pc.info?.gpu ? `, GPU: ${pc.info.gpu}` : ''}` : ''}
+  >
+    {#if !pc?.paired}
+      <p>First, make the link that lets your PC connect to this Worker.</p>
+      <button onclick={() => pair(false)} disabled={pcBusy}>{pcBusy ? 'Making a link…' : 'Make a pairing link'}</button>
+    {:else}
+      <ol>
+        <li>
+          On your PC, download the agent:
+          <a href="{RELEASE}comfy-gen-agent-windows.exe">Windows</a>,
+          <a href="{RELEASE}comfy-gen-agent-macos.zip">macOS (Apple silicon)</a> or
+          <a href="{RELEASE}comfy-gen-agent-linux">Linux</a>, and run it. It is not signed yet: on Windows choose
+          <b>More info → Run anyway</b>; on macOS unzip it, right-click it and choose <b>Open</b>; on Linux,
+          <code>chmod +x</code> it first.
+        </li>
+        <li>Its page opens in your browser. Paste this pairing link there:</li>
+      </ol>
+      <div class="row"><code>{pc.link}</code></div>
+      <div class="row">
+        <button onclick={copyLink}>{copiedLink ? 'Copied' : 'Copy link'}</button>
+        <button class="secondary" onclick={() => pair(true)} disabled={pcBusy}>New link</button>
+        <button class="secondary" onclick={unpair}>Unpair</button>
+      </div>
+      <p class="muted">The link lets a PC generate for this Worker. Treat it like a password.</p>
+      <ol start="3">
+        <li>On the same page, install ComfyUI. It finds the models of ComfyUI installs you already have.</li>
+      </ol>
+      {#if pc.connected}
+        <p>
+          <b class="ok">Connected</b> <span class="muted">since {since(pc.since)}</span>
+          {#if pc.info}<span class="muted">· agent {pc.info.version} on {pc.info.platform}{#if pc.info.gpu}, GPU: {pc.info.gpu}{/if}</span>{/if}
+        </p>
+        <p class="muted">The agent starts with your PC from now on. {choice === 'both' ? 'While the PC is off, Modal answers.' : ''}</p>
+      {:else}
+        <p class="muted">Waiting for your PC to connect…</p>
+      {/if}
+    {/if}
+    {#if pcError}<p class="err">{pcError}</p>{/if}
+  </Step>
+{/if}
 
-  <p>
-    <button class="secondary" onclick={() => (showDirect = !showDirect)}>
-      {showDirect ? 'Hide' : 'Advanced: use a ComfyUI URL instead'}
-    </button>
-  </p>
-  {#if showDirect}
+{#if choice === 'url'}
+  <Step n={num('url')} title="Connect your ComfyUI" status={status(gen?.kind === 'url')} summary={gen?.kind === 'url' ? gen.base_url : ''}>
     <form onsubmit={saveDirect}>
       <label for="url">ComfyUI URL</label>
       <input id="url" type="url" bind:value={directUrl} placeholder="https://comfy.example.com" />
@@ -114,21 +274,42 @@
       <button type="submit" disabled={directBusy || !directUrl.trim()}>{directBusy ? 'Checking…' : 'Use this ComfyUI'}</button>
       {#if directError}<p class="err">{directError}</p>{/if}
     </form>
-  {/if}
-</section>
+  </Step>
+{/if}
 
-<PcSection {info} {refresh} />
-
-<section>
-  <h2>2. Connect Claude</h2>
-  <p>Add this URL in claude.ai: <b>Settings → Connectors → Add custom connector</b>.</p>
-  <div class="row">
-    <code>{info.connector_url}</code>
-  </div>
+<Step
+  n={claudeN}
+  title="Connect Claude"
+  status={status(info.claude_seen, generatorReady)}
+  summary={info.claude_seen ? 'Claude is connected' : ''}
+>
+  <ol>
+    <li>In claude.ai, open <b>Settings → Connectors → Add custom connector</b>.</li>
+    <li>Name it anything (Comfy-Gen, say) and paste this URL:</li>
+  </ol>
+  <div class="row"><code>{info.connector_url}</code></div>
   <div class="row">
     <button onclick={copyConnector}>{copied ? 'Copied' : 'Copy URL'}</button>
     <button class="secondary" onclick={rotate}>Make a new URL</button>
   </div>
-  <p class="muted">Anyone with this URL can generate images on your GPU account. Treat it like a password.</p>
-  {#if !info.generator && !info.pc?.paired}<p class="muted">It works once step 1 is done, or a PC is paired.</p>{/if}
-</section>
+  <p class="muted">Anyone with this URL can generate images with your setup. Treat it like a password.</p>
+  {#if !info.claude_seen}<p class="muted">This step ticks itself once Claude has connected.</p>{/if}
+</Step>
+
+{#if info.claude_seen}
+  <section class="finish">
+    <h2>You're set</h2>
+    <p>In a new chat, with the connector turned on, try:</p>
+    <p><i>"Draw a lighthouse on a cliff at dusk, in watercolor."</i></p>
+    <p class="muted">
+      Then ask for a change ("make it stormy"), or attach an image to edit. Styles, models and LoRAs are
+      under <b>Settings</b>.
+    </p>
+  </section>
+{/if}
+
+<style>
+  .finish {
+    border-color: var(--ok);
+  }
+</style>

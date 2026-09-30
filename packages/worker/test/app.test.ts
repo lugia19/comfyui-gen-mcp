@@ -46,6 +46,22 @@ describe("MCP", () => {
     expect("image" in r.result.tools.find((t: any) => t.name === "edit_image").inputSchema.properties).toBe(true);
   });
 
+  it("setup's last step: Claude listing the tools marks it connected, until the URL changes", async () => {
+    const { app } = world();
+    const cookie = await login(app);
+    const seen = async () => (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).claude_seen;
+    expect(await seen()).toBeNull();
+    await mcp(app, "initialize", { protocolVersion: "2025-06-18" });
+    expect(await seen()).toBeNull(); // only tools/list counts
+    await mcp(app, "tools/list");
+    const first = await seen();
+    expect(first).toBeGreaterThan(0);
+    await mcp(app, "tools/list");
+    expect(await seen()).toBe(first);
+    await app.handle(request("POST", "/api/setup/rotate-connector", undefined, cookie));
+    expect(await seen()).toBeNull();
+  });
+
   it("calls before setup explain what to do", async () => {
     const { app } = world();
     let [, r] = await mcp(app, "tools/call", { name: "generate_realistic_image", arguments: { prompt: "x" } });

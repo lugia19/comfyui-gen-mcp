@@ -24,6 +24,7 @@
   }
 
   let comfy = $derived(info.comfyui)
+  let packCount = $state(0) // the agent has none of its own: its packs are the Worker's
   // Form fields start from the page's first state; later refreshes don't overwrite what is typed.
   let gpu = $state(untrack(() => info.comfyui.gpu || info.detected_gpu))
   let install = $state(untrack(() => info.install))
@@ -140,7 +141,7 @@
 {/if}
 
 {#if comfy.state !== 'not_installed' && comfy.state !== 'external'}
-  <section><Models local /></section>
+  <section hidden={!packCount}><Models local onchange={(p) => (packCount = p.length)} /></section>
 {/if}
 
 {#if comfy.state !== 'not_installed' && comfy.state !== 'external'}

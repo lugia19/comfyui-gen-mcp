@@ -285,6 +285,16 @@ description).
 
 ## 6. Setup flows
 
+The static site (`site/`, published to GitHub Pages by `.github/workflows/pages.yml`) has the
+prerequisites and the Deploy button, then hands over to the Worker's page. That page is a stepper:
+log in; choose where images are made (Modal, the PC, the PC with Modal while it is off, or a
+ComfyUI URL); that path's steps; connect Claude. Each step ticks itself from the Worker's state:
+the generator set, the models on the Volume, the PC connected, and Claude having connected (the
+first `tools/list` on the connector URL sets `claude_seen` in the `setup` key; a new URL clears
+it). Done steps fold to one line; until Claude has connected, the page opens on Setup rather than
+Settings. The agent's and the extension's own pages carry a short checklist on top (pair, install
+ComfyUI) above their usual sections.
+
 ### No GPU
 
 1. Static site: prerequisites (Cloudflare, GitHub, Modal with a card on file), then the Deploy button.
@@ -309,8 +319,9 @@ description).
 
 ### GPU owner
 
-1. Steps 1 to 3 without the Modal token (the Modal step can be skipped).
-2. The Worker's setup page, under "Your PC", makes a pairing link: `https://<worker>/agent#<secret>`.
+1. Steps 1 to 3 of "No GPU", choosing "On my PC" instead of pasting a Modal token.
+2. The step "Run the agent on your PC" makes a pairing link, `https://<worker>/agent#<secret>`, and
+   links the launcher downloads.
 3. The user downloads the launcher for their OS from the release and runs it. It installs itself,
    fetches Node, starts the agent and opens the agent's page on `127.0.0.1:9248`.
 4. There they paste the pairing link, then install ComfyUI as in the MCPB (GPU choice; other

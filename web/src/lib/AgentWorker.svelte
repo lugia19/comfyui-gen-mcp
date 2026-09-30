@@ -64,8 +64,8 @@
     </p>
   {:else}
     <p>
-      Pair this PC with your Worker: on the Worker's settings page, open <b>Setup → Your PC</b>, copy the
-      pairing link, and paste it here.
+      Pair this PC with your Worker: on the Worker's page, the step <b>Run the agent on your PC</b> shows
+      the pairing link. Copy it and paste it here.
     </p>
   {/if}
   <form onsubmit={pair}>

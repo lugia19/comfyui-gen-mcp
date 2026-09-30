@@ -173,7 +173,9 @@ export class App {
     };
 
     const handler = new McpHandler("Comfy-Gen-MCP", this.version, specs, call, INSTRUCTIONS);
-    const [status, body] = await handler.handle(await req.text());
+    let listed = false; // claude.ai lists the tools once the connector is added: setup's last step
+    const [status, body] = await handler.handle(await req.text(), (m) => (listed ||= m === "tools/list"));
+    if (listed && !(await this.store.setup()).claude_seen) await this.store.updateSetup({ claude_seen: this.p.now() });
     if (body === null) return new Response(null, { status });
     return new Response(body, { status, headers: { "Content-Type": "application/json" } });
   }
@@ -284,6 +286,7 @@ export class App {
     }
     if (sub === "/setup/rotate-connector" && req.method === "POST") {
       await this.fresh.updateSecrets({ mcp_secret: tokenUrlsafe(24) });
+      await this.fresh.updateSetup({ claude_seen: null }); // the new URL has to be added again
       return json({ ok: true });
     }
     return error(404, "not found");
@@ -298,6 +301,7 @@ export class App {
       generator: gen ? { kind: gen.kind ?? null, base_url: gen.base_url ?? null } : null,
       build: setup.build ?? null,
       connector_url: `${url.origin}/mcp/${s.mcp_secret}`,
+      claude_seen: setup.claude_seen ?? null,
       pc: await this.pcState(url, s),
       config: await this.fresh.config(),
       schema: SETTINGS_SCHEMA,

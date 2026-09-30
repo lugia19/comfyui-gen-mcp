@@ -29,8 +29,9 @@ export class McpHandler {
     this.initRest = JSON.stringify(rest).slice(1); // initialize's result minus protocolVersion
   }
 
-  /** One POSTed JSON-RPC message in; [HTTP status, response body or null for 202] out. */
-  async handle(body: string): Promise<[number, string | null]> {
+  /** One POSTed JSON-RPC message in; [HTTP status, response body or null for 202] out. *seen*
+   * hears the method of each request (not notifications), before it is answered. */
+  async handle(body: string, seen?: (method: string) => void): Promise<[number, string | null]> {
     let msg: any;
     try {
       msg = JSON.parse(body);
@@ -42,6 +43,7 @@ export class McpHandler {
     const method = msg.method;
     const id = msg.id;
     if (id === undefined || id === null) return [202, null]; // a notification: accept it
+    if (typeof method === "string") seen?.(method);
     const params = msg.params && typeof msg.params === "object" && !Array.isArray(msg.params) ? msg.params : {};
 
     if (method === "tools/call") {

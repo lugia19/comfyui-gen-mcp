@@ -43,48 +43,34 @@
   <p class="lede">Image generation and editing for Claude, on a ComfyUI you own.</p>
 
   <section>
-    <h2>No GPU? Run it in the cloud</h2>
+    <h2>For claude.ai, on the web and your phone</h2>
     <p>
-      A Cloudflare Worker gives claude.ai (web, desktop and mobile) an image tool. ComfyUI runs on
-      <a href="https://modal.com">Modal</a>, which only runs, and only bills, while it generates.
+      A free Cloudflare Worker gives Claude an image tool. The images are made either in the cloud, on
+      <a href="https://modal.com">Modal</a> (it only runs, and only bills, while it generates), or on
+      your own PC with a GPU, through a small agent that connects out to the Worker: no port to open,
+      no tunnel. Or both: your PC when it is on, Modal when it is off.
     </p>
     <p><b>You need:</b></p>
     <ul>
       <li>A <a href="https://dash.cloudflare.com/sign-up">Cloudflare account</a> (the free plan is enough) with GitHub connected.</li>
-      <li>A <a href="https://modal.com/signup">Modal account</a> with a card on file. New accounts get $30 of free compute a month.</li>
       <li>A claude.ai plan that can add custom connectors.</li>
+      <li>For the cloud: a <a href="https://modal.com/signup">Modal account</a> with a card on file (new accounts get $30 of free compute a month).
+        For your PC: an NVIDIA GPU (AMD on Linux), or an Apple silicon Mac.</li>
     </ul>
     <p><b>Steps:</b></p>
     <ol>
       <li>Click the button and wait for the first deploy (about 3 minutes). There is nothing to fill in.</li>
-      <li>Open your Worker's URL and log in with a Cloudflare token (the page links to a pre-filled one), then paste a Modal token.</li>
-      <li>Copy the connector URL it shows into claude.ai under <b>Settings → Connectors → Add custom connector</b>.</li>
+      <li>Open your Worker: <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code> (Cloudflare shows the
+        link when the deploy finishes). Its page takes you through the rest, one step at a time: log in,
+        choose where the images are made, set that up, and connect Claude.</li>
     </ol>
     <a class="button" href="https://deploy.workers.cloudflare.com/?url=https://github.com/lugia19/comfyui-gen-mcp/tree/main/bootstrap">
       Deploy to Cloudflare
     </a>
-    <p class="muted">Updates install themselves: the Worker checks for a new release daily and redeploys.</p>
-  </section>
-
-  <section>
-    <h2>Have a GPU? Use it from claude.ai and your phone</h2>
-    <p>
-      Deploy the Worker as above (the Modal token is optional: add it and Modal takes over while your
-      PC is off). A small agent on your PC connects out to the Worker, so there is no port to open and
-      no tunnel.
+    <p class="muted">
+      Updates install themselves: the Worker checks for a new release daily and redeploys, and the
+      agent on your PC updates itself too.
     </p>
-    <ol>
-      <li>On your Worker's page, under <b>Your PC</b>, copy the pairing link.</li>
-      <li>Download and run the agent for your system:
-        <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/comfy-gen-agent-windows.exe">Windows</a>,
-        <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/comfy-gen-agent-macos.zip">macOS (Apple silicon)</a>,
-        <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/comfy-gen-agent-linux">Linux</a>.
-        It is not signed yet: on Windows choose <b>More info → Run anyway</b>; on macOS unzip it,
-        then right-click it and choose <b>Open</b>; on Linux, <code>chmod +x</code> it first.</li>
-      <li>Its page opens in your browser: paste the pairing link, then install ComfyUI (it finds the
-        models of ComfyUI installs you already have).</li>
-    </ol>
-    <p class="muted">The agent starts with your PC, runs ComfyUI only while it is used, and updates itself.</p>
   </section>
 
   <section>
