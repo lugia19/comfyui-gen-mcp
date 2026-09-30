@@ -96,6 +96,20 @@ describe("LoraSync", () => {
     expect(sync.jobs).toEqual({});
   });
 
+  it("takes a same-size file already in the folder as ours, without downloading it", async () => {
+    const home = mkdtempSync(join(tmpdir(), "home-"));
+    const dir = join(home, "loras");
+    mkdirSync(dir);
+    writeFileSync(join(dir, "remote.safetensors"), "r".repeat(50)); // the user's own copy
+    const loraRegistry = new LoraRegistry(join(home, "loras.json"), () => dir);
+    const world = await fakeWorld((loras, base) => ({ push: [], pull: "remote.safetensors" in loras ? [] : [{ name: "remote.safetensors", size: 50, url: `${base}/d/abc` }] }));
+    close = () => world.srv.close();
+    const machine = { lorasDir: dir, loraRegistry, loraPaths: () => loraRegistry.paths(), loras: () => loraRegistry.sizes() };
+    await new LoraSync({ machine, worker: () => ({ url: world.url, secret: "s" }), sleep: async () => {} }).sync();
+    expect(world.seen.cut).toBe(0); // no download
+    expect(loraRegistry.sizes()).toEqual({ "remote.safetensors": 50 });
+  });
+
   it("keeps a failed copy's error for the settings page, and never throws", async () => {
     const dir = mkdtempSync(join(tmpdir(), "loras-"));
     const world = await fakeWorld((_, base) => ({ push: [], pull: [{ name: "../evil.safetensors", size: 5, url: `${base}/d/x` }] }));

@@ -2,7 +2,8 @@
   // One step of a setup page. *status*: "current" (open), "done" (ticked and folded to its summary;
   // Show opens it again), "todo" (waiting on an earlier step: the title only). The content stays
   // mounted while folded, so a step can keep reporting (downloads, connections).
-  let { n, title, status, summary = '', children } = $props()
+  // *actions*: controls kept in the head, usable while the step is folded (the PC's Pause).
+  let { n, title, status, summary = '', actions = null, children } = $props()
   let open = $state(false)
   let shown = $derived(status === 'current' || (status === 'done' && open))
 </script>
@@ -13,6 +14,7 @@
     <h2>{title}</h2>
     {#if status === 'done'}
       <span class="summary muted">{summary}</span>
+      {@render actions?.()}
       <button type="button" class="link" onclick={() => (open = !open)}>{open ? 'Hide' : 'Show'}</button>
     {/if}
   </div>

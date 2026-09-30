@@ -483,7 +483,7 @@ a header and its chunks in one synchronous run, so messages never interleave.
 | Message | Direction | Carries |
 |---|---|---|
 | `http` | Worker → agent | One ComfyUI request (method, path, params, headers, body); the agent calls its ComfyUI inside a job, so the idle stop waits |
-| `control` | Worker → agent | An agent operation: `ensure` (start ComfyUI, install the pack's nodes, check or start its model downloads), `loras` (its files and the LoRA copies in progress), `models`, `download`, `sync` (start a LoRA sync), `upload_start`, `upload_chunk` (the chunk as the message body), `upload_finish`, `upload_status`, `lora_delete`, `status` |
+| `control` | Worker → agent | An agent operation: `pause` (`{paused}`, from the Setup page), `ensure` (start ComfyUI, install the pack's nodes, check or start its model downloads), `loras` (its files and the LoRA copies in progress), `models`, `download`, `sync` (start a LoRA sync), `upload_start`, `upload_chunk` (the chunk as the message body), `upload_finish`, `upload_status`, `lora_delete`, `status` |
 | `reply` | agent → Worker | `{id, status}` and the body |
 | `hello` | agent → Worker | On connecting, and again when paused or resumed: version, platform, GPU, ComfyUI state, `paused`; the latest is kept with the socket for the settings page |
 
@@ -512,10 +512,13 @@ the launcher left Node, the tray and ComfyUI behind. The launcher passes its pid
 (`COMFY_GEN_LAUNCHER_PID`; older launchers are the parent process, which is the same), and the
 agent checks it every 5 s: once it is gone, the agent stops ComfyUI and exits.
 
-**Pause.** The agent's tray has "Stop taking image requests": the agent stays connected but sends
-a hello with `paused: true`, and the Worker then treats the PC as not there: Modal answers, or,
-with no other generator, the tools say the PC is paused. The Worker's page shows it paused, not
-offline. The pause is not saved: a restart takes requests again, so a forgotten pause cannot send
+**Pause.** The agent's tray has "Stop taking image requests", and the Worker's Setup page has
+Pause and Resume in the PC step's header (usable while it is folded, from a phone), sent to the agent
+as a `pause` control op over its connection: the agent has no inbound port. Both set the same flag
+in the agent, which then sends a hello with `paused: true`; the tray re-reads the flag every 2 s and
+the page reads the hello, so they agree whichever changed it. The Worker then treats the PC as not
+there: Modal answers, or, with no other generator, the tools say the PC is paused. The pause is not
+saved, and both places say so: a restart takes requests again, so a forgotten pause cannot send
 every image to Modal for days.
 
 The agent (`packages/agent`) reconnects at once after a drop, then backs off (1 s to 60 s),

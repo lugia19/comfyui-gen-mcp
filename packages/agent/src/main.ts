@@ -59,8 +59,16 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
   // quietly send every image to Modal for days.
   let paused = false;
   const settingsUrl = `http://127.0.0.1:${cfg.port}/`;
+  // From the tray or the Worker's page (a control op): the same flag, so both show the same. The
+  // tray re-reads it every 2 s; the Worker reads it from the fresh hello.
+  const setPaused = (value: boolean, from: string) => {
+    if (value !== paused) log.info(value ? `Paused from ${from}: not taking image requests` : `Taking image requests again (from ${from})`);
+    paused = value;
+    client?.refreshHello();
+  };
   const sync = new LoraSync({ machine, worker: () => (cfg.worker_url && cfg.secret ? { url: cfg.worker_url, secret: cfg.secret } : null) });
   const handle = agentHandler({
+    setPaused: (value) => setPaused(value, "the Worker's page"),
     sync,
     machine,
     setKeepWarm: (minutes) => {
@@ -121,12 +129,8 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
   const tray = opts.trayIcons
     ? await machineTray(machine, opts.trayIcons, settingsUrl, trouble, {
         title: () => (paused ? "Take image requests again" : "Stop taking image requests"),
-        note: () => (paused ? "not taking requests" : null),
-        onClick: () => {
-          paused = !paused;
-          log.info(paused ? "Paused: not taking image requests" : "Taking image requests again");
-          client?.refreshHello();
-        },
+        note: () => (paused ? "paused until resumed or restarted" : null),
+        onClick: () => setPaused(!paused, "the tray"),
       })
     : null;
 

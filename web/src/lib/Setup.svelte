@@ -183,11 +183,34 @@
 
   // Waiting on something outside this page: the PC connecting, Claude adding the connector.
   let timer = null
+  // Every 5 s while waiting on something; every 20 s while a PC is paired, so its status (paused,
+  // offline, a new agent version) follows without a reload.
+  let lastSlow = 0
   function poll() {
     timer = setTimeout(async () => {
-      if ((pc?.paired && !pc.connected) || (generatorReady && !info.claude_seen)) await refresh().catch(() => {})
+      const waiting = (pc?.paired && !pc.connected) || (generatorReady && !info.claude_seen)
+      const slow = pc?.paired && Date.now() - lastSlow >= 20_000
+      if (waiting || slow) {
+        lastSlow = Date.now()
+        await refresh().catch(() => {})
+      }
       poll()
     }, 5000)
+  }
+
+  // Pause from here: the agent's tray pause, sent over its connection.
+  let pauseBusy = $state(false)
+  async function setPaused(paused) {
+    pauseBusy = true
+    pcError = ''
+    try {
+      await api('POST', '/pc/pause', { paused })
+      await refresh()
+    } catch (e) {
+      pcError = e.message
+    } finally {
+      pauseBusy = false
+    }
   }
   onMount(poll)
   onDestroy(() => clearTimeout(timer))
@@ -206,6 +229,12 @@
   const num = (id) => 3 + steps.indexOf(id)
   let claudeN = $derived(3 + steps.length)
 </script>
+
+{#snippet pauseButton()}
+  <button type="button" class="secondary small" onclick={() => setPaused(!pc.info?.paused)} disabled={pauseBusy}>
+    {pauseBusy ? '…' : pc.info?.paused ? 'Resume' : 'Pause'}
+  </button>
+{/snippet}
 
 <Step n={1} title="Log in" status="done" summary={info.cloudflare ? `Worker ${info.cloudflare.script}` : 'Logged in'}>
   {#if info.cloudflare}
@@ -310,7 +339,8 @@
     n={num('pc')}
     title="Run the agent on your PC"
     status={status(pc?.connected)}
-    summary={pc?.connected ? `${pc.info?.paused ? 'Paused' : 'Connected'}${pc.info?.gpu ? `, GPU: ${gpuName(pc.info.gpu)}` : ''}` : ''}
+    summary={pc?.connected ? `${pc.info?.paused ? 'Paused' : 'Connected'}${pc.info?.platform ? `: ${platformName(pc.info.platform)}` : ''}${pc.info?.gpu ? `, GPU: ${gpuName(pc.info.gpu)}` : ''}` : ''}
+    actions={pc?.connected ? pauseButton : null}
   >
     {#if !pc?.paired}
       <p>First, make the link that lets your PC connect to this Worker.</p>
@@ -340,11 +370,15 @@
       {#if pc.connected}
         <p>
           {#if pc.info?.paused}
-            <b>Paused</b> <span class="muted">from its tray icon: not taking image requests{choice === 'both' ? ', so Modal answers' : ''}.</span>
+            <b>Paused:</b> <span class="muted">not taking image requests{choice === 'both' ? ', so Modal answers' : ''}.</span>
           {:else}
             <b class="ok">Connected</b> <span class="muted">since {since(pc.since)}</span>
           {/if}
           {#if pc.info}<span class="muted">· agent {pc.info.version} on {platformName(pc.info.platform)}{#if pc.info.gpu}, GPU: {gpuName(pc.info.gpu)}{/if}</span>{/if}
+        </p>
+        <div class="row">{@render pauseButton()}</div>
+        <p class="muted">
+          A pause lasts until you resume it, here or from the Comfy-Gen tray icon, or until the agent restarts.
         </p>
         <p class="muted">The agent starts with your PC from now on. {choice === 'both' ? 'While the PC is off, Modal answers.' : ''}</p>
       {:else}
@@ -423,7 +457,7 @@
         <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/tag/{update.latest}" target="_blank" rel="noopener">What's new</a>
       </p>
       <p class="muted">
-        It updates itself within a day. Update now starts the build at once: it takes a few minutes, and
+        It updates itself within a day. Update now starts the build at once: it takes a minute or two, and
         {gen?.kind === 'modal' ? 'redeploys ComfyUI on Modal too' : 'image requests keep working meanwhile'}.
       </p>
       {#if !updating && !(update.build && update.build === info.build)}
@@ -480,6 +514,10 @@
   }
   .finish {
     border-color: var(--ok);
+  }
+  .small {
+    margin-top: 0;
+    padding: 4px 12px;
   }
   .failed {
     border: 1px solid var(--err);

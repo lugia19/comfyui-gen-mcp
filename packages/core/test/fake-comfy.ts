@@ -44,6 +44,7 @@ export const json = (data: unknown, status = 200) => new Response(status, utf8(J
  */
 export class FakeComfy implements Transport {
   bootFails = 0;
+  uploadBootFails = 0; // /upload/image calls answered 503 (a cold host) before one is taken
   viewBootFails = 0;
   reject: unknown = null;
   heldWait = false;
@@ -98,6 +99,10 @@ export class FakeComfy implements Transport {
       return new Response(200, this.viewBody);
     }
     if (path === "/upload/image") {
+      if (this.uploadBootFails) {
+        this.uploadBootFails -= 1;
+        return new Response(503, new Uint8Array());
+      }
       this.uploads.push(body);
       const text = String.fromCharCode(...body);
       const name = /filename="([^"]+)"/.exec(text)![1];

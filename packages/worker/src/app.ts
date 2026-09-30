@@ -351,6 +351,13 @@ export class App {
     if (sub === "/setup/build" && req.method === "GET") return this.buildState(url, s);
     if (sub === "/pc/pair" && req.method === "POST") return this.pair(url);
     if (sub.startsWith("/pc/loras/uploads") && this.pcPaired(s)) return this.pcUploads(req, sub);
+    if (sub === "/pc/pause" && req.method === "POST" && this.pcPaired(s)) {
+      // The tray's pause, from here: the agent sets it and says so in a fresh hello. Not kept across
+      // an agent restart, so a forgotten pause cannot send every image to Modal for days.
+      const paused = (await bodyJson(req)).paused === true;
+      const r = await this.pcControl("pause", { paused });
+      return r.ok ? json(r.data) : error(r.message === PC_OFFLINE ? 503 : 502, r.message);
+    }
     if (sub === "/pc" && req.method === "DELETE") {
       await this.fresh.updateSecrets({ agent_secret: null });
       await this.p.relay?.drop();
@@ -451,16 +458,17 @@ export class App {
     const cfg = await this.fresh.saveConfig((await bodyJson(req)).config);
     const admin = modalAdmin.forGenerator(this.fetch, s.generator);
     const warnings = admin ? await this.applyToModal(admin, cfg, old.keep_warm_minutes !== cfg.keep_warm_minutes) : [];
+    const notes: string[] = []; // informational, not a problem
     const pcOnline = this.pcPaired(s) && (await this.pcConnected());
     if (this.pcPaired(s) && !pcOnline) {
-      warnings.push("Your PC is offline: its models download, and LoRAs are copied, when it is next online.");
+      notes.push("Your PC is offline: its models download, and LoRAs are copied, when it is next online.");
     } else if (pcOnline) {
       // As the extension does: a newly chosen pack starts downloading now.
       for (const pack of selectedPacks(cfg)) await this.pcControl("download", { pack: needs(pack) });
       await this.pcControl("sync");
     }
     if (wantedLoras(cfg).length && (admin || pcOnline)) warnings.push(...missingLoras(cfg, await this.loraListing(s)));
-    return json({ config: cfg, warnings });
+    return json({ config: cfg, warnings, notes });
   }
 
   /**

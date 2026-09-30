@@ -5,6 +5,7 @@
 // bytes never pass through the Worker. Nothing is deleted.
 
 import { createHash } from "node:crypto";
+import { existsSync, statSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { fetchFile, log, type Machine } from "@comfy-gen/local";
@@ -143,9 +144,17 @@ export class LoraSync {
   private async pull(p: Pull): Promise<void> {
     if (basename(p.name) !== p.name || !p.name.endsWith(".safetensors")) throw new Error("not a plain LoRA file name");
     const job = this.jobs[p.name];
+    const dest = join(this.o.machine.lorasDir, p.name);
+    // The user's own copy, same name and size (they uploaded a file this PC already had): take it
+    // as ours rather than download it again.
+    if (existsSync(dest) && statSync(dest).size === p.size) {
+      job.done = p.size;
+      this.o.machine.loraRegistry.add(p.name);
+      return;
+    }
     for (let attempt = 0; ; attempt++) {
       try {
-        await fetchFile(p.url, join(this.o.machine.lorasDir, p.name), {
+        await fetchFile(p.url, dest, {
           size: p.size,
           resume: true,
           onProgress: (done) => (job.done = done),

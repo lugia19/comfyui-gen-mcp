@@ -173,6 +173,15 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   list and a LoRA list that show each backend's state, `pc_keep_warm_minutes` as the one
   per-backend setting, and the agent copying LoRAs between the PC and Modal (design §9, "LoRA
   sync"). Kept from the split: one LoRA section by file, and the `@` in pre-filled triggers.
+- **v1.3.7 test report: pause from the page, and fixes.** Done 2026-10-01:
+  - Pause and Resume on the Worker's Setup page, as a control op to the agent (design §9); the tray
+    and the page share one flag; a pause ends with an agent restart, and both say so.
+  - Editing a PC image while Modal was cold failed at once ("Upload to ComfyUI failed (HTTP
+    503)"): uploads now wait out a cold start, as submit and view do.
+  - The LoRA list and the PC's status follow the PC without a reload (every 20 s while paired).
+  - The offline note after a save is quiet (`notes`), not a red warning.
+  - Uploading a LoRA the PC already had no longer downloads it again (same name and size).
+  - The agent logs LoRA deletes; the PC step's summary names the OS; texts fixed.
 - **v1.3.5 test report fixes.** Done 2026-09-30:
   - A PC image's link and edits failed once keep-warm had stopped ComfyUI: `/view` is served from
     disk (design §9).

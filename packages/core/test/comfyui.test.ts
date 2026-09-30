@@ -11,6 +11,17 @@ function setup() {
 }
 
 describe("ComfyUIClient", () => {
+  it("upload waits out a cold start too, but only where cold starts are expected", async () => {
+    const { comfy, client } = setup();
+    comfy.uploadBootFails = 2;
+    const img = await client.upload(new Uint8Array([1, 2]), "a.png", "image/png");
+    expect(img.filename).toBe("a.png");
+    expect(comfy.calls.filter((c) => c[1] === "/upload/image").length).toBe(3);
+    const warmOnly = fastClient(comfy, {}); // a PC or a URL: no cold start to wait for
+    comfy.uploadBootFails = 1;
+    await expect(warmOnly.upload(new Uint8Array([1]), "b.png", "image/png")).rejects.toThrow(/HTTP 503/);
+  });
+
   it("submit waits out a cold start", async () => {
     const { comfy, client } = setup();
     comfy.bootFails = 3;

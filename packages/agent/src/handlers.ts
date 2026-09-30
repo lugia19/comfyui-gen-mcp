@@ -4,7 +4,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { ComfyUIError, type relay } from "@comfy-gen/core";
-import { UploadError, type Machine, type PackNeeds } from "@comfy-gen/local";
+import { log, UploadError, type Machine, type PackNeeds } from "@comfy-gen/local";
 import type { SyncJob } from "./lora-sync.ts";
 import type { Reply } from "./relay-client.ts";
 
@@ -16,6 +16,8 @@ export type HandlerOptions = {
   setKeepWarm(minutes: number): void;
   /** Where the user sees download progress, for "downloading" answers. */
   settingsNote: string;
+  /** Pause or resume taking image requests, from the Worker's page (the tray's flag). */
+  setPaused?(paused: boolean): void;
   /** LoRA copies to and from Modal: start a round (not awaited), and the copies in progress. */
   sync?: { sync(): Promise<void>; jobs: Record<string, SyncJob> };
 };
@@ -105,8 +107,13 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
           return ok(machine.uploads.finish(String(args.id)));
         case "upload_status":
           return ok(machine.uploads.status(String(args.id)));
+        case "pause":
+          if (!o.setPaused) return [400, "This agent cannot be paused from the Worker. Update it."];
+          o.setPaused(args.paused === true);
+          return ok({ paused: args.paused === true });
         case "lora_delete":
           machine.loraRegistry.delete(String(args.name));
+          log.info(`LoRA deleted: ${args.name}`);
           return ok({ deleted: args.name });
         default:
           return [400, `The agent does not know the operation ${h.op}. Update it.`];

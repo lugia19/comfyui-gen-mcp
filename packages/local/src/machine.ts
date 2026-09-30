@@ -175,6 +175,7 @@ export class Machine {
       if (!up && m === "DELETE") {
         const name = decodeURIComponent(sub.slice("/loras/".length));
         this.loraRegistry.delete(name);
+        log.info(`LoRA deleted: ${name}`);
         return json({ deleted: name });
       }
     } catch (e) {

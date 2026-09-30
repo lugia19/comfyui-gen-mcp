@@ -304,14 +304,24 @@ export class ComfyUIClient {
     }
   }
 
-  /** Upload to ComfyUI's input folder (overwriting a same-named file). */
+  /** Upload to ComfyUI's input folder (overwriting a same-named file). Waits out a cold start like
+   * submit(): editing a PC image on a Modal that had scaled to zero failed at once (seen live). */
   async upload(data: Uint8Array, filename: string, mime: string, subfolder = ""): Promise<OutputImage> {
     const fields: Record<string, string> = { type: "input", overwrite: "true" };
     if (subfolder) fields.subfolder = subfolder;
     const [body, ctype] = encodeMultipart(fields, { image: [filename, data, mime] });
-    const resp = await this.request("POST", "/upload/image", { headers: { "Content-Type": ctype }, body });
-    if (resp.status !== 200) {
-      throw new ComfyUIError(`Upload to ComfyUI failed (HTTP ${resp.status}): ${resp.text.slice(0, 300)}`);
+    const deadline = this.now() + this.coldStartS;
+    let resp: Response;
+    for (;;) {
+      resp = await this.request("POST", "/upload/image", { headers: { "Content-Type": ctype }, body });
+      if (resp.status === 200) break;
+      const left = this.remaining();
+      const retry = BOOTING.includes(resp.status) && this.coldStartS && this.now() <= deadline && (left === null || left > 3);
+      if (!retry) {
+        if (BOOTING.includes(resp.status) && this.coldStartS) throw new ComfyUIError("The GPU is still starting up. Please try again in a minute.");
+        throw new ComfyUIError(`Upload to ComfyUI failed (HTTP ${resp.status}): ${resp.text.slice(0, 300)}`);
+      }
+      await this.sleep(COLD_START_POLL_S);
     }
     const info = resp.json();
     return new OutputImage(info.name, info.subfolder || "", "input");

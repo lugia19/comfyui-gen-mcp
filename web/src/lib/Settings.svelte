@@ -27,6 +27,7 @@
   let message = $state('')
   let error = $state('')
   let warnings = $state([])
+  let notes = $state([]) // informational (the PC offline), shown quietly
   let saves = $state(0) // remounts the model list after a save, which may start downloads
 
   function selectedPack(group) {
@@ -82,8 +83,11 @@
     } catch (e) {
       loraListing = { backends: [], files: {}, syncing: {}, errors: { [machine ? 'machine' : 'the Worker']: e.message } }
     }
+    // Every 3 s while copies run (or just after an upload or a save); every 20 s while a PC is
+    // paired, so its going offline or coming back shows without a reload.
     const copying = Object.values(loraListing.syncing ?? {}).some((j) => !j.error)
     if (alive && (copying || Date.now() < watchUntil)) loraTimer = setTimeout(() => loadLoras(), 3000)
+    else if (alive && pcPaired) loraTimer = setTimeout(() => loadLoras(), 20_000)
   }
   onMount(() => loadLoras())
 
@@ -95,6 +99,7 @@
       const saved = await api('PUT', '/config', { config: cfg })
       cfg = saved.config
       warnings = saved.warnings || []
+      notes = saved.notes || []
       saves += 1
       message = 'Saved. New chats pick up tool changes; existing chats keep the tools they started with.'
       await refresh()
@@ -180,6 +185,7 @@
 
 <button onclick={save} disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
 {#if message}<p class="ok">{message}</p>{/if}
+{#each notes as n}<p class="muted">{n}</p>{/each}
 {#each warnings as w}<p class="err">{w}</p>{/each}
 {#if error}<p class="err">{error}</p>{/if}
 

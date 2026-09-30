@@ -178,7 +178,8 @@ describe("agent handlers", () => {
     let keepWarm = 0;
     let syncs = 0;
     const sync = { sync: async () => void syncs++, jobs: { "b.safetensors": { to: "pc" as const, done: 1, total: 2 } } };
-    const handle = agentHandler({ machine, setKeepWarm: (m) => (keepWarm = m), settingsNote: "x", sync });
+    let paused = false;
+    const handle = agentHandler({ machine, setKeepWarm: (m) => (keepWarm = m), settingsNote: "x", sync, setPaused: (v) => (paused = v) });
     const call = async (header: any, body: Uint8Array = new Uint8Array()) => {
       const [status, out] = await handle({ header, body });
       return [status, typeof out === "string" ? out : fromUtf8(out)];
@@ -193,6 +194,11 @@ describe("agent handlers", () => {
     });
     expect(await call({ kind: "control", id: "7", op: "sync" })).toEqual([200, '{"started":true}']);
     expect(syncs).toBe(1);
+    // Pause and resume from the Worker's page: the tray's flag.
+    expect(await call({ kind: "control", id: "p1", op: "pause", args: { paused: true } })).toEqual([200, '{"paused":true}']);
+    expect(paused).toBe(true);
+    await call({ kind: "control", id: "p2", op: "pause", args: { paused: false } });
+    expect(paused).toBe(false);
     // A LoRA upload relayed from the Worker's page: the chunk is the message body.
     const [, started] = await call({ kind: "control", id: "8", op: "upload_start", args: { filename: "u.safetensors", size: 3 } });
     const id = JSON.parse(started as string).id;

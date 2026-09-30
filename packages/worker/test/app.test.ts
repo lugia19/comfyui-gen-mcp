@@ -531,7 +531,7 @@ describe("the PC path", () => {
     pc.connected = false; // saving while the PC is off: a warning, and no wait for it
     pc.controlCalls.length = 0;
     const off = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
-    expect(off.warnings.join()).toContain("offline");
+    expect([off.warnings, off.notes.join()]).toEqual([[], expect.stringContaining("offline")]); // a note, not a warning
     expect(pc.controlCalls).toEqual([]);
   });
 
@@ -688,6 +688,18 @@ describe("the PC path", () => {
     expect(await body(await app.handle(request("POST", `${started.upload_url}/finish`, undefined, cookie)))).toEqual({ state: "done" });
     pc.connected = false;
     expect((await app.handle(request("GET", started.upload_url, undefined, cookie))).status).toBe(503);
+  });
+
+  it("pauses and resumes the PC from the page", async () => {
+    const { app, pc } = world();
+    const { cookie } = await pair(app);
+    pc.controls.pause = (args) => ((pc.paused = args.paused), [200, { paused: args.paused }]);
+    expect(await body(await app.handle(request("POST", "/api/pc/pause", { paused: true }, cookie)))).toEqual({ paused: true });
+    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).pc.info.paused).toBe(true);
+    await app.handle(request("POST", "/api/pc/pause", { paused: false }, cookie));
+    expect(pc.paused).toBe(false);
+    pc.connected = false;
+    expect((await app.handle(request("POST", "/api/pc/pause", { paused: true }, cookie))).status).toBe(503);
   });
 
   it("deletes a LoRA everywhere, and nudges the agent's sync after an upload", async () => {
