@@ -7,9 +7,10 @@
 // resolveImage: an image id resolves to a file ComfyUI already has (an output, or an earlier
 // upload): nothing is transferred. An https URL is fetched and uploaded to ComfyUI's input folder.
 
-import { ComfyUIError, Hooks, imageSize, refs, tokenUrlsafe, type ComfyUIClient, type Pack, type ResolvedImage } from "@comfy-gen/core";
+import { ComfyUIError, Hooks, imageSize, refs, relay, tokenUrlsafe, type ComfyUIClient, type Pack, type ResolvedImage } from "@comfy-gen/core";
 import { ModalAdminError, packStatus, type ModalAdmin } from "./modal-admin.ts";
 import type { Fetch } from "./platform.ts";
+import type { RelayStub } from "./relay.ts";
 import type { Store } from "./store.ts";
 import { BadImage, storeInput } from "./uploads.ts";
 
@@ -82,5 +83,34 @@ export class WorkerHooks extends Hooks {
       if (e instanceof BadImage) throw new ComfyUIError(`${url}: ${e.message}.`);
       throw e;
     }
+  }
+}
+
+export const PC_OFFLINE =
+  "Your PC is offline. Start it (the Comfy-Gen agent starts with it), or check its tray icon, then try again.";
+// Starting ComfyUI and installing a node package can take minutes; the MCP client gives up at 5.
+export const ENSURE_TIMEOUT_S = 240;
+
+/** The PC path: the agent makes its ComfyUI ready for a pack (running, nodes, models), as the
+ * MCPB does locally; images resolve as on Modal (ids of outputs, URLs uploaded through the relay). */
+export class PcHooks extends WorkerHooks {
+  private relay: RelayStub;
+  private keepWarmMinutes: number;
+
+  constructor(client: ComfyUIClient, key: Uint8Array, fetch: Fetch, store: Store, settingsUrl: string, relayStub: RelayStub, keepWarmMinutes: number) {
+    super(client, key, fetch, null, store, settingsUrl);
+    this.relay = relayStub;
+    this.keepWarmMinutes = keepWarmMinutes;
+  }
+
+  async ensure(pack: Pack): Promise<void> {
+    const args = {
+      pack: { name: pack.name, display_name: pack.display_name ?? pack.name, models: pack.models ?? [], required_nodes: pack.required_nodes ?? {} },
+      keep_warm_minutes: this.keepWarmMinutes,
+    };
+    const r = await this.relay.control("ensure", args, ENSURE_TIMEOUT_S);
+    if (r.offline) throw new ComfyUIError(PC_OFFLINE);
+    const result = relay.controlResult(r.status, r.body);
+    if (!result.ok) throw new ComfyUIError(result.message);
   }
 }

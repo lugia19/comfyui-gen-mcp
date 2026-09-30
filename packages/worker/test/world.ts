@@ -1,7 +1,9 @@
 // Test fixtures: the Worker's App over fake storage, a fake network and a controllable clock.
 
+import { utf8 } from "@comfy-gen/core";
 import { FakeComfy, png } from "../../core/test/fake-comfy.ts";
 import { App } from "../src/app.ts";
+import type { RelayReply, RelayRequest, RelayStatus, RelayStub } from "../src/relay.ts";
 import type { StateStorage } from "../src/platform.ts";
 import { clearCache } from "../src/store.ts";
 
@@ -132,15 +134,52 @@ export class Clock {
   now = () => this.t;
 }
 
+/** The Relay Durable Object with an agent behind it: its own FakeComfy (the PC's ComfyUI), and
+ * control operations answered from *controls* (op -> [status, JSON or message]). */
+export class FakeRelay implements RelayStub {
+  comfy = new FakeComfy();
+  connected = true;
+  controls: Record<string, (args: any) => [number, unknown]> = {
+    ensure: () => [200, { ok: true }],
+    inventory: () => [200, ["EmptyImage", "SaveImage", "KSampler"]],
+  };
+  controlCalls: [string, any][] = [];
+  dropped = 0;
+
+  async request(req: RelayRequest): Promise<RelayReply> {
+    if (!this.connected) return { status: 503, body: utf8("offline"), offline: true };
+    const r = await this.comfy.request(req.method, req.path, { params: req.params, headers: req.headers, body: req.body });
+    return { status: r.status, body: r.content };
+  }
+
+  async control(op: string, args?: unknown): Promise<RelayReply> {
+    this.controlCalls.push([op, args]);
+    if (!this.connected) return { status: 503, body: utf8("offline"), offline: true };
+    const handler = this.controls[op];
+    if (!handler) return { status: 400, body: utf8(`unknown op ${op}`) };
+    const [status, data] = handler(args);
+    return { status, body: utf8(status === 200 ? JSON.stringify(data) : String(data)) };
+  }
+
+  async status(): Promise<RelayStatus> {
+    return { connected: this.connected, since: this.connected ? 1000 : null, info: this.connected ? { version: "t", gpu: "nvidia" } : null };
+  }
+
+  async drop(): Promise<void> {
+    this.dropped += 1;
+  }
+}
+
 export function world() {
   clearCache();
   const comfy = new FakeComfy();
   const storage = new FakeStorage();
   const net = new FakeNet(comfy);
   const clock = new Clock();
+  const pc = new FakeRelay();
   const env: Record<string, string | undefined> = { VERSION: "v1.0.0" };
-  const app = new App({ storage, fetch: net.fetch, now: clock.now, env, sleep: async (s) => void (clock.t += s) });
-  return { app, storage, net, clock, comfy, env };
+  const app = new App({ storage, relay: pc, fetch: net.fetch, now: clock.now, env, sleep: async (s) => void (clock.t += s) });
+  return { app, storage, net, clock, comfy, pc, env };
 }
 
 export function request(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, base = `https://${HOST}`): Request {

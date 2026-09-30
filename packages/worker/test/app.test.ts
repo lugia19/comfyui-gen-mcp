@@ -412,3 +412,87 @@ describe("updates", () => {
     expect(updates.parseVersion("dev")).toBeNull();
   });
 });
+
+describe("the PC path", () => {
+  const ws = (secret: string) => request("GET", "/agent", undefined, { upgrade: "websocket", authorization: `Bearer ${secret}` });
+  const pair = async (app: App) => {
+    const cookie = await login(app);
+    const { link } = await body(await app.handle(request("POST", "/api/pc/pair", undefined, cookie)));
+    return { cookie, link: link as string, secret: (link as string).split("#")[1] };
+  };
+  const toolText = (r: any) => r.result.content.map((c: any) => c.text ?? `[${c.type}]`).join(" ");
+
+  it("pairs with a link, which is what opens the relay, until unpaired or re-paired", async () => {
+    const { app, pc } = world();
+    expect(await app.agentRefusal(ws("anything"))).not.toBeNull(); // nothing paired
+    const { cookie, link, secret } = await pair(app);
+    expect(link).toBe(`https://${HOST}/agent#${secret}`);
+    expect(secret.length).toBeGreaterThan(40);
+    expect(await app.agentRefusal(ws(secret))).toBeNull();
+    expect((await app.agentRefusal(ws("wrong")))!.status).toBe(401);
+    expect((await app.agentRefusal(request("GET", "/agent", undefined, { authorization: `Bearer ${secret}` })))!.status).toBe(426);
+    const state = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
+    expect(state.pc).toMatchObject({ paired: true, connected: true, link, info: { gpu: "nvidia" } });
+
+    const second = await pair(app); // a new link replaces the old one and disconnects that PC
+    expect(await app.agentRefusal(ws(secret))).not.toBeNull();
+    expect(pc.dropped).toBe(2);
+    await app.handle(request("DELETE", "/api/pc", undefined, second.cookie));
+    expect(await app.agentRefusal(ws(second.secret))).not.toBeNull();
+    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).pc).toEqual({ paired: false });
+  });
+
+  it("generates on the PC when it is online, on Modal when it is not", async () => {
+    const { app, pc, comfy, net } = world();
+    await withModal(app);
+    await pair(app);
+    const [, onPc] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } });
+    expect(onPc.result.isError).toBe(false);
+    expect(pc.comfy.prompts.length).toBe(1);
+    expect(comfy.prompts.length).toBe(0);
+    expect(pc.controlCalls[0][0]).toBe("ensure");
+    expect(pc.controlCalls[0][1]).toMatchObject({ pack: { name: expect.any(String), models: expect.any(Array) }, keep_warm_minutes: 5 });
+
+    pc.connected = false;
+    const [, onModal] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a dog" } }, 2);
+    // Modal's hooks answered (its models are not on the Volume in this fixture); the PC was not used
+    expect(toolText(onModal)).toContain("being downloaded to your GPU");
+    expect(pc.comfy.prompts.length).toBe(1);
+    expect(net.adminCalls.length).toBeGreaterThan(0);
+  });
+
+  it("says the PC is offline when there is nothing else, and passes the agent's errors on", async () => {
+    const { app, pc } = world();
+    await pair(app);
+    pc.connected = false;
+    const [, off] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } });
+    expect(off.result.isError).toBe(true);
+    expect(toolText(off)).toContain("Your PC is offline");
+    pc.connected = true;
+    pc.controls.ensure = () => [500, "The Anima model is downloading: 12% of 5.6 GB."];
+    const [, dl] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } }, 2);
+    expect(toolText(dl)).toContain("downloading: 12%");
+  });
+
+  it("offers custom workflows once a PC is paired, checked against its nodes, and not on Modal", async () => {
+    const { app, pc } = world();
+    const workflow = { "1": { class_type: "EmptyImage", inputs: {}, _meta: { title: "Prompt" } }, "2": { class_type: "SaveImage", inputs: {} } };
+    await app.store.saveConfig({ custom_workflow: { workflow, prompt_node_title: "Prompt" } });
+    await withModal(app);
+    const names = async () => (await mcp(app, "tools/list"))[1].result.tools.map((t: any) => t.name);
+    expect(await names()).not.toContain("generate_custom_image");
+    await pair(app);
+    expect(await names()).toContain("generate_custom_image");
+    const [, ok] = await mcp(app, "tools/call", { name: "generate_custom_image", arguments: { prompt: "x" } });
+    expect(ok.result.isError).toBe(false);
+    expect(pc.comfy.prompts.length).toBe(1);
+
+    pc.controls.inventory = () => [200, ["SaveImage"]];
+    const [, missing] = await mcp(app, "tools/call", { name: "generate_custom_image", arguments: { prompt: "x" } }, 2);
+    expect(toolText(missing)).toContain("EmptyImage");
+
+    pc.connected = false; // falls back to Modal, which can't run it
+    const [, off] = await mcp(app, "tools/call", { name: "generate_custom_image", arguments: { prompt: "x" } }, 3);
+    expect(toolText(off)).toContain("custom workflows run on your PC");
+  });
+});

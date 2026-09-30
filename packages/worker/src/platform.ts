@@ -2,6 +2,7 @@
 // build fakes. Everything else in src/ is plain TypeScript over these, tested in Node.
 
 import type { Fetch } from "@comfy-gen/core";
+import type { RelayStub } from "./relay.ts";
 
 export type { Fetch };
 
@@ -13,6 +14,7 @@ export interface StateStorage {
 
 export type Platform = {
   storage: StateStorage;
+  relay?: RelayStub; // the Relay Durable Object (the PC path); tests without a PC leave it out
   fetch: Fetch;
   now: () => number; // seconds
   env: Record<string, string | undefined>; // VERSION; DEV_WORKER_HOST under wrangler dev

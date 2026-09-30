@@ -8,6 +8,7 @@ export * from "./config.ts";
 export * from "./packs.ts";
 export * from "./comfyui.ts";
 export * as refs from "./refs.ts";
+export * as relay from "./relay.ts";
 export * from "./tools.ts";
 export * from "./mcp.ts";
 export * from "./brain.ts";
