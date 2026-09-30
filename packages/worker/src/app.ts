@@ -76,14 +76,16 @@ export class App {
     return error(404, "not found");
   }
 
-  /** Why the agent's WebSocket must be refused (a Response), or null to hand it to the Relay. */
+  /** Why the agent's WebSocket must be refused (a Response), or null to hand it to the Relay. The
+   * secret is checked first, so the agent can tell "not paired" (401) from "paired" (426 to a plain
+   * GET) without opening a socket. */
   async agentRefusal(req: Request): Promise<Response | null> {
-    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return error(426, "expected a WebSocket");
     const s = await this.fresh.secrets(); // fresh: a pairing made a moment ago must work at once
     const presented = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
     if (!s.agent_secret || !presented || !safeEqual(presented, s.agent_secret)) {
       return error(401, "This PC is not paired with this Worker. Paste a fresh pairing link from its settings page.");
     }
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return error(426, "expected a WebSocket");
     return null;
   }
 

@@ -1,6 +1,8 @@
-// Builds the MCPB's two artifacts into dist/:
-//   comfy-gen-server.mjs (+ .sha256)  the server bundle, a release asset the shim downloads
+// Builds the local artifacts into dist/:
+//   comfy-gen-server.mjs (+ .sha256)  the MCPB's server bundle, a release asset the shim downloads
+//   comfy-gen-agent.mjs (+ .sha256)   the PC agent's bundle, the same for the launcher's shim
 //   Comfy-Gen-MCP.mcpb                the extension: shim, manifest, icon, and this release's bundle
+//   shim.mjs                          the shim alone, which the launcher embeds
 // Usage: node packages/mcpb/build.mjs [vX.Y.Z]   (default "dev"; web/dist must be built)
 
 import { execFileSync } from "node:child_process";
@@ -69,7 +71,20 @@ await build({
 const sha = createHash("sha256").update(readFileSync(serverOut)).digest("hex");
 writeFileSync(`${serverOut}.sha256`, `${sha}  comfy-gen-server.mjs\n`);
 
+const agentOut = join(dist, "comfy-gen-agent.mjs");
+await build({
+  ...common,
+  entryPoints: [join(root, "packages", "agent", "src", "bundle.ts")],
+  outfile: agentOut,
+  plugins: [embedded],
+  define: { __VERSION__: JSON.stringify(tag) },
+  banner: { js: 'import { createRequire as __cr } from "node:module"; const require = __cr(import.meta.url);' },
+});
+const agentSha = createHash("sha256").update(readFileSync(agentOut)).digest("hex");
+writeFileSync(`${agentOut}.sha256`, `${agentSha}  comfy-gen-agent.mjs\n`);
+
 await build({ ...common, entryPoints: [join(here, "src", "shim.ts")], outfile: join(stage, "server", "shim.mjs") });
+cpSync(join(stage, "server", "shim.mjs"), join(dist, "shim.mjs"));
 if (tag !== "dev") {
   mkdirSync(join(stage, "server", "bundle", tag), { recursive: true });
   cpSync(serverOut, join(stage, "server", "bundle", tag, "comfy-gen-server.mjs"));

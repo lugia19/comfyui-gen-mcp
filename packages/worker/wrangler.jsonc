@@ -21,7 +21,7 @@
     "directory": "../../web/dist",
     "not_found_handling": "single-page-application",
     // Everything else is the settings app, served without running (or billing) the Worker.
-    "run_worker_first": ["/mcp/*", "/api/*", "/img/*", "/upload/*", "/build-callback"]
+    "run_worker_first": ["/mcp/*", "/api/*", "/img/*", "/upload/*", "/build-callback", "/agent"]
   },
   // Daily update check.
   "triggers": { "crons": ["17 4 * * *"] }
