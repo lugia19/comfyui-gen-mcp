@@ -5,6 +5,7 @@
    copy of bootstrap/wrangler.jsonc, and VERSION set.
 3. `npm ci` for the Worker's workspace, then `wrangler deploy` from packages/worker.
 4. Report to the Worker's /build-callback when the setup page started this build.
+5. End the log with the Worker's address: after a Deploy button, this log is where the user is.
 
 Build variables, set by the setup page: MODAL_TOKEN_ID and MODAL_TOKEN_SECRET (Modal deploy),
 COMFY_GEN_CALLBACK and COMFY_GEN_NONCE (the report).
@@ -17,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -131,12 +133,25 @@ def main() -> int:
 
     installed = subprocess.run(["npm", "ci", "--workspace", "packages/worker"], cwd=args.src).returncode == 0
     cmd = ["npx", "wrangler", "deploy"] + (["--dry-run"] if args.dry_run else [])
-    deployed = installed and subprocess.run(cmd, cwd=worker).returncode == 0
+    deployed, url = False, None
+    if installed:
+        result = subprocess.run(cmd, cwd=worker, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        print(result.stdout or "", end="", flush=True)
+        deployed = result.returncode == 0
+        url = worker_url(result.stdout or "")
     report = {"stage": "deployed" if deployed else "failed", "version": args.version, "modal_result": modal_result}
     if modal:
         report["modal"] = modal
     callback(report)
+    if deployed and url:
+        print(f"\n{'=' * 64}\nYour Worker is ready. Open it to finish the setup:\n\n    {url}\n{'=' * 64}", flush=True)
     return 0 if deployed else 1
+
+
+def worker_url(wrangler_output: str) -> str | None:
+    """The workers.dev address wrangler deploy printed, if any."""
+    m = re.search(r"https://[\w.-]+\.workers\.dev", wrangler_output)
+    return m.group(0) if m else None
 
 
 if __name__ == "__main__":

@@ -76,14 +76,14 @@ def build(tmp_path, monkeypatch):
     (src / "packages" / "worker").mkdir(parents=True)
     shutil.copy(WORKER / "wrangler.jsonc", src / "packages" / "worker" / "wrangler.jsonc")
 
-    b = SimpleNamespace(user=user, src=src, calls=[], posts=[], exit_code=0)
+    b = SimpleNamespace(user=user, src=src, calls=[], posts=[], exit_code=0, wrangler_out="")
 
     def run(cmd, cwd=None, **kw):
         b.calls.append((cmd, cwd))
         if "comfy_gen_modal.deploy" in cmd:  # the Modal app's script
             out = Path(cmd[cmd.index("--out") + 1])
             out.write_text(json.dumps({"server_url": "https://m.modal.run", "admin_url": "https://a.modal.run"}))
-        return subprocess.CompletedProcess(cmd, b.exit_code)
+        return subprocess.CompletedProcess(cmd, b.exit_code, stdout=b.wrangler_out if "wrangler" in cmd else None)
 
     class Resp:
         def read(self):
@@ -116,6 +116,15 @@ def test_button_deploy_without_setup(build):
         (["npx", "wrangler", "deploy"], build.src / "packages" / "worker"),
     ]
     assert build.posts == []  # no callback until the setup page starts a build
+
+
+def test_the_log_ends_with_the_workers_address(build, capsys):
+    build.wrangler_out = "Uploaded comfy-gen (3.2 sec)\nDeployed comfy-gen triggers (0.4 sec)\n  https://comfy-gen.someone.workers.dev\n  schedule: 17 4 * * *\n"
+    assert build.go() == 0
+    out = capsys.readouterr().out
+    assert "Deployed comfy-gen triggers" in out  # wrangler's own output still shows
+    assert out.rstrip().splitlines()[-2:] == ["    https://comfy-gen.someone.workers.dev", "=" * 64]
+    assert out.index("Your Worker is ready") > out.index("schedule: 17 4")
 
 
 def test_setup_build_deploys_modal_and_reports(build, monkeypatch):
