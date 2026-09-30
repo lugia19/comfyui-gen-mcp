@@ -149,6 +149,32 @@
     await refresh()
   }
 
+  // Updates: the Worker checks for a release daily; Update now starts the same build at once.
+  let update = $state(null) // {current, latest, newer, can, build}
+  let updating = $state(false) // started from this page: keep its log after it finishes
+  let updateError = $state('')
+
+  async function loadUpdate() {
+    try {
+      update = await api('GET', '/update')
+    } catch {
+      update = null // GitHub unreachable: say nothing
+    }
+  }
+
+  async function updateNow() {
+    updateError = ''
+    try {
+      await api('POST', '/update')
+      updating = true
+      await loadUpdate()
+      await refresh()
+    } catch (e) {
+      updateError = e.message
+    }
+  }
+  onMount(loadUpdate)
+
   // Waiting on something outside this page: the PC connecting, Claude adding the connector.
   let timer = null
   function poll() {
@@ -236,7 +262,7 @@
       </button>
       {#if buildError}<p class="err">{buildError}</p>{/if}
     </form>
-    {#if info.build}
+    {#if info.build && info.build !== info.update_build}
       {#key info.build}<BuildLog onfinished={refresh} />{/key}
     {/if}
   </Step>
@@ -359,8 +385,46 @@
     <p><i>"Draw a lighthouse on a cliff at dusk, in watercolor."</i></p>
     <p class="muted">
       Then ask for a change ("make it stormy"), or attach an image to edit. Styles, models and LoRAs are
-      in the <b>Settings</b> tabs.
+      in the <b>Settings</b> tab.
     </p>
+  </section>
+{/if}
+
+{#if update}
+  <section>
+    <h2>Updates</h2>
+    {#if update.newer}
+      <p>
+        This Worker runs <b>{update.current}</b>; <b>{update.latest}</b> is out.
+        <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/tag/{update.latest}" target="_blank" rel="noopener">What's new</a>
+      </p>
+      <p class="muted">
+        It updates itself within a day. Update now starts the build at once: it takes a few minutes, and
+        {gen?.kind === 'modal' ? 'redeploys ComfyUI on Modal too' : 'image requests keep working meanwhile'}.
+      </p>
+      {#if !updating && !(update.build && update.build === info.build)}
+        <button onclick={updateNow} disabled={!update.can}>Update now</button>
+        {#if !update.can}<p class="muted">Log in again with a Cloudflare token to update from here.</p>{/if}
+      {/if}
+    {:else}
+      <p class="muted">
+        This Worker runs {update.current}, the latest release. It checks for new ones every day.
+      </p>
+    {/if}
+    {#if updateError}<p class="err">{updateError}</p>{/if}
+    {#if update.build && (updating || (update.newer && update.build === info.build))}
+      {#key update.build}
+        <BuildLog
+          onfinished={async () => {
+            await refresh()
+            await loadUpdate()
+          }}
+        />
+      {/key}
+      {#if updating && update && !update.newer}
+        <p class="ok">Updated. <a href="/" onclick={() => location.reload()}>Reload this page</a> for the new version's settings page.</p>
+      {/if}
+    {/if}
   </section>
 {/if}
 

@@ -370,6 +370,9 @@ result, pick the GPU and install ComfyUI (or keep the old extension's). No accou
   downloads the release's `deploy.sh`, so the user's copy never goes stale and there is no fork
   sync. One build updates both the Worker and the Modal app. Packs, tool descriptions and workflow
   templates ship with the code: a new pack is a release.
+- **Update now:** the setup page's Updates section shows the running and the latest release, and
+  starts the same build at once (`POST /api/update`), without waiting for the daily check, then
+  shows its log.
 - **Agent:** the launcher's shim loads the latest release's bundle, checking daily while
   the agent runs, and the agent restarts into a new one when idle (§2). The launcher changes only
   with a new Node; it is downloaded again by hand.

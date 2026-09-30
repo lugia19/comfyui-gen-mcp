@@ -348,6 +348,7 @@ export class App {
       await this.p.relay?.drop();
       return json({ ok: true });
     }
+    if (sub === "/update") return this.update(req, s);
     if (sub === "/setup/rotate-connector" && req.method === "POST") {
       await this.fresh.updateSecrets({ mcp_secret: tokenUrlsafe(24) });
       await this.fresh.updateSetup({ claude_seen: null }); // the new URL has to be added again
@@ -364,6 +365,7 @@ export class App {
       cloudflare: s.cf_token ? { account_id: s.cf_account_id ?? null, script: s.cf_script ?? null } : null,
       generator: gen ? { kind: gen.kind ?? null, base_url: gen.base_url ?? null } : null,
       build: setup.build ?? null,
+      update_build: setup.update_build ?? null,
       connector_url: `${url.origin}/mcp/${s.mcp_secret}`,
       claude_seen: setup.claude_seen ?? null,
       pc: await this.pcState(url, s),
@@ -371,6 +373,23 @@ export class App {
       schema: SETTINGS_SCHEMA,
       packs: PACK_METADATA,
     };
+  }
+
+  /**
+   * The settings page's update: GET says which release this Worker runs and the latest; POST starts
+   * the build that deploys the latest now, as the daily check would (without waiting for it).
+   */
+  private async update(req: Request, s: Secrets): Promise<Response> {
+    const latest = await updates.latestRelease(this.fetch);
+    const can = Boolean(s.cf_token && s.cf_trigger);
+    if (req.method === "GET") {
+      const setup = await this.fresh.setup();
+      return json({ current: this.version, latest, newer: updates.isNewer(latest, this.version), can, build: setup.update_build ?? null });
+    }
+    if (req.method !== "POST") return error(405, "GET or POST");
+    if (!can) return error(400, "Log in again with a Cloudflare token: this Worker has none to start builds with.");
+    if (!latest) return error(502, "Could not find the latest release on GitHub. Try again in a minute.");
+    return json({ build: await updates.startUpdate(this.fetch, this.fresh, latest), latest });
   }
 
   /** A new pairing link. A PC paired before is disconnected: its secret no longer opens the relay. */

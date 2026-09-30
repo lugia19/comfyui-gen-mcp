@@ -431,6 +431,24 @@ describe("updates", () => {
     expect(net.calls.at(-1)?.[1]).toBe("https://github.com/lugia19/comfyui-gen-mcp/releases/latest");
   });
 
+  it("the settings page can update now", async () => {
+    const { app, net, env } = world();
+    env.VERSION = "v0.9.0";
+    const cookie = await login(app);
+    const info = await body(await app.handle(request("GET", "/api/update", undefined, cookie)));
+    expect(info).toEqual({ current: "v0.9.0", latest: "v1.0.0", newer: true, can: true, build: null });
+    const started = await body(await app.handle(request("POST", "/api/update", undefined, cookie)));
+    expect(started).toEqual({ build: "build1", latest: "v1.0.0" });
+    expect((await app.store.setup()).update_build).toBe("build1");
+    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).update_build).toBe("build1");
+    // Again on demand, though the daily check would not retry a release it already tried.
+    await app.handle(request("POST", "/api/update", undefined, cookie));
+    expect(net.buildsStarted.length).toBe(2);
+    env.VERSION = "v1.0.0"; // the build deployed it
+    expect((await body(await app.handle(request("GET", "/api/update", undefined, cookie)))).newer).toBe(false);
+    expect((await app.handle(request("POST", "/api/update"))).status).toBe(401); // cookie required
+  });
+
   it("parseVersion", () => {
     expect(updates.parseVersion("v1.2.3")).toEqual([1, 2, 3]);
     expect(updates.parseVersion("dev")).toBeNull();

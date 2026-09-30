@@ -1,6 +1,6 @@
-// Daily update check: a newer GitHub release starts a Workers Build, which fetches that release.
-// Nothing to sync in the user's copy of the template: its deploy command downloads the latest
-// release's deploy.sh on every build (design §7).
+// Updates: a newer GitHub release starts a Workers Build, which fetches that release, from the daily
+// check or the settings page's Update now. Nothing to sync in the user's copy of the template: its
+// deploy command downloads the latest release's deploy.sh on every build (design §7).
 
 import * as cloudflare from "./cloudflare.ts";
 import type { Fetch } from "./platform.ts";
@@ -30,6 +30,22 @@ export async function latestRelease(fetch: Fetch): Promise<string | null> {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
+/** Start a build now, which deploys *latest* (the Worker, and the Modal app if set up). Recorded as
+ * the current build, so the setup page shows its log. Throws CloudflareError. */
+export async function startUpdate(fetch: Fetch, store: Store, latest: string): Promise<string> {
+  const s = await store.secrets();
+  const build = await cloudflare.startBuild(fetch, s.cf_token, s.cf_account_id, s.cf_trigger, s.cf_branch || "main");
+  await store.updateSetup({ update_tried: latest, build, update_build: build });
+  return build;
+}
+
+/** Whether *latest* is newer than *current*. A development build ("dev") is never up to date. */
+export function isNewer(latest: string | null, current: string): boolean {
+  const next = parseVersion(latest ?? "");
+  const cur = parseVersion(current);
+  return Boolean(next) && (!cur || newer(next!, cur));
+}
+
 /** Start a build if a newer release exists. Returns what happened, for the log. */
 export async function check(fetch: Fetch, store: Store, current: string): Promise<string> {
   const latest = await latestRelease(fetch);
@@ -43,11 +59,10 @@ export async function check(fetch: Fetch, store: Store, current: string): Promis
   if (!s.cf_token || !s.cf_trigger) return "no Cloudflare token: updates are off";
   let build: string;
   try {
-    build = await cloudflare.startBuild(fetch, s.cf_token, s.cf_account_id, s.cf_trigger, s.cf_branch || "main");
+    build = await startUpdate(fetch, store, latest!);
   } catch (e) {
     if (e instanceof cloudflare.CloudflareError) return `could not start the update build: ${e.message}`;
     throw e;
   }
-  await store.updateSetup({ update_tried: latest, build });
   return `updating ${current} -> ${latest} (build ${build})`;
 }
