@@ -69,7 +69,8 @@
   }
 
   // A deploy Modal refused (no card on file, a bad token): its reason, from the build.
-  let modalError = $derived(!deployed && info.modal_error ? info.modal_error : '')
+  // Shown after a redeploy too (an update build, a new token): the last one that worked keeps running.
+  let modalError = $derived(info.modal_error || '')
   let needsCard = $derived(/payment method|billing|card/i.test(modalError))
 
   async function deployModal(e) {
@@ -239,6 +240,7 @@
     {#if modalError}
       <div class="failed">
         <p><b>Modal refused the deploy:</b> {modalError}</p>
+        {#if deployed}<p class="muted">ComfyUI on Modal still runs the last deploy that worked.</p>{/if}
         {#if needsCard}
           <p>
             Add a card in Modal: <a href="https://modal.com/settings" target="_blank" rel="noopener">Settings</a> →
