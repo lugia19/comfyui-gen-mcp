@@ -198,6 +198,8 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   An edit by `image_id` of an older image can silently edit a different one. The id needs the
   backend in it (or unique output names per backend); ids are a stored format pinned by
   `test/golden.json`, so this needs a migration that keeps old ids resolving to Modal.
+- **Tray tooltip shows actions in progress.** When Start or Stop ComfyUI is requested, the tooltip
+  should say "Starting…" or "Stopping…" right away, not keep the old state until the action is done.
 - **Agent tray: a Stop option for serving.** Sometimes the PC should not answer image requests at
   all (gaming, say). The tray menu needs a toggle that stops the agent taking requests without
   quitting it, so Modal answers (or, PC-only, the tools say the PC is paused); the Worker's page
