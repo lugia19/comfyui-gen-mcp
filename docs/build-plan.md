@@ -26,8 +26,8 @@ Decided along the way, recorded in the design doc:
 
 ## Shipping
 
-- **Release:** push a tag `vX.Y.Z` on `main`. `release.yml` publishes the release with `deploy.sh`,
-  its tag filled in. Tag pushes are refused from Claude Code sessions, so the user pushes the tag.
+- **Release:** push a tag `vX.Y.Z` on `main`. `release.yml` publishes the release: `deploy.sh`
+  with its tag filled in, `comfy-gen.mjs`, the `.mcpb` and the three launchers. Tag pushes are refused from Claude Code sessions, so the user pushes the tag.
 - **Installs update themselves:** the Worker's daily cron (`17 4 * * *`) reads the latest tag from
   the `github.com/<repo>/releases/latest` redirect. If it is newer than `VERSION`, the cron starts
   a Workers Build.
@@ -71,7 +71,7 @@ process". It shares `core` with the Worker, and the machine side (`packages/loca
    reinstall, the extra models folder, download progress, a custom workflow, LoRAs from the local
    folder.
 4. **The shim** (the `.mcpb`): bind or relay, takeover when the owner exits, the daily bundle
-   update; the tray icon. `release.yml` builds the server bundle and the `.mcpb`.
+   update; the tray icon. `release.yml` builds the bundle and the `.mcpb`.
 
 **Checked here:** a fresh install and a reinstall through `local` and through the settings page;
 generations, edits by path and missing nodes through the MCP route; several extension processes
@@ -95,7 +95,7 @@ smaller points in the report.
   progress, the first generation installs ComfyUI-GGUF from the Comfy Registry. The shared model
   folders stay untouched: they are what discovery is for.
 - **Release:** a Worker build of the branch on the test install first (the Worker's render moved
-  into core), then the tag (the user pushes it). The release carries the server bundle and the
+  into core), then the tag (the user pushes it). The release carries the bundle and the
   `.mcpb`; installed extensions pick the bundle up within a day.
 
 ## M6: agent and relay, then retirement
@@ -110,8 +110,9 @@ Built (design §2 "The agent's launcher", §6 "GPU owner", §9 "As built"):
 - **Agent** (`packages/agent`): relay client, control operations, `agent.json`, its settings page
   (machine setup plus pairing), restart into a downloaded update when idle.
 - **Launcher** (`packages/launcher`, Go): installs itself and the login entry, fetches the pinned
-  Node, runs the shim in agent mode and supervises it. `release.yml` publishes the agent bundle and
-  four launcher binaries.
+  Node, runs the shim in agent mode and supervises it. `release.yml` publishes six files: `deploy.sh`,
+  the one bundle (`comfy-gen.mjs`, both programs), the `.mcpb` and three launchers, under a
+  download table.
 
 Tested here: `wrangler dev` plus the agent plus a CPU ComfyUI (pairing; relayed generation, 11 s
 cold and 0.3 s warm; a 3 MB image both ways; the agent killed mid-call, then restarted; offline

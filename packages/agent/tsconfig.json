@@ -11,7 +11,6 @@
   },
   "include": [
     "src",
-    "test",
-    "../mcpb/src/virtual.d.ts"
+    "test"
   ]
 }

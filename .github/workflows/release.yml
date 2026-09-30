@@ -2,8 +2,9 @@ name: Release
 
 # Push a tag like v1.2.3. Installs pick the release up through their daily update check: the
 # Worker starts a Workers Build, whose deploy command downloads releases/latest/download/deploy.sh;
-# the Claude Desktop extension's shim downloads comfy-gen-server.mjs (design §2, "The MCPB process"),
-# and the PC agent's shim comfy-gen-agent.mjs. The launchers are downloaded by hand, once.
+# the shim of the Claude Desktop extension and of the PC agent downloads comfy-gen.mjs (design §2).
+# The .mcpb and the launchers are downloaded by hand, once. Six files in all; the notes start with a
+# download table (.github/release-notes.md).
 
 on:
   push:
@@ -29,12 +30,11 @@ jobs:
         with:
           go-version-file: packages/launcher/go.mod
           cache-dependency-path: packages/launcher/go.sum
-      - name: The extension, the agent and their bundles
+      - name: The bundle and the extension
         run: |
           npm ci
           node packages/mcpb/build.mjs "$GITHUB_REF_NAME"
-          cp packages/mcpb/dist/comfy-gen-server.mjs packages/mcpb/dist/comfy-gen-server.mjs.sha256 packages/mcpb/dist/Comfy-Gen-MCP.mcpb out/
-          cp packages/mcpb/dist/comfy-gen-agent.mjs packages/mcpb/dist/comfy-gen-agent.mjs.sha256 out/
+          cp packages/mcpb/dist/comfy-gen.mjs packages/mcpb/dist/Comfy-Gen-MCP.mcpb out/
       - name: The agent's launchers
         run: |
           node packages/launcher/build.mjs "$GITHUB_REF_NAME"
@@ -43,4 +43,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" out/* --title "$GITHUB_REF_NAME" --generate-notes
+          ls out && test "$(ls out | wc -l)" -eq 6
+          sed "s/__TAG__/${GITHUB_REF_NAME}/g" .github/release-notes.md > notes.md
+          # The download table comes first; GitHub's generated changes follow it.
+          gh release create "$GITHUB_REF_NAME" out/* --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes

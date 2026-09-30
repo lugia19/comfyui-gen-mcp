@@ -29,12 +29,13 @@ GPU is. Targets:
 | ComfyUI | Modal, a PC, or localhost | The generator. We ship no handler code: ComfyUI's own HTTP API is the interface |
 | Modal app | User's Modal workspace | ComfyUI server on an L4, a Volume, a seed function, a small admin web endpoint |
 | Agent | GPU owner's PC: a Go launcher running a Node bundle | ComfyUI install and lifecycle, model downloads, idle stop, tray, a loopback settings page; relays the Worker's ComfyUI calls to local ComfyUI (§9) |
-| MCPB | Claude Desktop | A stdio shim that loads the latest server bundle; one Claude Desktop process runs the local server (MCP, settings page, tray, ComfyUI lifecycle), the others relay to it |
+| MCPB | Claude Desktop | A stdio shim that loads the latest bundle; one Claude Desktop process runs the local server (MCP, settings page, tray, ComfyUI lifecycle), the others relay to it |
 | Static site | GitHub Pages | Prerequisites, the Deploy button, then "open your Worker" |
 
 The agent's launcher (`packages/launcher`, Go) is the one native program: a 6 MB download per
-platform (Windows x64, macOS arm64 and x64, Linux x64), unsigned (SmartScreen and Gatekeeper warn
-once). On each start it:
+platform (Windows x64, macOS on Apple silicon, zipped so it keeps its executable bit, and Linux x64;
+an Intel Mac has no GPU worth using), unsigned (SmartScreen and Gatekeeper warn once). On each
+start it:
 
 - copies itself into `~/.comfy-gen-mcp/bin/` and registers that copy to start at login (the HKCU
   `Run` key on Windows, a LaunchAgent on macOS, an XDG autostart entry on Linux); `--uninstall`
@@ -47,8 +48,8 @@ once). On each start it:
 - tells the agent whether to open its settings page (started by hand: yes; at login or on a
   restart: only while unpaired)
 
-The shim in agent mode loads `comfy-gen-agent.mjs` from `app/agent/<tag>/`, as for the MCPB. The
-agent runs for days, so the shim repeats the daily check while it runs and hands a newer bundle to
+The shim loads the same bundle as for the MCPB (`comfy-gen.mjs` holds both programs) and starts
+the agent. The agent runs for days, so the shim repeats the daily check while it runs and hands a newer bundle to
 the agent, which restarts into it once nothing has used ComfyUI for 10 minutes. A new launcher (a
 new Node) is a new download; running it installs it over the old one.
 
@@ -83,11 +84,12 @@ process per window or reload); each process tries to bind the port (9247, as in 
 The server binds `0.0.0.0`. The MCP route answers any client behind its secret path; the settings
 page and `/api` answer loopback clients only, because they install software and change files.
 
-The `.mcpb` holds the shim (`server/shim.mjs`) and its own release's server bundle. The shim
+The `.mcpb` holds the shim (`server/shim.mjs`) and its own release's bundle. The shim
 `import()`s the newest bundle it has, shipped or cached in `~/.comfy-gen-mcp/app/<tag>/`, falling
 back to an older one if it fails to load. At most once a day, in the background, it reads the latest
 tag from the `github.com/<repo>/releases/latest` redirect (as the Worker's cron does) and downloads
-that release's `comfy-gen-server.mjs`, checked against its `.sha256`, for the next start. Two
+that release's `comfy-gen.mjs` for the next start (HTTPS guards it; a length check catches a
+cut-off download, and a bundle that fails to load falls back to the older one). Two
 cached bundles are kept. The shim changes only when users reinstall the `.mcpb`, so everything else
 lives in the bundle. The tray icon is systray2's helper binary, downloaded once, pinned by SHA-256;
 where it cannot run, there is no tray and the settings URL is in the tool answers. The icon's
@@ -333,10 +335,10 @@ result, pick the GPU and install ComfyUI (or keep the old extension's). No accou
   downloads the release's `deploy.sh`, so the user's copy never goes stale and there is no fork
   sync. One build updates both the Worker and the Modal app. Packs, tool descriptions and workflow
   templates ship with the code: a new pack is a release.
-- **Agent:** the launcher's shim loads the latest release's agent bundle, checking daily while
+- **Agent:** the launcher's shim loads the latest release's bundle, checking daily while
   the agent runs, and the agent restarts into a new one when idle (§2). The launcher changes only
   with a new Node; it is downloaded again by hand.
-- **MCPB:** the shim loads the latest release's server bundle (§2, "The MCPB process"); the
+- **MCPB:** the shim loads the latest release's bundle (§2, "The MCPB process"); the
   `.mcpb` itself changes rarely.
 - No token, no updates. There is no fallback path to maintain.
 
@@ -454,16 +456,20 @@ settings stay on the Worker, whose settings page lists the PC's LoRAs and model 
 | `worker` | Worker entry, State and Relay Durable Objects, routes, render, Builds API, setup, updates; the build step `deploy/deploy.{sh,py}` | Workers (the build step: Workers Builds) |
 | `modal_app` | Modal app, admin endpoint, build-time deploy script | Python (Modal, build image) |
 | `local` | ComfyUI install, launch, stop, downloads, node install, idle stop, tray; shared by `agent` and `mcpb` | Node |
-| `mcpb` | the shim (the `.mcpb`) and the server bundle it loads (a release asset); single process, §2 | Node (Claude Desktop's bundled runtime) |
-| `agent` | `local` plus the relay client and the agent's settings routes (`comfy-gen-agent.mjs`, a release asset) | Node, started by the launcher |
+| `mcpb` | the shim (the `.mcpb`, and embedded in the launcher), the extension's server, and the entry of the bundle both programs load (`comfy-gen.mjs`, a release asset); single process, §2 | Node (Claude Desktop's bundled runtime) |
+| `agent` | `local` plus the relay client and the agent's settings routes; in the same bundle | Node, started by the launcher |
 | `launcher` | the agent's launcher: installs itself, Node and the login entry, supervises the agent | Go, one binary per platform |
 | `web` | Svelte settings and setup app | browser |
 | `site` | static landing page | browser |
 | `bootstrap` | what the Deploy button copies: wrangler config and `package.json` with the deploy stub | Workers Builds |
 
 `core` exports its TypeScript source directly (no build step): wrangler bundles it into the Worker,
-and the MCPB and agent bundle it with esbuild (`packages/mcpb/build.mjs` builds both bundles and the
-shim the launcher embeds). `web` stays outside the workspaces with its own lockfile,
+and the MCPB and agent bundle it with esbuild (`packages/mcpb/build.mjs` builds the one bundle and
+the shim the launcher embeds).
+
+A release is six files: `deploy.sh` and `comfy-gen.mjs`, which installs download on their own,
+and the `.mcpb` and three launchers, which people download; the notes open with a download table
+(`.github/release-notes.md`). `web` stays outside the workspaces with its own lockfile,
 and its built `dist` is committed so deploys need no web build.
 
 Packs ship inside `core` as JSON modules, so the Worker bundle, the MCPB and the agent all get them

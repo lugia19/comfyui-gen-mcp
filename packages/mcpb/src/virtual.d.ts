@@ -1,4 +1,4 @@
-// Modules build.mjs generates for the server bundle.
+// Modules build.mjs generates for the bundle.
 declare module "comfy-gen:web" {
   const files: Record<string, { type: string; body: string }>;
   export default files;

@@ -1,15 +1,13 @@
-// The Claude Desktop extension's entry point: the only code in the .mcpb besides the server bundle
-// it shipped with. It loads the newest server bundle it has, cached in ~/.comfy-gen-mcp/app/<tag>/
-// or shipped in the .mcpb, and runs it in this process. At most once a day it looks up the latest
-// release (the github.com/<repo>/releases/latest redirect, as the Worker's update check does) and
-// downloads that release's bundle in the background, for the next start. Keep this file small and
-// stable: it only changes when users reinstall the extension or the launcher.
-//
-// With `--app agent` (the launcher, packages/launcher) it runs the PC agent instead: the
-// comfy-gen-agent.mjs asset, cached in app/agent/<tag>/. The agent runs for days, so the check
-// repeats while it runs, and a newer bundle is handed to its updateReady(), which restarts into it.
+// The entry point of both local programs: the Claude Desktop extension's server (the .mcpb runs
+// this file) and, with `--app agent`, the PC agent (the launcher, packages/launcher, runs it). It
+// loads the newest bundle it has (comfy-gen.mjs, which holds both), cached in
+// ~/.comfy-gen-mcp/app/<tag>/ or shipped in the .mcpb, and starts the app in this process. At most
+// once a day it looks up the latest release (the github.com/<repo>/releases/latest redirect, as the
+// Worker's update check does) and downloads that release's bundle in the background, for the next
+// start. The agent runs for days, so for it the check repeats while it runs, and a newer bundle is
+// handed to updateReady(), which restarts into it. Keep this file small and stable: it only changes
+// when users reinstall the extension or the launcher.
 
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -18,14 +16,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const REPO = "lugia19/comfyui-gen-mcp";
 const RELEASES = process.env.COMFY_GEN_RELEASES_URL || `https://github.com/${REPO}/releases`;
 const APP = process.argv.includes("--app") ? process.argv[process.argv.indexOf("--app") + 1] : "server";
-const BUNDLE = `comfy-gen-${APP}.mjs`;
+const BUNDLE = "comfy-gen.mjs";
 const CHECK_EVERY_MS = 24 * 3600 * 1000;
 const KEEP = 2; // cached bundles kept: the newest and one to fall back to
 const UA = { "User-Agent": "comfy-gen-shim" };
 
 const home = process.env.COMFY_GEN_HOME || join(homedir(), ".comfy-gen-mcp");
-const appDir = APP === "server" ? join(home, "app") : join(home, "app", APP);
-const shipped = join(dirname(fileURLToPath(import.meta.url)), "bundle"); // <tag>/comfy-gen-server.mjs
+const appDir = join(home, "app");
+const shipped = join(dirname(fileURLToPath(import.meta.url)), "bundle"); // <tag>/comfy-gen.mjs
 
 const say = (msg: string) => process.stderr.write(`[comfy-gen shim] ${msg}\n`); // the server's stdout is MCP
 
@@ -60,17 +58,15 @@ async function latestTag(): Promise<string | null> {
   return tag && parseTag(decodeURIComponent(tag)) ? decodeURIComponent(tag) : null;
 }
 
-/** Download *tag*'s bundle into the cache, checked against its .sha256 file. */
+/** Download *tag*'s bundle into the cache. HTTPS guards its content; the length check catches a
+ * cut-off download, and a bundle that fails to load is skipped for an older one anyway. */
 async function download(tag: string): Promise<void> {
-  const base = `${RELEASES}/download/${tag}/${BUNDLE}`;
-  const [body, sums] = await Promise.all([
-    fetch(base, { headers: UA, signal: AbortSignal.timeout(120_000) }),
-    fetch(`${base}.sha256`, { headers: UA, signal: AbortSignal.timeout(30_000) }),
-  ]);
-  if (!body.ok || !sums.ok) throw new Error(`HTTP ${body.status}/${sums.status} for ${base}`);
-  const data = Buffer.from(await body.arrayBuffer());
-  const expected = (await sums.text()).trim().split(/\s+/)[0].toLowerCase();
-  if (createHash("sha256").update(data).digest("hex") !== expected) throw new Error(`${base}: checksum mismatch`);
+  const url = `${RELEASES}/download/${tag}/${BUNDLE}`;
+  const resp = await fetch(url, { headers: UA, signal: AbortSignal.timeout(120_000) });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
+  const data = Buffer.from(await resp.arrayBuffer());
+  const length = resp.headers.get("content-encoding") ? null : resp.headers.get("content-length");
+  if (!data.length || (length !== null && Number(length) !== data.length)) throw new Error(`${url}: incomplete download`);
   const dir = join(appDir, tag);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${BUNDLE}.part`), data);
@@ -92,7 +88,7 @@ async function update(force: boolean): Promise<void> {
   const tag = await latestTag();
   if (!tag) throw new Error("could not read the latest release tag");
   if (!bundles().some(([t]) => t === tag)) {
-    say(`downloading ${APP} ${tag}`);
+    say(`downloading ${tag}`);
     await download(tag);
   }
   const cached = readdirSync(appDir).map(parseTag).filter((t): t is Tag => t !== null);
@@ -102,7 +98,7 @@ async function update(force: boolean): Promise<void> {
 
 const failed = (e: unknown) => void say(`update check failed: ${(e as Error).message}`);
 
-type Bundle = { start?: () => Promise<void>; updateReady?: (tag: string) => void };
+type Bundle = { start?: (app: string) => Promise<void>; updateReady?: (tag: string) => void };
 const broken = new Set<string>(); // bundles that failed to load in this process: never offered
 
 /** For a long-running bundle (the agent): tell it when the first check brought a newer bundle, and
@@ -121,7 +117,7 @@ function watchUpdates(running: string, mod: Bundle, first: Promise<void>): void 
 
 async function run(): Promise<void> {
   if (APP !== "server" && APP !== "agent") throw new Error(`unknown app ${APP}`);
-  const override = process.env[`COMFY_GEN_${APP.toUpperCase()}_BUNDLE`]; // development: a local build
+  const override = process.env.COMFY_GEN_BUNDLE; // development: a local build
   let candidates = override ? [["dev", override] as [string, string]] : bundles();
   let checking = Promise.resolve();
   if (!override) {
@@ -137,16 +133,16 @@ async function run(): Promise<void> {
     try {
       mod = await import(pathToFileURL(path).href);
     } catch (e) {
-      say(`${APP} ${tag} failed to load, trying an older one: ${(e as Error).message}`);
+      say(`bundle ${tag} failed to load, trying an older one: ${(e as Error).message}`);
       broken.add(tag);
       continue;
     }
     say(`running ${APP} ${tag}`);
-    await mod.start!();
-    watchUpdates(tag, mod, checking);
+    await mod.start!(APP);
+    if (APP === "agent") watchUpdates(tag, mod, checking);
     return;
   }
-  throw new Error(`no ${APP} bundle could be loaded`);
+  throw new Error("no bundle could be loaded");
 }
 
 run().catch((e) => {

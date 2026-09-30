@@ -43,8 +43,8 @@ Measure with Workers Logs `cpuTimeMs` when a change could move it (the appendix 
   `packages/worker` (the Cloudflare Worker, wrangler), `packages/local` (the machine side the MCPB
   and the agent share: config, ComfyUI install and lifecycle with uv, downloads; Node APIs),
   `packages/mcpb` (the Claude Desktop extension: shim, bind-or-relay entry, local server, tray;
-  `node packages/mcpb/build.mjs [tag]` builds the server bundle, the agent bundle, the shim and the
-  `.mcpb`), `packages/agent` (the PC agent: relay client and its settings routes over `local`) and
+  `node packages/mcpb/build.mjs [tag]` builds `comfy-gen.mjs`, the one bundle holding the server
+  and the agent, the shim and the `.mcpb`), `packages/agent` (the PC agent: relay client and its settings routes over `local`) and
   `packages/launcher` (Go, not a workspace: the agent's launcher; `node packages/launcher/build.mjs
   [tag]` after the MCPB build, `go test ./...` in its folder). `web/` (Svelte settings app) stays
   outside, with its own lockfile; its built `web/dist` is committed.
