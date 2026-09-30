@@ -30,9 +30,12 @@
   </p>
   <ol>
     <li><a href={TOKEN_TEMPLATE_URL} target="_blank" rel="noopener">Open the pre-filled token page</a>. The permissions are already ticked.</li>
-    <li>Under <b>Account Resources</b>, change "All accounts" to <b>your account</b> only.</li>
     <li>Click <b>Continue to summary</b>, then <b>Create Token</b>, and paste it here.</li>
   </ol>
+  <p class="muted">
+    If your Cloudflare login also belongs to other accounts (an employer's, say), change "All accounts" to your own
+    under <b>Account Resources</b> first, so the token cannot touch them.
+  </p>
   <form onsubmit={submit}>
     <label for="token">API token</label>
     <input id="token" type="password" bind:value={token} placeholder="cfut_…" autocomplete="off" />

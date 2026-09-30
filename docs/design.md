@@ -402,9 +402,10 @@ Worker runs (S4).
   The new role-style "Workers: Admin" permission should be added too, for when the legacy ones are
   retired; its template key is not documented yet and still has to be found.
 - **Account choice.** The link must use `accountId=*` because the Worker cannot know its account id
-  in advance, which pre-fills "All accounts". The setup page tells the user to narrow it to their
-  own account (a token on every account they belong to, an employer's included, is needlessly
-  broad). The Worker then finds the account it lives in by listing the token's accounts.
+  in advance, which pre-fills "All accounts". The Worker finds the account it lives in by listing
+  the token's accounts, so "All accounts" works; most users have only their own. The setup page
+  offers narrowing as an optional note for those who also belong to others (an employer's, say),
+  where a token on every account would be needlessly broad.
 - The dashboard's "Entire Account" resource option on the newer account-token page is only a
   resource scope, not "all permissions"; worth a line in the setup page if users end up there.
 
