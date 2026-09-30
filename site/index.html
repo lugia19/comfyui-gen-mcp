@@ -69,10 +69,10 @@
     </ul>
     <p><b>Steps:</b></p>
     <ol>
-      <li>Click the button. Cloudflare opens in a new tab and asks you to connect GitHub the first time
-        (see below), then shows a short form: keep the name <code>comfy-gen</code> and click
-        <b>Create and deploy</b>.</li>
-      <li>Wait for the first deploy, about 3 minutes, then open your Worker. This page shows how to find its
+      <li>Click the button. Cloudflare opens in a new tab with a form: pick your GitHub account under
+        <b>Git account</b> (connecting it the first time, see below), keep the project name <code>comfy-gen</code>
+        and everything else as it is, and click <b>Deploy</b>.</li>
+      <li>Wait for the first deploy, under a minute, then open your Worker. This page shows how to find its
         address once you have clicked the button.</li>
       <li>Your Worker's page takes you through the rest, one step at a time: log in, choose where the images
         are made, set that up, and connect Claude.</li>
@@ -80,14 +80,13 @@
     <details class="guide">
       <summary>Connecting GitHub to Cloudflare (the first time only)</summary>
       <ol>
-        <li>On Cloudflare's deploy page, under <b>Git account</b>, choose <b>Connect GitHub</b>.</li>
-        <li>GitHub asks you to install the Cloudflare app: pick your account, leave <b>All repositories</b> or
-          choose <b>Only select repositories</b> (the deploy creates a new one), and click <b>Install</b>.</li>
-        <li>You are back on the deploy page with your GitHub account selected.</li>
+        <li>On Cloudflare's deploy page, open the <b>Git account</b> list and choose <b>New GitHub connection</b>.</li>
+        <li>GitHub asks you to install the Cloudflare app on your account: click <b>Install</b>.</li>
+        <li>Back on the deploy page, pick your GitHub account in the <b>Git account</b> list. The repository it
+          creates is named after the project, <code>comfy-gen</code>.</li>
       </ol>
-      <figure><img src="guide/github-connect.png" alt="Cloudflare's deploy page, asking to connect a Git account" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The deploy page before GitHub is connected.</figcaption></figure>
-      <figure><img src="guide/github-install.png" alt="GitHub's page to install the Cloudflare app" loading="lazy" onerror="this.parentElement.remove()"><figcaption>GitHub's install page for the Cloudflare app.</figcaption></figure>
-      <figure><img src="guide/deploy-form.png" alt="The deploy form with the project and repository names" loading="lazy" onerror="this.parentElement.remove()"><figcaption>Connected: keep the names and create.</figcaption></figure>
+      <figure><img src="guide/github-connect.png" alt="Cloudflare's deploy page with the Git account list open on New GitHub connection" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The deploy page before GitHub is connected.</figcaption></figure>
+      <figure><img src="guide/deploy-form.png" alt="The deploy form with a GitHub account picked, the project name and the Deploy button" loading="lazy" onerror="this.parentElement.remove()"><figcaption>Connected: keep the name and click Deploy.</figcaption></figure>
     </details>
     <a class="button" id="deploy" target="_blank" rel="noopener" href="https://deploy.workers.cloudflare.com/?url=https://github.com/lugia19/comfyui-gen-mcp/tree/main/bootstrap">
       Deploy to Cloudflare
@@ -102,11 +101,12 @@
   <section id="after" hidden>
     <h2>Next: find your Worker</h2>
     <ol>
-      <li>In the Cloudflare tab, the build runs for about 3 minutes. Its log is on the page.</li>
-      <li>When it finishes, the last lines of the log show your Worker's address,
+      <li>In the Cloudflare tab, the build runs for under a minute. Its log is on the page.</li>
+      <li>When it finishes, the end of the log says <b>Your Worker is ready</b> with your Worker's address,
         <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>. Open it.</li>
       <li>Lost the tab? In the <a href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noopener">Cloudflare dashboard</a>,
-        open <b>Workers &amp; Pages</b>, then <b>comfy-gen</b>: its address is under <b>Domains &amp; Routes</b>, or click <b>Visit</b>.</li>
+        open <b>Workers &amp; Pages</b>: the address is under <b>comfy-gen</b> in the list. Or open <b>comfy-gen</b> and
+        click <b>Visit</b> at the top right.</li>
     </ol>
     <figure><img src="guide/build-log.png" alt="The build log while the Worker deploys" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The build running.</figcaption></figure>
     <figure><img src="guide/build-done.png" alt="The end of the build log with the Worker's address" loading="lazy" onerror="this.parentElement.remove()"><figcaption>Done: the address is at the end of the log.</figcaption></figure>

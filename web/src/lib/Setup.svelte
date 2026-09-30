@@ -61,6 +61,16 @@
   let deployed = $derived(gen?.kind === 'modal')
   let modelsReady = $derived(deployed && packs !== null && packs.every((p) => p.state === 'done'))
 
+  // Modal shows a new token only inside `modal token set --token-id ak-… --token-secret as-…`.
+  function splitCommand() {
+    const id = modalId.match(/--token-id[= ]\s*(ak-\S+)/)
+    const secret = modalId.match(/--token-secret[= ]\s*(as-\S+)/)
+    if (id && secret) {
+      modalId = id[1]
+      modalSecret = secret[1]
+    }
+  }
+
   async function deployModal(e) {
     e.preventDefault()
     buildBusy = true
@@ -202,24 +212,26 @@
       <summary>New to Modal? Show me how</summary>
       <ol>
         <li><a href="https://modal.com/signup" target="_blank" rel="noopener">Sign up for Modal</a> (with GitHub or Google).</li>
-        <li>Add a card under <b>Settings → Usage and Billing</b>. Modal needs one on file to run GPUs; the $30 of free
-          compute each month is used first.</li>
+        <li>Add a card: <b>Settings → Usage &amp; billing → Manage payment details</b>. Modal needs one on file to run
+          GPUs; the $30 of free compute each month is used first.</li>
         <li>Then make the token as below.</li>
       </ol>
       <figure><img src="{GUIDE}modal-signup.png" alt="Modal's sign-up page" loading="lazy" onerror={hideFigure} /><figcaption>Signing up.</figcaption></figure>
       <figure><img src="{GUIDE}modal-billing.png" alt="Modal's billing settings, where the card goes" loading="lazy" onerror={hideFigure} /><figcaption>Where the card goes.</figcaption></figure>
     </details>
     <ol>
-      <li>In Modal, open <b>Settings → API Tokens</b> and click <b>New Token</b>.</li>
-      <li>It shows a token ID (<code>ak-…</code>) and a secret (<code>as-…</code>) once. Paste both here. They are
-        stored only as build secrets, used to deploy ComfyUI into your Modal account.</li>
+      <li>In Modal, open <b>Settings → API tokens &amp; service users</b>, click <b>New Token</b>, then
+        <b>Create token</b> (the name is optional).</li>
+      <li>Modal shows the token once, inside a command: <code>modal token set --token-id ak-… --token-secret as-…</code>.
+        Copy the whole command with its copy button and paste it into the first box below: the ID and secret are
+        picked out of it. They are stored only as build secrets, used to deploy ComfyUI into your Modal account.</li>
     </ol>
-    <figure><img src="{GUIDE}modal-tokens.png" alt="Modal's API Tokens settings with the New Token button" loading="lazy" onerror={hideFigure} /><figcaption>Settings → API Tokens.</figcaption></figure>
-    <figure><img src="{GUIDE}modal-token-created.png" alt="A new Modal token, showing its ID and secret" loading="lazy" onerror={hideFigure} /><figcaption>The ID and secret to paste.</figcaption></figure>
+    <figure><img src="{GUIDE}modal-tokens.png" alt="Modal's API tokens settings with the New Token button" loading="lazy" onerror={hideFigure} /><figcaption>Settings → API tokens &amp; service users.</figcaption></figure>
+    <figure><img src="{GUIDE}modal-token-created.png" alt="A new Modal token, shown inside a modal token set command" loading="lazy" onerror={hideFigure} /><figcaption>The command holding the ID and secret.</figcaption></figure>
     <p class="muted">The first deploy takes about 5 minutes: it builds the ComfyUI image.</p>
     <form onsubmit={deployModal}>
       <label for="mid">Token ID</label>
-      <input id="mid" type="text" bind:value={modalId} placeholder="ak-…" autocomplete="off" />
+      <input id="mid" type="text" bind:value={modalId} oninput={splitCommand} placeholder="ak-… or the whole modal token set command" autocomplete="off" />
       <label for="msec">Token secret</label>
       <input id="msec" type="password" bind:value={modalSecret} placeholder="as-…" autocomplete="off" />
       <button type="submit" disabled={buildBusy || !modalId.trim() || !modalSecret.trim()}>
