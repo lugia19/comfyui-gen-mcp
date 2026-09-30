@@ -1,0 +1,2 @@
+# Vite copies this into web/dist, which CI compares byte for byte with an LF build.
+web/index.html text eol=lf

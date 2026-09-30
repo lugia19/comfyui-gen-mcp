@@ -45,3 +45,7 @@ export const TOKEN_TEMPLATE_URL =
     zoneId: 'all',
     name: 'Comfy-Gen-MCP',
   })
+
+// Guide screenshots live on the project site, not in this app (which the local bundle also embeds).
+export const GUIDE = 'https://lugia19.github.io/comfyui-gen-mcp/guide/'
+export const hideFigure = (e) => (e.currentTarget.parentElement.hidden = true)

@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { api } from './api.js'
+  import { api, GUIDE, hideFigure } from './api.js'
   import BuildLog from './BuildLog.svelte'
   import Models from './Models.svelte'
   import Step from './Step.svelte'
@@ -14,9 +14,6 @@
   let { info, refresh } = $props()
 
   const RELEASE = 'https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/'
-  // Guide screenshots live on the project site, not in this app (which the local bundle also embeds).
-  const GUIDE = 'https://lugia19.github.io/comfyui-gen-mcp/guide/'
-  const hideFigure = (e) => (e.currentTarget.parentElement.hidden = true)
   const CHOICE_KEY = 'comfy-gen-setup-choice'
   const CHOICES = {
     modal: ['In the cloud, on Modal', 'No GPU needed. Modal only runs, and bills, while it generates.'],

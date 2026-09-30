@@ -146,7 +146,8 @@ guides instead, after the user's from-scratch test, whose screenshots they illus
 
 Built 2026-09-30: the three guides are in place (`site/index.html`, the Modal step in
 `web/src/lib/Setup.svelte`), with screenshots in `site/guide/`: `github-connect`, `deploy-form`,
-`build-log`, `build-done`, `worker-visit`, `modal-signup`, `modal-billing`, `modal-tokens`,
+`build-log`, `build-done`, `worker-visit`, `cf-token-form`, `cf-token-summary` (the login step),
+`modal-signup`, `modal-billing`, `modal-tokens`,
 `modal-token-created` (PNG, redacted). The Worker page loads its Modal images from the published
 site, so they appear once `main` has them. The GitHub app install got no screenshot: it is one
 Install click. Names checked against the real screens the same day (Cloudflare's button is
