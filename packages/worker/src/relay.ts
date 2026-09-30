@@ -13,7 +13,7 @@ export type RelayStatus = { connected: boolean; since: number | null; info: Reco
 /** What the Worker calls on the Relay Durable Object (its RPC methods). */
 export interface RelayStub {
   request(req: RelayRequest): Promise<RelayReply>;
-  control(op: string, args?: unknown, timeoutS?: number): Promise<RelayReply>;
+  control(op: string, args?: unknown, timeoutS?: number, body?: Uint8Array): Promise<RelayReply>;
   status(): Promise<RelayStatus>;
   drop(): Promise<void>;
 }
@@ -113,8 +113,8 @@ export class RelayCore {
     return this.send({ kind: "http", id: tokenHex(8), ...rest }, body, timeoutS);
   }
 
-  control(op: string, args?: unknown, timeoutS = CONTROL_TIMEOUT_S): Promise<RelayReply> {
-    return this.send({ kind: "control", id: tokenHex(8), op, args }, undefined, timeoutS);
+  control(op: string, args?: unknown, timeoutS = CONTROL_TIMEOUT_S, body?: Uint8Array): Promise<RelayReply> {
+    return this.send({ kind: "control", id: tokenHex(8), op, args }, body, timeoutS);
   }
 }
 

@@ -143,7 +143,7 @@ export class Clock {
 export class FakeRelay implements RelayStub {
   comfy = new FakeComfy();
   connected = true;
-  controls: Record<string, (args: any) => [number, unknown]> = {
+  controls: Record<string, (args: any, body?: Uint8Array) => [number, unknown]> = {
     ensure: () => [200, { ok: true }],
   };
   controlCalls: [string, any][] = [];
@@ -156,12 +156,12 @@ export class FakeRelay implements RelayStub {
     return { status: r.status, body: r.content };
   }
 
-  async control(op: string, args?: unknown): Promise<RelayReply> {
+  async control(op: string, args?: unknown, _timeoutS?: number, body?: Uint8Array): Promise<RelayReply> {
     this.controlCalls.push([op, args]);
     if (!this.connected) return { status: 503, body: utf8("offline"), offline: true };
     const handler = this.controls[op];
     if (!handler) return { status: 400, body: utf8(`unknown op ${op}`) };
-    const [status, data] = handler(args);
+    const [status, data] = handler(args, body);
     return { status, body: utf8(status === 200 ? JSON.stringify(data) : String(data)) };
   }
 

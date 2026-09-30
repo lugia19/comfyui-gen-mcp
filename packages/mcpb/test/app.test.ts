@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -106,7 +107,16 @@ describe("settings API", () => {
 
   it("lists LoRAs, opens folders, starts installs", async () => {
     const w = world();
-    expect((await (await w.local("/api/loras")).json()).loras).toEqual({ "mine.safetensors": 5 });
+    // One way in: a LoRA dropped in the folder is not ours; an uploaded one is.
+    expect((await (await w.local("/api/loras")).json()).loras).toEqual({});
+    const up = await (await w.local("/api/loras/uploads", { method: "POST", body: JSON.stringify({ filename: "new.safetensors", size: 3 }) })).json();
+    expect(up.upload_url).toBe(`/api/loras/uploads/${up.id}`);
+    const sha = createHash("sha256").update("abc").digest("hex");
+    expect((await w.local(`${up.upload_url}/0`, { method: "PUT", body: "abc", headers: { "X-Chunk-Sha256": sha } })).status).toBe(200);
+    expect(await (await w.local(`${up.upload_url}/finish`, { method: "POST" })).json()).toEqual({ state: "done" });
+    expect((await (await w.local("/api/loras")).json()).loras).toEqual({ "new.safetensors": 3 });
+    expect((await w.local("/api/loras/mine.safetensors", { method: "DELETE" })).status).toBe(404); // not ours to delete
+    expect((await w.local("/api/loras/new.safetensors", { method: "DELETE" })).status).toBe(200);
     await w.local("/api/open", { method: "POST", body: JSON.stringify({ which: "loras" }) });
     expect(w.opened[0]).toMatch(/models[\\/]loras$/);
     expect((await w.local("/api/setup/install", { method: "POST", body: JSON.stringify({ gpu: "quantum" }) })).status).toBe(400);

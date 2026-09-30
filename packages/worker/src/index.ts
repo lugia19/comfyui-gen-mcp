@@ -141,8 +141,8 @@ export class Relay extends DurableObject<Env> {
     return this.core.http(req);
   }
 
-  async control(op: string, args?: unknown, timeoutS = CONTROL_TIMEOUT_S): Promise<RelayReply> {
-    return this.core.control(op, args, timeoutS);
+  async control(op: string, args?: unknown, timeoutS = CONTROL_TIMEOUT_S, body?: Uint8Array): Promise<RelayReply> {
+    return this.core.control(op, args, timeoutS, body);
   }
 
   async status(): Promise<RelayStatus> {

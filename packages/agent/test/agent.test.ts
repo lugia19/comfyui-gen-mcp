@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComfyUIError, fromUtf8, relay, utf8 } from "@comfy-gen/core";
-import { paths, type Machine } from "@comfy-gen/local";
+import { createHash } from "node:crypto";
+import { LoraRegistry, LoraUploads, paths, type Machine } from "@comfy-gen/local";
 import { loadAgentConfig, parsePairingLink, saveAgentConfig } from "../src/config.ts";
 import { agentHandler } from "../src/handlers.ts";
 import { RelayClient } from "../src/relay-client.ts";
@@ -157,6 +158,9 @@ describe("agent handlers", () => {
     await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
     const url = `http://127.0.0.1:${(srv.address() as any).port}`;
     const ensured: any[] = [];
+    const home = mkdtempSync(join(tmpdir(), "agent-up-"));
+    const registry = new LoraRegistry(join(home, "loras.json"), () => join(home, "loras"));
+    const uploads = new LoraUploads(registry, () => join(home, "loras"));
     const machine = {
       comfy: {
         url, state: "running", job: (fn: () => Promise<unknown>) => fn(), ensureRunning: async () => url,
@@ -167,6 +171,8 @@ describe("agent handlers", () => {
         if (pack.name === "big") throw new ComfyUIError("The Big model is downloading: 5% of 9.0 GB.");
       },
       loras: () => ({ "a.safetensors": 3 }),
+      uploads,
+      loraRegistry: registry,
       downloads: { status: () => ({ state: "done", done: 0, total: 0 }) },
     } as unknown as Machine;
     let keepWarm = 0;
@@ -187,6 +193,16 @@ describe("agent handlers", () => {
     });
     expect(await call({ kind: "control", id: "7", op: "sync" })).toEqual([200, '{"started":true}']);
     expect(syncs).toBe(1);
+    // A LoRA upload relayed from the Worker's page: the chunk is the message body.
+    const [, started] = await call({ kind: "control", id: "8", op: "upload_start", args: { filename: "u.safetensors", size: 3 } });
+    const id = JSON.parse(started as string).id;
+    const sha = createHash("sha256").update(new Uint8Array([1, 2, 3])).digest("hex");
+    expect(await call({ kind: "control", id: "9", op: "upload_chunk", args: { id, index: 0, sha256: sha } }, new Uint8Array([1, 2, 3]))).toEqual([200, '{"ok":true,"index":0}']);
+    expect(await call({ kind: "control", id: "10", op: "upload_chunk", args: { id, index: 0, sha256: "0" } }, new Uint8Array([1, 2, 3]))).toEqual([400, "chunk 0 checksum mismatch"]);
+    expect(await call({ kind: "control", id: "11", op: "upload_finish", args: { id } })).toEqual([200, '{"state":"done"}']);
+    expect(registry.sizes()).toEqual({ "u.safetensors": 3 });
+    expect(await call({ kind: "control", id: "12", op: "lora_delete", args: { name: "u.safetensors" } })).toEqual([200, '{"deleted":"u.safetensors"}']);
+    expect((await call({ kind: "control", id: "13", op: "lora_delete", args: { name: "u.safetensors" } }))[0]).toBe(404);
     expect((await call({ kind: "control", id: "6", op: "nope" }))[0]).toBe(400);
     srv.close();
   });

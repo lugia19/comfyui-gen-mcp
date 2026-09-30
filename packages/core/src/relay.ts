@@ -7,7 +7,8 @@
 // order (WebSocket keeps order).
 //
 //   Worker -> agent:  http     one ComfyUI request: {method, path, params, headers} + body
-//                     control  an agent operation: {op, args} (ensure, loras, download, models, status)
+//                     control  an agent operation: {op, args}, and a body for a LoRA upload's chunk
+//                              (ensure, loras, download, models, sync, upload_*, lora_delete, status)
 //   agent -> Worker:  reply    {id, status} + body. For http, ComfyUI's status and body; for
 //                              control, 200 with a JSON body or an error status with a message
 //                     hello    {info}: the agent's version, GPU, ComfyUI state, on connecting

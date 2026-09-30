@@ -21,7 +21,7 @@ export type Pull = { name: string; size: number; url: string };
 export type SyncJob = { to: "modal" | "pc"; done: number; total: number; error?: string };
 
 export type LoraSyncOptions = {
-  machine: Pick<Machine, "loras" | "loraPaths" | "lorasDir">;
+  machine: Pick<Machine, "loras" | "loraPaths" | "lorasDir"> & { loraRegistry: { add(name: string): void } };
   worker: () => { url: string; secret: string } | null;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
@@ -146,6 +146,7 @@ export class LoraSync {
           resume: true,
           onProgress: (done) => (job.done = done),
         });
+        this.o.machine.loraRegistry.add(p.name); // ours now: listed, and synced from here on
         return;
       } catch (e) {
         if (attempt >= RETRIES || /HTTP 4\d\d/.test((e as Error).message)) throw e;

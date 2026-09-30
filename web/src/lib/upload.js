@@ -1,6 +1,8 @@
-// LoRA upload: the Worker opens a session on the Modal app, then the browser sends the file to the
-// app's upload endpoint in chunks (a Modal web request is cut off after 150 s), each with its
-// SHA-256, and asks the Worker to have them joined. The bytes never pass through the Worker.
+// LoRA upload, the one way a LoRA comes in: open a session, send the file in chunks (a Modal web
+// request is cut off after 150 s), each with its SHA-256, then finish. *base* says where:
+//   /loras     the Worker's Modal Volume (the chunks go straight to the Modal app, never through
+//              the Worker), or this machine on the extension's page
+//   /pc/loras  the Worker's paired PC with no Modal (the chunks go through the Worker's relay)
 import { api } from './api.js'
 
 const PARALLEL = 3
@@ -49,8 +51,8 @@ async function putChunk(url, buf, sha) {
  * Upload *file* as a LoRA. *onProgress* gets {phase: 'upload' | 'assemble', done, total} in bytes.
  * Resolves when the file is on the Volume; throws an Error with the reason otherwise.
  */
-export async function uploadLora(file, onProgress) {
-  const session = await api('POST', '/loras/uploads', { filename: file.name, size: file.size })
+export async function uploadLora(file, onProgress, base = '/loras') {
+  const session = await api('POST', `${base}/uploads`, { filename: file.name, size: file.size })
   const { id, chunk_size: chunkSize, chunks, upload_url: url } = session
   let sent = 0
   let next = 0
@@ -67,9 +69,9 @@ export async function uploadLora(file, onProgress) {
   }
   await Promise.all(Array.from({ length: Math.min(PARALLEL, chunks) }, worker))
 
-  await apiRetrying('POST', `/loras/uploads/${id}/finish`)
+  await apiRetrying('POST', `${base}/uploads/${id}/finish`)
   for (;;) {
-    const s = await apiRetrying('GET', `/loras/uploads/${id}`)
+    const s = await apiRetrying('GET', `${base}/uploads/${id}`)
     if (s.state === 'done') return
     if (s.state === 'failed') throw new Error(s.error || 'the upload could not be assembled')
     onProgress({ phase: 'assemble', done: s.done || 0, total: file.size })

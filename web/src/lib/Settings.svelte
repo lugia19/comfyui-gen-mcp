@@ -1,5 +1,5 @@
 <script>
-  import { onMount, untrack } from 'svelte'
+  import { onDestroy, onMount, untrack } from 'svelte'
   import { api, formatBytes } from './api.js'
   import LoraSection from './LoraSection.svelte'
   import Models from './Models.svelte'
@@ -61,7 +61,19 @@
   // LoRA files on each backend. This computer's list is mapped to the Worker's shape.
   let loraListing = $state(null)
 
-  async function loadLoras() {
+  // While the agent copies LoRAs, or for a while after an upload or a save (a copy may be about to
+  // start), the list checks again every 3 s.
+  let watchUntil = 0
+  let loraTimer = null
+  let alive = true
+  onDestroy(() => {
+    alive = false
+    clearTimeout(loraTimer)
+  })
+
+  async function loadLoras(watch = false) {
+    if (watch) watchUntil = Date.now() + 30_000
+    clearTimeout(loraTimer)
     try {
       const got = await api('GET', '/loras')
       loraListing = machine
@@ -70,8 +82,10 @@
     } catch (e) {
       loraListing = { backends: [], files: {}, syncing: {}, errors: { [machine ? 'machine' : 'the Worker']: e.message } }
     }
+    const copying = Object.values(loraListing.syncing ?? {}).some((j) => !j.error)
+    if (alive && (copying || Date.now() < watchUntil)) loraTimer = setTimeout(() => loadLoras(), 3000)
   }
-  onMount(loadLoras)
+  onMount(() => loadLoras())
 
   async function save() {
     saving = true
@@ -84,7 +98,7 @@
       saves += 1
       message = 'Saved. New chats pick up tool changes; existing chats keep the tools they started with.'
       await refresh()
-      await loadLoras() // saving starts copies between the PC and Modal
+      await loadLoras(true) // saving starts copies between the PC and Modal
     } catch (e) {
       error = e.message
     } finally {

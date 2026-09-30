@@ -14,5 +14,6 @@ export * from "./discover.ts";
 export * from "./downloads.ts";
 export * from "./comfyui.ts";
 export * from "./http.ts";
+export * from "./lora-uploads.ts";
 export * from "./machine.ts";
 export * from "./tray.ts";

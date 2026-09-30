@@ -7,11 +7,14 @@
   // the packs that take LoRAs. *listing* is null while loading, then
   //   {backends, files: {name: {backend: size}}, syncing: {name: {to, done, total, error}}, errors}
   // with backends among:
-  //   machine  this computer (the Claude Desktop extension): its LoRA folders, opened from here
-  //   pc       the Worker's paired PC: its LoRA folders, listed through the agent
-  //   modal    the Modal Volume: upload and delete here
+  //   machine  this computer (the Claude Desktop extension)
+  //   pc       the Worker's paired PC, listed through the agent
+  //   modal    the Modal Volume
   //   url      a ComfyUI reached by URL: no listing, a file is added by name
-  // With a PC and Modal, the agent copies a LoRA some pack uses to whichever lacks it.
+  // One way in: every LoRA comes through Upload LoRA. With a PC and Modal it goes to the Volume, and
+  // the agent copies it to the PC; with a PC alone it goes to the PC through the Worker. Only LoRAs
+  // that came in this way are listed, never others that happen to be in a PC's folders.
+  // *reload(watch)*: list again; watch keeps re-checking for a while (a copy to the PC may follow).
   let { cfg, packs, listing, reload } = $props()
 
   let progress = $state(null) // {name, phase, done, total} while an upload runs
@@ -23,6 +26,9 @@
   let listed = $derived(backends.filter((b) => b !== 'url'))
   let files = $derived(listing?.files ?? {})
   let has = (b) => backends.includes(b)
+  // Where an upload goes: Modal when there is one (the agent then copies it), else the PC through
+  // the Worker, else this computer (the extension).
+  let uploadBase = $derived(has('modal') ? '/loras' : has('pc') ? '/pc/loras' : has('machine') ? '/loras' : null)
 
   const stem = (name) => (name || '').replace(/\.safetensors$/i, '')
 
@@ -63,25 +69,27 @@
     e.currentTarget.value = ''
     if (!file) return
     error = ''
-    if (files[file.name]?.modal && !confirm(`${file.name} is already uploaded. Replace it?`)) return
+    if (files[file.name] && !confirm(`${file.name} is already uploaded. Replace it?`)) return
     try {
-      await uploadLora(file, (p) => (progress = { name: file.name, ...p }))
+      await uploadLora(file, (p) => (progress = { name: file.name, ...p }), uploadBase)
       // A new file is set up for the first pack right away; the checkboxes change that.
       if (packs.length && !entryOf(packs[0], file.name)) toggle(packs[0], file.name, true)
+      if (has('modal') && has('pc')) await api('POST', '/loras/sync') // copy it to the PC now
     } catch (err) {
       error = `${file.name}: ${err.message}`
     } finally {
       progress = null
-      await reload() // also after an error: the file may have arrived regardless
+      await reload(true) // also after an error: the file may have arrived regardless
     }
   }
 
   async function remove(name) {
-    const also = files[name]?.pc ? ' It stays on your PC, so turn it off in every model first, or it is copied back.' : ''
-    if (!confirm(`Delete ${name} from your Modal Volume?${also}`)) return
+    const where = listed.length > 1 ? ' from your PC and your Modal Volume' : ''
+    if (!confirm(`Delete ${name}${where}? It is turned off in every model.`)) return
     error = ''
     try {
-      await api('DELETE', `/loras/${encodeURIComponent(name)}`)
+      const r = await api('DELETE', `/loras/${encodeURIComponent(name)}`)
+      if (r.errors?.length) error = r.errors.join(' ')
       for (const pack of packs) if (entryOf(pack, name)) toggle(pack, name, false)
       await reload()
     } catch (err) {
@@ -112,25 +120,17 @@
   For {packNames}. Tick the models a LoRA should apply to. With a trigger it applies only when the prompt contains that
   word, and Claude is told the trigger unless the LoRA is hidden; without one it always applies. Save to apply.
 </p>
-{#if has('machine')}
-  <p class="muted">.safetensors files in ComfyUI's LoRAs folder, or in a shared models folder.</p>
-{/if}
-{#if has('pc')}
-  <p class="muted">
-    To add one from your PC, put the .safetensors file in ComfyUI's LoRAs folder there (the agent's page has an
-    <b>Open LoRAs folder</b> button), then press Refresh here.
-  </p>
+{#if has('modal') && has('pc')}
+  <p class="muted">Uploads go to your Modal Volume and are copied to your PC.</p>
+{:else if has('modal')}
+  <p class="muted">Uploads go to your Modal Volume.</p>
+{:else if has('pc')}
+  <p class="muted">Uploads go to your PC, through this Worker.</p>
+{:else if has('machine')}
+  <p class="muted">Uploads go to ComfyUI's LoRAs folder on this computer.</p>
 {/if}
 {#if has('modal')}
-  <p class="muted">
-    {#if has('pc')}Or upload it to your Modal Volume below.{:else}Files live on your Modal Volume.{/if}
-    A GPU that is already running picks up a new one once it is idle.
-  </p>
-{/if}
-{#if has('pc') && has('modal')}
-  <p class="muted">
-    A LoRA you turn on is copied to whichever of the two lacks it, by the agent on your PC, once you save.
-  </p>
+  <p class="muted">A GPU that is already running picks up a new LoRA once it is idle.</p>
 {/if}
 
 {#if !listing}
@@ -147,8 +147,8 @@
         {@const m = mark(name, where)}
         <span class="place" class:ok={m.ok} class:err={m.err} class:muted={!m.ok && !m.err}>{#if PLACE[where]}<b>{PLACE[where]}</b>&nbsp;{/if}{m.text}</span>
       {/each}
-      {#if files[name]?.modal}
-        <button class="secondary" onclick={() => remove(name)} disabled={!!progress}>Delete{has('pc') ? ' from Modal' : ''}</button>
+      {#if files[name] && listed.length}
+        <button class="secondary" onclick={() => remove(name)} disabled={!!progress}>Delete</button>
       {/if}
     </div>
     {#each packs as pack (pack.config_key)}
@@ -172,18 +172,12 @@
   </p>
   <progress max={progress.total} value={progress.done}></progress>
 {:else}
-  <div class="row">
-    {#if has('modal')}
-      <label class="upload">
-        <span class="button">Upload LoRA{has('pc') ? ' to Modal' : ''}</span>
-        <input type="file" accept=".safetensors" onchange={pick} />
-      </label>
-    {/if}
-    {#if has('machine')}
-      <button class="secondary" onclick={() => api('POST', '/open', { which: 'loras' })}>Open LoRAs folder</button>
-    {/if}
-    {#if listed.length}<button class="secondary" onclick={reload}>Refresh</button>{/if}
-  </div>
+  {#if uploadBase}
+    <label class="upload">
+      <span class="button">Upload LoRA</span>
+      <input type="file" accept=".safetensors" onchange={pick} />
+    </label>
+  {/if}
 {/if}
 {#if has('url')}
   <div class="row">

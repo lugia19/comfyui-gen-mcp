@@ -173,6 +173,11 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   list and a LoRA list that show each backend's state, `pc_keep_warm_minutes` as the one
   per-backend setting, and the agent copying LoRAs between the PC and Modal (design §9, "LoRA
   sync"). Kept from the split: one LoRA section by file, and the `@` in pre-filled triggers.
+- **LoRAs: one way in.** Done 2026-09-30 (design §4): every LoRA comes through Upload LoRA; no
+  "drop it in the folder and Refresh". With Modal the upload goes to the Volume and the agent copies
+  it to the PC; with a PC alone it goes to the agent through the Worker's relay; the extension
+  takes it on its own page. Only LoRAs that came in this way are listed or synced (a registry on
+  the machine), never others in a PC's ComfyUI folders. Delete removes one everywhere.
 - **Agent page: an "Edit settings" button.** Done 2026-09-30: it opens the Worker's
   `#settings`. The agent's page says "Model and style settings
   are on the Worker's page" in small text with a bare link. Make it a prominent **Edit main

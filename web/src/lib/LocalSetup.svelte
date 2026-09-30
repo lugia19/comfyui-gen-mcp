@@ -169,7 +169,6 @@
   <h2>Folders</h2>
   <div class="row">
     <button class="secondary" onclick={() => open('models')}>Models</button>
-    <button class="secondary" onclick={() => open('loras')}>LoRAs</button>
     {#if comfy.dir}<button class="secondary" onclick={() => open('output')}>Generated images</button>{/if}
     <button class="secondary" onclick={() => open('logs')}>Logs</button>
   </div>

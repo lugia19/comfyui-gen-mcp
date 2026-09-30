@@ -2,7 +2,7 @@
 // user's), its install, model downloads and model folders, making a pack ready, and the settings
 // routes for all that. The MCPB adds MCP and pack settings on top; the agent adds the relay.
 
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { ComfyUIError, downloadSize } from "@comfy-gen/core";
 import { LocalComfy, type ComfySettings } from "./comfyui.ts";
@@ -10,6 +10,7 @@ import { ModelDownloads, type ModelFile } from "./downloads.ts";
 import { bodyJson, error, json } from "./http.ts";
 import { detectGpu, GPUS, install, isGpu } from "./install.ts";
 import { log } from "./log.ts";
+import { LoraRegistry, LoraUploads, UploadError } from "./lora-uploads.ts";
 import type { Paths } from "./paths.ts";
 import { openExternal } from "./proc.ts";
 
@@ -34,6 +35,9 @@ export class Machine {
   readonly p: Paths;
   readonly comfy: LocalComfy;
   readonly downloads: ModelDownloads;
+  /** Our LoRAs (design §4: one way in), and uploads of new ones. */
+  readonly loraRegistry: LoraRegistry;
+  readonly uploads: LoraUploads;
   private opts: MachineOptions;
   private installState: InstallState = { state: "idle", gpu: null, lines: [], error: null };
   private gpuGuess: Promise<string> | null = null;
@@ -43,6 +47,8 @@ export class Machine {
     this.p = opts.paths;
     this.comfy = opts.comfy ?? new LocalComfy(opts.paths, opts.settings, opts.waitExtension);
     this.downloads = new ModelDownloads(this.comfy.models);
+    this.loraRegistry = new LoraRegistry(join(this.p.home, "loras.json"), () => this.lorasDir);
+    this.uploads = new LoraUploads(this.loraRegistry, () => this.lorasDir);
   }
 
   get install(): InstallState {
@@ -111,21 +117,14 @@ export class Machine {
     await comfy.ensureNodes(pack.required_nodes ?? {});
   }
 
-  /** LoRA files ComfyUI can load: {name: size}, ours first, then the shared folders'. */
+  /** Our LoRAs: {name: size}. Only uploaded or synced ones, never others in the same folders. */
   loras(): Record<string, number> {
-    return Object.fromEntries(Object.entries(this.loraPaths()).map(([name, path]) => [name, statSync(path).size]));
+    return this.loraRegistry.sizes();
   }
 
-  /** LoRA files ComfyUI can load: {name: path}, ours first, then the shared folders'. */
+  /** Our LoRAs: {name: path}. */
   loraPaths(): Record<string, string> {
-    const out: Record<string, string> = {};
-    for (const d of this.comfy.models.folders().loras ?? []) {
-      if (!existsSync(d)) continue;
-      for (const name of readdirSync(d)) {
-        if (name.endsWith(".safetensors") && !(name in out)) out[name] = join(d, name);
-      }
-    }
-    return out;
+    return this.loraRegistry.paths();
   }
 
   /** Our own LoRA folder, where new ones go. */
@@ -156,6 +155,35 @@ export class Machine {
     };
   }
 
+  /** LoRA uploads and deletes from this machine's own settings page (the relay has the same, as
+   * control operations, in the agent's handlers). */
+  private async loraApi(req: Request, sub: string): Promise<Response | null> {
+    const m = req.method;
+    const up = /^\/loras\/uploads\/([\w-]+)(?:\/(\d+|finish))?$/.exec(sub);
+    try {
+      if (sub === "/loras/uploads" && m === "POST") {
+        const body = await bodyJson(req);
+        const session = this.uploads.start(body.filename, body.size);
+        return json({ ...session, upload_url: `/api/loras/uploads/${session.id}` });
+      }
+      if (up && up[2] === "finish" && m === "POST") return json(this.uploads.finish(up[1]));
+      if (up && up[2] && m === "PUT") {
+        const data = new Uint8Array(await req.arrayBuffer());
+        return json(await this.uploads.chunk(up[1], Number(up[2]), data, req.headers.get("x-chunk-sha256")));
+      }
+      if (up && !up[2] && m === "GET") return json(this.uploads.status(up[1]));
+      if (!up && m === "DELETE") {
+        const name = decodeURIComponent(sub.slice("/loras/".length));
+        this.loraRegistry.delete(name);
+        return json({ deleted: name });
+      }
+    } catch (e) {
+      if (e instanceof UploadError) return error(e.status, e.message);
+      throw e;
+    }
+    return null;
+  }
+
   /** The shared settings routes (under /api), or null for a route that is not one of them. */
   async api(req: Request, sub: string): Promise<Response | null> {
     const m = req.method;
@@ -170,6 +198,10 @@ export class Machine {
     if (sub === "/comfyui/restart" && m === "POST") return this.comfyAction(() => this.comfy.restart());
     if (sub === "/comfyui/stop" && m === "POST") return this.comfyAction(() => this.comfy.stop());
     if (sub === "/loras" && m === "GET") return json({ loras: this.loras() });
+    if (sub === "/loras" || sub.startsWith("/loras/")) {
+      const r = await this.loraApi(req, sub);
+      if (r) return r;
+    }
     if (sub === "/open" && m === "POST") {
       const which = (await bodyJson(req)).which;
       const dirs: Record<string, string> = { models: this.comfy.models.ownModels, logs: this.p.logs };

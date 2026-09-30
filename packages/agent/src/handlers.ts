@@ -2,7 +2,7 @@
 // and operations on the machine (the same Machine the MCPB runs).
 
 import { ComfyUIError, type relay } from "@comfy-gen/core";
-import type { Machine, PackNeeds } from "@comfy-gen/local";
+import { UploadError, type Machine, type PackNeeds } from "@comfy-gen/local";
 import type { SyncJob } from "./lora-sync.ts";
 import type { Reply } from "./relay-client.ts";
 
@@ -39,7 +39,7 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
       }
     });
 
-  const control = async (h: relay.ControlMessage): Promise<Reply> => {
+  const control = async (h: relay.ControlMessage, body: Uint8Array): Promise<Reply> => {
     const args = (h.args ?? {}) as Record<string, any>;
     try {
       switch (h.op) {
@@ -61,14 +61,27 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
           return ok(((args.packs ?? []) as PackNeeds[]).map((p) => ({ name: p.name, ...machine.downloads.status(p.name, p.models ?? []) })));
         case "status":
           return ok(await machine.state());
+        // LoRA uploads from the Worker's page, for a PC without Modal: the chunk is the body.
+        case "upload_start":
+          return ok(machine.uploads.start(args.filename, args.size));
+        case "upload_chunk":
+          return ok(await machine.uploads.chunk(String(args.id), Number(args.index), body, args.sha256 ?? null));
+        case "upload_finish":
+          return ok(machine.uploads.finish(String(args.id)));
+        case "upload_status":
+          return ok(machine.uploads.status(String(args.id)));
+        case "lora_delete":
+          machine.loraRegistry.delete(String(args.name));
+          return ok({ deleted: args.name });
         default:
           return [400, `The agent does not know the operation ${h.op}. Update it.`];
       }
     } catch (e) {
       if (e instanceof ComfyUIError) return [500, e.message];
+      if (e instanceof UploadError) return [e.status, e.message];
       throw e;
     }
   };
 
-  return async (msg) => (msg.header.kind === "http" ? http(msg.header, msg.body) : control(msg.header as relay.ControlMessage));
+  return async (msg) => (msg.header.kind === "http" ? http(msg.header, msg.body) : control(msg.header as relay.ControlMessage, msg.body));
 }

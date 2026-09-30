@@ -354,7 +354,7 @@ describe("LoRAs", () => {
     expect(gone.status).toBe(404);
 
     const del = await app.handle(request("DELETE", "/api/loras/old.safetensors", undefined, cookie));
-    expect(await body(del)).toEqual({ deleted: "old.safetensors" });
+    expect(await body(del)).toEqual({ deleted: "old.safetensors", from: ["modal"], errors: [] });
     expect((await app.handle(request("DELETE", "/api/loras/old.safetensors", undefined, cookie))).status).toBe(404);
     expect((await app.handle(request("GET", "/api/loras"))).status).toBe(401); // cookie required
   });
@@ -536,13 +536,16 @@ describe("the PC path", () => {
     const sync = (loras: unknown, auth = secret) =>
       app.handle(request("POST", "/agent/sync", { loras }, { authorization: `Bearer ${auth}` }));
     expect((await sync({}, "wrong")).status).toBe(401);
-    expect(await body(await sync({}))).toEqual({ push: [], pull: [], errors: [] }); // no LoRAs set up
+    expect(await body(await sync({}))).toEqual({ push: [], pull: [], errors: [] }); // no LoRAs anywhere
 
     net.loras = { "modal.safetensors": 30, "both.safetensors": 1, "unused.safetensors": 9 };
     await app.store.saveConfig({ pack_loras: { anima: [{ name: "modal.safetensors" }, { name: "pc.safetensors" }, { name: "both.safetensors" }, { name: "nowhere.safetensors" }] } });
+    // PC files: pushed only when some pack uses them (mine.safetensors is not).
     const plan = await body(await sync({ "pc.safetensors": 40, "both.safetensors": 1, "mine.safetensors": 5 }));
     expect(plan.push).toEqual([{ name: "pc.safetensors", size: 40, upload_url: `https://up.example/u/${"u".repeat(43)}`, chunk_size: 16, chunks: 3 }]);
-    expect(plan.pull).toEqual([{ name: "modal.safetensors", size: 30, url: `https://up.example/d/${"d".repeat(43)}` }]);
+    // Every Volume LoRA the PC lacks, used or not: they all came in through an upload.
+    const pullUrl = `https://up.example/d/${"d".repeat(43)}`;
+    expect(plan.pull).toEqual([{ name: "modal.safetensors", size: 30, url: pullUrl }, { name: "unused.safetensors", size: 9, url: pullUrl }]);
     expect(plan.errors).toEqual([]);
     expect(net.adminCalls.find((c) => c[1] === "/loras/uploads")![2].origin).toBe(`https://${HOST}`);
 
@@ -641,6 +644,45 @@ describe("the PC path", () => {
     pc.controls.ensure = () => [500, "The Anima model is downloading: 12% of 5.6 GB."];
     const [, dl] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } }, 2);
     expect(toolText(dl)).toContain("downloading: 12%");
+  });
+
+  it("uploads LoRAs to the PC through the relay when there is no Modal", async () => {
+    const { app, pc } = world();
+    const { cookie } = await pair(app);
+    const got: any[] = [];
+    pc.controls.upload_start = (args) => [200, { id: "s".repeat(43), chunk_size: 4, chunks: 2, echo: args }];
+    pc.controls.upload_chunk = (args, chunk) => (got.push([args, [...(chunk ?? [])]]), args.sha256 === "bad" ? [400, "chunk 0 checksum mismatch"] : [200, { ok: true }]);
+    pc.controls.upload_finish = () => [200, { state: "done" }];
+    pc.controls.upload_status = () => [200, { state: "done" }];
+    const started = await body(await app.handle(request("POST", "/api/pc/loras/uploads", { filename: "a.safetensors", size: 6 }, cookie)));
+    expect(started).toMatchObject({ id: "s".repeat(43), chunks: 2, upload_url: `/api/pc/loras/uploads/${"s".repeat(43)}`, echo: { filename: "a.safetensors", size: 6 } });
+    const put = (sha: string) =>
+      app.handle(new Request(`https://${HOST}${started.upload_url}/1`, { method: "PUT", body: new Uint8Array([7, 8]), headers: { ...cookie, "X-Chunk-Sha256": sha } }));
+    expect((await put("abc")).status).toBe(200);
+    expect(got[0]).toEqual([{ id: "s".repeat(43), index: 1, sha256: "abc" }, [7, 8]]); // the chunk rides as the body
+    const bad = await put("bad");
+    expect([bad.status, (await body(bad)).error]).toEqual([400, "chunk 0 checksum mismatch"]); // the agent's status
+    expect(await body(await app.handle(request("POST", `${started.upload_url}/finish`, undefined, cookie)))).toEqual({ state: "done" });
+    pc.connected = false;
+    expect((await app.handle(request("GET", started.upload_url, undefined, cookie))).status).toBe(503);
+  });
+
+  it("deletes a LoRA everywhere, and nudges the agent's sync after an upload", async () => {
+    const { app, pc, net } = world();
+    await app.store.updateSecrets({
+      generator: { kind: "modal", base_url: COMFY, admin_url: ADMIN, upload_url: "https://up.example/", headers: {} },
+    });
+    const { cookie } = await pair(app);
+    net.loras = { "x.safetensors": 1 };
+    pc.controls.lora_delete = (args) => (args.name === "x.safetensors" ? [200, { deleted: args.name }] : [404, "no LoRA"]);
+    pc.controls.sync = () => [200, { started: true }];
+    const del = await body(await app.handle(request("DELETE", "/api/loras/x.safetensors", undefined, cookie)));
+    expect(del).toEqual({ deleted: "x.safetensors", from: ["modal", "pc"], errors: [] });
+    expect((await app.handle(request("DELETE", "/api/loras/nope.safetensors", undefined, cookie))).status).toBe(404);
+    expect(await body(await app.handle(request("POST", "/api/loras/sync", undefined, cookie)))).toEqual({ started: true });
+    expect(pc.controlCalls.at(-1)![0]).toBe("sync");
+    pc.connected = false;
+    expect(await body(await app.handle(request("POST", "/api/loras/sync", undefined, cookie)))).toEqual({ started: false });
   });
 
   it("shows the PC's LoRA files and model downloads beside Modal's", async () => {
