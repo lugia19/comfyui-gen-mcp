@@ -128,12 +128,15 @@
   }
 
   let packNames = $derived(packs.map((p) => p.display_name).join(', '))
+  // One family takes LoRAs today (Anima and Anima Turbo share them): then the checkbox just turns a
+  // LoRA on. With more, each row names its models.
+  let single = $derived(packs.length === 1)
   let errors = $derived(Object.entries(listing?.errors ?? {}).map(([b, m]) => `${PLACE[b] ?? b}: ${m}`))
 </script>
 
 <h2>LoRAs</h2>
 <p class="muted">
-  For {packNames}. Tick the models a LoRA should apply to. With a trigger it applies only when the prompt contains that
+  For {packNames}. {single ? 'Tick Enabled to use a LoRA.' : 'Tick the models a LoRA should apply to.'} With a trigger it applies only when the prompt contains that
   word, and Claude is told the trigger unless the LoRA is hidden; without one it always applies. Save to apply.
 </p>
 {#if has('modal') && has('pc')}
@@ -177,7 +180,7 @@
     {#each packs as pack (pack.config_key)}
       {@const entry = entryOf(pack, name)}
       <div class="row pack">
-        <label class="use"><input type="checkbox" checked={!!entry} onchange={(e) => toggle(pack, name, e.currentTarget.checked)} /> {pack.display_name}</label>
+        <label class="use"><input type="checkbox" checked={!!entry} onchange={(e) => toggle(pack, name, e.currentTarget.checked)} /> {single ? 'Enabled' : pack.display_name}</label>
         {#if entry}
           <input class="strength" type="number" min="-5" max="5" step="0.1" bind:value={entry.strength} aria-label="Strength" title="Strength" />
           <input class="trigger" type="text" bind:value={entry.trigger} placeholder="always on" aria-label="Trigger" title="Trigger word" />
