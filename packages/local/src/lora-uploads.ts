@@ -1,12 +1,11 @@
 // LoRAs on this machine, one way in (design §4): every LoRA the app knows came through an upload
-// (from a settings page, or through the Worker's relay for a PC without Modal) or was copied here by
-// the agent's sync. They are named in a registry; other LoRAs in the same folders (a user's own
+// (the extension's settings page) or was copied here by the agent's sync from the Worker's R2. They are named in a registry; other LoRAs in the same folders (a user's own
 // ComfyUI has plenty, many not for our models) are never listed, synced or configured.
 //
-// Uploads speak the Modal app's chunked protocol (web/src/lib/upload.js): start a session, send
-// chunks with their SHA-256, finish. Chunks are written at their offsets into a .part-upload file;
-// finishing checks that every one arrived and renames it into place. Sessions live in memory: a
-// restart loses an upload in progress, and the page says so.
+// Uploads speak the Worker's chunked protocol (web/src/lib/upload.js): start a session, send chunks,
+// each answered with its MD5 for the page to check (as R2 answers), finish. Chunks are written at
+// their offsets into a .part-upload file; finishing checks that every one arrived and renames it into
+// place. Sessions live in memory: a restart loses an upload in progress, and the page says so.
 
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -158,16 +157,14 @@ export class LoraUploads {
     return { id: s.id, chunk_size: LORA_CHUNK_SIZE, chunks: s.chunks };
   }
 
-  /** Store one chunk. Idempotent: a retried chunk overwrites the same bytes. */
-  async chunk(id: string, index: number, data: Uint8Array, sha256: string | null): Promise<{ ok: true; index: number }> {
+  /** Store one chunk: {index, etag}, the etag being its MD5. Idempotent: a retried chunk overwrites
+   * the same bytes. */
+  async chunk(id: string, index: number, data: Uint8Array): Promise<{ index: number; etag: string }> {
     const s = this.session(id);
     if (s.state !== "uploading") throw new UploadError(`upload is ${s.state}`, 409);
     if (!Number.isInteger(index) || index < 0 || index >= s.chunks) throw new UploadError(`chunk ${index} out of range (0 to ${s.chunks - 1})`);
     const expected = Math.min(LORA_CHUNK_SIZE, s.size - index * LORA_CHUNK_SIZE);
     if (data.length !== expected) throw new UploadError(`chunk ${index} has ${data.length} bytes, expected ${expected}`);
-    if (!sha256 || createHash("sha256").update(data).digest("hex") !== sha256.toLowerCase()) {
-      throw new UploadError(`chunk ${index} checksum mismatch`);
-    }
     const fh = await open(this.part(s), "r+");
     try {
       await fh.write(data, 0, data.length, index * LORA_CHUNK_SIZE);
@@ -175,7 +172,7 @@ export class LoraUploads {
       await fh.close();
     }
     s.received.add(index);
-    return { ok: true, index };
+    return { index, etag: createHash("md5").update(data).digest("hex") };
   }
 
   finish(id: string): { state: string } {

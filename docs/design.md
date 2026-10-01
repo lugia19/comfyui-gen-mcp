@@ -273,23 +273,22 @@ stored `custom_workflow` setting is dropped on read.
   to enable it or give a URL. The snippet sets its own `User-Agent` (see section 8).
 - `edit_image` accepts an upload reference, a previous output reference, or an https URL.
 
-### LoRAs on the Modal Volume
+### LoRAs in R2
 
 **One way in** (decided 2026-09-30): every LoRA comes through **Upload LoRA** on a settings page,
 and only LoRAs that came in that way exist for the app. A PC may hold hundreds of LoRAs in its
-ComfyUI's folders, many not for our models; they are never listed, synced or configured. On Modal
-that is every file on the Volume (it only ever held uploads). On a machine it is a registry,
-`loras.json` in the app's home, of the names uploaded or copied there (`packages/local`
-`lora-uploads.ts`); the folder alone would not do, since with "Your own ComfyUI" it is the user's.
-Where an upload goes:
-- a Worker with Modal: the Volume, as below; the agent then copies it to the PC (§9, "LoRA sync"),
-  a round trip for a file the PC had, worth it for LoRAs of about 90 MB and one way in
-- a Worker with a PC and no Modal: the agent, in 4 MiB chunks through the Worker, each a control
-  call over the relay with the chunk as its body (the browser cannot reach the PC: it may be a
-  phone, and browsers keep public pages off localhost)
-- the extension: its own local server
-All three speak the same chunked protocol (`web/src/lib/upload.js`). Delete removes a LoRA from
-every backend that has it.
+ComfyUI's folders, many not for our models; they are never listed, synced or configured. On a
+machine "ours" is a registry, `loras.json` in the app's home, of the names uploaded or copied there
+(`packages/local` `lora-uploads.ts`); the folder alone would not do, since with "Your own ComfyUI"
+it is the user's.
+
+**R2 is the hub** (2026-10-01). On a Worker an upload goes into R2 as `lora/<name>` (never
+expiring), and every GPU copies from there: Modal's Volume through its admin API, a PC through the
+agent's sync (§9). The extension's upload goes into this computer's LoRAs folder. Both speak one
+chunked protocol (`web/src/lib/upload.js`): open a session, PUT chunks, each answered with its MD5
+(R2's ETag for a multipart part, or the extension's own), which the page compares with its own, then
+finish with the list of parts. Delete removes a LoRA from R2 and every GPU, and records the name as
+deleted so a PC that was offline drops its copy at its next sync instead of pushing it back.
 
 A LoRA a model is set to use is ours too (2026-10-01, the extension's upgrade from v1.2.0): the
 extension's server adopts the configured names into the registry at start and on every save,
@@ -303,23 +302,18 @@ the settings page and configured per pack family: file, strength, trigger (it ap
 prompt contains the trigger; no trigger means always), hidden (the trigger is not listed in the tool
 description).
 
-- **Upload path, browser straight to Modal.** The bytes never pass through the Worker (its CPU
-  budget) and must survive Modal's 150 s web-request limit, so the page sends 16 MiB chunks to the
-  Modal app's `upload` endpoint, the one endpoint without proxy auth. The Worker asks the admin API
-  for an upload session; the session's random 32-byte id is the capability (that one file's
-  chunks, its declared size, 24 h), and the endpoint's CORS allows only the settings page's origin.
-- **Chunks are separate files.** Each chunk is checked (length, SHA-256 from the page), written to
-  `uploads/<id>/<index>` and committed on its own, because requests may land on different
-  containers, which see each other's writes only after a commit and a reload. `assemble` (a CPU
-  function) reloads once, joins them into `models/loras/`, commits, then marks the session done
-  and requests the idle-time reload, so a warm ComfyUI sees the file (§3, S5(d)).
-- Saving settings warns about configured LoRAs that no backend has (the Volume, or the paired PC).
-  LoRAs are listed and deleted through the admin API.
-- **Copies to and from the PC** (§9, "LoRA sync") use the same endpoint: the agent sends chunks to
-  an upload session and finishes it with `POST /u/<id>/finish` (the session id is already the
-  capability to write that file), and downloads from `GET /d/<id>`, a download session the admin
-  API creates (a random id that reads one LoRA for an hour). Downloads answer `Range`, so one cut
-  off at 150 s resumes.
+- **Upload path, through the Worker into R2.** `POST /api/loras/uploads` opens an R2 multipart
+  upload (the session, with R2's upload id, in the State object's `lora_uploads`, 24 h); each
+  `PUT <id>/<index>` streams one 8 MiB chunk into its part (R2 wants equal parts but the last, each
+  at least 5 MiB), about 1 ms of Worker CPU, and answers the part's ETag; `POST <id>/finish
+  {parts}` completes it. A bucket rule drops a multipart upload left unfinished after a day.
+- **Copies to the GPUs.** After an upload, a settings save and a Modal deploy, the Worker asks the
+  Modal admin API to `POST /loras/fetch {name, url, size}` for each LoRA the Volume lacks: a CPU
+  function downloads the storage link (a `/store/<token>` URL the Worker signs, serving R2 with
+  Range) into `models/loras/` and requests the idle-time reload, so a warm ComfyUI sees the file
+  (§3, S5(d)). An online PC is told to `sync`.
+- Saving settings warns about configured LoRAs that R2 lacks (deleted, or a PC's own not yet
+  pushed).
 
 ## 5. Config and settings
 
@@ -339,11 +333,11 @@ description).
   - **Models:** a row per selected pack, with a mark per backend (PC, Modal: ready, downloading,
     missing with a Download button). Saving starts the downloads on every backend
     (`GET /api/models` returns `{backends, packs: [{…, on: {backend: status}}]}`).
-  - **LoRAs:** a row per file, with where it is (PC, Modal, or copying) and its setup beside it
-    (which packs, strength, trigger, hidden); upload and delete on Modal. Packs sharing a settings
-    key share their LoRAs (Anima and Anima Turbo). A new trigger is the file name, with the `@` that
-    Anima's artist tags use for packs whose styles are @tags. A LoRA some pack uses is copied to
-    whichever of the PC and Modal lacks it (§9, "LoRA sync").
+  - **LoRAs:** a row per file, with where it is (stored, PC, Modal, or copying) and its setup beside
+    it (which packs, strength, trigger, hidden); upload and delete. Packs sharing a settings key
+    share their LoRAs (Anima and Anima Turbo). A new trigger is the file name, with the `@` that
+    Anima's artist tags use for packs whose styles are @tags. Every stored LoRA is copied to each
+    GPU (§4, "LoRAs in R2").
 - The extension's page is the same, for its one computer. `#settings` opens the page directly.
 
 ## 6. Setup flows
@@ -434,12 +428,12 @@ result, pick the GPU and install ComfyUI (or keep the old extension's). No accou
 | Session cookie key | Worker state | Signs the settings pages' session cookie (a year) |
 | Modal token pair | Build secrets only | `modal deploy` during builds |
 | Modal proxy token | Worker state, Modal Dict | Calls to the ComfyUI server and admin endpoint |
-| Ref HMAC key | Worker state | Signs image references and upload tokens |
+| Ref HMAC key | Worker state | Signs upload tokens and storage links |
 | Agent pairing secret | Worker state, `agent.json` | Authenticates the relay: the agent's `Authorization: Bearer`, checked before the WebSocket upgrade. It travels in the pairing link's fragment, which browsers do not send |
 | Build nonce | Build secrets, Worker state | One-time callback from the build |
-| LoRA upload session id | Modal Dict, the settings page or the agent | Writes one LoRA's chunks to the upload endpoint, and finishes it (24 h) |
-| LoRA download session id | Modal Dict, the agent | Reads one LoRA from the upload endpoint (1 h) |
-| PC LoRA upload session id | The agent's memory, the settings page | Writes one LoRA's chunks through the Worker's relay (24 h; lost on an agent restart) |
+| LoRA upload session id | Worker state (`lora_uploads`), the settings page or the agent | Names one R2 multipart upload; the settings page's cookie or the agent's pairing secret is still required (24 h) |
+| Storage link | Modal, the agent | `/store/<token>`: reads one stored object, the token signed with the HMAC key (6 h) |
+| Image id | Chats | 8 random base62 characters: the image in R2, read by `/img/<id>` and `edit_image` (a year) |
 
 **Login.** There is no setup password: the first login is a Cloudflare token. A fresh install's URL is not secret: the Worker name is the
 template's `comfy-gen` for nearly everyone, and each account's workers.dev subdomain is public in
@@ -514,7 +508,7 @@ a header and its chunks in one synchronous run, so messages never interleave.
 | Message | Direction | Carries |
 |---|---|---|
 | `http` | Worker → agent | One ComfyUI request (method, path, params, headers, body); the agent calls its ComfyUI inside a job, so the idle stop waits |
-| `control` | Worker → agent | An agent operation: `pause` (`{paused}`, from the Setup page), `ensure` (start ComfyUI, install the pack's nodes, check or start its model downloads), `loras` (its files and the LoRA copies in progress), `models`, `download`, `sync` (start a LoRA sync), `upload_start`, `upload_chunk` (the chunk as the message body), `upload_finish`, `upload_status`, `lora_delete`, `status` |
+| `control` | Worker → agent | An agent operation: `pause` (`{paused}`, from the Setup page), `ensure` (start ComfyUI, install the pack's nodes, check or start its model downloads), `loras` (its files and the LoRA copies in progress), `models`, `download`, `sync` (start a LoRA sync), `lora_delete`, `status` |
 | `reply` | agent → Worker | `{id, status}` and the body |
 | `hello` | agent → Worker | On connecting, and again when paused or resumed: version, platform, GPU, ComfyUI state, `paused`; the latest is kept with the socket for the settings page |
 
@@ -558,16 +552,15 @@ Its settings page (loopback only) is the MCPB's machine setup plus the pairing s
 settings stay on the Worker, whose settings page lists the PC's LoRAs and model status beside
 Modal's (`/api/loras`, `/api/models`).
 
-**LoRA sync.** A LoRA should be on every backend that may answer. The agent posts its LoRA files
-(`{name: size}`, ours only) to `POST /agent/sync` (the pairing secret, as for `/agent`); the Worker
-answers with a plan: every Volume LoRA the PC lacks is **pulled** (a download session per file),
-and one of the PC's that some pack uses and the Volume lacks (uploaded before Modal was set up) is
-**pushed** (an upload session per file, the agent sending the chunks as the settings page would). The bytes go between the PC and Modal directly, never through the
-Worker, which spends one admin call per file (at most 20 per plan; the agent asks again after a
-round that copied something). The agent syncs on each connection and when the Worker sends
-`sync` (after a settings save, and after an upload to Modal); copies in progress show on the
-settings page, which re-checks while they run. Sync never deletes; Delete on the settings page
-removes a LoRA from every backend, and turns it off, so it is not copied back.
+**LoRA sync.** Every LoRA in R2 should be on the PC. The agent posts its LoRA files (`{name: size}`,
+ours only) to `POST /agent/sync` (the pairing secret, as for `/agent`); the Worker answers with a
+plan: every stored LoRA the PC lacks is **pulled** (a storage link, downloaded with Range so a cut
+transfer resumes); one of the PC's that R2 lacks (uploaded before R2) is **pushed** (an upload to
+`/agent/loras/uploads`, the same protocol as the settings page, with the pairing secret, each chunk
+checked against R2's MD5); and one deleted while the PC was offline is **deleted** there. At most
+20 copies per plan; the agent asks again after a round that copied something. It syncs on each
+connection and when the Worker sends `sync` (after an upload, a settings save, or the page's
+request); copies in progress show on the settings page.
 
 ## 10. Repository
 

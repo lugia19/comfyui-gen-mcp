@@ -21,7 +21,10 @@ describe("LoRA uploads to this machine", () => {
     const s = uploads.start("style.safetensors", data.length);
     expect(s.chunks).toBe(3);
     const part = (i: number) => data.subarray(i * LORA_CHUNK_SIZE, (i + 1) * LORA_CHUNK_SIZE);
-    for (const i of [2, 0, 1, 0]) await uploads.chunk(s.id, i, part(i), sha(part(i)));
+    for (const i of [2, 0, 1, 0]) {
+      // Each chunk is answered with its MD5, for the page to compare with its own (as R2 answers).
+      expect(await uploads.chunk(s.id, i, part(i))).toEqual({ index: i, etag: createHash("md5").update(part(i)).digest("hex") });
+    }
     expect(uploads.status(s.id)).toMatchObject({ state: "uploading", done: data.length });
     expect(registry.sizes()).toEqual({}); // not ours until finished
     expect(uploads.finish(s.id)).toEqual({ state: "done" });
@@ -37,9 +40,8 @@ describe("LoRA uploads to this machine", () => {
     expect(() => uploads.start("a.safetensors", 0)).toThrow(/size/);
     const s = uploads.start("a.safetensors", 10);
     const ten = new Uint8Array(10);
-    await expect(uploads.chunk(s.id, 0, ten, sha(new Uint8Array(1)))).rejects.toThrow(/checksum/);
-    await expect(uploads.chunk(s.id, 0, new Uint8Array(9), null)).rejects.toThrow(/expected 10/);
-    await expect(uploads.chunk(s.id, 1, ten, sha(ten))).rejects.toThrow(/out of range/);
+    await expect(uploads.chunk(s.id, 0, new Uint8Array(9))).rejects.toThrow(/expected 10/);
+    await expect(uploads.chunk(s.id, 1, ten)).rejects.toThrow(/out of range/);
     let e: UploadError | null = null;
     try {
       uploads.finish(s.id);
@@ -47,7 +49,7 @@ describe("LoRA uploads to this machine", () => {
       e = err as UploadError;
     }
     expect([e?.status, e?.message]).toEqual([409, "1 chunk(s) still missing"]);
-    await expect(uploads.chunk("nope", 0, ten, sha(ten))).rejects.toMatchObject({ status: 404 });
+    await expect(uploads.chunk("nope", 0, ten)).rejects.toMatchObject({ status: 404 });
   });
 
   it("lists and deletes only our LoRAs, never others in the same folder", () => {

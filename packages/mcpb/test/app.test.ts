@@ -113,8 +113,8 @@ describe("settings API", () => {
     expect((await (await w.local("/api/loras")).json()).loras).toEqual({});
     const up = await (await w.local("/api/loras/uploads", { method: "POST", body: JSON.stringify({ filename: "new.safetensors", size: 3 }) })).json();
     expect(up.upload_url).toBe(`/api/loras/uploads/${up.id}`);
-    const sha = createHash("sha256").update("abc").digest("hex");
-    expect((await w.local(`${up.upload_url}/0`, { method: "PUT", body: "abc", headers: { "X-Chunk-Sha256": sha } })).status).toBe(200);
+    const md5 = createHash("md5").update("abc").digest("hex");
+    expect(await (await w.local(`${up.upload_url}/0`, { method: "PUT", body: "abc" })).json()).toEqual({ index: 0, etag: md5 });
     expect(await (await w.local(`${up.upload_url}/finish`, { method: "POST" })).json()).toEqual({ state: "done" });
     expect((await (await w.local("/api/loras")).json()).loras).toEqual({ "new.safetensors": 3 });
     expect((await w.local("/api/loras/mine.safetensors", { method: "DELETE" })).status).toBe(404); // not ours to delete

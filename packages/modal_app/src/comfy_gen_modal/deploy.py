@@ -78,7 +78,6 @@ def main() -> int:
     result = {
         "server_url": modal.Server.from_name(APP_NAME, SERVER_NAME).get_url(),
         "admin_url": modal.Function.from_name(APP_NAME, "admin").get_web_url(),
-        "upload_url": modal.Function.from_name(APP_NAME, "upload").get_web_url(),
         "proxy_token_id": token["id"],
         "proxy_token_secret": token["secret"],
     }

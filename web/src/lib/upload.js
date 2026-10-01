@@ -1,26 +1,21 @@
-// LoRA upload, the one way a LoRA comes in: open a session, send the file in chunks (a Modal web
-// request is cut off after 150 s), each with its SHA-256, then finish. *base* says where:
-//   /loras     the Worker's Modal Volume (the chunks go straight to the Modal app, never through
-//              the Worker), or this machine on the extension's page
-//   /pc/loras  the Worker's paired PC with no Modal (the chunks go through the Worker's relay)
+// LoRA upload, the one way a LoRA comes in: open a session, send the file in chunks, each answered
+// with its MD5 (R2's ETag for the part, or the extension's own) which must match ours, then finish
+// with the list of parts. On a Worker the chunks go through it into R2, and from there to every GPU;
+// on the extension's page, into this computer's LoRAs folder.
 import { api } from './api.js'
+import { md5 } from './md5.js'
 
 const PARALLEL = 3
 const RETRIES = 5
 
-async function sha256Hex(buf) {
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buf))
-  return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('')
-}
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-// The Worker calls after the chunks (finish, status) are safe to repeat: ride out a dropped
-// connection instead of losing an upload that already arrived. HTTP errors are final.
-async function apiRetrying(method, path) {
+// The calls after the chunks (finish) are safe to repeat: ride out a dropped connection instead of
+// losing an upload that already arrived. HTTP errors are final.
+async function apiRetrying(method, path, body) {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await api(method, path)
+      return await api(method, path, body)
     } catch (e) {
       if (e.status || attempt >= RETRIES) throw e
       await sleep(1000 * 2 ** attempt)
@@ -28,17 +23,20 @@ async function apiRetrying(method, path) {
   }
 }
 
-async function putChunk(url, buf, sha) {
+/** PUT one chunk until it arrives intact: its ETag. */
+async function putChunk(url, buf, hash) {
   for (let attempt = 0; ; attempt++) {
     let status = 0
     let message = ''
     try {
-      const resp = await fetch(url, { method: 'PUT', headers: { 'X-Chunk-Sha256': sha }, body: buf })
-      if (resp.ok) return
+      const resp = await fetch(url, { method: 'PUT', body: buf })
       status = resp.status
-      message = (await resp.json().catch(() => ({}))).error || `HTTP ${status}`
+      const data = await resp.json().catch(() => ({}))
+      if (resp.ok && data.etag === hash) return data.etag
+      message = resp.ok ? 'the chunk arrived damaged' : data.error || `HTTP ${status}`
+      if (resp.ok) status = 0 // damaged on the way: send it again
     } catch (e) {
-      message = e.message // network error or CORS failure: retry
+      message = e.message // network error: retry
     }
     // A 4xx other than a timeout is the request's fault: retrying cannot help.
     const fatal = status >= 400 && status < 500 && status !== 408 && status !== 429
@@ -48,12 +46,13 @@ async function putChunk(url, buf, sha) {
 }
 
 /**
- * Upload *file* as a LoRA. *onProgress* gets {phase: 'upload' | 'assemble', done, total} in bytes.
- * Resolves when the file is on the Volume; throws an Error with the reason otherwise.
+ * Upload *file* as a LoRA. *onProgress* gets {phase: 'upload', done, total} in bytes. Resolves when
+ * the file is stored; throws an Error with the reason otherwise.
  */
-export async function uploadLora(file, onProgress, base = '/loras') {
-  const session = await api('POST', `${base}/uploads`, { filename: file.name, size: file.size })
+export async function uploadLora(file, onProgress) {
+  const session = await api('POST', '/loras/uploads', { filename: file.name, size: file.size })
   const { id, chunk_size: chunkSize, chunks, upload_url: url } = session
+  const parts = []
   let sent = 0
   let next = 0
   onProgress({ phase: 'upload', done: 0, total: file.size })
@@ -62,19 +61,13 @@ export async function uploadLora(file, onProgress, base = '/loras') {
     while (next < chunks) {
       const index = next++
       const buf = await file.slice(index * chunkSize, Math.min(file.size, (index + 1) * chunkSize)).arrayBuffer()
-      await putChunk(`${url}/${index}`, buf, await sha256Hex(buf))
+      parts.push({ index, etag: await putChunk(`${url}/${index}`, buf, md5(buf)) })
       sent += buf.byteLength
       onProgress({ phase: 'upload', done: sent, total: file.size })
     }
   }
   await Promise.all(Array.from({ length: Math.min(PARALLEL, chunks) }, worker))
 
-  await apiRetrying('POST', `${base}/uploads/${id}/finish`)
-  for (;;) {
-    const s = await apiRetrying('GET', `${base}/uploads/${id}`)
-    if (s.state === 'done') return
-    if (s.state === 'failed') throw new Error(s.error || 'the upload could not be assembled')
-    onProgress({ phase: 'assemble', done: s.done || 0, total: file.size })
-    await sleep(1500)
-  }
+  const done = await apiRetrying('POST', `/loras/uploads/${id}/finish`, { parts })
+  if (done.state === 'failed') throw new Error(done.error || 'the upload could not be finished')
 }

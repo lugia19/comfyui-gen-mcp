@@ -155,8 +155,8 @@ export class Machine {
     };
   }
 
-  /** LoRA uploads and deletes from this machine's own settings page (the relay has the same, as
-   * control operations, in the agent's handlers). */
+  /** LoRA uploads and deletes from this machine's own settings page (the extension's): the same
+   * protocol as the Worker's (web/src/lib/upload.js), each chunk answered with its MD5. */
   private async loraApi(req: Request, sub: string): Promise<Response | null> {
     const m = req.method;
     const up = /^\/loras\/uploads\/([\w-]+)(?:\/(\d+|finish))?$/.exec(sub);
@@ -169,7 +169,7 @@ export class Machine {
       if (up && up[2] === "finish" && m === "POST") return json(this.uploads.finish(up[1]));
       if (up && up[2] && m === "PUT") {
         const data = new Uint8Array(await req.arrayBuffer());
-        return json(await this.uploads.chunk(up[1], Number(up[2]), data, req.headers.get("x-chunk-sha256")));
+        return json(await this.uploads.chunk(up[1], Number(up[2]), data));
       }
       if (up && !up[2] && m === "GET") return json(this.uploads.status(up[1]));
       if (!up && m === "DELETE") {

@@ -12,6 +12,7 @@ import {
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
 import { PC_OFFLINE, PC_PAUSED, PcHooks, WorkerHooks } from "./hooks.ts";
+import * as loras from "./loras.ts";
 import * as modalAdmin from "./modal-admin.ts";
 import { bodyJson, error, json, withUserAgent, type Fetch, type Platform } from "./platform.ts";
 import { serveImage } from "./images.ts";
@@ -83,6 +84,8 @@ export class App {
       if (path.startsWith("/upload/") && req.method === "POST") return await this.upload(req, path.slice(8));
       if (path === "/build-callback" && req.method === "POST") return await this.buildCallback(req);
       if (path === "/agent/sync" && req.method === "POST") return await this.agentSync(req, url);
+      if (path.startsWith("/agent/loras/uploads")) return await this.agentUpload(req, url, path.slice("/agent".length));
+      if (path.startsWith("/store/") && req.method === "GET") return await this.storeLink(req, path.slice(7));
       if (path.startsWith("/api/")) return await this.api(req, url, path.slice(4));
     } catch (e) {
       if (e instanceof cloudflare.CloudflareError) return error(502, e.message);
@@ -112,9 +115,10 @@ export class App {
 
   /**
    * The agent's LoRA sync (design §9): it posts its LoRA files (ours only: uploaded or synced), and
-   * gets back what to copy. Every LoRA on the Volume that the PC lacks is pulled (a download
-   * session); one of the PC's that some pack uses and the Volume lacks is pushed (an upload session
-   * the agent sends chunks to). The bytes go between the PC and Modal directly. Nothing is deleted.
+   * gets back what to do. pull: every LoRA in R2 the PC lacks, as a storage link. push: one of the
+   * PC's that R2 lacks (uploaded before R2), as an upload to /agent/loras/uploads. delete: one the
+   * PC still has that was deleted while it was offline. The agent asks again after a round with
+   * work in it, for the rest.
    */
   private async agentSync(req: Request, url: URL): Promise<Response> {
     const refused = await this.agentUnauthorized(req);
@@ -122,38 +126,52 @@ export class App {
     const s = await this.fresh.secrets();
     const body = await bodyJson(req);
     const pcFiles: Record<string, unknown> = body.loras && typeof body.loras === "object" ? body.loras : {};
-    const plan = { push: [] as any[], pull: [] as any[], errors: [] as string[] };
-    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
-    const wanted = wantedLoras(await this.fresh.config());
-    if (!admin) return json(plan);
-    if (!s.generator.upload_url) return json({ ...plan, errors: ["Update the Modal app (run setup again) to copy LoRAs to and from it."] });
-    const base = String(s.generator.upload_url).replace(/\/+$/, "");
-    try {
-      const onModal = await admin.loras();
-      // Pull every LoRA on the Volume (all of them came in through an upload); push only ours on
-      // the PC that some pack uses (uploaded to the PC before Modal was set up).
-      const pull = Object.keys(onModal).filter((name) => !(name in pcFiles));
-      const push = wanted.filter((name) => name in pcFiles && !(name in onModal));
-      for (const name of [...push, ...pull].slice(0, SYNC_MAX_FILES)) {
-        try {
-          if (push.includes(name)) {
-            const size = Number(pcFiles[name]);
-            const session = await admin.createUpload(name, size, url.origin);
-            plan.push.push({ name, size, upload_url: `${base}/u/${session.id}`, chunk_size: session.chunk_size, chunks: session.chunks });
-          } else {
-            const download = await admin.createDownload(name);
-            plan.pull.push({ name, size: onModal[name], url: `${base}/d/${download.id}` });
-          }
-        } catch (e) {
-          if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-          plan.errors.push(`${name}: ${e.message}`);
-        }
+    const plan = { push: [] as any[], pull: [] as any[], delete: [] as string[], errors: [] as string[] };
+    const inR2 = await loras.stored(this.p.bucket);
+    const deleted: Record<string, number> = (await this.fresh.setup()).lora_deleted ?? {};
+    plan.delete = Object.keys(pcFiles).filter((name) => name in deleted && !(name in inR2));
+    const uploads = new loras.LoraUploads(this.p.bucket, this.fresh, this.p.now);
+    const pull = Object.keys(inR2).filter((name) => !(name in pcFiles));
+    const push = Object.keys(pcFiles).filter((name) => !(name in inR2) && !(name in deleted));
+    for (const name of pull.slice(0, SYNC_MAX_FILES)) {
+      plan.pull.push({ name, size: inR2[name], url: await this.storeUrl(url.origin, hmacKey(s), loras.loraKey(name)) });
+    }
+    for (const name of push.slice(0, Math.max(0, SYNC_MAX_FILES - plan.pull.length))) {
+      try {
+        const size = Number(pcFiles[name]);
+        const session = await uploads.start(name, size);
+        plan.push.push({ name, size, upload_url: `${url.origin}/agent/loras/uploads/${session.id}`, chunk_size: session.chunk_size, chunks: session.chunks });
+      } catch (e) {
+        if (!(e instanceof loras.LoraError)) throw e;
+        plan.errors.push(`${name}: ${e.message}`);
       }
-    } catch (e) {
-      if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-      plan.errors.push(`Could not list the LoRAs on Modal: ${e.message}`);
     }
     return json(plan);
+  }
+
+  /** A storage link for *key*: a GPU downloads it without other auth. Six hours, for slow lines. */
+  private async storeUrl(origin: string, key: Uint8Array, object: string): Promise<string> {
+    return `${origin}/store/${await refs.mintStore(key, object, this.p.now(), 6 * 3600)}`;
+  }
+
+  /** GET /store/<token>: the stored object a storage link names, with Range for resuming. */
+  private async storeLink(req: Request, token: string): Promise<Response> {
+    const s = await this.store.secrets();
+    let object: string;
+    try {
+      object = await refs.checkStore(decodeURIComponent(token), hmacKey(s), this.p.now());
+    } catch (e) {
+      if (e instanceof refs.RefError) return error(403, e.message);
+      throw e;
+    }
+    return loras.serveStored(this.p.bucket, object, req);
+  }
+
+  /** The agent's pushes: the same upload protocol as the settings page, with its bearer secret. */
+  private async agentUpload(req: Request, url: URL, sub: string): Promise<Response> {
+    const refused = await this.agentUnauthorized(req);
+    if (refused) return refused;
+    return this.loraUploads(req, url, sub, await this.fresh.secrets());
   }
 
   async scheduled(): Promise<string> {
@@ -272,7 +290,6 @@ export class App {
         kind: "modal",
         base_url: modal.server_url,
         admin_url: modal.admin_url ?? null,
-        upload_url: modal.upload_url ?? null,
         headers: { "Modal-Key": modal.proxy_token_id ?? "", "Modal-Secret": modal.proxy_token_secret ?? "" },
         cold_start_s: MODAL_COLD_START_S,
       };
@@ -280,6 +297,7 @@ export class App {
       // A deploy resets keep-warm to the app's default, and a fresh install has no models yet.
       const admin = modalAdmin.forGenerator(this.fetch, generator);
       if (admin) warnings = await this.applyToModal(admin, await this.fresh.config(), true);
+      warnings.push(...(await this.spreadLoras(await this.fresh.secrets(), new URL(req.url).origin)).warnings);
       await this.fresh.updateSetup({ modal_error: null });
     } else if (typeof data.modal_error === "string" || String(data.modal_result ?? "").startsWith("failed")) {
       // The setup page shows Modal's reason (no card on file, a bad token) and offers Try again.
@@ -288,7 +306,8 @@ export class App {
     return json({ ok: true, warnings });
   }
 
-  /** Best effort: apply keep-warm, start downloads for selected packs. Returns warnings. */
+  /** Best effort: apply keep-warm, start downloads for selected packs. Returns warnings. LoRAs are
+   * spreadLoras' (the callers call it after). */
   private async applyToModal(admin: modalAdmin.ModalAdmin, cfg: Config, keepWarm: boolean): Promise<string[]> {
     const warnings: string[] = [];
     if (keepWarm) {
@@ -329,7 +348,6 @@ export class App {
     if (sub === "/setup/build" && req.method === "POST") return this.startBuild(req, url, s);
     if (sub === "/setup/build" && req.method === "GET") return this.buildState(url, s);
     if (sub === "/pc/pair" && req.method === "POST") return this.pair(url);
-    if (sub.startsWith("/pc/loras/uploads") && this.pcPaired(s)) return this.pcUploads(req, sub);
     if (sub === "/pc/pause" && req.method === "POST" && this.pcPaired(s)) {
       // The tray's pause, from here: the agent sets it and says so in a fresh hello. Not kept across
       // an agent restart, so a forgotten pause cannot send every image to Modal for days.
@@ -484,9 +502,9 @@ export class App {
     if (pcOnline) {
       // As the extension does: a newly chosen pack starts downloading now.
       for (const pack of selectedPacks(cfg)) await this.pcControl("download", { pack: needs(pack) });
-      await this.pcControl("sync");
     }
-    if (wantedLoras(cfg).length && (admin || pcOnline)) warnings.push(...missingLoras(cfg, await this.loraListing(s)));
+    warnings.push(...(await this.spreadLoras(s, new URL(req.url).origin)).warnings);
+    if (wantedLoras(cfg).length) warnings.push(...missingLoras(cfg, await this.loraListing(s)));
     return json({ config: cfg, warnings, notes });
   }
 
@@ -506,6 +524,8 @@ export class App {
     const add = (backend: string, list: Record<string, number>) => {
       for (const [name, size] of Object.entries(list ?? {})) (out.files[name] ??= {})[backend] = size;
     };
+    out.backends.push("storage"); // R2: where every LoRA comes in and every GPU copies from
+    add("storage", await loras.stored(this.p.bucket));
     if (this.pcPaired(s)) {
       out.backends.push("pc");
       const r = (await this.pcConnected()) ? await this.pcControl("loras") : null;
@@ -533,43 +553,85 @@ export class App {
     return out;
   }
 
-  /** LoRA files on every backend, and upload sessions for the settings page. The browser sends the
-   * bytes to the app's upload endpoint itself; this only creates, finishes and reports sessions. */
+  /** LoRA files on every backend, uploads into R2 from the settings page, delete. */
   private async loras(req: Request, url: URL, sub: string, s: Secrets): Promise<Response> {
     if (sub === "/loras" && req.method === "GET") return json(await this.loraListing(s));
     if (sub === "/loras/sync" && req.method === "POST") {
-      // After an upload to Modal: the agent copies it to the PC now, not at its next connection.
-      const online = this.pcPaired(s) && (await this.pcConnected());
-      if (online) await this.pcControl("sync");
-      return json({ started: online });
+      // Copy what R2 has to every GPU now, not at the PC's next connection or the next save.
+      return json({ started: (await this.spreadLoras(s, url.origin)).pc });
     }
-    if (!sub.startsWith("/loras/uploads") && sub.startsWith("/loras/") && req.method === "DELETE") {
-      return this.deleteLora(decodeURIComponent(sub.slice("/loras/".length)), s);
-    }
-    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
-    if (!admin) return error(400, "LoRAs can be uploaded only to the Modal GPU");
-    const m = /^\/loras\/uploads\/([\w-]+)(\/finish)?$/.exec(sub);
+    if (sub.startsWith("/loras/uploads")) return this.loraUploads(req, url, sub, s);
+    if (sub.startsWith("/loras/") && req.method === "DELETE") return this.deleteLora(decodeURIComponent(sub.slice("/loras/".length)), s);
+    return error(404, "not found");
+  }
+
+  /**
+   * The upload protocol (web/src/lib/upload.js, and the agent's pushes): POST {filename, size} opens
+   * a session; PUT <id>/<index> streams one chunk into R2 and answers its ETag (the chunk's MD5, for
+   * the uploader to check); POST <id>/finish {parts} joins them; GET <id> reports. Once joined, the
+   * LoRA is copied to every GPU.
+   */
+  private async loraUploads(req: Request, url: URL, sub: string, s: Secrets): Promise<Response> {
+    const uploads = new loras.LoraUploads(this.p.bucket, this.fresh, this.p.now);
+    const base = sub.startsWith("/loras/uploads") ? "/api/loras/uploads" : "/agent/loras/uploads";
+    const m = /^\/loras\/uploads\/([\w-]+)(?:\/(\d+|finish))?$/.exec(sub);
     try {
       if (sub === "/loras/uploads" && req.method === "POST") {
-        if (!s.generator.upload_url) return error(409, "Update the Modal app first (run setup again): it has no upload endpoint yet");
         const body = await bodyJson(req);
-        const session = await admin.createUpload(String(body.filename ?? ""), Number(body.size), url.origin);
-        return json({ ...session, upload_url: `${String(s.generator.upload_url).replace(/\/+$/, "")}/u/${session.id}` });
+        const session = await uploads.start(body.filename, body.size);
+        return json({ ...session, upload_url: `${base}/${session.id}` });
       }
-      if (m && !m[2] && req.method === "GET") return json(await admin.uploadStatus(m[1]));
-      if (m && m[2] && req.method === "POST") return json(await admin.finishUpload(m[1]));
+      if (m && m[2] === "finish" && req.method === "POST") {
+        const done = await uploads.finish(m[1], (await bodyJson(req)).parts);
+        const deleted = (await this.fresh.setup()).lora_deleted ?? {};
+        if (done.name in deleted) await this.fresh.updateSetup({ lora_deleted: { ...deleted, [done.name]: undefined } });
+        await this.spreadLoras(s, url.origin);
+        return json(done);
+      }
+      if (m && m[2] !== undefined && m[2] !== "finish" && req.method === "PUT") return json(await uploads.chunk(m[1], Number(m[2]), req));
+      if (m && m[2] === undefined && req.method === "GET") return json(await uploads.status(m[1]));
     } catch (e) {
-      if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-      return error(e.status >= 400 && e.status < 500 ? e.status : 502, e.message);
+      if (e instanceof loras.LoraError) return error(e.status, e.message);
+      throw e;
     }
     return error(404, "not found");
   }
 
-  /** Delete a LoRA from every backend that has it (one way in, one way out). A PC that is offline
-   * keeps its copy: it shows as PC-only, to delete again later. */
+  /**
+   * Copy what R2 holds to every GPU (best effort): Modal fetches the LoRAs its Volume lacks from
+   * storage links; an online PC is told to sync. {pc: whether the PC was told, warnings}.
+   */
+  private async spreadLoras(s: Secrets, origin: string): Promise<{ pc: boolean; warnings: string[] }> {
+    const warnings: string[] = [];
+    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
+    if (admin) {
+      try {
+        const inR2 = await loras.stored(this.p.bucket);
+        const onModal = Object.keys(inR2).length ? await admin.loras() : {};
+        for (const name of Object.keys(inR2).filter((n) => !(n in onModal)).slice(0, SYNC_MAX_FILES)) {
+          await admin.fetchLora(name, await this.storeUrl(origin, hmacKey(s), loras.loraKey(name)), inR2[name]);
+        }
+      } catch (e) {
+        if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+        warnings.push(`Could not copy LoRAs to Modal: ${e.message}`);
+      }
+    }
+    const pc = this.pcPaired(s) && (await this.pcConnected());
+    if (pc) await this.pcControl("sync");
+    return { pc, warnings };
+  }
+
+  /** Delete a LoRA from R2 and every GPU that has it (one way in, one way out). A PC that is
+   * offline drops its copy at its next sync: the name is kept as deleted until it is uploaded again. */
   private async deleteLora(name: string, s: Secrets): Promise<Response> {
     const from: string[] = [];
     const errors: string[] = [];
+    if (await this.p.bucket.head(loras.loraKey(name))) {
+      await this.p.bucket.delete(loras.loraKey(name));
+      from.push("storage");
+    }
+    const setup = await this.fresh.setup();
+    await this.fresh.updateSetup({ lora_deleted: { ...(setup.lora_deleted ?? {}), [name]: this.p.now() } });
     const admin = modalAdmin.forGenerator(this.fetch, s.generator);
     if (admin) {
       try {
@@ -587,33 +649,6 @@ export class App {
     }
     if (!from.length && !errors.length) return error(404, `no LoRA named ${name}`);
     return json({ deleted: name, from, errors });
-  }
-
-  /** LoRA uploads to the PC when there is no Modal: the page's chunks go to the agent over the
-   * relay, one control call each, the chunk as its body. Same protocol as Modal's (upload.js). */
-  private async pcUploads(req: Request, sub: string): Promise<Response> {
-    const ask = async (op: string, args: unknown, body?: Uint8Array) => {
-      const r = await this.p.relay!.control(op, args, 60, body);
-      if (r.offline) return error(503, PC_OFFLINE);
-      const result = relay.controlResult(r.status, r.body);
-      if (result.ok) return json(result.data);
-      return error(r.status >= 400 && r.status < 500 ? r.status : 502, result.message);
-    };
-    const m = /^\/pc\/loras\/uploads\/([\w-]+)(?:\/(\d+|finish))?$/.exec(sub);
-    if (sub === "/pc/loras/uploads" && req.method === "POST") {
-      const body = await bodyJson(req);
-      const resp = await ask("upload_start", { filename: body.filename, size: body.size });
-      if (!resp.ok) return resp;
-      const session = (await resp.json()) as { id: string };
-      return json({ ...session, upload_url: `/api/pc/loras/uploads/${session.id}` });
-    }
-    if (m && m[2] === "finish" && req.method === "POST") return ask("upload_finish", { id: m[1] });
-    if (m && m[2] && req.method === "PUT") {
-      const chunk = new Uint8Array(await req.arrayBuffer()); // passed on as it is, never looped over
-      return ask("upload_chunk", { id: m[1], index: Number(m[2]), sha256: req.headers.get("x-chunk-sha256") }, chunk);
-    }
-    if (m && !m[2] && req.method === "GET") return ask("upload_status", { id: m[1] });
-    return error(404, "not found");
   }
 
   /**
@@ -714,13 +749,13 @@ function missingLoras(
   cfg: Config,
   listing: { backends: string[]; files: Record<string, unknown>; errors: Record<string, string>; offline: string[] },
 ): string[] {
-  const listed = listing.backends.filter((b) => b !== "url" && !listing.errors[b] && !listing.offline.includes(b));
-  const unchecked = listing.backends.filter((b) => listing.errors[b]);
-  const where = listed.map((b) => (b === "pc" ? "your PC" : "your Modal Volume")).join(" or ");
-  const out = unchecked.map((b) => `Could not check the LoRA files on ${b === "pc" ? "your PC" : "Modal"}: ${listing.errors[b]}`);
-  if (!listed.length) return out;
+  // Every LoRA comes in through R2 (storage): one a model uses that R2 lacks was deleted, or is a
+  // PC's own not yet copied up. GPUs missing one get it copied; that shows on the page.
+  const place: Record<string, string> = { pc: "your PC", modal: "Modal" };
+  const out = listing.backends.filter((b) => listing.errors[b]).map((b) => `Could not check the LoRA files on ${place[b] ?? b}: ${listing.errors[b]}`);
+  const files = listing.files as Record<string, Record<string, number>>;
   for (const name of wantedLoras(cfg)) {
-    if (!(name in listing.files)) out.push(`The LoRA ${name} is not on ${where}: generations will fail until it is.`);
+    if (!files[name]?.storage) out.push(`The LoRA ${name} is not uploaded: generations will fail until it is. Upload it under LoRAs.`);
   }
   return out;
 }

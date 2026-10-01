@@ -1,7 +1,6 @@
 // The Modal app's admin API (comfy_gen_modal.app.admin), as the Worker uses it: download a pack's
-// models onto the Volume, read the progress, set keep-warm, manage LoRA uploads and downloads. Same
-// proxy token as ComfyUI. LoRA bytes never pass through here: the browser or the PC agent sends them
-// to the app's upload endpoint, and the agent downloads from it.
+// models onto the Volume, read the progress, set keep-warm, list, fetch and delete LoRAs. Same proxy
+// token as ComfyUI. LoRAs come from R2: the Volume downloads them from the Worker's storage links.
 
 import type { Pack } from "@comfy-gen/core";
 import type { Fetch } from "./platform.ts";
@@ -66,21 +65,9 @@ export class ModalAdmin {
     return this.call("GET", "/loras");
   }
 
-  createUpload(filename: string, size: number, origin: string): Promise<{ id: string; chunk_size: number; chunks: number }> {
-    return this.call("POST", "/loras/uploads", { filename, size, origin });
-  }
-
-  uploadStatus(id: string): Promise<any> {
-    return this.call("GET", `/loras/uploads/${encodeURIComponent(id)}`);
-  }
-
-  finishUpload(id: string): Promise<any> {
-    return this.call("POST", `/loras/uploads/${encodeURIComponent(id)}/finish`);
-  }
-
-  /** A download session for one LoRA: its id reads the file from the upload endpoint for an hour. */
-  createDownload(name: string): Promise<{ id: string }> {
-    return this.call("POST", "/loras/downloads", { name });
+  /** Have the Volume download a LoRA from a storage link (a CPU container; ComfyUI reloads after). */
+  fetchLora(name: string, url: string, size: number): Promise<any> {
+    return this.call("POST", "/loras/fetch", { name, url, size });
   }
 
   deleteLora(name: string): Promise<any> {

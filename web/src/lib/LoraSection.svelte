@@ -9,12 +9,13 @@
   //    offline: backends not reachable now (the PC off), nothing listed for them}
   // with backends among:
   //   machine  this computer (the Claude Desktop extension)
+  //   storage  the Worker's R2 storage: every LoRA comes in here, and every GPU copies from it
   //   pc       the Worker's paired PC, listed through the agent
   //   modal    the Modal Volume
   //   url      a ComfyUI reached by URL: no listing, a file is added by name
-  // One way in: every LoRA comes through Upload LoRA. With a PC and Modal it goes to the Volume, and
-  // the agent copies it to the PC; with a PC alone it goes to the PC through the Worker. Only LoRAs
-  // that came in this way are listed, never others that happen to be in a PC's folders.
+  // One way in: every LoRA comes through Upload LoRA, into storage (or this computer's folder on the
+  // extension), and the Worker copies it to each GPU. Only LoRAs that came in this way are listed,
+  // never others that happen to be in a PC's folders.
   // *reload(watch)*: list again; watch keeps re-checking for a while (a copy to the PC may follow).
   let { cfg, packs, listing, reload } = $props()
 
@@ -22,14 +23,13 @@
   let error = $state('')
   let typed = $state('')
 
-  const PLACE = { pc: 'PC', modal: 'Modal' }
+  const PLACE = { storage: 'Stored', pc: 'PC', modal: 'Modal' }
   let backends = $derived(listing?.backends ?? [])
   let listed = $derived(backends.filter((b) => b !== 'url'))
   let files = $derived(listing?.files ?? {})
   let has = (b) => backends.includes(b)
-  // Where an upload goes: Modal when there is one (the agent then copies it), else the PC through
-  // the Worker, else this computer (the extension).
-  let uploadBase = $derived(has('modal') ? '/loras' : has('pc') ? '/pc/loras' : has('machine') ? '/loras' : null)
+  // Uploads go to the Worker's storage, or to this computer on the extension's page.
+  let canUpload = $derived(has('storage') || has('machine'))
 
   const stem = (name) => (name || '').replace(/\.safetensors$/i, '')
 
@@ -81,10 +81,9 @@
     error = ''
     if (files[file.name] && !confirm(`${file.name} is already uploaded. Replace it?`)) return
     try {
-      await uploadLora(file, (p) => (progress = { name: file.name, ...p }), uploadBase)
+      await uploadLora(file, (p) => (progress = { name: file.name, ...p })) // the Worker then copies it to each GPU
       // A new file is set up for the first pack right away; the checkboxes change that.
       if (packs.length && !entryOf(packs[0], file.name)) toggle(packs[0], file.name, true)
-      if (has('modal') && has('pc')) await api('POST', '/loras/sync') // copy it to the PC now
     } catch (err) {
       error = `${file.name}: ${err.message}`
     } finally {
@@ -96,7 +95,7 @@
   let deleting = $state(null) // the file being deleted, until the list shows it gone
 
   async function remove(name) {
-    const where = listed.length > 1 ? ' from your PC and your Modal Volume' : ''
+    const where = has('storage') ? ' from storage and every GPU' : ''
     if (!confirm(`Delete ${name}${where}? It is turned off in every model.`)) return
     error = ''
     deleting = name
@@ -139,12 +138,8 @@
   For {packNames}. {single ? 'Tick Enabled to use a LoRA.' : 'Tick the models a LoRA should apply to.'} With a trigger it applies only when the prompt contains that
   word, and Claude is told the trigger unless the LoRA is hidden; without one it always applies. Save to apply.
 </p>
-{#if has('modal') && has('pc')}
-  <p class="muted">Uploads go to your Modal Volume and are copied to your PC.</p>
-{:else if has('modal')}
-  <p class="muted">Uploads go to your Modal Volume.</p>
-{:else if has('pc')}
-  <p class="muted">Uploads go to your PC, through this Worker.</p>
+{#if has('storage')}
+  <p class="muted">Uploads are kept in this Worker's storage and copied to each GPU from there.</p>
 {:else if has('machine')}
   <p class="muted">Uploads go to ComfyUI's LoRAs folder on this computer.</p>
 {/if}
@@ -193,12 +188,12 @@
 
 {#if progress}
   <p>
-    {progress.phase === 'upload' ? 'Uploading' : 'Saving'} {progress.name}…
+    Uploading {progress.name}…
     <span class="muted">{formatBytes(progress.done) || '0 MB'} of {formatBytes(progress.total)}</span>
   </p>
   <progress max={progress.total} value={progress.done}></progress>
 {:else}
-  {#if uploadBase}
+  {#if canUpload}
     <label class="upload">
       <span class="button">Upload LoRA</span>
       <input type="file" accept=".safetensors" onchange={pick} />

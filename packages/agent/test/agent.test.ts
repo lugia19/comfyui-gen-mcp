@@ -199,14 +199,11 @@ describe("agent handlers", () => {
     expect(paused).toBe(true);
     await call({ kind: "control", id: "p2", op: "pause", args: { paused: false } });
     expect(paused).toBe(false);
-    // A LoRA upload relayed from the Worker's page: the chunk is the message body.
-    const [, started] = await call({ kind: "control", id: "8", op: "upload_start", args: { filename: "u.safetensors", size: 3 } });
-    const id = JSON.parse(started as string).id;
-    const sha = createHash("sha256").update(new Uint8Array([1, 2, 3])).digest("hex");
-    expect(await call({ kind: "control", id: "9", op: "upload_chunk", args: { id, index: 0, sha256: sha } }, new Uint8Array([1, 2, 3]))).toEqual([200, '{"ok":true,"index":0}']);
-    expect(await call({ kind: "control", id: "10", op: "upload_chunk", args: { id, index: 0, sha256: "0" } }, new Uint8Array([1, 2, 3]))).toEqual([400, "chunk 0 checksum mismatch"]);
-    expect(await call({ kind: "control", id: "11", op: "upload_finish", args: { id } })).toEqual([200, '{"state":"done"}']);
-    expect(registry.sizes()).toEqual({ "u.safetensors": 3 });
+    // LoRA uploads come through R2 now: the relay's upload operations are gone.
+    expect((await call({ kind: "control", id: "8", op: "upload_start", args: { filename: "u.safetensors", size: 3 } }))[0]).toBe(400);
+    mkdirSync(join(home, "loras"), { recursive: true });
+    writeFileSync(join(home, "loras", "u.safetensors"), "abc");
+    registry.add("u.safetensors");
     expect(await call({ kind: "control", id: "12", op: "lora_delete", args: { name: "u.safetensors" } })).toEqual([200, '{"deleted":"u.safetensors"}']);
     expect((await call({ kind: "control", id: "13", op: "lora_delete", args: { name: "u.safetensors" } }))[0]).toBe(404);
     expect((await call({ kind: "control", id: "6", op: "nope" }))[0]).toBe(400);

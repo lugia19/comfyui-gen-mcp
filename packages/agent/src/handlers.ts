@@ -98,15 +98,6 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
           return ok(((args.packs ?? []) as PackNeeds[]).map((p) => ({ name: p.name, ...machine.downloads.status(p.name, p.models ?? []) })));
         case "status":
           return ok(await machine.state());
-        // LoRA uploads from the Worker's page, for a PC without Modal: the chunk is the body.
-        case "upload_start":
-          return ok(machine.uploads.start(args.filename, args.size));
-        case "upload_chunk":
-          return ok(await machine.uploads.chunk(String(args.id), Number(args.index), body, args.sha256 ?? null));
-        case "upload_finish":
-          return ok(machine.uploads.finish(String(args.id)));
-        case "upload_status":
-          return ok(machine.uploads.status(String(args.id)));
         case "pause":
           if (!o.setPaused) return [400, "This agent cannot be paused from the Worker. Update it."];
           o.setPaused(args.paused === true);

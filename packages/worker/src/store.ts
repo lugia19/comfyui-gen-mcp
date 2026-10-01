@@ -3,7 +3,10 @@
 // Three keys, read on most requests, written rarely:
 //   config   the user config (@comfy-gen/core config shape), for every backend
 //   secrets  generated keys, the Cloudflare token and discovery, the generator's URL and headers
-//   setup    setup progress: the current build and its nonce, packs known to be downloaded
+//   setup    setup progress: the current build and its nonce, packs known to be downloaded, and
+//            deleted LoRAs (lora_deleted: {name: when}) so a PC that was offline drops its copy
+// And one written per LoRA upload:
+//   lora_uploads  {id: session} for the R2 multipart uploads in progress (loras.ts)
 //
 // Reads, missing keys included, are cached per isolate for CACHE_S, so a warm MCP call costs no
 // storage reads. Writes update the cache of the isolate that made them; another isolate sees them
@@ -85,6 +88,14 @@ export class Store {
 
   async updateSetup(changes: Record<string, unknown>): Promise<void> {
     await this.update("setup", await this.setup(), changes);
+  }
+
+  async loraUploads(): Promise<Record<string, any>> {
+    return (await this.get<Record<string, any> | null>("lora_uploads")) ?? {};
+  }
+
+  async updateLoraUploads(changes: Record<string, unknown>): Promise<void> {
+    await this.update("lora_uploads", await this.loraUploads(), changes);
   }
 
   /** Merge *changes* in; a null value removes the key. */

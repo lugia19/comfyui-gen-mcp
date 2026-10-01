@@ -14,12 +14,11 @@ const read = (req: IncomingMessage) =>
     req.on("end", () => r(Buffer.concat(parts)));
   });
 
-/** The Worker's /agent/sync and the Modal app's upload endpoint, in one server. */
+/** The Worker: /agent/sync, its upload (answers each chunk's MD5, as R2 does) and storage links. */
 async function fakeWorld(plan: (loras: Record<string, number>, base: string) => any) {
   const volume: Record<string, Buffer> = { "remote.safetensors": Buffer.from("r".repeat(50)) };
   const chunks: Record<number, Buffer> = {};
-  const seen = { syncs: [] as any[], auth: [] as string[], finishes: 0, cut: 0, ranges: [] as string[] };
-  let state = "uploading";
+  const seen = { syncs: [] as any[], auth: [] as string[], finishes: 0, cut: 0, ranges: [] as string[], uploadAuth: new Set<string>(), damage: 1 };
   const srv = createServer(async (req, res) => {
     const body = await read(req);
     const url = req.url!;
@@ -30,20 +29,21 @@ async function fakeWorld(plan: (loras: Record<string, number>, base: string) => 
       seen.syncs.push(loras);
       return reply(200, plan(loras, `http://127.0.0.1:${(srv.address() as any).port}`));
     }
-    let m = /^\/u\/up\/(\d+)$/.exec(url);
+    let m = /^\/agent\/loras\/uploads\/up\/(\d+)$/.exec(url);
     if (m && req.method === "PUT") {
-      if (createHash("sha256").update(body).digest("hex") !== req.headers["x-chunk-sha256"]) return reply(400, { error: "checksum" });
+      seen.uploadAuth.add(String(req.headers.authorization));
       chunks[+m[1]] = body;
-      return reply(200, { ok: true });
+      // The first chunk arrives damaged once: its ETag doesn't match, and the agent sends it again.
+      const damaged = +m[1] === 0 && seen.damage-- > 0;
+      return reply(200, { index: +m[1], etag: damaged ? "0".repeat(32) : createHash("md5").update(body).digest("hex") });
     }
-    if (url === "/u/up/finish") {
+    if (url === "/agent/loras/uploads/up/finish") {
       seen.finishes++;
-      state = "done";
-      volume["local.safetensors"] = Buffer.concat(Object.keys(chunks).sort((a, b) => +a - +b).map((k) => chunks[+k]));
-      return reply(200, { state: "assembling" });
+      const parts = JSON.parse(body.toString()).parts as { index: number; etag: string }[];
+      volume["local.safetensors"] = Buffer.concat(parts.sort((a, b) => a.index - b.index).map((p) => chunks[p.index]));
+      return reply(200, { state: "done" });
     }
-    if (url === "/u/up") return reply(200, { state });
-    m = /^\/d\/(\w+)$/.exec(url);
+    m = /^\/store\/(\w+)$/.exec(url);
     if (m) {
       const data = volume["remote.safetensors"];
       const range = req.headers.range;
@@ -66,7 +66,7 @@ let close: (() => void) | null = null;
 afterEach(() => close?.());
 
 describe("LoraSync", () => {
-  it("pushes what only this PC has, pulls what only Modal has, and asks again after copying", async () => {
+  it("pushes what only this PC has, pulls what only R2 has, and asks again after copying", async () => {
     const home = mkdtempSync(join(tmpdir(), "home-"));
     const dir = join(home, "loras");
     mkdirSync(dir);
@@ -77,16 +77,17 @@ describe("LoraSync", () => {
     loraRegistry.add("local.safetensors");
     const machine = { lorasDir: dir, loraRegistry, loraPaths: () => loraRegistry.paths(), loras: () => loraRegistry.sizes() };
     const world = await fakeWorld((loras, base) => ({
-      push: "local.safetensors" in loras && !("local.safetensors" in world.volume) ? [{ name: "local.safetensors", size: 37, upload_url: `${base}/u/up`, chunk_size: 10, chunks: 4 }] : [],
-      pull: "remote.safetensors" in loras ? [] : [{ name: "remote.safetensors", size: 50, url: `${base}/d/abc` }],
+      push: "local.safetensors" in loras && !("local.safetensors" in world.volume) ? [{ name: "local.safetensors", size: 37, upload_url: `${base}/agent/loras/uploads/up`, chunk_size: 10, chunks: 4 }] : [],
+      pull: "remote.safetensors" in loras ? [] : [{ name: "remote.safetensors", size: 50, url: `${base}/store/abc` }],
       errors: [],
     }));
     close = () => world.srv.close();
     const sync = new LoraSync({ machine, worker: () => ({ url: world.url, secret: "sec" }), sleep: async () => {} });
     await sync.sync();
 
-    expect(world.volume["local.safetensors"]).toEqual(local); // pushed in 4 chunks
+    expect(world.volume["local.safetensors"]).toEqual(local); // pushed in 4 chunks, the damaged one again
     expect(world.seen.finishes).toBe(1);
+    expect([...world.seen.uploadAuth]).toEqual(["Bearer sec"]); // the Worker's upload needs the pairing secret
     expect(readFileSync(join(dir, "remote.safetensors")).toString()).toBe("r".repeat(50)); // pulled, resumed after a cut
     expect(world.seen.ranges).toEqual(["bytes=20-"]);
     expect(world.seen.syncs.length).toBe(2); // a second round found nothing left
@@ -102,7 +103,7 @@ describe("LoraSync", () => {
     mkdirSync(dir);
     writeFileSync(join(dir, "remote.safetensors"), "r".repeat(50)); // the user's own copy
     const loraRegistry = new LoraRegistry(join(home, "loras.json"), () => dir);
-    const world = await fakeWorld((loras, base) => ({ push: [], pull: "remote.safetensors" in loras ? [] : [{ name: "remote.safetensors", size: 50, url: `${base}/d/abc` }] }));
+    const world = await fakeWorld((loras, base) => ({ push: [], pull: "remote.safetensors" in loras ? [] : [{ name: "remote.safetensors", size: 50, url: `${base}/store/abc` }] }));
     close = () => world.srv.close();
     const machine = { lorasDir: dir, loraRegistry, loraPaths: () => loraRegistry.paths(), loras: () => loraRegistry.sizes() };
     await new LoraSync({ machine, worker: () => ({ url: world.url, secret: "s" }), sleep: async () => {} }).sync();
@@ -112,14 +113,29 @@ describe("LoraSync", () => {
 
   it("keeps a failed copy's error for the settings page, and never throws", async () => {
     const dir = mkdtempSync(join(tmpdir(), "loras-"));
-    const world = await fakeWorld((_, base) => ({ push: [], pull: [{ name: "../evil.safetensors", size: 5, url: `${base}/d/x` }] }));
+    const world = await fakeWorld((_, base) => ({ push: [], pull: [{ name: "../evil.safetensors", size: 5, url: `${base}/store/x` }] }));
     close = () => world.srv.close();
-    const sync = new LoraSync({ machine: { lorasDir: dir, loraPaths: () => ({}), loras: () => ({}), loraRegistry: { add() {} } }, worker: () => ({ url: world.url, secret: "s" }), sleep: async () => {} });
+    const sync = new LoraSync({ machine: { lorasDir: dir, loraPaths: () => ({}), loras: () => ({}), loraRegistry: { add() {}, delete() {} } }, worker: () => ({ url: world.url, secret: "s" }), sleep: async () => {} });
     await sync.sync();
     expect(sync.jobs["../evil.safetensors"]).toMatchObject({ to: "pc", error: "not a plain LoRA file name" });
-    const unpaired = new LoraSync({ machine: { lorasDir: dir, loraPaths: () => ({}), loras: () => ({}), loraRegistry: { add() {} } }, worker: () => null });
+    const unpaired = new LoraSync({ machine: { lorasDir: dir, loraPaths: () => ({}), loras: () => ({}), loraRegistry: { add() {}, delete() {} } }, worker: () => null });
     await unpaired.sync(); // nothing to ask
-    const down = new LoraSync({ machine: { lorasDir: dir, loraPaths: () => ({}), loras: () => ({}), loraRegistry: { add() {} } }, worker: () => ({ url: "http://127.0.0.1:1", secret: "s" }) });
+    const down = new LoraSync({ machine: { lorasDir: dir, loraPaths: () => ({}), loras: () => ({}), loraRegistry: { add() {}, delete() {} } }, worker: () => ({ url: "http://127.0.0.1:1", secret: "s" }) });
     await expect(down.sync()).resolves.toBeUndefined();
+  });
+
+  it("deletes what was deleted on the Worker while this PC was offline", async () => {
+    const home = mkdtempSync(join(tmpdir(), "home-"));
+    const dir = join(home, "loras");
+    mkdirSync(dir);
+    writeFileSync(join(dir, "gone.safetensors"), "x");
+    const loraRegistry = new LoraRegistry(join(home, "loras.json"), () => dir);
+    loraRegistry.add("gone.safetensors");
+    const world = await fakeWorld((loras) => ({ push: [], pull: [], delete: "gone.safetensors" in loras ? ["gone.safetensors"] : [] }));
+    close = () => world.srv.close();
+    const machine = { lorasDir: dir, loraRegistry, loraPaths: () => loraRegistry.paths(), loras: () => loraRegistry.sizes() };
+    await new LoraSync({ machine, worker: () => ({ url: world.url, secret: "s" }), sleep: async () => {} }).sync();
+    expect(existsSync(join(dir, "gone.safetensors"))).toBe(false);
+    expect(loraRegistry.sizes()).toEqual({});
   });
 });

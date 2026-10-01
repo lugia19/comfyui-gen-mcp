@@ -1,8 +1,8 @@
-// Copying LoRAs between this PC and the Worker's Modal Volume (design §9). The agent posts the LoRA
-// files it has to the Worker's /agent/sync; the Worker answers with what to copy: files only this PC
-// has go up (chunks to an upload session on the Modal app, as the settings page sends them), files
-// only the Volume has come down (a download session, resumed past Modal's 150 s request limit). The
-// bytes never pass through the Worker. Nothing is deleted.
+// Copying LoRAs between this PC and the Worker's R2 storage (design §9). The agent posts the LoRA
+// files it has to the Worker's /agent/sync; the Worker answers with what to do: files R2 lacks go up
+// (chunks to the Worker's upload, as the settings page sends them, each checked against the MD5 R2
+// answers), files only R2 has come down (a storage link, resumed with Range), and files deleted
+// while this PC was offline are deleted here.
 
 import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
@@ -13,8 +13,6 @@ import { AGENT_USER_AGENT } from "./relay-client.ts";
 
 const PARALLEL = 3;
 const RETRIES = 5;
-const ASSEMBLE_POLL_MS = 2000;
-const ASSEMBLE_TIMEOUT_MS = 30 * 60_000;
 
 export type Push = { name: string; size: number; upload_url: string; chunk_size: number; chunks: number };
 export type Pull = { name: string; size: number; url: string };
@@ -22,7 +20,7 @@ export type Pull = { name: string; size: number; url: string };
 export type SyncJob = { to: "modal" | "pc"; done: number; total: number; error?: string };
 
 export type LoraSyncOptions = {
-  machine: Pick<Machine, "loras" | "loraPaths" | "lorasDir"> & { loraRegistry: { add(name: string): void } };
+  machine: Pick<Machine, "loras" | "loraPaths" | "lorasDir"> & { loraRegistry: { add(name: string): void; delete(name: string): void } };
   worker: () => { url: string; secret: string } | null;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
@@ -76,8 +74,16 @@ export class LoraSync {
       signal: AbortSignal.timeout(60_000),
     });
     if (!resp.ok) throw new Error(`the Worker answered HTTP ${resp.status}`);
-    const plan = (await resp.json()) as { push?: Push[]; pull?: Pull[]; errors?: string[] };
+    const plan = (await resp.json()) as { push?: Push[]; pull?: Pull[]; delete?: string[]; errors?: string[] };
     for (const e of plan.errors ?? []) log.warn("LoRA sync:", e);
+    for (const name of plan.delete ?? []) {
+      try {
+        this.o.machine.loraRegistry.delete(name);
+        log.info(`LoRA sync: ${name} was deleted on the Worker; deleted here too`);
+      } catch (e) {
+        log.warn(`LoRA sync: deleting ${name}:`, (e as Error).message);
+      }
+    }
     const push = plan.push ?? [];
     const pull = plan.pull ?? [];
     this.jobs = {};
@@ -99,7 +105,8 @@ export class LoraSync {
         log.warn(`LoRA sync: copying ${name} to ${where} failed:`, (e as Error).message);
       }
     };
-    for (const p of push) await run(p.name, () => this.push(p));
+    const auth = { Authorization: `Bearer ${worker.secret}` };
+    for (const p of push) await run(p.name, () => this.push(p, auth));
     for (const p of pull) {
       // The user's own copy, same name and size (they uploaded a file this PC already had): take it
       // as ours rather than download it again.
@@ -117,11 +124,12 @@ export class LoraSync {
     if (copied) this.again = true;
   }
 
-  /** Send a file to an upload session in chunks, finish it, and wait until the Volume has it. */
-  private async push(p: Push): Promise<void> {
+  /** Send a file to an upload in chunks, each checked against the MD5 R2 answers, then finish it. */
+  private async push(p: Push, auth: Record<string, string>): Promise<void> {
     const path = this.o.machine.loraPaths()[p.name];
     if (!path) throw new Error("the file is no longer on this PC");
     const job = this.jobs[p.name];
+    const parts: { index: number; etag: string }[] = [];
     const fh = await open(path, "r");
     try {
       let next = 0;
@@ -132,8 +140,13 @@ export class LoraSync {
           const buf = Buffer.alloc(length);
           const { bytesRead } = await fh.read(buf, 0, length, index * p.chunk_size);
           if (bytesRead !== length) throw new Error("the file changed while it was being sent");
-          const sha = createHash("sha256").update(buf).digest("hex");
-          await this.retrying(`${p.upload_url}/${index}`, { method: "PUT", headers: { "X-Chunk-Sha256": sha }, body: buf });
+          const md5 = createHash("md5").update(buf).digest("hex");
+          for (let attempt = 0; ; attempt++) {
+            const { etag } = (await (await this.retrying(`${p.upload_url}/${index}`, { method: "PUT", headers: auth, body: buf })).json()) as { etag: string };
+            if (etag === md5) break;
+            if (attempt >= RETRIES) throw new Error(`chunk ${index} arrived damaged`);
+          }
+          parts.push({ index, etag: md5 });
           job.done += length;
         }
       };
@@ -141,15 +154,11 @@ export class LoraSync {
     } finally {
       await fh.close();
     }
-    await this.retrying(`${p.upload_url}/finish`, { method: "POST" });
-    const deadline = Date.now() + ASSEMBLE_TIMEOUT_MS;
-    for (;;) {
-      const s = (await (await this.retrying(p.upload_url, { method: "GET" })).json()) as { state: string; error?: string };
-      if (s.state === "done") return;
-      if (s.state === "failed") throw new Error(s.error || "Modal could not assemble the file");
-      if (Date.now() > deadline) throw new Error("Modal took too long to assemble the file");
-      await this.sleep(ASSEMBLE_POLL_MS);
-    }
+    await this.retrying(`${p.upload_url}/finish`, {
+      method: "POST",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ parts }),
+    });
   }
 
   /** Download a file into our LoRA folder, resuming when a request is cut off. */
@@ -173,7 +182,7 @@ export class LoraSync {
     }
   }
 
-  /** A request to the Modal app, retried on network errors and 5xx; a 4xx other than a timeout is final. */
+  /** A request to the Worker, retried on network errors and 5xx; a 4xx other than a timeout is final. */
   private async retrying(url: string, init: RequestInit): Promise<Response> {
     for (let attempt = 0; ; attempt++) {
       let message: string;
