@@ -65,3 +65,28 @@ describe("LoRA uploads to this machine", () => {
     expect(registry.sizes()).toEqual({});
   });
 });
+
+describe("the LoRA registry", () => {
+  it("adopts LoRAs in use from other folders, and forgets (never deletes) those on delete", () => {
+    const home = mkdtempSync(join(tmpdir(), "lora-reg-"));
+    const dir = join(home, "loras");
+    const shared = join(home, "shared-loras");
+    mkdirSync(dir, { recursive: true });
+    mkdirSync(shared, { recursive: true });
+    writeFileSync(join(dir, "own.safetensors"), "123");
+    writeFileSync(join(shared, "old.safetensors"), "12345");
+    writeFileSync(join(shared, "unused.safetensors"), "1");
+    const registry = new LoraRegistry(join(home, "loras.json"), () => dir, () => [dir, shared]);
+    expect(registry.sizes()).toEqual({});
+    // Configured before the registry: ours if the file is somewhere ComfyUI looks.
+    expect(registry.adopt(["old.safetensors", "own.safetensors", "missing.safetensors", "../x.safetensors"])).toEqual(["old.safetensors", "own.safetensors"]);
+    expect(registry.adopt(["old.safetensors"])).toEqual([]); // once
+    expect(registry.sizes()).toEqual({ "old.safetensors": 5, "own.safetensors": 3 }); // unused stays unlisted
+    registry.delete("old.safetensors");
+    expect(existsSync(join(shared, "old.safetensors"))).toBe(true); // not ours to delete, only to forget
+    registry.delete("own.safetensors");
+    expect(existsSync(join(dir, "own.safetensors"))).toBe(false);
+    expect(registry.sizes()).toEqual({});
+  });
+});
+

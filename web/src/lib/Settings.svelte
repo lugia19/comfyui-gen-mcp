@@ -78,7 +78,7 @@
     try {
       const got = await api('GET', '/loras')
       loraListing = machine
-        ? { backends: ['machine'], files: Object.fromEntries(Object.entries(got.loras).map(([n, size]) => [n, { machine: size }])), syncing: {}, errors: {} }
+        ? { backends: [got.external ? 'url' : 'machine'], files: Object.fromEntries(Object.entries(got.loras).map(([n, size]) => [n, { machine: size }])), syncing: {}, errors: {} }
         : got
     } catch (e) {
       loraListing = { backends: [], files: {}, syncing: {}, errors: { [machine ? 'machine' : 'the Worker']: e.message } }

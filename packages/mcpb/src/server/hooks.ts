@@ -14,6 +14,7 @@ export const MAX_IMAGE_BYTES = 50_000_000;
 // ComfyUI's own annotated names ("sub/file.png [output]"), as the result text gives them for a
 // ComfyUI the user runs.
 const ANNOTATED = / \[(output|input|temp)\]$/;
+export const STILL_STARTING_HERE = "ComfyUI is still starting on this computer (the first start can take a few minutes). Call the tool again in a minute.";
 
 export class LocalHooks extends Hooks {
   private machine: Machine;
@@ -31,8 +32,22 @@ export class LocalHooks extends Hooks {
     return this.machine.comfy;
   }
 
+  /** ComfyUI ready for *pack*, within the call's time (client.stopBy): a launch or node install
+   * that outlasts it goes on, the call says so in time, and the next call joins it. */
   async ensure(pack: Pack): Promise<void> {
-    await this.machine.ensurePack(pack, this.settingsUrl);
+    const ready = this.machine.ensurePack(pack, this.settingsUrl);
+    const stopBy = this.client.stopBy;
+    if (stopBy === null) return ready;
+    ready.catch(() => {}); // a failure after we stopped waiting is the next call's to report
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new ComfyUIError(STILL_STARTING_HERE)), Math.max(0, stopBy - this.client.time()) * 1000);
+    });
+    try {
+      await Promise.race([ready, late]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async resolveImage(arg: string): Promise<ResolvedImage> {

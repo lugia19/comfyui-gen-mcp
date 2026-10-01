@@ -171,7 +171,10 @@ at their own limit (`MODAL_COLD_START_S`), and the wait gets what is left. So a 
 240 s with the image, a `fetch_result` token (submitted, still running), or "The GPU is still
 starting up; call the tool again in a minute" (never got to submit). Until 2026-10-01 the 240 s
 counted from after the submit, so a slow cold start plus the wait passed 300 s and a tester's
-Claude Code gave up with "operation timed out".
+Claude Code gave up with "operation timed out". The extension holds its own start-up (launching
+ComfyUI, node installs) to the same budget: past it, the call says ComfyUI is still starting and
+the launch goes on for the next call to join. Keep-warm's idle stop counts ComfyUI's queue as use,
+so a generation that outlived its call (answered with a token) is not stopped under it.
 
 Jobs are stateless: the request token is ComfyUI's own `prompt_id` (plus a `:lossless` marker when
 asked). `fetch_result` just resumes polling `/history`, so nothing is kept between requests, which
@@ -295,6 +298,13 @@ Where an upload goes:
 - the extension: its own local server
 All three speak the same chunked protocol (`web/src/lib/upload.js`). Delete removes a LoRA from
 every backend that has it.
+
+A LoRA a model is set to use is ours too (2026-10-01, the extension's upgrade from v1.2.0): the
+extension's server adopts the configured names into the registry at start and on every save,
+when the file is in a LoRA folder ComfyUI reads, ours or a shared one. The registry finds a name
+in our folder first, then in the others; deleting one from a shared folder only forgets it. With
+"Your own ComfyUI" the page lists nothing and LoRAs are added by name (its folders are the user's,
+and uploads would land where it doesn't look).
 
 LoRAs (Anima family only, as in the old extension: `supportsLoras` in `packs.ts`) are uploaded from
 the settings page and configured per pack family: file, strength, trigger (it applies only when the

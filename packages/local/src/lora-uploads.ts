@@ -36,14 +36,35 @@ export function validLoraName(name: unknown): string {
   return name;
 }
 
-/** The LoRAs that are ours: names in a JSON file, files in *dir*. */
+/** The LoRAs that are ours: names in a JSON file, files in *dir* (where uploads go) or, for ones
+ * configured before the registry existed, in another LoRA folder ComfyUI reads (*others*). */
 export class LoraRegistry {
   private file: string;
   private dir: () => string;
+  private others: () => string[];
 
-  constructor(file: string, dir: () => string) {
+  constructor(file: string, dir: () => string, others: () => string[] = () => []) {
     this.file = file;
     this.dir = dir;
+    this.others = others;
+  }
+
+  /** Where *name* is: our folder first, then the others. */
+  find(name: string): string | null {
+    for (const dir of [this.dir(), ...this.others()]) {
+      const path = join(dir, name);
+      if (existsSync(path)) return path;
+    }
+    return null;
+  }
+
+  /** Make these names ours if their files are in a LoRA folder: LoRAs a model is set to use (from
+   * before the registry, or a hand edit) are ours by definition. Returns the newly adopted. */
+  adopt(names: string[]): string[] {
+    const have = new Set(this.names());
+    const found = [...new Set(names)].filter((n) => !have.has(n) && LORA_NAME.test(n) && !n.includes("..") && this.find(n));
+    if (found.length) this.save([...have, ...found]);
+    return found;
   }
 
   private names(): string[] {
@@ -65,8 +86,8 @@ export class LoraRegistry {
   paths(): Record<string, string> {
     const out: Record<string, string> = {};
     for (const name of this.names()) {
-      const path = join(this.dir(), name);
-      if (existsSync(path)) out[name] = path;
+      const path = this.find(name);
+      if (path) out[name] = path;
     }
     return out;
   }
@@ -80,7 +101,8 @@ export class LoraRegistry {
     this.save([...this.names(), validLoraName(name)]);
   }
 
-  /** Delete one of ours: the file and its entry. Other files by that name are not ours to touch. */
+  /** Delete one of ours: its entry, and its file when it is in our folder. One in another folder
+   * (adopted from before the registry) is only forgotten: that folder is not ours to touch. */
   delete(name: string): void {
     const names = this.names();
     if (!names.includes(name)) throw new UploadError(`no LoRA named ${name}`, 404);
@@ -116,7 +138,7 @@ export class LoraUploads {
 
   private session(id: string): Session {
     const s = this.sessions.get(id);
-    if (!s || s.expires < Date.now()) throw new UploadError("unknown or expired upload (was the agent restarted?)", 404);
+    if (!s || s.expires < Date.now()) throw new UploadError("unknown or expired upload (was it restarted?)", 404);
     return s;
   }
 

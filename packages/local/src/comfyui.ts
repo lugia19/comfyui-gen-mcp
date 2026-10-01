@@ -244,14 +244,39 @@ export class LocalComfy {
 
   private armIdle(): void {
     if (this.idleTimer) clearInterval(this.idleTimer);
-    this.idleTimer = setInterval(() => {
-      const idleMs = this.settings().keep_warm_minutes * 60_000;
-      if (this.state === "running" && !this.busy && Date.now() - this.lastUsed > idleMs) {
+    let checking = false;
+    const idle = () => this.state === "running" && !this.busy && Date.now() - this.lastUsed > this.settings().keep_warm_minutes * 60_000;
+    this.idleTimer = setInterval(async () => {
+      if (checking || !idle()) return;
+      checking = true;
+      try {
+        // A generation that outlived its tool call (it answered with a fetch_result token) is still
+        // ComfyUI's work: its queue counts as use.
+        if (!(await this.queueEmpty())) {
+          this.lastUsed = Date.now();
+          return;
+        }
+        if (!idle()) return;
         log.info(`ComfyUI idle for ${this.settings().keep_warm_minutes} min; stopping it to free the GPU`);
-        this.stop().catch((e) => log.error("Idle stop failed:", e));
+        await this.stop().catch((e) => log.error("Idle stop failed:", e));
+      } finally {
+        checking = false;
       }
     }, 15_000);
     this.idleTimer.unref();
+  }
+
+  /** Whether ComfyUI has nothing running or queued (true when it doesn't answer: nothing to keep). */
+  async queueEmpty(): Promise<boolean> {
+    if (!this.url) return true;
+    try {
+      const resp = await fetch(`${this.url}/queue`, { signal: AbortSignal.timeout(5000) });
+      if (!resp.ok) return true;
+      const q = (await resp.json()) as { queue_running?: unknown[]; queue_pending?: unknown[] };
+      return !q.queue_running?.length && !q.queue_pending?.length;
+    } catch {
+      return true;
+    }
   }
 
   /** The node classes the running ComfyUI has (cached per launch). */

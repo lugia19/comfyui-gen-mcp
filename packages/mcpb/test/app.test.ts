@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadConfig, Machine, ModelLocator, paths, saveConfig, type LocalComfy } from "@comfy-gen/local";
 import { LocalApp, type Services } from "../src/server/app.ts";
+import { LocalHooks, STILL_STARTING_HERE } from "../src/server/hooks.ts";
+import { ComfyUIClient, type Pack, type Transport } from "@comfy-gen/core";
 
 const PORT = 9247;
 
@@ -124,10 +126,48 @@ describe("settings API", () => {
     expect(w.installs).toEqual(["intel"]);
   });
 
+  it("lists LoRAs in use, also ones from before uploads; with your own ComfyUI they are typed in", async () => {
+    const w = world();
+    const put = (config: object) => w.local("/api/config", { method: "PUT", body: JSON.stringify({ config }) });
+    // mine.safetensors sits in the LoRA folder; configured, it is in use, so ours.
+    const r = await (await put({ pack_loras: { anima: [{ name: "mine.safetensors" }] } })).json();
+    expect(r.warnings).toEqual([]);
+    expect((await (await w.local("/api/loras")).json()).loras).toEqual({ "mine.safetensors": 5 });
+    // Your own ComfyUI: its folders are not ours to see; no warnings, names are typed in.
+    const own = await (await put({ comfyui_url: "http://127.0.0.1:8188", pack_loras: { anima: [{ name: "theirs.safetensors" }] } })).json();
+    expect(own.warnings.join()).not.toContain("theirs.safetensors");
+    expect(await (await w.local("/api/loras")).json()).toEqual({ loras: {}, external: true });
+  });
+
   it("reports the selected packs' downloads", async () => {
     const w = world();
     const { packs } = await (await w.local("/api/models")).json();
     expect(packs.length).toBeGreaterThan(0);
     expect(packs[0]).toMatchObject({ state: "missing" });
+  });
+});
+
+describe("start-up within the call's time", () => {
+  const client = () => new ComfyUIClient({} as Transport);
+  const hooks = (ensurePack: () => Promise<void>, c = client()) => new LocalHooks({ ensurePack } as unknown as Machine, c, "http://127.0.0.1:9247/");
+
+  it("answers 'still starting' when ComfyUI's launch outlasts the call; the launch goes on", async () => {
+    let done = false;
+    const c = client();
+    c.stopBy = c.time() + 0.05;
+    const launch = () => new Promise<void>((r) => setTimeout(() => ((done = true), r()), 300));
+    await expect(hooks(launch, c).ensure({} as Pack)).rejects.toThrow(STILL_STARTING_HERE);
+    expect(done).toBe(false);
+    await new Promise((r) => setTimeout(r, 350));
+    expect(done).toBe(true);
+  });
+
+  it("waits for a launch that fits, and a failure after it stopped waiting goes unreported (no crash)", async () => {
+    const c = client();
+    c.stopBy = c.time() + 5;
+    await hooks(() => new Promise((r) => setTimeout(r, 20)), c).ensure({} as Pack);
+    c.stopBy = c.time() + 0.02;
+    await expect(hooks(() => new Promise((_, no) => setTimeout(() => no(new Error("later")), 100)), c).ensure({} as Pack)).rejects.toThrow(STILL_STARTING_HERE);
+    await new Promise((r) => setTimeout(r, 150)); // an unhandled rejection would fail the run
   });
 });

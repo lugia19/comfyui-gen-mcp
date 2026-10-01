@@ -59,6 +59,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const server = await listen((req, remote) => app.handle(req, remote), port, opts.host ?? "0.0.0.0");
   const bound = (server.address() as { port: number }).port;
   downloadSelected();
+  // LoRAs a model uses are ours, also those configured before uploads were the one way in (v1.3.6).
+  const adopted = machine.loraRegistry.adopt(Object.values(config().pack_loras).flat().map((l) => l.name));
+  if (adopted.length) log.info(`LoRAs in use, now listed: ${adopted.join(", ")}`);
   log.info(`Comfy-Gen-MCP ${opts.version} serving on port ${bound} (settings: http://127.0.0.1:${bound}/)`);
   return {
     app,

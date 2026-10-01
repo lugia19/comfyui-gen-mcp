@@ -47,7 +47,7 @@ export class Machine {
     this.p = opts.paths;
     this.comfy = opts.comfy ?? new LocalComfy(opts.paths, opts.settings, opts.waitExtension);
     this.downloads = new ModelDownloads(this.comfy.models);
-    this.loraRegistry = new LoraRegistry(join(this.p.home, "loras.json"), () => this.lorasDir);
+    this.loraRegistry = new LoraRegistry(join(this.p.home, "loras.json"), () => this.lorasDir, () => this.comfy.models.folders().loras ?? []);
     this.uploads = new LoraUploads(this.loraRegistry, () => this.lorasDir);
   }
 
@@ -198,7 +198,8 @@ export class Machine {
     if (sub === "/setup/install" && m === "GET") return json(this.installState);
     if (sub === "/comfyui/restart" && m === "POST") return this.comfyAction(() => this.comfy.restart());
     if (sub === "/comfyui/stop" && m === "POST") return this.comfyAction(() => this.comfy.stop());
-    if (sub === "/loras" && m === "GET") return json({ loras: this.loras() });
+    // With your own ComfyUI, its LoRA folders are its own business: LoRAs are added by name.
+    if (sub === "/loras" && m === "GET") return json(this.opts.settings().comfyui_url ? { loras: {}, external: true } : { loras: this.loras() });
     if (sub === "/loras" || sub.startsWith("/loras/")) {
       const r = await this.loraApi(req, sub);
       if (r) return r;

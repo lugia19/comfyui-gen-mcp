@@ -205,9 +205,11 @@ export class LocalApp {
     }));
   }
 
-  private missingLoras(cfg: Config): string[] {
-    const have = this.s.machine.loras();
+  private missingLoras(cfg: LocalConfig): string[] {
+    if (cfg.comfyui_url) return []; // your own ComfyUI's folders are not ours to see
     const wanted = new Set(Object.values(cfg.pack_loras).flat().map((l) => l.name));
+    this.s.machine.loraRegistry.adopt([...wanted]); // in use, so ours (one typed in by hand, say)
+    const have = this.s.machine.loras();
     return [...wanted].filter((n) => !(n in have)).map((n) => `The LoRA ${n} is not in any LoRA folder: generations will fail until it is.`);
   }
 }

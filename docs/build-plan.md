@@ -268,6 +268,11 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   wait counted from after a cold-start submit, which can itself take minutes, so the call passed
   the client's 300 s. Now one budget per call covers the cold-start retries and the wait; the call
   returns a `fetch_result` token or "still starting" in time.
+- **The extension, before its first test since v1.2.0.** Done 2026-10-01: LoRAs configured before
+  "one way in" are adopted (they showed as missing, and every save warned falsely); with "Your own
+  ComfyUI" LoRAs are added by name; start-up answers within the call's budget; keep-warm no longer
+  stops ComfyUI under a queued generation. A v1.2.0 extension can't update itself (the release
+  assets were renamed): it is reinstalled by hand once.
 - **Shorter image ids.** Done 2026-10-01 (design §4): a model mistyped a 70-character id. Images
   this app names get the id `m7.Ab3d` (a 4-character check, so a shared connector doesn't expose the
   owner's images by number; `p7.…` on the PC, `mupAbCd1234.…` for an upload); the public `/img/`
