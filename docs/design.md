@@ -428,7 +428,7 @@ make. Setup needs that token anyway; the latest one replaces the stored one. The
 lasts a year. Under `wrangler dev`, `DEV_WORKER_HOST` names the deployed Worker to prove ownership of.
 
 **Password** (decided 2026-10-01: making a new token for each browser was tedious). Right after the
-first token login the page requires a password (at least 10 characters), and later logins use it;
+first token login the page requires a password (at least 8 characters), and later logins use it;
 the token stays the way back in when it is forgotten. It can only be set by a logged-in session, so
 the first claim still goes through Cloudflare. The secrets hold `password: {salt, hash, iterations}`,
 PBKDF2-SHA256 with 20,000 iterations (few for a password hash, for the free plan's CPU budget). The

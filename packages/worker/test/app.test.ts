@@ -786,6 +786,8 @@ describe("password login", () => {
     const cookie = await login(app);
     expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).password_set).toBe(false);
     expect((await app.handle(request("PUT", "/api/password", { password: "short" }, cookie))).status).toBe(400);
+    expect((await app.handle(request("PUT", "/api/password", { password: "7 chars" }, cookie))).status).toBe(400);
+    expect((await app.handle(request("PUT", "/api/password", { password: "8 chars!" }, cookie))).status).toBe(200); // the minimum
     expect((await app.handle(request("PUT", "/api/password", { password: "long enough!" }, cookie))).status).toBe(200);
     expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).password_set).toBe(true);
     expect(await body(await app.handle(request("GET", "/api/login")))).toEqual({ password: true });

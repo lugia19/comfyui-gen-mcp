@@ -4,7 +4,7 @@
   // A password for this page: required once after the first (token) login, and changeable later.
   // *required* shows it as the step it is; *ondone* runs after it is saved.
   let { required = false, ondone } = $props()
-  const MIN = 10
+  const MIN = 8
   let password = $state('')
   let again = $state('')
   let busy = $state(false)

@@ -46,7 +46,7 @@ export function readCookie(header: string | null): string | null {
 
 // Passwords: PBKDF2-SHA256 with a random salt. The iterations are few for a password hash (the
 // free plan's CPU budget per request); the login lockout (App) is what stops guessing.
-export const PASSWORD_MIN = 10;
+export const PASSWORD_MIN = 8;
 export const PASSWORD_ITERATIONS = 20_000;
 
 export type PasswordRecord = { salt: string; hash: string; iterations: number };
