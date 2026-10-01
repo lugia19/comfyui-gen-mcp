@@ -1,11 +1,13 @@
-// The settings pages' session: a signed, stateless cookie.
+// The settings pages' session: a signed, stateless cookie, and the password that opens it.
 //
-// There is no password. Logging in means pasting a Cloudflare API token that can see this Worker
-// (App.login), which only the account's owner can make; setup needs that token anyway. So the
-// cookie lasts a year, and a new browser logs in with a fresh token from the same link.
-// The format is a compatibility surface (test/golden.json pins it): changing it logs everyone out.
+// The first login is always a Cloudflare API token that can see this Worker (App.login), which
+// only the account's owner can make; setup needs that token anyway. That first login then sets a
+// password (required), and later logins use either. A fresh install's address is not secret, so a
+// password settable before the token login would let anyone claim it: it never is.
+// The cookie format is a compatibility surface (test/golden.json pins it): changing it logs everyone
+// out. So is the password record in the secrets (its algorithm and fields).
 
-import { fromHex, hmacSha256, safeEqual, toHex } from "@comfy-gen/core";
+import { fromHex, hmacSha256, safeEqual, toHex, tokenHex, utf8 } from "@comfy-gen/core";
 
 export const COOKIE = "cg_session";
 export const SESSION_S = 365 * 24 * 3600;
@@ -40,4 +42,27 @@ export function readCookie(header: string | null): string | null {
     if (name === COOKIE) return eq < 0 ? "" : p.slice(eq + 1);
   }
   return null;
+}
+
+// Passwords: PBKDF2-SHA256 with a random salt. The iterations are few for a password hash (the
+// free plan's CPU budget per request); the login lockout (App) is what stops guessing.
+export const PASSWORD_MIN = 10;
+export const PASSWORD_ITERATIONS = 20_000;
+
+export type PasswordRecord = { salt: string; hash: string; iterations: number };
+
+export async function hashPassword(password: string, saltHex: string, iterations: number): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", utf8(password) as BufferSource, "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: fromHex(saltHex) as BufferSource, iterations }, key, 256);
+  return toHex(new Uint8Array(bits));
+}
+
+export async function makePassword(password: string, iterations = PASSWORD_ITERATIONS): Promise<PasswordRecord> {
+  const salt = tokenHex(16);
+  return { salt, hash: await hashPassword(password, salt, iterations), iterations };
+}
+
+export async function passwordOk(password: string, record: PasswordRecord | null | undefined): Promise<boolean> {
+  if (!record?.salt || !record.hash || !password) return false;
+  return safeEqual(await hashPassword(password, record.salt, record.iterations || PASSWORD_ITERATIONS), record.hash);
 }

@@ -30,6 +30,9 @@ export const REQUEST_BUDGET = 44;
 // subrequests, not the 50 external ones.
 export const PC_REQUEST_BUDGET = 300;
 export const MODAL_COLD_START_S = 300;
+// Password logins: this many wrong ones within the window pause them (the token login stays open).
+export const LOGIN_FAILS_MAX = 10;
+export const LOGIN_WINDOW_S = 3600;
 
 export const INSTRUCTIONS =
   "Images come back inline, each followed by its image_id. Pass an image_id to edit_image to edit that image.";
@@ -335,6 +338,8 @@ export class App {
 
   private async api(req: Request, url: URL, sub: string): Promise<Response> {
     if (sub === "/login" && req.method === "POST") return this.login(req, url);
+    // The login screen asks which way in to offer: a password once one is set, else a token.
+    if (sub === "/login" && req.method === "GET") return json({ password: Boolean((await this.fresh.secrets()).password) });
     const s = await this.fresh.secrets();
     if (sub === "/logout" && req.method === "POST") return json({ ok: true }, 200, { "Set-Cookie": auth.cookieHeader("", 0) });
     if (!(await auth.sessionOk(auth.readCookie(req.headers.get("cookie")), s.cookie_key, this.p.now()))) {
@@ -342,6 +347,12 @@ export class App {
     }
 
     if (sub === "/state" && req.method === "GET") return json(await this.state(url, s));
+    if (sub === "/password" && req.method === "PUT") {
+      const password = String((await bodyJson(req)).password ?? "");
+      if (password.length < auth.PASSWORD_MIN) return error(400, `Use at least ${auth.PASSWORD_MIN} characters.`);
+      await this.fresh.updateSecrets({ password: await auth.makePassword(password) });
+      return json({ ok: true });
+    }
     if (sub === "/config" && req.method === "PUT") return this.saveConfig(req, s);
     if (sub === "/loras" || sub.startsWith("/loras/")) return this.loras(req, url, sub, s);
     if (sub === "/models" && req.method === "GET") return this.models(url, s);
@@ -385,6 +396,7 @@ export class App {
       modal_error: setup.modal_error ?? null,
       connector_url: `${url.origin}/mcp/${s.mcp_secret}`,
       claude_seen: setup.claude_seen ?? null,
+      password_set: Boolean(s.password),
       pc: await this.pcState(url, s),
       config: await this.fresh.config(),
       schema: SETTINGS_SCHEMA,
@@ -448,9 +460,13 @@ export class App {
   }
 
   /** A Cloudflare user token that can see this Worker proves ownership. It is also the token the
-   * Worker needs for builds and updates, so the latest one is kept. */
+   * Worker needs for builds and updates, so the latest one is kept. Once set, the password logs in
+   * too; too many wrong ones in an hour stop password logins until the hour is up (the token way in
+   * stays open). */
   private async login(req: Request, url: URL): Promise<Response> {
-    const token = String((await bodyJson(req)).token ?? "").trim();
+    const body = await bodyJson(req);
+    if (typeof body.password === "string") return this.passwordLogin(body.password);
+    const token = String(body.token ?? "").trim();
     if (!token) return error(400, "paste a token");
     // Under wrangler dev the host is 127.0.0.1; DEV_WORKER_HOST names a deployed Worker instead.
     const host = this.p.env.DEV_WORKER_HOST || url.host;
@@ -466,6 +482,23 @@ export class App {
       cf_token: token, cf_account_id: found.account_id, cf_script: found.script, cf_trigger: found.trigger, cf_branch: found.branch,
     });
     const session = await auth.makeSession((await this.fresh.secrets()).cookie_key, this.p.now());
+    return json({ ok: true }, 200, { "Set-Cookie": auth.cookieHeader(session) });
+  }
+
+  private async passwordLogin(password: string): Promise<Response> {
+    const s = await this.fresh.secrets();
+    if (!s.password) return error(400, "No password is set yet: log in with a Cloudflare token.");
+    const now = this.p.now();
+    const fails: number[] = ((await this.fresh.setup()).login_fails ?? []).filter((t: number) => now - t < LOGIN_WINDOW_S);
+    if (fails.length >= LOGIN_FAILS_MAX) {
+      return error(429, "Too many wrong passwords: password login is paused for up to an hour. Log in with a Cloudflare token instead.");
+    }
+    if (!(await auth.passwordOk(password, s.password))) {
+      await this.fresh.updateSetup({ login_fails: [...fails, now] });
+      return error(401, "Wrong password.");
+    }
+    if (fails.length) await this.fresh.updateSetup({ login_fails: null });
+    const session = await auth.makeSession(s.cookie_key, now);
     return json({ ok: true }, 200, { "Set-Cookie": auth.cookieHeader(session) });
   }
 

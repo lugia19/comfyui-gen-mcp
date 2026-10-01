@@ -7,6 +7,7 @@
   import LocalSetup from './lib/LocalSetup.svelte'
   import Setup from './lib/Setup.svelte'
   import Settings from './lib/Settings.svelte'
+  import SetPassword from './lib/SetPassword.svelte'
 
   let info = $state(null) // GET /api/state, or null while logged out
   let checking = $state(true)
@@ -78,6 +79,9 @@
     <p class="muted">Loading…</p>
   {:else if !info}
     <Login onlogin={loggedIn} />
+  {:else if !local && !info.password_set}
+    <!-- Required once, right after the first (token) login. -->
+    <section><SetPassword required ondone={loggedIn} /></section>
   {:else if agent}
     <Checklist items={checklist} done="Ask Claude for an image, on claude.ai or the phone app: it is made on this PC." />
     <AgentWorker {info} {refresh} />

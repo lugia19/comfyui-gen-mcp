@@ -3,6 +3,7 @@
   import { api, GUIDE, gpuName, hideFigure, platformName } from './api.js'
   import BuildLog from './BuildLog.svelte'
   import Models from './Models.svelte'
+  import SetPassword from './SetPassword.svelte'
   import Step from './Step.svelte'
 
   // The Worker's setup, one step at a time: log in, choose where images are made (Modal, the PC,
@@ -293,6 +294,10 @@
       again with a new token replaces the stored one.
     </p>
   {/if}
+  <details class="guide">
+    <summary>Change the password</summary>
+    <SetPassword />
+  </details>
 </Step>
 
 <Step n={2} title="Choose where images are made" status={status(choice)} summary={choice ? LABELS[choice][0] : ''}>

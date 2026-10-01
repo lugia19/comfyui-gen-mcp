@@ -7,6 +7,7 @@ import { cacheEntry } from "../src/store.ts";
 import * as updates from "../src/updates.ts";
 import golden from "../../core/test/golden.json" with { type: "json" };
 import { makeSession, sessionOk } from "../src/auth.ts";
+import * as auth from "../src/auth.ts";
 import { ADMIN, COMFY, HOST, TOKEN, request, world } from "./world.ts";
 
 const secretsOf = (app: App) => app.store.secrets();
@@ -766,5 +767,43 @@ describe("the PC path", () => {
     expect([loras.offline, loras.errors, loras.files]).toEqual([["pc"], {}, { "both.safetensors": { modal: 7 } }]);
     expect((await body(await app.handle(request("GET", "/api/models", undefined, cookie)))).packs[0].on.pc).toEqual({ state: "offline" });
     expect(pc.controlCalls).toEqual([]);
+  });
+});
+
+describe("password login", () => {
+  it("hashes with PBKDF2-SHA256 (a stored format: the vector is Python's hashlib.pbkdf2_hmac)", async () => {
+    const salt = "00112233445566778899aabbccddeeff";
+    expect(await auth.hashPassword("correct horse battery", salt, 1000)).toBe("7b45bab25588ef932d09a1d56ad6911d7d7c1759dedf18cb663cd6c3034bd67b");
+  });
+
+  it("is set after a token login, then logs in, and pauses after too many wrong ones", async () => {
+    const { app, clock } = world();
+    const loginWith = (password: string) => app.handle(request("POST", "/api/login", { password }));
+    expect(await body(await app.handle(request("GET", "/api/login")))).toEqual({ password: false });
+    expect((await loginWith("anything at all")).status).toBe(400); // none set: the token is the way in
+    expect((await app.handle(request("PUT", "/api/password", { password: "long enough!" }))).status).toBe(401); // logged in only
+
+    const cookie = await login(app);
+    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).password_set).toBe(false);
+    expect((await app.handle(request("PUT", "/api/password", { password: "short" }, cookie))).status).toBe(400);
+    expect((await app.handle(request("PUT", "/api/password", { password: "long enough!" }, cookie))).status).toBe(200);
+    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).password_set).toBe(true);
+    expect(await body(await app.handle(request("GET", "/api/login")))).toEqual({ password: true });
+    const stored = (await secretsOf(app)).password;
+    expect(Object.keys(stored).sort()).toEqual(["hash", "iterations", "salt"]); // never the password itself
+    expect(JSON.stringify(stored)).not.toContain("long enough");
+
+    const ok = await loginWith("long enough!");
+    expect(ok.status).toBe(200);
+    const session = ok.headers.get("set-cookie")!.split(";")[0];
+    expect((await app.handle(request("GET", "/api/state", undefined, { cookie: session }))).status).toBe(200);
+    expect((await loginWith("wrong password")).status).toBe(401);
+
+    for (let i = 0; i < 9; i++) await loginWith("wrong password");
+    const paused = await loginWith("long enough!"); // even the right one, for the rest of the hour
+    expect([paused.status, (await body(paused)).error]).toEqual([429, expect.stringContaining("Cloudflare token")]);
+    expect((await app.handle(request("POST", "/api/login", { token: TOKEN }))).status).toBe(200); // the token still works
+    clock.t += 3601;
+    expect((await loginWith("long enough!")).status).toBe(200);
   });
 });

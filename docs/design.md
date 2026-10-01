@@ -417,7 +417,7 @@ result, pick the GPU and install ComfyUI (or keep the old extension's). No accou
 | LoRA download session id | Modal Dict, the agent | Reads one LoRA from the upload endpoint (1 h) |
 | PC LoRA upload session id | The agent's memory, the settings page | Writes one LoRA's chunks through the Worker's relay (24 h; lost on an agent restart) |
 
-**Login.** There is no setup password. A fresh install's URL is not secret: the Worker name is the
+**Login.** There is no setup password: the first login is a Cloudflare token. A fresh install's URL is not secret: the Worker name is the
 template's `comfy-gen` for nearly everyone, and each account's workers.dev subdomain is public in
 Certificate Transparency logs (its wildcard certificate). So "the first visitor claims it" would let
 anyone scanning those logs claim installs before their owners. The Deploy button takes only the
@@ -425,8 +425,15 @@ template URL (no name, secret or variable parameters), so nothing random can rea
 either. Instead, logging in means pasting a Cloudflare user token that can see this Worker
 (`scripts-search` on its name finds it in the token's accounts), which only the account's owner can
 make. Setup needs that token anyway; the latest one replaces the stored one. The session cookie
-lasts a year; a new browser logs in with a fresh token from the same link. Under `wrangler dev`,
-`DEV_WORKER_HOST` names the deployed Worker to prove ownership of.
+lasts a year. Under `wrangler dev`, `DEV_WORKER_HOST` names the deployed Worker to prove ownership of.
+
+**Password** (decided 2026-10-01: making a new token for each browser was tedious). Right after the
+first token login the page requires a password (at least 10 characters), and later logins use it;
+the token stays the way back in when it is forgotten. It can only be set by a logged-in session, so
+the first claim still goes through Cloudflare. The secrets hold `password: {salt, hash, iterations}`,
+PBKDF2-SHA256 with 20,000 iterations (few for a password hash, for the free plan's CPU budget). The
+guard against guessing is a lockout: 10 wrong passwords within an hour pause password logins for
+the rest of it (`setup.login_fails`), while the token login stays open.
 
 Any code that calls a Worker from outside (build callbacks, the upload snippet, the agent) sends its own
 `User-Agent`: Cloudflare answers urllib's default `Python-urllib/x.y` with Error 1010 before the
