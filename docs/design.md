@@ -237,7 +237,9 @@ stored `custom_workflow` setting is dropped on read.
 
 - **The generator is the storage.** Modal: ComfyUI's input and output folders live on the Volume, so
   outputs survive scale-to-zero (S5). PC: the agent's disk. MCPB: local paths. No Cloudflare
-  storage, no R2.
+  storage, no R2. **To be replaced** (decided 2026-10-01): R2 holds uploads, outputs and LoRAs for
+  a Worker, and every GPU (Modal, PCs) becomes plain compute; see the build plan's "Next: R2 and
+  a list of GPUs". The extension stays local.
 - **References are opaque.** Claude sees an id, the brain maps it to a ComfyUI filename it owns. Never
   paths from the model (path traversal on the PC, cross-reading on a shared volume). An id is the
   ComfyUI location signed with an HMAC under the Worker's secret, so it cannot be forged and needs
@@ -635,7 +637,9 @@ Later: the ComfyUI client and the Modal app can become shared with Visual-Noveli
 | `resource_link` results | Not supported by claude.ai; the model sees only a name and URL (S2) |
 | RunPod serverless | Superseded by Modal in Visual-Novelist: cheap pools often unstocked, volume pins a datacenter |
 | Our own job handler and Docker image | Modal serves ComfyUI's own API; ComfyUI is the worker everywhere |
-| R2 or KV for image storage | The generator already holds the files; R2 needs a card on file |
+| R2 or KV for image storage | The generator already holds the files; R2 needs a card on file. **Reversed 2026-10-01**: storage that outlives every GPU (links with the PC off, edits across GPUs, a LoRA hub for several PCs) is worth a card on file; R2's free tier stays free |
+| Durable Object storage for images and LoRAs (2026-10-01) | No card, but 5 GB per account, 1 GB per object and 2 MB per value on the free plan, and only reachable through the Worker: fine for WebP images, poor for LoRAs of hundreds of MB |
+| Full-size PNGs in storage (2026-10-01) | Every edit goes through the model's VAE, which loses far more than WebP at quality 90; ComfyUI's PNG stays on the GPU's disk. The `:lossless` switch dates from JPEG results (no transparency) and goes |
 | QoL or settings-page uploads | The model would not know which reference to use; the sandbox upload keeps it in context |
 | Workers KV for the Worker's state | Reads are cached at the edge for up to a minute: after a save, reads alternated between old and new values for about 60 s, and a read-modify-write could undo a recent write. A SQLite Durable Object is consistent and on the free plan |
 | Hot pack manifest in KV | A second update path; a release build takes about 2 minutes and runs automatically |

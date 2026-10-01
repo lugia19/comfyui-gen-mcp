@@ -278,6 +278,33 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   owner's images by number; `p7.…` on the PC, `mupAbCd1234.…` for an upload); the public `/img/`
   link carries 12. JSON ids still verify.
 
+## Next: R2 and a list of GPUs (decided 2026-10-01; after the extension's test and the next release)
+
+One milestone, as the two need each other:
+- **R2 as the Worker's storage** for uploads, outputs and LoRAs. Outputs are stored as WebP at
+  quality 90 (the file the inline result already uses); ComfyUI's PNG stays on the GPU's disk. GPUs
+  upload and download with signed links, so the bytes skip the Worker; streaming through the
+  Worker is the fallback. Links and edits read from R2, so they work with every GPU off. An expiry
+  rule by age keeps the bucket in the free tier.
+- **A list of GPUs in priority order** instead of "Modal" and "PC": a call goes to the first that
+  is online, not paused, and has the model. Several PCs can pair, each with its own secret and
+  socket on the relay. Modal is added to the list by its deploy (it stays HTTP and scales to
+  zero; it cannot hold an agent's WebSocket). A ComfyUI by URL is a third kind of entry.
+  Keep-warm, pause and models become per entry; the Settings page has a column per GPU.
+- **LoRAs:** R2 is the hub; every GPU pulls what it lacks (Modal possibly through a bucket mount).
+- **Image ids:** an id names a stored object; ids from before keep resolving to their backend.
+- **`:lossless` goes** (it dates from JPEG results).
+- **Upgrades:** a Worker config naming a missing bucket fails its deploy, so the build creates the
+  bucket, or leaves storage off and the setup page offers "Enable storage" (the card on file).
+
+Spike first, on the test account with R2 enabled:
+- what enabling R2 asks for (card), and whether the build can create and bind a bucket with the
+  user's token (else which permission it lacks)
+- signed links: how the Worker gets S3 credentials (an R2 token made at setup), and a signed
+  upload from the agent and from Modal, timed
+- Worker CPU for streaming a 500 KB WebP and a 4 MB chunk through a binding, in and out
+- Modal's bucket mount against R2
+
 ## Verification
 
 - **Every change:** `npm run typecheck`, `npm test` and `uv run pytest` (CI also runs Python 3.14,
