@@ -71,6 +71,8 @@ export class LocalComfy {
   error: string | null = null;
   url: string | null = null;
   install: Install | null = null;
+  /** Called whenever the managed ComfyUI has stopped (asked to, or on its own). */
+  onStopped: (() => void) | null = null;
   private child: ChildProcess | null = null;
   private starting: Promise<string> | null = null;
   private objectInfo: Set<string> | null = null;
@@ -187,6 +189,7 @@ export class LocalComfy {
         if (this.state === "running") {
           log.warn(`ComfyUI stopped on its own (${exited})`);
           this.state = "stopped";
+          this.onStopped?.();
         }
       }
     });
@@ -227,10 +230,28 @@ export class LocalComfy {
     if (child) {
       log.info("Stopping ComfyUI");
       await killTree(child);
+      this.onStopped?.();
     }
     if (this.state === "running" || this.state === "starting") this.state = "stopped";
     if (this.state !== "external") this.url = null;
     this.objectInfo = null;
+  }
+
+  /** Ask a running ComfyUI to unload its models and drop its caches, which closes the files it
+   * holds (a LoRA it used stays open on Windows otherwise). False if it is not running. */
+  async free(): Promise<boolean> {
+    if (this.state !== "running" || !this.url) return false;
+    try {
+      const resp = await fetch(`${this.url}/free`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unload_models: true, free_memory: true }),
+        signal: AbortSignal.timeout(5000),
+      });
+      return resp.ok;
+    } catch {
+      return false;
+    }
   }
 
   async restart(): Promise<string> {

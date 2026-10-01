@@ -51,6 +51,37 @@ export class Machine {
     this.downloads = new ModelDownloads(this.comfy.models);
     this.loraRegistry = new LoraRegistry(join(this.p.home, "loras.json"), () => this.lorasDir, () => this.comfy.models.folders().loras ?? []);
     this.uploads = new LoraUploads(this.loraRegistry, () => this.lorasDir);
+    // LoRA files that were in use when deleted go once ComfyUI lets go of them.
+    this.comfy.onStopped = () => void this.deletePendingLoras();
+    void this.deletePendingLoras();
+  }
+
+  private async deletePendingLoras(): Promise<void> {
+    try {
+      const left = this.loraRegistry.deletePending();
+      if (left.length) log.info(`LoRA files still in use, deleted when ComfyUI stops: ${left.join(", ")}`);
+    } catch (e) {
+      log.warn("Deleting LoRA files:", (e as Error).message);
+    }
+  }
+
+  /**
+   * Delete one of our LoRAs (the settings page, or the Worker through the agent). It leaves the list
+   * and the settings at once. Its file may be held open by ComfyUI (Windows): then ComfyUI is asked
+   * to unload its models and the delete is retried for a few seconds; failing that, the file goes
+   * when ComfyUI next stops. *pending* says the file is still there.
+   */
+  async deleteLora(name: string): Promise<{ deleted: string; pending: boolean }> {
+    let pending = this.loraRegistry.delete(name);
+    this.opts.onLoraDeleted?.(name);
+    if (pending && (await this.comfy.free())) {
+      for (let i = 0; i < 5 && pending; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        pending = this.loraRegistry.deletePending().includes(name);
+      }
+    }
+    log.info(pending ? `LoRA deleted: ${name} (its file is in use; deleted when ComfyUI stops)` : `LoRA deleted: ${name}`);
+    return { deleted: name, pending };
   }
 
   get install(): InstallState {
@@ -98,17 +129,21 @@ export class Machine {
   async ensurePack(pack: PackNeeds, settingsUrl: string): Promise<void> {
     const comfy = this.comfy;
     await comfy.refresh();
-    if (comfy.state === "not_installed") await comfy.ensureRunning(); // throws: install first
+    // The first answer a new user gets: it must say where to go (Claude passes the link on).
+    if (comfy.state === "not_installed") throw new ComfyUIError(`ComfyUI is not installed yet. Install it from the Comfy-Gen settings page: ${settingsUrl}`);
     const models = pack.models ?? [];
     if (comfy.state !== "external" && models.length) {
       const name = pack.display_name ?? pack.name;
       let status = this.downloads.status(pack.name, models);
       if (status.state === "missing" || status.state === "failed") status = this.downloads.start(pack.name, models);
+      if (status.state === "failed") {
+        throw new ComfyUIError(`The ${name} model can't be downloaded: ${status.error}. Free some space on that drive, then try again (the settings page: ${settingsUrl})`);
+      }
       if (status.state !== "done") {
         const pct = status.total ? Math.floor((100 * status.done) / status.total) : 0;
         const gb = (n: number) => `${(n / 1e9).toFixed(1)} GB`;
         const size = downloadSize({ models } as any);
-        const part = status.total < size ? ` (the rest of its ${gb(size)} is already on this computer)` : "";
+        const part = status.total < size ? ` (${gb(size - status.total)} of its ${gb(size)} is already on this computer)` : "";
         throw new ComfyUIError(
           `The ${name} model is downloading: ${pct}% of ${gb(status.total)}${part}. ` +
             `Try again when it is done; progress is on the settings page, ${settingsUrl}`,
@@ -175,11 +210,7 @@ export class Machine {
       }
       if (up && !up[2] && m === "GET") return json(this.uploads.status(up[1]));
       if (!up && m === "DELETE") {
-        const name = decodeURIComponent(sub.slice("/loras/".length));
-        this.loraRegistry.delete(name);
-        this.opts.onLoraDeleted?.(name);
-        log.info(`LoRA deleted: ${name}`);
-        return json({ deleted: name });
+        return json(await this.deleteLora(decodeURIComponent(sub.slice("/loras/".length))));
       }
     } catch (e) {
       if (e instanceof UploadError) return error(e.status, e.message);

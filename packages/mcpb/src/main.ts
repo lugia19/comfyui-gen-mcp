@@ -71,6 +71,14 @@ const FOREIGN_OWNER = (port: number) =>
 export async function main(opts: MainOptions): Promise<void> {
   const p = opts.paths ?? paths();
   logTo(p.logs);
+  // A crash must leave a line in the log: Claude Desktop only says the extension "exited abnormally".
+  if (!opts.stdin) {
+    process.on("uncaughtException", (e) => {
+      log.error(`Process ${process.pid} crashed:`, e);
+      process.exit(1);
+    });
+    process.on("unhandledRejection", (e) => log.error("Unhandled rejection:", e));
+  }
   const stdout = opts.stdout ?? process.stdout;
   const exit = opts.exit ?? ((code: number) => process.exit(code));
   let owner: RunningServer | null = null;
@@ -80,13 +88,14 @@ export async function main(opts: MainOptions): Promise<void> {
   const becomeOwner = async (): Promise<boolean> => {
     if (owner) return true;
     try {
-      owner = await startServer({ version: opts.version, waitExtension: opts.waitExtension, web: opts.web, paths: p });
+      owner = await startServer({ version: opts.version, waitExtension: opts.waitExtension, web: opts.web, paths: p, openSettings: !opts.stdin });
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       if (code === "EADDRINUSE" || code === "EACCES") return false;
       throw e;
     }
-    log.info(`Process ${process.pid} owns the server`);
+    // (startServer logs "serving on port": Claude Desktop starts several copies, and each takes over
+    // in turn as the one before it is ended, so a start shows a few of these within a second.)
     if (opts.trayIcons) void startTray(owner, opts.trayIcons).then((t) => (tray = t));
     return true;
   };

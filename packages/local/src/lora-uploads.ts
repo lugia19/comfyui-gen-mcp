@@ -11,6 +11,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { writeFileAtomic } from "./config.ts";
 
 export const LORA_CHUNK_SIZE = 4 << 20; // relayed through the Worker: well under its request limits
 const MAX_SIZE = 2 * 1024 ** 3; // not 2 << 30: that overflows to a negative 32-bit number
@@ -76,9 +77,7 @@ export class LoraRegistry {
   }
 
   private save(names: string[]): void {
-    mkdirSync(dirname(this.file), { recursive: true });
-    writeFileSync(`${this.file}.tmp`, JSON.stringify([...new Set(names)].sort()));
-    renameSync(`${this.file}.tmp`, this.file);
+    writeFileAtomic(this.file, JSON.stringify([...new Set(names)].sort()));
   }
 
   /** {name: path} of our LoRAs that are on disk. */
@@ -98,15 +97,62 @@ export class LoraRegistry {
 
   add(name: string): void {
     this.save([...this.names(), validLoraName(name)]);
+    this.savePending(this.pending().filter((n) => n !== name)); // back again: not to be deleted
   }
 
-  /** Delete one of ours: its entry, and its file when it is in our folder. One in another folder
-   * (adopted from before the registry) is only forgotten: that folder is not ours to touch. */
-  delete(name: string): void {
+  /**
+   * Delete one of ours: its entry, and its file when it is in our folder. One in another folder
+   * (adopted from before the registry) is only forgotten: that folder is not ours to touch. On
+   * Windows a file ComfyUI has open (a LoRA it used) cannot be deleted: the entry goes at once,
+   * and the file waits in a pending list for deletePending() (ComfyUI unloaded or stopped).
+   * Returns whether the file is still waiting.
+   */
+  delete(name: string): boolean {
     const names = this.names();
     if (!names.includes(name)) throw new UploadError(`no LoRA named ${name}`, 404);
-    rmSync(join(this.dir(), name), { force: true });
     this.save(names.filter((n) => n !== name));
+    if (removeFile(join(this.dir(), name))) return false;
+    this.savePending([...this.pending(), name]);
+    return true;
+  }
+
+  /** Delete the files that were in use when their LoRA was deleted. Returns the ones still in use. */
+  deletePending(): string[] {
+    const waiting = this.pending();
+    if (!waiting.length) return [];
+    const left = waiting.filter((name) => !removeFile(join(this.dir(), name)));
+    this.savePending(left);
+    return left;
+  }
+
+  private get pendingFile(): string {
+    return join(dirname(this.file), "loras-pending-delete.json");
+  }
+
+  private pending(): string[] {
+    try {
+      const data = JSON.parse(readFileSync(this.pendingFile, "utf8"));
+      return Array.isArray(data) ? data.filter((n) => typeof n === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private savePending(names: string[]): void {
+    if (!names.length && !existsSync(this.pendingFile)) return;
+    writeFileAtomic(this.pendingFile, JSON.stringify([...new Set(names)].sort()));
+  }
+}
+
+/** Delete a file: true once it is gone, false while another program holds it open (Windows). */
+function removeFile(path: string): boolean {
+  try {
+    rmSync(path, { force: true });
+    return true;
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "EPERM" || code === "EBUSY" || code === "EACCES") return false;
+    throw e;
   }
 }
 

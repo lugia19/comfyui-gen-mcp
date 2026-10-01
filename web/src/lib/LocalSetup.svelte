@@ -24,6 +24,18 @@
   }
 
   let comfy = $derived(info.comfyui)
+  // The agent's page keeps the rarely needed parts (reinstalling, other model folders, a ComfyUI of
+  // your own) folded under Advanced: its everyday settings live on the Worker's page.
+  const agent = untrack(() => info.mode === 'agent')
+  // The connector URL holds its secret: shown masked, as screenshots get shared.
+  let showUrl = $state(false)
+  let copied = $state(false)
+  const masked = (u) => (u || '').replace(/(\/mcp\/).+$/, '$1••••••••')
+  async function copyUrl() {
+    await navigator.clipboard.writeText(info.connector_url)
+    copied = true
+    setTimeout(() => (copied = false), 1500)
+  }
   let packCount = $state(0) // the agent has none of its own: its packs are the Worker's
   // Form fields start from the page's first state; later refreshes don't overwrite what is typed.
   let gpu = $state(untrack(() => info.comfyui.gpu || info.detected_gpu))
@@ -105,7 +117,7 @@
   {#if comfy.error}<pre class="err">{comfy.error}</pre>{/if}
   {#if comfy.state !== 'not_installed' && comfy.state !== 'external'}
     <div class="row">
-      <button class="secondary" onclick={() => action('restart')} disabled={!!busy || install.state === 'running'}>
+      <button class:secondary={comfy.state === 'running'} onclick={() => action('restart')} disabled={!!busy || install.state === 'running'}>
         {busy === 'restart' ? 'Restarting…' : comfy.state === 'running' ? 'Restart' : 'Start'}
       </button>
       {#if comfy.state === 'running'}
@@ -116,7 +128,7 @@
   {/if}
 </section>
 
-{#if comfy.state !== 'external'}
+{#snippet installSection()}
   <section>
     <h2>{comfy.state === 'not_installed' ? 'Install ComfyUI' : 'Reinstall ComfyUI'}</h2>
     <p class="muted">
@@ -129,7 +141,7 @@
         <span>{GPU_LABELS[g] || g}</span>
       </label>
     {/each}
-    <button onclick={startInstall} disabled={install.state === 'running'}>
+    <button class:secondary={comfy.state !== 'not_installed'} onclick={startInstall} disabled={install.state === 'running'}>
       {install.state === 'running' ? 'Installing…' : comfy.state === 'not_installed' ? 'Install' : 'Reinstall'}
     </button>
     {#if install.state !== 'idle'}
@@ -138,6 +150,10 @@
       <pre>{install.lines.slice(-14).join('\n')}</pre>
     {/if}
   </section>
+{/snippet}
+
+{#if comfy.state !== 'external' && !(agent && comfy.state !== 'not_installed' && install.state === 'idle')}
+  {@render installSection()}
 {/if}
 
 {#if comfy.state !== 'not_installed' && comfy.state !== 'external'}
@@ -172,11 +188,23 @@
     {#if comfy.dir}<button class="secondary" onclick={() => open('output')}>Generated images</button>{/if}
     <button class="secondary" onclick={() => open('logs')}>Logs</button>
   </div>
+  {#if agent}
+    <details class="advanced">
+      <summary>Advanced</summary>
+      {#if comfy.state !== 'external' && comfy.state !== 'not_installed' && install.state === 'idle'}{@render installSection()}{/if}
+      {@render folderForm()}
+    </details>
+  {:else}
+    {@render folderForm()}
+  {/if}
+</section>
+
+{#snippet folderForm()}
   <form onsubmit={saveFolders}>
     <label for="extra">Another models folder (optional)</label>
     <input id="extra" type="text" bind:value={extraDir} placeholder="D:\ComfyUI\models" />
     <p class="muted">
-      A models folder of another ComfyUI that was not found by itself (see above), used as is, so
+      The models folder of another ComfyUI install that isn't found by itself, used as is, so
       nothing is downloaded twice.
     </p>
     <label for="url">Your own ComfyUI (advanced)</label>
@@ -188,14 +216,16 @@
     <button type="submit">Save</button>
     {#if saved}<p class="ok">{saved}</p>{/if}
   </form>
-</section>
+{/snippet}
 
 {#if info.mode !== 'agent'}
 <section>
   <h2>Connect Claude</h2>
   <p>Claude Desktop connects through the extension by itself. Nothing to do here.</p>
   <p class="muted">
-    Other MCP clients on this computer can use <code>{info.connector_url}</code>. For claude.ai and your
+    Other MCP clients on this computer can use <code>{showUrl ? info.connector_url : masked(info.connector_url)}</code>
+    <button type="button" class="link" onclick={() => (showUrl = !showUrl)}>{showUrl ? 'Hide' : 'Show'}</button>
+    <button type="button" class="link" onclick={copyUrl}>{copied ? 'Copied' : 'Copy'}</button>. For claude.ai and your
     phone, use a Worker install instead.
   </p>
 </section>
@@ -205,4 +235,7 @@
 
 <style>
   .source { margin: 8px 0; display: flex; flex-direction: column; gap: 2px; }
+  .advanced { margin-top: 12px; }
+  .advanced summary { cursor: pointer; color: var(--accent); }
+  button.link { background: none; border: 0; padding: 0; margin: 0 0 0 6px; color: var(--accent); }
 </style>

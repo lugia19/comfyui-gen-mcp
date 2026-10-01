@@ -431,7 +431,7 @@ describe("LoRAs", () => {
     const other = { name: "keep.safetensors", strength: 1, trigger: "", hidden: false };
     await app.handle(request("PUT", "/api/config", { config: { pack_loras: { anima: [entry, other] } } }, cookie));
     const del = await app.handle(request("DELETE", "/api/loras/style.safetensors", undefined, cookie));
-    expect(await body(del)).toEqual({ deleted: "style.safetensors", from: ["storage", "modal"], errors: [] });
+    expect(await body(del)).toEqual({ deleted: "style.safetensors", from: ["storage", "modal"], errors: [], pending: [] });
     expect(bucket.objects.has("lora/style.safetensors")).toBe(false);
     // Turned off in every model too: a generation must not ask ComfyUI for the missing file.
     const state = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
@@ -769,10 +769,11 @@ describe("the PC path", () => {
     });
     const { cookie } = await pair(app);
     net.loras = { "x.safetensors": 1 };
-    pc.controls.lora_delete = (args) => (args.name === "x.safetensors" ? [200, { deleted: args.name }] : [404, "no LoRA"]);
+    // The PC's ComfyUI still has the file open (Windows): off the list, the file goes when it stops.
+    pc.controls.lora_delete = (args) => (args.name === "x.safetensors" ? [200, { deleted: args.name, pending: true }] : [404, "no LoRA"]);
     pc.controls.sync = () => [200, { started: true }];
     const del = await body(await app.handle(request("DELETE", "/api/loras/x.safetensors", undefined, cookie)));
-    expect(del).toEqual({ deleted: "x.safetensors", from: ["modal", "pc"], errors: [] });
+    expect(del).toEqual({ deleted: "x.safetensors", from: ["modal", "pc"], errors: [], pending: ["Your PC"] });
     expect((await app.handle(request("DELETE", "/api/loras/nope.safetensors", undefined, cookie))).status).toBe(404);
     expect(await body(await app.handle(request("POST", "/api/loras/sync", undefined, cookie)))).toEqual({ started: true });
     expect(pc.controlCalls.at(-1)![0]).toBe("sync");

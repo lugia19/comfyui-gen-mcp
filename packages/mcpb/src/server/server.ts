@@ -3,8 +3,10 @@
 // The port is the single-instance lock: when another extension process holds it, start() fails with
 // EADDRINUSE and the caller relays to that one instead (design §2, "The MCPB process").
 
+import { closeSync, openSync } from "node:fs";
 import type { Server } from "node:http";
-import { listen, loadConfig, log, logTo, Machine, paths, saveConfig, type LocalConfig, type Paths, type WebFiles } from "@comfy-gen/local";
+import { join } from "node:path";
+import { listen, loadConfig, log, logTo, Machine, openExternal, paths, saveConfig, type LocalConfig, type Paths, type WebFiles } from "@comfy-gen/local";
 import { withoutLora } from "@comfy-gen/core";
 import { LocalApp, selectedPacks } from "./app.ts";
 
@@ -15,6 +17,7 @@ export type ServerOptions = {
   paths?: Paths;
   port?: number; // overrides the config (tests)
   host?: string;
+  openSettings?: boolean; // false: never open the browser (tests)
 };
 
 export type RunningServer = { app: LocalApp; server: Server; port: number; close(): Promise<void> };
@@ -67,7 +70,18 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   // LoRAs a model uses are ours, also those configured before uploads were the one way in (v1.3.6).
   const adopted = machine.loraRegistry.adopt(Object.values(config().pack_loras).flat().map((l) => l.name));
   if (adopted.length) log.info(`LoRAs in use, now listed: ${adopted.join(", ")}`);
-  log.info(`Comfy-Gen-MCP ${opts.version} serving on port ${bound} (settings: http://127.0.0.1:${bound}/)`);
+  log.info(`Comfy-Gen-MCP ${opts.version} serving on port ${bound} in process ${process.pid} (settings: http://127.0.0.1:${bound}/)`);
+  // A new install opens its settings page once, as the agent does: nothing else tells a new user
+  // where it is (seen 2026-10-02). Claude Desktop starts several copies at once; the marker file,
+  // created exclusively, lets only the first open it.
+  if (machine.comfy.state === "not_installed" && opts.openSettings !== false) {
+    try {
+      closeSync(openSync(join(p.home, "settings-opened"), "wx"));
+      openExternal(`http://127.0.0.1:${bound}/`);
+    } catch {
+      // opened before (or another copy is opening it)
+    }
+  }
   return {
     app,
     server,

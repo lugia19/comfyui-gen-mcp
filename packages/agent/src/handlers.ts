@@ -103,9 +103,7 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
           o.setPaused(args.paused === true);
           return ok({ paused: args.paused === true });
         case "lora_delete":
-          machine.loraRegistry.delete(String(args.name));
-          log.info(`LoRA deleted: ${args.name}`);
-          return ok({ deleted: args.name });
+          return ok(await machine.deleteLora(String(args.name)));
         default:
           return [400, `The agent does not know the operation ${h.op}. Update it.`];
       }

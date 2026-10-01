@@ -117,6 +117,7 @@
   }
 
   // Claude
+  let showUrl = $state(false) // the connector URL holds its secret: masked, as screenshots get shared
   let copied = $state(false)
   let generatorReady = $derived(gpus.some((g) => g.kind !== 'pc' || g.online))
 
@@ -341,9 +342,10 @@
     <li>In claude.ai, open <b>Settings → Connectors → Add custom connector</b>.</li>
     <li>Name it anything (Comfy-Gen, say) and paste this URL:</li>
   </ol>
-  <div class="row"><code>{info.connector_url}</code></div>
+  <div class="row"><code>{showUrl ? info.connector_url : info.connector_url.replace(/(\/mcp\/).+$/, '$1••••••••')}</code></div>
   <div class="row">
     <button onclick={copyConnector}>{copied ? 'Copied' : 'Copy URL'}</button>
+    <button class="secondary" onclick={() => (showUrl = !showUrl)}>{showUrl ? 'Hide' : 'Show'}</button>
     <button class="secondary" onclick={rotate}>Make a new URL</button>
   </div>
   <p class="muted">Anyone with this URL can generate images with your setup. Treat it like a password.</p>

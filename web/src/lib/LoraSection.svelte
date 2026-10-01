@@ -21,6 +21,7 @@
 
   let progress = $state(null) // {name, phase, done, total} while an upload runs
   let error = $state('')
+  let note = $state('')
   let typed = $state('')
 
   let backends = $derived(listing?.backends ?? [])
@@ -102,10 +103,14 @@
     const where = has('storage') ? ' from storage and every GPU' : ''
     if (!confirm(`Delete ${name}${where}? Models that use it stop using it.`)) return
     error = ''
+    note = ''
     deleting = name
     try {
       const r = await api('DELETE', `/loras/${encodeURIComponent(name)}`)
       if (r.errors?.length) error = r.errors.join(' ')
+      // Windows: ComfyUI still had the file open. It is off the list; the file goes when ComfyUI stops.
+      const busy = r.pending === true ? ['ComfyUI'] : (r.pending ?? []).map((pc) => `ComfyUI on ${pc}`)
+      if (busy.length) note = `${name} is deleted. ${busy.join(' and ')} still had its file open: the file is removed when ComfyUI next stops.`
       for (const pack of packs) if (entryOf(pack, name)) toggle(pack, name, false)
       await reload()
     } catch (err) {
@@ -208,6 +213,7 @@
     <button class="secondary" onclick={addTyped} disabled={!typed.trim()}>Add</button>
   </div>
 {/if}
+{#if note}<p class="muted">{note}</p>{/if}
 {#if error}<p class="err">{error}</p>{/if}
 {#each errors as e}<p class="err">{e}</p>{/each}
 

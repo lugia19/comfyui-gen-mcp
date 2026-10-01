@@ -786,13 +786,17 @@ export class App {
         if (e.status !== 404) errors.push(`${gpu.name}: ${e.message}`);
       }
     }
+    const pending: string[] = []; // PCs whose ComfyUI still has the file open (Windows): deleted when it stops
     for (const pc of await this.onlinePcs(gpus)) {
       const r = await this.p.relays(pc.id).control("lora_delete", { name });
-      if (r.status === 200) from.push(pc.id);
-      else if (r.status !== 404) errors.push(`${pc.name}: ${fromUtf8(r.body)}`);
+      if (r.status === 200) {
+        from.push(pc.id);
+        const done = relay.controlResult(r.status, r.body);
+        if (done.ok && done.data?.pending) pending.push(pc.name);
+      } else if (r.status !== 404) errors.push(`${pc.name}: ${fromUtf8(r.body)}`);
     }
     if (!from.length && !errors.length) return error(404, `no LoRA named ${name}`);
-    return json({ deleted: name, from, errors });
+    return json({ deleted: name, from, errors, pending });
   }
 
   /**

@@ -65,6 +65,12 @@ other:
     expect(b).toEqual({ name: "other", folders: { vae: [join(d, "rel", "vae")] } });
   });
 
+  it("reads quoted keys as plain folder types", () => {
+    const d = dir();
+    const x = mk(dir(), "clip_vision");
+    expect(parseExtraModelPaths(`desktop:\n  'clip_vision': ${x}\n  "loras": ${x}\n`, d)[0].folders).toEqual({ clip_vision: [x], loras: [x] });
+  });
+
   it("writes one section per source, and reads back the same", () => {
     const d = dir();
     const x = mk(dir(), "loras");

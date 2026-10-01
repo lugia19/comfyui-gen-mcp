@@ -104,7 +104,8 @@ export function parseExtraModelPaths(text: string, yamlDir: string): { name: str
     if (!trimmed || trimmed.startsWith("#")) continue;
     const m = /^([^:#]+):\s*(.*)$/.exec(trimmed);
     if (!m) continue;
-    const [, key, rest] = m;
+    const [, rawKey, rest] = m;
+    const key = unquote(rawKey.trim()); // 'clip_vision': … is a key too (seen in a user's yaml, 2026-10-02)
     if (indent === 0) {
       current = { name: key.trim(), base: "", entries: [] };
       sections.push(current);

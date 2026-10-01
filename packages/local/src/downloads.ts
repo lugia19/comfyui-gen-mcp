@@ -4,9 +4,19 @@
 
 import { join } from "node:path";
 import type { ModelLocator } from "./discover.ts";
-import { fetchFile } from "./fetchfile.ts";
+import { fetchFile, freeBytes } from "./fetchfile.ts";
 import { log } from "./log.ts";
 import { findModel } from "./models.ts";
+
+const GB = (n: number) => `${(n / 1e9).toFixed(1)} GB`;
+const SPACE_MARGIN = 1e9; // left free for everything else on the disk
+
+/** Why *bytes* more can't go into *dir*, or null if they fit (or the free space is unknown). A model
+ * download once filled the system drive to 0 bytes (2026-10-02). */
+export function noRoom(dir: string, bytes: number, free = freeBytes(dir)): string | null {
+  if (free === null || free - bytes >= SPACE_MARGIN) return null;
+  return `not enough disk space: it needs ${GB(bytes)}, and ${GB(Math.max(0, free))} is free where models go (${dir})`;
+}
 
 export type ModelFile = { filename: string; subfolder: string; url: string; size_bytes?: number; sha256?: string };
 export type PackDownload = {
@@ -49,7 +59,15 @@ export class ModelDownloads {
     if (current && (current.status.state === "queued" || current.status.state === "downloading")) return { ...current.status };
     const missing = this.missing(files);
     if (!missing.length) return { state: "done", done: 0, total: 0 };
-    const job: Job = { key, files: missing, status: { state: "queued", done: 0, total: missing.reduce((n, f) => n + (f.size_bytes ?? 0), 0) } };
+    const total = missing.reduce((n, f) => n + (f.size_bytes ?? 0), 0);
+    const room = noRoom(this.models.ownModels, total);
+    if (room) {
+      const failed: Job = { key, files: missing, status: { state: "failed", done: 0, total, error: room } };
+      this.byKey.set(key, failed);
+      log.error(`Not downloading the models for ${key}: ${room}`);
+      return { ...failed.status };
+    }
+    const job: Job = { key, files: missing, status: { state: "queued", done: 0, total } };
     this.byKey.set(key, job);
     this.queue.push(job);
     void this.pump();
@@ -87,6 +105,12 @@ export class ModelDownloads {
         continue;
       }
       job.status.file = f.filename;
+      const room = noRoom(own, f.size_bytes ?? 0); // other downloads may have used the space meanwhile
+      if (room) {
+        job.status = { ...job.status, state: "failed", error: `${f.filename}: ${room}` };
+        log.error(`Download for ${job.key} stopped: ${room}`);
+        return;
+      }
       log.info(`Downloading ${f.subfolder}/${f.filename} (${((f.size_bytes ?? 0) / 1e9).toFixed(1)} GB) for ${job.key}`);
       try {
         await fetchFile(f.url, join(own, f.subfolder, f.filename), {

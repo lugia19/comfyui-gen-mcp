@@ -1,7 +1,7 @@
 // Downloading one file to disk: streamed into a .part file, checked, then renamed into place.
 
 import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statfsSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 
 export const USER_AGENT = "comfy-gen-local";
@@ -25,6 +25,28 @@ export type FetchFileOptions = {
   resume?: boolean;
 };
 
+/** A write error in words: a full disk says so. */
+function diskError(e: Error, dest: string): Error {
+  const code = (e as NodeJS.ErrnoException).code;
+  return code === "ENOSPC" ? new Error(`the disk is full (writing ${dest})`) : e;
+}
+
+/** Bytes free on the disk holding *dir* (or its nearest existing parent), or null if unknown. */
+export function freeBytes(dir: string): number | null {
+  let d = dir;
+  while (!existsSync(d)) {
+    const up = dirname(d);
+    if (up === d) return null;
+    d = up;
+  }
+  try {
+    const s = statfsSync(d);
+    return s.bavail * s.bsize;
+  } catch {
+    return null;
+  }
+}
+
 /** Download *url* to *dest*. Throws on an HTTP error, a size or SHA-256 mismatch, or *signal*;
  * nothing is left at *dest* unless the file is complete and checked. Returns the file's SHA-256. */
 export async function fetchFile(url: string, dest: string, opts: FetchFileOptions = {}): Promise<string> {
@@ -45,16 +67,31 @@ export async function fetchFile(url: string, dest: string, opts: FetchFileOption
   const header = Number(resp.headers.get("content-length"));
   const total = opts.size ?? (header > 0 ? header + done : null);
   const out = createWriteStream(part, { flags: resumed ? "a" : "w" });
+  // A write error (a full disk) arrives as an event, and a failed stream never drains: waiting only
+  // for "drain" hung the download for good, with nothing logged (seen 2026-10-02).
+  let writeError: Error | null = null;
+  out.on("error", (e) => (writeError ??= diskError(e, dest)));
+  const writable = () =>
+    new Promise<void>((resolve) => {
+      const go = () => (out.off("drain", go), out.off("error", go), resolve());
+      out.once("drain", go);
+      out.once("error", go);
+    });
   try {
     for await (const chunk of resp.body as unknown as AsyncIterable<Uint8Array>) {
+      if (writeError) throw writeError;
       hash.update(chunk);
       done += chunk.length;
-      if (!out.write(chunk)) await new Promise<void>((r) => out.once("drain", () => r()));
+      if (!out.write(chunk)) await writable();
+      if (writeError) throw writeError;
       opts.onProgress?.(done, total);
     }
-    await new Promise<void>((resolve, reject) => out.end((e?: Error | null) => (e ? reject(e) : resolve())));
+    await new Promise<void>((resolve, reject) => out.end((e?: Error | null) => (e ? reject(diskError(e, dest)) : resolve())));
   } catch (e) {
-    if (opts.resume) {
+    if (writeError) {
+      out.destroy(); // nothing more can be written; for a resume, what reached the disk stays
+      if (!opts.resume) rmSync(part, { force: true });
+    } else if (opts.resume) {
       // A resumable download keeps what it has: flush it, or the bytes still buffered are lost.
       await new Promise<void>((resolve) => out.end(() => resolve()));
     } else {

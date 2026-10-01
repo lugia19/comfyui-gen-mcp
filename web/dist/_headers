@@ -1,0 +1,4 @@
+# Cloudflare static assets: the Worker's pages are never shown inside another site's frame.
+/*
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'

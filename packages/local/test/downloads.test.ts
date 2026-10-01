@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ModelLocator } from "../src/discover.ts";
-import { ModelDownloads, type ModelFile } from "../src/downloads.ts";
+import { ModelDownloads, noRoom, type ModelFile } from "../src/downloads.ts";
 import { mergeFolders, SHARED_SUBFOLDERS } from "../src/models.ts";
 import { fetchFile } from "../src/fetchfile.ts";
 
@@ -36,6 +36,23 @@ function serve(files: Record<string, Buffer>) {
     srv.listen(0, "127.0.0.1", () => resolve({ url: `http://127.0.0.1:${(srv.address() as any).port}`, ranges, close: () => srv.close() })),
   );
 }
+
+describe("a full disk", () => {
+  it("fails the download with the reason, instead of hanging (Linux: /dev/full answers every write with ENOSPC)", async () => {
+    if (!existsSync("/dev/full")) return;
+    const srv = await serve({ "/m": Buffer.alloc(8 << 20, 7) });
+    const dest = join(dir(), "m.safetensors");
+    symlinkSync("/dev/full", `${dest}.part`);
+    await expect(fetchFile(`${srv.url}/m`, dest, { resume: true })).rejects.toThrow(/the disk is full/);
+    srv.close();
+  }, 20_000);
+
+  it("is checked before a download starts, keeping 1 GB free", () => {
+    expect(noRoom("/x", 2e9, 10e9)).toBeNull();
+    expect(noRoom("/x", 2e9, 2.5e9)).toMatch(/not enough disk space: it needs 2.0 GB, and 2.5 GB is free where models go \(\/x\)/);
+    expect(noRoom("/x", 2e9, null)).toBeNull(); // unknown: try
+  });
+});
 
 describe("resumable fetchFile", () => {
   it("continues a .part file and checks the whole file's hash", async () => {

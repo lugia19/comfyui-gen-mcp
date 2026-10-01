@@ -3,8 +3,8 @@
   "name": "comfyui-image-gen",
   "display_name": "Comfy-Gen-MCP",
   "version": "0.0.0",
-  "description": "Generate and edit images with ComfyUI on your own GPU. Installs and runs ComfyUI for you; settings open from the tray icon.",
-  "long_description": "Image generation for Claude Desktop through a ComfyUI it installs, starts and stops on your computer. Pick your GPU and install ComfyUI from the settings page (tray icon, or the link in the first tool answer); models download on first use. For claude.ai and your phone, use a Worker install of Comfy-Gen-MCP instead.",
+  "description": "Generate and edit images with ComfyUI on your own GPU. Installs and runs ComfyUI for you; settings at http://127.0.0.1:9247/ or from the tray icon.",
+  "long_description": "Image generation for Claude Desktop through a ComfyUI it installs, starts and stops on your computer. Pick your GPU and install ComfyUI from the settings page, http://127.0.0.1:9247/ (it opens by itself the first time; later, the tray icon opens it); models download on first use. For claude.ai and your phone, use a Worker install of Comfy-Gen-MCP instead.",
   "author": {
     "name": "lugia19"
   },
@@ -24,11 +24,11 @@
   "tools": [
     {
       "name": "generate_illustrated_image",
-      "description": "Generate an anime or illustration image"
+      "description": "Generate an illustration, drawing, painting or anime image"
     },
     {
       "name": "generate_realistic_image",
-      "description": "Generate a realistic or general-purpose image"
+      "description": "Generate a photograph or photorealistic image"
     },
     {
       "name": "edit_image",

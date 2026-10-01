@@ -20,8 +20,9 @@ export const PACKS = builtinPacks();
 const GROUPS = groupByTool(PACKS);
 const PACK_METADATA = packMetadata(PACKS);
 
-export const INSTRUCTIONS =
-  "Images come back inline, each followed by its saved_path on this computer. Pass a saved_path (or any image path or URL) to edit_image to edit that image.";
+export const instructions = (settingsUrl: string) =>
+  "Images come back inline, each followed by its saved_path on this computer. Pass a saved_path (or any image path or URL) to edit_image to edit that image. " +
+  `Installing ComfyUI, models, LoRAs and other settings are on the settings page, ${settingsUrl} (or the Comfy-Gen tray icon, Open settings): send the user there when a tool says to.`;
 
 /** What the app needs from the process around it. */
 export type Services = {
@@ -121,7 +122,7 @@ export class LocalApp {
         return this.render(await brain(c).call(name, args), c);
       });
     };
-    return new McpHandler("Comfy-Gen-MCP", this.s.version, specs, call, INSTRUCTIONS);
+    return new McpHandler("Comfy-Gen-MCP", this.s.version, specs, call, instructions(this.settingsUrl));
   }
 
   private async render(outcome: Outcome, client: ComfyUIClient): Promise<[Content[], boolean]> {
@@ -195,14 +196,23 @@ export class LocalApp {
     return json({ config: cfg, warnings });
   }
 
+  /** The selected packs' models, then any download still running for a pack no longer selected:
+   * it carries on (switching away doesn't cancel it), so it stays listed until it is done. */
   private models() {
-    return selectedPacks(this.s.config()).map((pack: Pack) => ({
+    const selected = selectedPacks(this.s.config());
+    const rows: Record<string, unknown>[] = selected.map((pack: Pack) => ({
       name: pack.name,
       display_name: pack.display_name ?? pack.name,
       tool_name: pack.tool_name,
       size: downloadSize(pack),
       ...this.s.machine.downloads.status(pack.name, pack.models ?? []),
     }));
+    for (const job of this.s.machine.downloads.jobs()) {
+      if (selected.some((p) => p.name === job.key) || (job.state !== "queued" && job.state !== "downloading")) continue;
+      const pack = PACKS.find((p) => p.name === job.key);
+      rows.push({ ...job, name: job.key, display_name: `${pack?.display_name ?? job.key} (not selected)`, size: job.total });
+    }
+    return rows;
   }
 
   private missingLoras(cfg: LocalConfig): string[] {

@@ -185,6 +185,7 @@ describe("agent handlers", () => {
       loras: () => ({ "a.safetensors": 3 }),
       uploads,
       loraRegistry: registry,
+      deleteLora: async (name: string) => ({ deleted: name, pending: registry.delete(name) }),
       downloads: { status: () => ({ state: "done", done: 0, total: 0 }) },
     } as unknown as Machine;
     let keepWarm = 0;
@@ -216,7 +217,7 @@ describe("agent handlers", () => {
     mkdirSync(join(home, "loras"), { recursive: true });
     writeFileSync(join(home, "loras", "u.safetensors"), "abc");
     registry.add("u.safetensors");
-    expect(await call({ kind: "control", id: "12", op: "lora_delete", args: { name: "u.safetensors" } })).toEqual([200, '{"deleted":"u.safetensors"}']);
+    expect(await call({ kind: "control", id: "12", op: "lora_delete", args: { name: "u.safetensors" } })).toEqual([200, '{"deleted":"u.safetensors","pending":false}']);
     expect((await call({ kind: "control", id: "13", op: "lora_delete", args: { name: "u.safetensors" } }))[0]).toBe(404);
     expect((await call({ kind: "control", id: "6", op: "nope" }))[0]).toBe(400);
     srv.close();

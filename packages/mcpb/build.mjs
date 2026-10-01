@@ -32,7 +32,8 @@ const embedded = {
     b.onLoad({ filter: /.*/, namespace: "comfy-gen" }, (args) => {
       if (args.path === "comfy-gen:web") {
         const webDist = join(root, "web", "dist");
-        const files = Object.fromEntries(walk(webDist).map((f) => [
+        // _headers is for Cloudflare's static assets only; the local server sets its own.
+        const files = Object.fromEntries(walk(webDist).filter((f) => !f.endsWith("_headers")).map((f) => [
           "/" + relative(webDist, f).split("\\").join("/"),
           { type: TYPES[extname(f)] ?? "application/octet-stream", body: readFileSync(f).toString("base64") },
         ]));

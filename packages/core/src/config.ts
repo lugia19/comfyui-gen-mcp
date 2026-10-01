@@ -42,8 +42,8 @@ export const SETTINGS_SCHEMA = [
     key: "keep_warm_minutes",
     title: "Keep warm (minutes)",
     description:
-      "How long the GPU stays up after the last image. Longer means fewer cold starts; " +
-      "on Modal it also means paying for idle time.",
+      "How long ComfyUI keeps its model loaded after the last image, then stops to free the GPU. " +
+      "Longer means fewer cold starts.",
     type: "int",
     default: DEFAULT_KEEP_WARM_MINUTES,
     min: 1,

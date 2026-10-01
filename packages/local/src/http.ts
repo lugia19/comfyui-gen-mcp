@@ -39,7 +39,10 @@ export function webFile(web: WebFiles, req: Request, path: string): Response {
   if (req.method !== "GET") return error(405, "method not allowed");
   const file = web(path) ?? web("/index.html");
   if (!file) return error(404, "not found");
-  return new Response(file.body as unknown as BodyInit, { headers: { "Content-Type": file.type } });
+  // Never inside another site's frame: the page has no login, and a framed copy acts as this one.
+  return new Response(file.body as unknown as BodyInit, {
+    headers: { "Content-Type": file.type, "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'" },
+  });
 }
 
 /** Serve *handler* on host:port. Rejects with the listen error (EADDRINUSE: the port is taken). */

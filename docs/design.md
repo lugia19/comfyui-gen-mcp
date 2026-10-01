@@ -146,6 +146,14 @@ page lists the sources found.
 
 ## 3. Generation path
 
+**First run and disk space (2026-10-02, the first hand test).** Nothing told a new user where the
+settings page was, so a new install opens it once (a marker file, created exclusively, as Claude
+Desktop starts several copies at once), the "not installed" answer and the server's instructions
+carry its URL, and the manifest names `http://127.0.0.1:9247/`. Model downloads check the free space
+first (keeping 1 GB) and fail with the numbers; a write error (a full disk) fails the download: the
+stream once just stopped draining, hung, and filled the system drive to 0 bytes with nothing logged.
+A download for a model switched away from carries on and stays listed, "(not selected)".
+
 ### One client, three transports
 
 A single async ComfyUI client, in the shape of Visual-Novelist's `ComfyUIClient`:
@@ -328,7 +336,10 @@ the settings page and configured per pack family: file, strength, trigger (it ap
 prompt contains the trigger; no trigger means always), hidden (the trigger is not listed in the tool
 description). A LoRA whose trigger is not in the prompt is taken out of the workflow, not set to
 strength 0: ComfyUI checks every loader's file, so a missing file would fail calls that never asked
-for it (seen 2026-10-01). Deleting a LoRA also takes it out of every pack's settings.
+for it (seen 2026-10-01). Deleting a LoRA also takes it out of every pack's settings. On Windows a
+file ComfyUI has open can't be deleted (a LoRA it used stays open): the LoRA leaves the list at
+once, ComfyUI is asked to unload its models (`POST /free`) and the delete retried for a few seconds,
+and failing that the file waits in `loras-pending-delete.json` until ComfyUI stops (2026-10-02).
 
 - **Upload path, through the Worker into R2.** `POST /api/loras/uploads` opens an R2 multipart
   upload (the session, with R2's upload id, in the State object's `lora_uploads`, 24 h); each
