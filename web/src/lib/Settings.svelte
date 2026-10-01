@@ -99,7 +99,7 @@
       warnings = saved.warnings || []
       notes = saved.notes || []
       saves += 1
-      message = 'Saved. New chats pick up tool changes; existing chats keep the tools they started with.'
+      message = 'Saved. To pick up the changes in Claude, refresh the tool list in the Customize menu.'
       await refresh()
       await loadLoras(true) // saving starts copies between the PC and Modal
     } catch (e) {
