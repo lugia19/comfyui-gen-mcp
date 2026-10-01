@@ -298,9 +298,18 @@ One milestone, as the two need each other (design §2 "GPUs", §4, §9):
 - **No upgrade path:** only two installs exist; both enable R2 by hand before updating. Old image
   ids stop resolving.
 
-Still to do: on the test install, enable R2 and run a branch build (the build token creates the
-bucket and sets the rules; what the Deploy button does with the binding); read `cpuTimeMs` for a
-warm generation, `/img/`, an upload, a LoRA chunk and download; then two PCs plus Modal live.
+Done on the test install (2026-10-01): a branch build created the bucket inside Workers Builds and
+set both rules; `/img/`, `/store/` and `/agent` answer as designed.
+
+Still to do:
+- the live run (two PCs on one machine with `COMFY_GEN_AGENT_INSTANCE`, plus Modal), then
+  `cpuTimeMs` for a warm generation, `/img/`, an upload, a LoRA chunk and download
+- what the Deploy button does with the binding on a fresh install
+- **The Worker reports what the user must do on another site** (decided 2026-10-01): card
+  steps (R2's checkout, Modal's billing) cannot be automated, OAuth or not. So the site lists them
+  first, with direct links, and the Worker recognises each when it fails and says which step is
+  missing, with its link: a build that fails because R2 is not enabled says "R2 isn't enabled
+  yet" on the setup page instead of a raw build error, and likewise for Modal billing.
 
 ## Verification
 
