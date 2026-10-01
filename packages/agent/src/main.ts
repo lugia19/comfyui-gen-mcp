@@ -12,7 +12,7 @@ import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts"
 import { agentHandler } from "./handlers.ts";
 import { LoraSync } from "./lora-sync.ts";
 import { RelayClient } from "./relay-client.ts";
-import { launcherPid, watchParent } from "./watchdog.ts";
+import { bindWhenFree, launcherPid, watchParent } from "./watchdog.ts";
 
 export const RESTART_EXIT_CODE = 75;
 const RESTART_WHEN_QUIET_MS = 10 * 60_000; // an update waits for this long without generations
@@ -108,16 +108,16 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     web: opts.web,
   });
 
-  let server;
-  try {
-    server = await listen((req, remote) => app.handle(req, remote), cfg.port, "127.0.0.1");
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== "EADDRINUSE") throw e;
+  const server = await bindWhenFree(
+    () => listen((req, remote) => app.handle(req, remote), cfg.port, "127.0.0.1"),
+    () => log.info("The settings port is taken: waiting for a previous agent to stop"),
+  );
+  if (!server) {
     // Already running (started at boot, then again by hand): show that one's page instead.
     log.info("The agent is already running");
     if (openSettings !== "0") openExternal(settingsUrl);
     exit(0);
-    throw e;
+    throw new Error("already running");
   }
   log.info(`Comfy-Gen agent ${opts.version}: settings on ${settingsUrl}`);
   reconnect();

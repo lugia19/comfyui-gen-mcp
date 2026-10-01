@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { launcherPid, processAlive, watchParent } from "../src/watchdog.ts";
+import { createServer } from "node:net";
+import { bindWhenFree, launcherPid, processAlive, watchParent } from "../src/watchdog.ts";
 
 describe("ending with the launcher", () => {
   it("knows its launcher only when started by one", () => {
@@ -26,5 +27,27 @@ describe("ending with the launcher", () => {
   it("checks a real process", () => {
     expect(processAlive(process.pid)).toBe(true);
     expect(processAlive(2 ** 22 + 12345)).toBe(false);
+  });
+});
+
+describe("binding the settings port", () => {
+  const listenOn = (port: number) =>
+    new Promise<import("node:net").Server>((resolve, reject) => {
+      const srv = createServer();
+      srv.once("error", reject);
+      srv.listen({ port, host: "127.0.0.1", exclusive: true }, () => resolve(srv));
+    });
+
+  it("waits for a previous agent to free the port, but not for one that keeps it", async () => {
+    const old = await listenOn(0);
+    const port = (old.address() as any).port;
+    setTimeout(() => old.close(), 300); // the old agent stopping
+    let waits = 0;
+    const srv = await bindWhenFree(() => listenOn(port), () => waits++, 3000, 100);
+    expect(srv).not.toBeNull();
+    expect(waits).toBe(1);
+    // Another agent that stays: give up after the wait.
+    expect(await bindWhenFree(() => listenOn(port), () => {}, 300, 100)).toBeNull();
+    srv!.close();
   });
 });

@@ -541,7 +541,7 @@ describe("the PC path", () => {
     pc.connected = false; // saving while the PC is off: a warning, and no wait for it
     pc.controlCalls.length = 0;
     const off = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
-    expect([off.warnings, off.notes.join()]).toEqual([[], expect.stringContaining("offline")]); // a note, not a warning
+    expect([off.warnings, off.notes]).toEqual([[], []]); // the page shows the PC offline already
     expect(pc.controlCalls).toEqual([]);
   });
 

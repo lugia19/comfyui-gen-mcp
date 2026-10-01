@@ -100,7 +100,19 @@ export class LoraSync {
       }
     };
     for (const p of push) await run(p.name, () => this.push(p));
-    for (const p of pull) await run(p.name, () => this.pull(p));
+    for (const p of pull) {
+      // The user's own copy, same name and size (they uploaded a file this PC already had): take it
+      // as ours rather than download it again.
+      const dest = join(this.o.machine.lorasDir, p.name);
+      if (basename(p.name) === p.name && existsSync(dest) && statSync(dest).size === p.size) {
+        this.o.machine.loraRegistry.add(p.name);
+        delete this.jobs[p.name];
+        log.info(`LoRA sync: ${p.name} is already on this PC; using that copy`);
+        copied++;
+        continue;
+      }
+      await run(p.name, () => this.pull(p));
+    }
     // The Worker hands out a limited number per round: ask again while copies are going through.
     if (copied) this.again = true;
   }
@@ -145,13 +157,6 @@ export class LoraSync {
     if (basename(p.name) !== p.name || !p.name.endsWith(".safetensors")) throw new Error("not a plain LoRA file name");
     const job = this.jobs[p.name];
     const dest = join(this.o.machine.lorasDir, p.name);
-    // The user's own copy, same name and size (they uploaded a file this PC already had): take it
-    // as ours rather than download it again.
-    if (existsSync(dest) && statSync(dest).size === p.size) {
-      job.done = p.size;
-      this.o.machine.loraRegistry.add(p.name);
-      return;
-    }
     for (let attempt = 0; ; attempt++) {
       try {
         await fetchFile(p.url, dest, {

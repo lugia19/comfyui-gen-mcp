@@ -150,7 +150,7 @@
 {/if}
 {#if listing?.offline?.includes('pc')}
   <p class="muted">
-    Your PC is offline: {has('modal') ? 'it gets new LoRAs when it is next online' : 'uploads need it online'}.
+    Your PC is offline: {has('modal') ? 'it gets new models and LoRAs when it is next online' : 'uploads need it online'}.
   </p>
 {/if}
 

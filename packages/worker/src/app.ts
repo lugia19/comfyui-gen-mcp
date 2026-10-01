@@ -470,11 +470,9 @@ export class App {
     const cfg = await this.fresh.saveConfig((await bodyJson(req)).config);
     const admin = modalAdmin.forGenerator(this.fetch, s.generator);
     const warnings = admin ? await this.applyToModal(admin, cfg, old.keep_warm_minutes !== cfg.keep_warm_minutes) : [];
-    const notes: string[] = []; // informational, not a problem
+    const notes: string[] = []; // informational, not a problem (none yet: an offline PC shows on the page)
     const pcOnline = this.pcPaired(s) && (await this.pcConnected());
-    if (this.pcPaired(s) && !pcOnline) {
-      notes.push("Your PC is offline: its models download, and LoRAs are copied, when it is next online.");
-    } else if (pcOnline) {
+    if (pcOnline) {
       // As the extension does: a newly chosen pack starts downloading now.
       for (const pack of selectedPacks(cfg)) await this.pcControl("download", { pack: needs(pack) });
       await this.pcControl("sync");
