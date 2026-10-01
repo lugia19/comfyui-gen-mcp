@@ -62,6 +62,51 @@ describe("refs", () => {
     await expect(refs.verify("garbage", KEY)).rejects.toBeInstanceOf(refs.RefError);
   });
 
+  it("compact ids for the images this app names; others keep the JSON form", async () => {
+    const out = (name: string, subfolder = "") => new OutputImage(name, subfolder, "output");
+    const up = (name: string) => new OutputImage(name, refs.UPLOAD_SUBFOLDER, "input");
+    const nonce = refs.uploadFilename((await refs.checkUpload(await refs.mintUpload(KEY, 0, 60), KEY, 1)), "image/webp");
+    for (const [img, prefix] of [
+      [out("comfy-gen_00007_.png"), "m7."],
+      [out("comfy-gen_99999_.png"), "m99999."],
+      [out("comfy-gen_100000_.png"), "m100000."],
+      [up("upload-abc.png"), "mupabc."],
+      [up("upload-abc.jpg"), "mujabc."],
+      [up(nonce), "muw"],
+    ] as const) {
+      const ref = await refs.sign(img, KEY);
+      expect(ref.startsWith(prefix)).toBe(true);
+      expect(ref.length).toBeLessThanOrEqual(32);
+      expect(await refs.verify(ref, KEY)).toEqual({ image: img, backend: "main" });
+      expect(await refs.verify(` ${ref}\n`, KEY)).toEqual({ image: img, backend: "main" }); // pasted with spaces
+    }
+    // Names that do not rebuild exactly stay JSON (and still round trip).
+    for (const img of [
+      out("comfy-gen_7_.png"), out("comfy-gen_007_.png"), out("comfy-gen_000007_.png"), out("comfy-gen_00007_.png", "sub"),
+      out("other_00007_.png"), out("comfy-gen_00007_.jpg"), new OutputImage("upload-abc.png", "", "input"),
+      up("upload-abc.bmp"), up("upload-ünï.png"), up("upload-a.b.png"),
+    ]) {
+      const ref = await refs.sign(img, KEY, "pc");
+      expect(ref.startsWith("Wy")).toBe(true);
+      expect(await refs.verify(ref, KEY)).toEqual({ image: img, backend: "pc" });
+    }
+  });
+
+  it("compact ids: any change is rejected", async () => {
+    const ref = await refs.sign(new OutputImage("comfy-gen_00007_.png", "", "output"), KEY); // m7.<12>
+    const [payload, mac] = ref.split(".");
+    const flip = (s: string, i: number) => s.slice(0, i) + (s[i] === "A" ? "B" : "A") + s.slice(i + 1);
+    const bad = [
+      `m8.${mac}`, `p7.${mac}`, `m07.${mac}`, `m7.${flip(mac, 0)}`, `m7.${flip(mac, 11)}`, `m7.${mac.slice(0, 11)}`, `m7.${mac}A`,
+      `${payload}.${(await refs.sign(new OutputImage("x.png", "sub", "output"), KEY)).split(".")[1]}`, // a JSON id's MAC length
+      `mupabc.${mac}`, `${payload}.`, `.${mac}`, payload,
+    ];
+    for (const r of bad) await expect(refs.verify(r, KEY), r).rejects.toBeInstanceOf(refs.RefError);
+    // A JSON payload with a compact MAC is no id either.
+    const json = (await refs.sign(new OutputImage("x.png", "sub", "output"), KEY)).split(".")[0];
+    await expect(refs.verify(`${json}.${mac}`, KEY)).rejects.toBeInstanceOf(refs.RefError);
+  });
+
   it("loadValue", () => {
     expect(new OutputImage("a.png", "", "output").loadValue()).toBe("a.png [output]");
     expect(new OutputImage("a.png", "sub", "input").loadValue()).toBe("sub/a.png");

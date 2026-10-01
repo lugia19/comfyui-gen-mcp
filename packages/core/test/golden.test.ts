@@ -18,11 +18,13 @@ const KEY = fromHex(g.key_hex);
 const PACKS = builtinPacks();
 
 describe("golden: what users hold", () => {
-  it("image ids: ASCII ones are identical, and every v0 id verifies", async () => {
+  // JSON ids. New ones are compact where the image fits (below); others are still signed this way.
+  it("image ids: every v0 id verifies, and ASCII ones that are not compact are signed the same", async () => {
     for (const { image, ref } of g.refs) {
       const img = new OutputImage(image[2], image[1], image[0]);
       expect(await refs.verify(ref, KEY)).toEqual({ image: img, backend: "main" }); // ids from before the PC: the main generator
-      if (/^[\x00-\x7f]*$/.test(image.join(""))) expect(await refs.sign(img, KEY)).toBe(ref);
+      const signed = await refs.sign(img, KEY);
+      if (/^[\x00-\x7f]*$/.test(image.join("")) && signed.startsWith("Wy")) expect(signed).toBe(ref);
     }
   });
 
@@ -30,7 +32,14 @@ describe("golden: what users hold", () => {
     for (const { image, ref } of g.refs_pc) {
       const img = new OutputImage(image[2], image[1], image[0]);
       expect(await refs.verify(ref, KEY)).toEqual({ image: img, backend: "pc" });
-      expect(await refs.sign(img, KEY, "pc")).toBe(ref);
+    }
+  });
+
+  it("compact image ids (added 2026-10-01)", async () => {
+    for (const { image, backend, ref } of g.refs_compact) {
+      const img = new OutputImage(image[2], image[1], image[0]);
+      expect(await refs.sign(img, KEY, backend)).toBe(ref);
+      expect(await refs.verify(ref, KEY)).toEqual({ image: img, backend });
     }
   });
 

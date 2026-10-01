@@ -15,7 +15,10 @@ import { groupByTool, prepare, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
 import { buildPrompt, splitLossless, type NodeField, type Workflow } from "./workflow.ts";
 
-export const DEFAULT_WAIT_S = 240; // the MCP client gives up at 300 s (S8)
+// A tool call answers within this, counted from its start: the clients give up at 300 s (claude.ai,
+// S8; Claude Code's idle timeout for HTTP servers). Before, it counted from the submit, so a slow
+// cold start plus the wait ran past 300 s and the call timed out (seen from Claude Code).
+export const DEFAULT_WAIT_S = 240;
 
 // calcDimensions rounds to multiples of 64, so a pack's own output can land a couple of percent
 // above its declared max_pixels. The edit path tolerates that much rather than shaving pixels off
@@ -95,6 +98,7 @@ export class Brain {
 
   /** Run one tool call. Throws UnknownTool for a tool this brain doesn't serve. */
   async call(name: string, args: Record<string, any>): Promise<Outcome> {
+    this.client.stopBy = this.client.time() + this.waitS; // cold starts, uploads and the wait share it
     if (name === "fetch_result") return this.fetch(args);
     if (name === "edit_image" && "edit_image" in this.selected) return this.edit(args);
     if (name in this.selected && !STATIC_TOOLS.has(name)) return this.generate(this.selected[name], args);
@@ -162,7 +166,8 @@ export class Brain {
 
   private async wait(promptId: string, lossless: boolean): Promise<Outcome> {
     try {
-      const images = await this.client.wait(promptId, this.waitS);
+      const stopBy = this.client.stopBy;
+      const images = await this.client.wait(promptId, stopBy === null ? this.waitS : Math.max(0, stopBy - this.client.time()));
       if (images === null) {
         return new Pending(promptId + (lossless ? ":lossless" : ""), await this.client.statusMessage(promptId));
       }

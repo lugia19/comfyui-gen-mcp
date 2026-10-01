@@ -161,8 +161,17 @@ it; the MCPB's stdio shim may use the official TypeScript SDK.
 ### Waiting
 
 `tools/call` blocks up to about 4 minutes, returning the image directly. The MCP client timeout is
-5 minutes (S8) and a cold start plus generation stays under 2. The request-token path plus
-`fetch_result` remains only as a fallback for pathological cases. No cold/warm status vocabulary.
+5 minutes (S8; Claude Code's idle timeout for HTTP servers is the same) and a cold start plus
+generation usually stays under 2. The request-token path plus `fetch_result` is the fallback. No
+cold/warm status vocabulary.
+
+The 4 minutes (`DEFAULT_WAIT_S` = 240 s) are **one budget per tool call, counted from its start**:
+the client's `stopBy`. The cold-start retries of submit, uploads and `/view` stop at it as well as
+at their own limit (`MODAL_COLD_START_S`), and the wait gets what is left. So a call answers within
+240 s with the image, a `fetch_result` token (submitted, still running), or "The GPU is still
+starting up; call the tool again in a minute" (never got to submit). Until 2026-10-01 the 240 s
+counted from after the submit, so a slow cold start plus the wait passed 300 s and a tester's
+Claude Code gave up with "operation timed out".
 
 Jobs are stateless: the request token is ComfyUI's own `prompt_id` (plus a `:lossless` marker when
 asked). `fetch_result` just resumes polling `/history`, so nothing is kept between requests, which
@@ -235,6 +244,14 @@ stored `custom_workflow` setting is dropped on read.
   main generator, `/img/` serves each id from its own backend, and an edit of the other backend's
   image copies it into the answering ComfyUI's inputs first. (Found in the from-scratch test: the
   PC's first image had exactly the id of Modal's first image.)
+- **Compact ids** (2026-10-01): models mistyped the 70-character JSON ids. An image this app named
+  gets `<payload>.<mac>` with a plain payload: `m7` (the main generator's `comfy-gen_00007_.png`),
+  `p7` (the PC's), or `mupAbC…` for an upload (`m`/`p`, `u`, the extension as a letter
+  `p`/`j`/`w`/`g`, the nonce). The MAC is HMAC-SHA256 over `"c:" + payload`, cut to 9 bytes (12
+  characters); an id is only checked online, one guess per request. A generated image's id is 15
+  characters (`m7.Ab3dE9fGh1Jk`), an upload's about 32. `sign` uses the compact form only when the
+  name rebuilds exactly (`%05d` numbering), else the JSON form; `verify` takes both, so ids in
+  existing chats keep working. `golden.json` pins both (`refs`, `refs_pc`, `refs_compact`).
 - **Results are inline WebP.** claude.ai does not support `resource_link` (it shows "Resource links
   are not currently supported" and the model sees only the name and URL), while inline
   `ImageContent` is shown to the user and seen by the model, WebP included (S2, S2c). Every result

@@ -102,6 +102,7 @@ export class WorkerHooks extends Hooks {
     const where = backend === "pc" ? "your PC" : "the cloud GPU";
     const src = this.source(backend);
     if (!src) throw new ComfyUIError(`That image was made on ${where}, which is no longer set up, so it cannot be edited.`);
+    src.stopBy = this.client.stopBy; // its cold start counts against this call's time too
     let data: Uint8Array;
     try {
       data = (await src.view(image)).content;

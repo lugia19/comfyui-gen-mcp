@@ -12,6 +12,11 @@
 // the paired PC's add a fourth element, "pc". So ids issued before the PC existed keep resolving
 // to the main generator.
 //
+// Compact ids (2026-10-01; models mistyped the long ones): an image this app named, a generated
+// comfy-gen_NNNNN_.png or an upload-<nonce>.<ext>, is "<payload>.<mac>" with a plain-text payload
+// (m7, p42 for the PC; mupAbC123 for an upload, its extension a letter) and a 9-byte MAC over
+// "c:" + payload, e.g. m7.Ab3dE9fGh1Jk. Anything else keeps the JSON form below; both verify.
+//
 // The formats are a compatibility surface (test/golden.json pins them): ids in users' chats must
 // keep verifying. Ids for non-ASCII names issued by v0 (the Python Worker) spell them as \uXXXX in
 // the payload; those still verify, and new ones spell them directly.
@@ -49,8 +54,44 @@ function decode(payload: string): unknown {
   return JSON.parse(fromUtf8(fromBase64Url(payload)));
 }
 
-/** The image id the model sees. */
+const COMPACT_MAC_BYTES = 9; // 72 bits: an id is only ever checked online, one guess per request
+const COMPACT = /^([mp])(?:(\d+)|u([pjwg])([A-Za-z0-9_-]{1,32}))$/;
+const OUTPUT_NAME = /^comfy-gen_(\d+)_\.png$/;
+const UPLOAD_NAME = /^upload-([A-Za-z0-9_-]{1,32})\.(png|jpg|webp|gif)$/;
+const EXT_LETTER: Record<string, string> = { png: "p", jpg: "j", webp: "w", gif: "g" };
+const LETTER_EXT = Object.fromEntries(Object.entries(EXT_LETTER).map(([e, l]) => [l, e]));
+const outputName = (n: string) => `comfy-gen_${n.padStart(5, "0")}_.png`; // SaveImage's %05d
+
+async function compactMac(key: Uint8Array, payload: string): Promise<string> {
+  return toBase64Url((await hmacSha256(key, `c:${payload}`)).subarray(0, COMPACT_MAC_BYTES));
+}
+
+/** The compact payload for an image this app named, or null. Only when it rebuilds exactly. */
+function compactPayload(image: OutputImage, backend: Backend): string | null {
+  const b = backend === "pc" ? "p" : "m";
+  if (image.type === "output" && image.subfolder === "") {
+    const m = OUTPUT_NAME.exec(image.filename);
+    const n = m ? String(Number(m[1])) : null;
+    if (n !== null && outputName(n) === image.filename) return `${b}${n}`;
+  }
+  if (image.type === "input" && image.subfolder === UPLOAD_SUBFOLDER) {
+    const m = UPLOAD_NAME.exec(image.filename);
+    if (m) return `${b}u${EXT_LETTER[m[2]]}${m[1]}`;
+  }
+  return null;
+}
+
+function fromCompact(payload: string): { image: OutputImage; backend: Backend } {
+  const [, b, n, ext, nonce] = COMPACT.exec(payload)!;
+  const backend: Backend = b === "p" ? "pc" : "main";
+  if (n !== undefined) return { image: new OutputImage(outputName(n), "", "output"), backend };
+  return { image: new OutputImage(`upload-${nonce}.${LETTER_EXT[ext]}`, UPLOAD_SUBFOLDER, "input"), backend };
+}
+
+/** The image id the model sees: compact when it can be, else the JSON form. */
 export async function sign(image: OutputImage, key: Uint8Array, backend: Backend = "main"): Promise<string> {
+  const compact = compactPayload(image, backend);
+  if (compact) return `${compact}.${await compactMac(key, compact)}`;
   const fields = [image.type, image.subfolder, image.filename, ...(backend === "pc" ? ["pc"] : [])];
   const payload = toBase64Url(utf8(JSON.stringify(fields)));
   return `${payload}.${await mac(key, payload)}`;
@@ -58,6 +99,13 @@ export async function sign(image: OutputImage, key: Uint8Array, backend: Backend
 
 /** The image a reference points at, and its backend. Throws RefError if it isn't one of ours. */
 export async function verify(ref: string, key: Uint8Array): Promise<{ image: OutputImage; backend: Backend }> {
+  const t = ref.trim();
+  const dot = t.lastIndexOf(".");
+  if (dot > 0 && COMPACT.test(t.slice(0, dot))) {
+    const payload = t.slice(0, dot);
+    if (!safeEqual(t.slice(dot + 1), await compactMac(key, payload))) throw new RefError("Invalid image id.");
+    return fromCompact(payload);
+  }
   const payload = await check(key, ref, "image id");
   let parsed: unknown;
   try {

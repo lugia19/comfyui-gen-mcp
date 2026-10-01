@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { roundHalfEven } from "../src/bytes.ts";
-import { Brain, Done, Failed, Hooks, Pending, type ResolvedImage } from "../src/brain.ts";
-import { ComfyUIError } from "../src/comfyui.ts";
+import { Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pending, type ResolvedImage } from "../src/brain.ts";
+import { ComfyUIError, STILL_STARTING } from "../src/comfyui.ts";
 import { McpHandler, PROTOCOL_VERSIONS, UnknownTool, type ToolCall } from "../src/mcp.ts";
 import { builtinPacks, type Pack } from "../src/packs.ts";
 import { toolSpecs } from "../src/tools.ts";
@@ -58,6 +58,36 @@ function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: nu
     });
   return { comfy, client, brain };
 }
+
+describe("one time budget per tool call", () => {
+  // The clients give up at 300 s. A cold start plus a full wait after it used to run past that.
+  const coldSetup = () => {
+    const comfy = new FakeComfy();
+    const client = fastClient(comfy, { coldStartS: 300 });
+    const brain = new Brain(BUILTIN, {}, client, "paths", { hooks: new PathHooks() });
+    return { comfy, client, brain };
+  };
+
+  it("a slow cold start still answers within the budget, with a token to fetch later", async () => {
+    const { comfy, client, brain } = coldSetup();
+    comfy.bootFails = 40; // 200 s of booting, 5 s per retry
+    comfy.history = Array(200).fill("running"); // then a long first load
+    const out = await brain.call("generate_realistic_image", { prompt: "a lighthouse" });
+    expect(out).toBeInstanceOf(Pending);
+    expect(client.time()).toBeLessThanOrEqual(DEFAULT_WAIT_S + 15); // not 200 + 240
+    comfy.history = [];
+    expect(await brain.call("fetch_result", { request_token: (out as Pending).token })).toBeInstanceOf(Done);
+  });
+
+  it("a boot longer than the budget says to call again, before the client gives up", async () => {
+    const { comfy, client, brain } = coldSetup();
+    comfy.bootFails = 1000;
+    const out = await brain.call("generate_realistic_image", { prompt: "a lighthouse" });
+    expect(out).toBeInstanceOf(Failed);
+    expect((out as Failed).message).toBe(STILL_STARTING);
+    expect(client.time()).toBeLessThanOrEqual(DEFAULT_WAIT_S + 10);
+  });
+});
 
 describe("brain", () => {
   it("generate returns Done", async () => {

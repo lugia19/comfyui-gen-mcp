@@ -82,6 +82,7 @@ describe("MCP", () => {
     expect(fromBase64(image.data)).toEqual(comfy.viewBody);
     expect(comfy.calls.find((c) => c[1] === "/view")![2]!.preview).toBe("webp;90");
     const ref = info.text.split("image_id: ")[1].split("\n")[0];
+    expect(ref).toMatch(/^m1\.[\w-]{12}$/); // compact: short enough to copy
     expect(await refs.verify(ref, fromHex((await secretsOf(app)).hmac_key))).toMatchObject({ image: { filename: "comfy-gen_00001_.png" }, backend: "main" });
     expect(info.text).toContain("/img/" + ref);
     const comfyCalls = net.calls.filter((c) => c[1].startsWith(COMFY));
@@ -142,6 +143,10 @@ describe("MCP", () => {
     expect(new Uint8Array(await resp.arrayBuffer())).toEqual(comfy.viewBody);
     expect(comfy.calls.at(-1)![2]).not.toHaveProperty("preview");
     expect((await app.handle(request("GET", "/img/bogus"))).status).toBe(404);
+    // An id in the JSON form (what chats hold from before compact ids) still opens.
+    const legacy = await refs.sign(new OutputImage("comfy-gen_00001_.png", "sub"), fromHex((await secretsOf(app)).hmac_key));
+    expect(legacy.startsWith("Wy")).toBe(true);
+    expect((await app.handle(request("GET", `/img/${legacy}`))).status).toBe(200);
   });
 
   it("fetch_result resumes", async () => {

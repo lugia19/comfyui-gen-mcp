@@ -264,6 +264,12 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   went in at" unless the input is very large. On Modal with Flux 2 Klein 4B (Edit), a 768×768 upload
   came back 2048×2048 and a 1152×896 generation came back 2320×1808: small inputs are scaled up.
   Either keep the input size or change the description.
+- **A cold first call timed out in Claude Code.** Done 2026-10-01 (design §3, "Waiting"): the 240 s
+  wait counted from after a cold-start submit, which can itself take minutes, so the call passed
+  the client's 300 s. Now one budget per call covers the cold-start retries and the wait; the call
+  returns a `fetch_result` token or "still starting" in time.
+- **Shorter image ids.** Done 2026-10-01 (design §4): a model mistyped a 70-character id. Images
+  this app names get compact ids (`m7.Ab3dE9fGh1Jk`); JSON ids still verify.
 
 ## Verification
 

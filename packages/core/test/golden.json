@@ -9,6 +9,17 @@
     {"image": ["output", "", "comfy-gen_00001_.png"], "ref": "WyJvdXRwdXQiLCIiLCJjb21meS1nZW5fMDAwMDFfLnBuZyIsInBjIl0.U_rOMcs55CHXTxgEXkDmHg"},
     {"image": ["input", "comfy-gen-uploads", "upload-abc.png"], "ref": "WyJpbnB1dCIsImNvbWZ5LWdlbi11cGxvYWRzIiwidXBsb2FkLWFiYy5wbmciLCJwYyJd.uVkr-L-q8bd1jsoeIrJvKg"}
   ],
+  "refs_compact": [
+    {"image": ["output", "", "comfy-gen_00001_.png"], "backend": "main", "ref": "m1.tQ4uD7Lf7Ykd"},
+    {"image": ["output", "", "comfy-gen_00001_.png"], "backend": "pc", "ref": "p1.ssuQGqlWJljU"},
+    {"image": ["output", "", "comfy-gen_00042_.png"], "backend": "main", "ref": "m42.kXEFAQvf896t"},
+    {"image": ["output", "", "comfy-gen_123456_.png"], "backend": "pc", "ref": "p123456.P-Ub_LeoXWnP"},
+    {"image": ["input", "comfy-gen-uploads", "upload-abc.png"], "backend": "main", "ref": "mupabc.jjI-JRvb0lgc"},
+    {"image": ["input", "comfy-gen-uploads", "upload-abc.png"], "backend": "pc", "ref": "pupabc._XFVHEQLF_kz"},
+    {"image": ["input", "comfy-gen-uploads", "upload-Xy_9-Z.jpg"], "backend": "main", "ref": "mujXy_9-Z.6jTas613p0MV"},
+    {"image": ["input", "comfy-gen-uploads", "upload-n0nce.webp"], "backend": "pc", "ref": "puwn0nce.v4XyrC6VzVRV"},
+    {"image": ["input", "comfy-gen-uploads", "upload-n0nce.gif"], "backend": "main", "ref": "mugn0nce.DcWnZveDjcMX"}
+  ],
   "upload_tokens": [
     {"now": 1800000000, "ttl": 600, "token": "WzE4MDAwMDA2MDAsIk5vbmNlXzEyMy1hYmMiXQ.LenX5vdMA2qvuLKQgDc9Iw", "nonce": "Nonce_123-abc"}
   ],

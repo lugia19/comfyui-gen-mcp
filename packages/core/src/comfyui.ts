@@ -25,6 +25,8 @@ export const HELD_WAIT_S = 50;
 // Requests kept back for after the wait: the result image and one re-request at lower quality, or
 // the queue position for a Pending answer.
 export const BUDGET_RESERVE = 2;
+/** A cold start still going when the tool call must answer: the model should simply call again. */
+export const STILL_STARTING = "The GPU is still starting up (a cold start). Call the tool again in a minute.";
 
 /** A generation failed. The message is meant for the user. */
 export class ComfyUIError extends Error {
@@ -151,6 +153,10 @@ export class ComfyUIClient {
   heldWait = true;
   readonly clientId = tokenHex(16);
   readonly transport: Transport;
+  /** When the current tool call must answer by (now() terms), or null: no cold-start wait goes past
+   * it, so a call ends with an image, a fetch_result token or "still starting", never a client
+   * timeout. The Brain sets it per call. */
+  stopBy: number | null = null;
   private sleep: (s: number) => Promise<void>;
   private now: () => number;
 
@@ -160,6 +166,17 @@ export class ComfyUIClient {
     this.requestBudget = opts.requestBudget ?? null;
     this.sleep = opts.sleep ?? defaultSleep;
     this.now = opts.now ?? (() => Date.now() / 1000);
+  }
+
+  /** The clock the client keeps time by. */
+  time(): number {
+    return this.now();
+  }
+
+  /** Until when a cold start may be waited out, and whether the call's budget is what limits it. */
+  private coldDeadline(): { at: number; byCall: boolean } {
+    const own = this.now() + this.coldStartS;
+    return this.stopBy !== null && this.stopBy < own ? { at: this.stopBy, byCall: true } : { at: own, byCall: false };
   }
 
   remaining(): number | null {
@@ -184,12 +201,14 @@ export class ComfyUIClient {
   /** Queue a workflow and return its prompt_id, waiting out a cold start when allowed. */
   async submit(workflow: Record<string, any>): Promise<string> {
     const body = JSON.stringify({ prompt: workflow, client_id: this.clientId });
-    const deadline = this.now() + this.coldStartS;
+    const deadline = this.coldDeadline();
     for (;;) {
       const resp = await this.request("POST", "/prompt", { headers: { "Content-Type": "application/json" }, body });
       if (resp.status === 200) return resp.json().prompt_id;
       if (!BOOTING.includes(resp.status) || !this.coldStartS) throw new ComfyUIError(rejection(resp));
-      if (this.now() > deadline) throw new ComfyUIError(`The GPU did not start within ${this.coldStartS.toFixed(0)}s.`);
+      if (this.now() > deadline.at) {
+        throw new ComfyUIError(deadline.byCall ? STILL_STARTING : `The GPU did not start within ${this.coldStartS.toFixed(0)}s.`);
+      }
       // Leave room for at least one more submit and a couple of polls after it.
       if (!this.canSpend(3)) throw new ComfyUIError("The GPU is still starting up. Please try again in a minute.");
       await this.sleep(COLD_START_POLL_S);
@@ -293,13 +312,17 @@ export class ComfyUIClient {
   async view(image: OutputImage, preview?: string): Promise<Response> {
     const params = image.params();
     if (preview) params.preview = preview;
-    const deadline = this.now() + this.coldStartS;
+    const deadline = this.coldDeadline();
     for (;;) {
       const resp = await this.request("GET", "/view", { params });
       if (resp.status === 200) return resp;
       const left = this.remaining();
-      const retry = BOOTING.includes(resp.status) && this.coldStartS && this.now() <= deadline && (left === null || left > 0);
-      if (!retry) throw new ComfyUIError(`Could not fetch ${image.filename} (HTTP ${resp.status}).`);
+      const booting = BOOTING.includes(resp.status) && this.coldStartS;
+      const retry = booting && this.now() <= deadline.at && (left === null || left > 0);
+      if (!retry) {
+        if (booting && deadline.byCall && this.now() > deadline.at) throw new ComfyUIError(STILL_STARTING);
+        throw new ComfyUIError(`Could not fetch ${image.filename} (HTTP ${resp.status}).`);
+      }
       await this.sleep(COLD_START_POLL_S);
     }
   }
@@ -310,15 +333,15 @@ export class ComfyUIClient {
     const fields: Record<string, string> = { type: "input", overwrite: "true" };
     if (subfolder) fields.subfolder = subfolder;
     const [body, ctype] = encodeMultipart(fields, { image: [filename, data, mime] });
-    const deadline = this.now() + this.coldStartS;
+    const deadline = this.coldDeadline();
     let resp: Response;
     for (;;) {
       resp = await this.request("POST", "/upload/image", { headers: { "Content-Type": ctype }, body });
       if (resp.status === 200) break;
       const left = this.remaining();
-      const retry = BOOTING.includes(resp.status) && this.coldStartS && this.now() <= deadline && (left === null || left > 3);
+      const retry = BOOTING.includes(resp.status) && this.coldStartS && this.now() <= deadline.at && (left === null || left > 3);
       if (!retry) {
-        if (BOOTING.includes(resp.status) && this.coldStartS) throw new ComfyUIError("The GPU is still starting up. Please try again in a minute.");
+        if (BOOTING.includes(resp.status) && this.coldStartS) throw new ComfyUIError(STILL_STARTING);
         throw new ComfyUIError(`Upload to ComfyUI failed (HTTP ${resp.status}): ${resp.text.slice(0, 300)}`);
       }
       await this.sleep(COLD_START_POLL_S);
