@@ -64,10 +64,11 @@
   }
 
   const since = (t) => (t ? new Date(t).toLocaleString() : '')
-  // The rename box takes the cursor, with the old name selected.
+  // The rename box takes the cursor, with the old name selected: on the next frame, as bind:value
+  // sets the value after this runs, and setting it moves the caret to the end.
   const focused = (el) => {
     el.focus()
-    el.select()
+    requestAnimationFrame(() => el.select())
   }
 
   function describe(g) {
