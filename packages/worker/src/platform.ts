@@ -47,7 +47,7 @@ export interface Bucket {
 export type Platform = {
   storage: StateStorage;
   bucket: Bucket; // R2: images and LoRAs
-  relay?: RelayStub; // the Relay Durable Object (the PC path); tests without a PC leave it out
+  relays: (id: string) => RelayStub; // a PC's Relay Durable Object, named after its GPU id
   fetch: Fetch;
   now: () => number; // seconds
   env: Record<string, string | undefined>; // VERSION; DEV_WORKER_HOST under wrangler dev

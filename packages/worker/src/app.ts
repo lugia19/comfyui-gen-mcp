@@ -11,7 +11,8 @@ import {
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
-import { PC_OFFLINE, PC_PAUSED, PcHooks, WorkerHooks } from "./hooks.ts";
+import { gpusOf, newPcId, newPcName, splitToken, DEFAULT_KEEP_WARM, type Gpu } from "./gpus.ts";
+import { offlineMessage, pausedMessage, PcHooks, WorkerHooks } from "./hooks.ts";
 import * as loras from "./loras.ts";
 import * as modalAdmin from "./modal-admin.ts";
 import { bodyJson, error, json, withUserAgent, type Fetch, type Platform } from "./platform.ts";
@@ -19,6 +20,8 @@ import { serveImage } from "./images.ts";
 import { render, text } from "./render.ts";
 import { RelayTransport } from "./relay.ts";
 import { Store, type Secrets } from "./store.ts";
+
+type GpuStatus = { online: boolean; paused: boolean; since: number | null; info: Record<string, unknown> | null };
 import * as updates from "./updates.ts";
 import * as uploads from "./uploads.ts";
 
@@ -94,23 +97,22 @@ export class App {
     return error(404, "not found");
   }
 
-  /** Why the agent's WebSocket must be refused (a Response), or null to hand it to the Relay. The
-   * secret is checked first, so the agent can tell "not paired" (401) from "paired" (426 to a plain
-   * GET) without opening a socket. */
-  async agentRefusal(req: Request): Promise<Response | null> {
-    const refused = await this.agentUnauthorized(req);
-    if (refused) return refused;
+  /** The agent's WebSocket: the id of its PC (whose Relay object takes the socket), or why it is
+   * refused. The secret is checked first, so the agent can tell "not paired" (401) from "paired"
+   * (426 to a plain GET) without opening a socket. */
+  async agentGate(req: Request): Promise<Response | string> {
+    const pc = await this.agentPc(req);
+    if (pc instanceof Response) return pc;
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return error(426, "expected a WebSocket");
-    return null;
+    return pc.id;
   }
 
-  private async agentUnauthorized(req: Request): Promise<Response | null> {
-    const s = await this.fresh.secrets(); // fresh: a pairing made a moment ago must work at once
+  /** The PC whose pairing secret the request carries, or a 401. */
+  private async agentPc(req: Request): Promise<Gpu | Response> {
     const presented = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
-    if (!s.agent_secret || !presented || !safeEqual(presented, s.agent_secret)) {
-      return error(401, "This PC is not paired with this Worker. Paste a fresh pairing link from its settings page.");
-    }
-    return null;
+    // fresh: a pairing made a moment ago must work at once
+    const pc = presented ? (await this.gpus(this.fresh)).find((g) => g.kind === "pc" && g.secret && safeEqual(presented, g.secret)) : null;
+    return pc ?? error(401, "This PC is not paired with this Worker. Paste a fresh pairing link from its settings page.");
   }
 
   /**
@@ -121,8 +123,8 @@ export class App {
    * work in it, for the rest.
    */
   private async agentSync(req: Request, url: URL): Promise<Response> {
-    const refused = await this.agentUnauthorized(req);
-    if (refused) return refused;
+    const pc = await this.agentPc(req);
+    if (pc instanceof Response) return pc;
     const s = await this.fresh.secrets();
     const body = await bodyJson(req);
     const pcFiles: Record<string, unknown> = body.loras && typeof body.loras === "object" ? body.loras : {};
@@ -169,8 +171,8 @@ export class App {
 
   /** The agent's pushes: the same upload protocol as the settings page, with its bearer secret. */
   private async agentUpload(req: Request, url: URL, sub: string): Promise<Response> {
-    const refused = await this.agentUnauthorized(req);
-    if (refused) return refused;
+    const pc = await this.agentPc(req);
+    if (pc instanceof Response) return pc;
     return this.loraUploads(req, url, sub, await this.fresh.secrets());
   }
 
@@ -180,88 +182,169 @@ export class App {
     return result;
   }
 
-  // ── MCP ───────────────────────────────────────────────────────────
+  // ── GPUs ──────────────────────────────────────────────────────────
 
-  private client(generator: Record<string, any> | undefined): ComfyUIClient | null {
-    if (!generator?.base_url) return null;
-    return new ComfyUIClient(new FetchTransport(this.fetch, generator.base_url, generator.headers ?? {}), {
-      coldStartS: generator.cold_start_s ?? 0,
+  /** The GPU list, converted once from a Worker's older generator and paired PC. */
+  async gpus(store: Store = this.fresh): Promise<Gpu[]> {
+    const s = await store.secrets();
+    const { gpus, converted } = gpusOf(s, await store.config());
+    if (converted && (s.generator || s.agent_secret)) await this.saveGpus(gpus);
+    return gpus;
+  }
+
+  private async saveGpus(gpus: Gpu[]): Promise<void> {
+    await this.fresh.updateSecrets({ gpus, generator: null, agent_secret: null });
+  }
+
+  private async updateGpu(id: string, changes: Partial<Gpu>): Promise<Gpu | null> {
+    const gpus = await this.gpus();
+    const i = gpus.findIndex((g) => g.id === id);
+    if (i < 0) return null;
+    gpus[i] = { ...gpus[i], ...changes };
+    await this.saveGpus(gpus);
+    return gpus[i];
+  }
+
+  private client(gpu: Gpu): ComfyUIClient {
+    if (gpu.kind === "pc") {
+      return new ComfyUIClient(new RelayTransport(this.p.relays(gpu.id)), { requestBudget: PC_REQUEST_BUDGET, sleep: this.p.sleep, now: this.p.now });
+    }
+    return new ComfyUIClient(new FetchTransport(this.fetch, gpu.base_url!, gpu.headers ?? {}), {
+      coldStartS: gpu.cold_start_s ?? 0,
       requestBudget: REQUEST_BUDGET,
       sleep: this.p.sleep,
       now: this.p.now,
     });
   }
 
-  private pcClient(): ComfyUIClient {
-    return new ComfyUIClient(new RelayTransport(this.p.relay!), { requestBudget: PC_REQUEST_BUDGET, sleep: this.p.sleep, now: this.p.now });
+  private admin(gpu: Gpu): modalAdmin.ModalAdmin | null {
+    return gpu.kind === "modal" && gpu.admin_url ? new modalAdmin.ModalAdmin(this.fetch, gpu.admin_url, gpu.headers ?? {}) : null;
   }
 
-  private pcPaired(s: Secrets): boolean {
-    return Boolean(s.agent_secret && this.p.relay);
-  }
-
-  /** Whether the paired PC's agent is connected now. One Durable Object call, no waiting. */
-  private async pcConnected(): Promise<boolean> {
+  /** Whether a GPU can take a call now. A PC: its agent connected and not paused (one Durable Object
+   * call, no waiting). Modal and a URL: always (Modal starts on the call). */
+  private async status(gpu: Gpu): Promise<GpuStatus> {
+    if (gpu.kind !== "pc") return { online: true, paused: false, since: null, info: null };
     try {
-      return (await this.p.relay!.status()).connected;
+      const st = await this.p.relays(gpu.id).status();
+      return { online: st.connected, paused: st.connected && st.info?.paused === true, since: st.since, info: st.info };
     } catch {
-      return false; // the relay object is unreachable: offline
+      return { online: false, paused: false, since: null, info: null }; // the relay object is unreachable: offline
     }
   }
 
-  /** A control call to the agent. Check pcConnected first: to an offline PC this waits for it. */
-  private async pcControl(op: string, args?: unknown): Promise<{ ok: true; data: any } | { ok: false; message: string }> {
-    const r = await this.p.relay!.control(op, args);
-    if (r.offline) return { ok: false, message: PC_OFFLINE };
+  /** A control call to a PC's agent. Check status() first: to an offline PC this waits for it. */
+  private async control(gpu: Gpu, op: string, args?: unknown): Promise<{ ok: true; data: any } | { ok: false; message: string }> {
+    const r = await this.p.relays(gpu.id).control(op, args);
+    if (r.offline) return { ok: false, message: offlineMessage([gpu]) };
     return relay.controlResult(r.status, r.body);
   }
 
-  /**
-   * The generator for a call: the PC when it is paired and connected (or when it is all there is:
-   * its hooks then say it is offline), otherwise the configured one (Modal, or a ComfyUI URL).
-   * One Durable Object call when a PC is paired.
-   */
-  private async generator(s: Secrets): Promise<{ kind: "pc" | "modal" | "url"; client: ComfyUIClient; paused?: boolean } | null> {
-    if (this.pcPaired(s)) {
-      let online = false;
-      let paused = false; // from the agent's tray: connected, but not taking requests
-      try {
-        const st = await this.p.relay!.status();
-        online = st.connected;
-        paused = st.connected && st.info?.paused === true;
-      } catch {
-        // the relay object is unreachable: treat the PC as offline
-      }
-      if (online && !paused) return { kind: "pc", client: this.pcClient() };
-      if (!s.generator?.base_url) return { kind: "pc", client: this.pcClient(), paused };
-    }
-    const client = this.client(s.generator);
-    return client ? { kind: s.generator.kind === "modal" ? "modal" : "url", client } : null;
+  /** The PCs that are online now. */
+  private async onlinePcs(gpus: Gpu[]): Promise<Gpu[]> {
+    const pcs = gpus.filter((g) => g.kind === "pc");
+    const online = await Promise.all(pcs.map(async (g) => (await this.status(g)).online));
+    return pcs.filter((_, i) => online[i]);
   }
+
+  /** Whether a GPU has a pack's models: true, false (downloading, or missing), or null when not
+   * known yet (a PC that has not been asked). Modal's from its seed cache (downloads it finished), a
+   * PC's from its last ensure or models check. A ComfyUI by URL has what it has. */
+  private ready(gpu: Gpu, setup: Record<string, any>, pack: Pack): boolean | null {
+    if (gpu.kind === "url" || !pack.models?.length) return true;
+    if (gpu.kind === "modal" && (setup.seeded ?? []).includes(pack.name)) return true;
+    return setup.ready?.[gpu.id]?.[pack.name] ?? null;
+  }
+
+  private async setReady(gpu: Gpu, pack: string, ready: boolean): Promise<void> {
+    const setup = await this.fresh.setup();
+    const known: Record<string, boolean> = setup.ready?.[gpu.id] ?? {};
+    if (known[pack] === ready) return;
+    await this.fresh.updateSetup({ ready: { ...(setup.ready ?? {}), [gpu.id]: { ...known, [pack]: ready } } });
+  }
+
+  /**
+   * The GPU for a call (design §2, "GPUs"): the first enabled one, in the list's order, that is
+   * available and not known to lack *pack* (unknown is worth a try: its answer says); else the first
+   * available, which starts the download. *skip*: GPUs this call already found downloading. A
+   * message instead when none is available.
+   */
+  private async pick(gpus: Gpu[], pack: Pack | null, skip: Gpu[] = []): Promise<Gpu | string> {
+    const enabled = gpus.filter((g) => g.enabled);
+    if (!enabled.length) return "No GPU is set up yet.";
+    const statuses = await Promise.all(enabled.map((g) => this.status(g)));
+    const available = enabled.filter((_, i) => statuses[i].online && !statuses[i].paused);
+    if (!available.length) {
+      const paused = enabled.filter((_, i) => statuses[i].paused);
+      return paused.length ? pausedMessage(paused) : offlineMessage(enabled);
+    }
+    const left = available.filter((g) => !skip.includes(g));
+    if (pack) {
+      const setup = await this.store.setup();
+      const ready = left.find((g) => this.ready(g, setup, pack) !== false);
+      if (ready) return ready;
+    }
+    return left[0] ?? available[0];
+  }
+
+  // ── MCP ───────────────────────────────────────────────────────────
 
   private async mcp(req: Request, url: URL, secret: string): Promise<Response> {
     const s = await this.store.secrets();
     if (!safeEqual(secret.replace(/^\/+|\/+$/g, ""), s.mcp_secret)) return error(404, "not found");
     if (req.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
-    const cfg = await this.store.config(); // one config for every backend: Claude sees one tool list
+    const cfg = await this.store.config(); // one config for every GPU: Claude sees one tool list
     const specs = new Brain(PACKS, cfg, null as unknown as ComfyUIClient, "refs").specs;
     const served = new Set(specs.map((spec) => spec.name));
     const key = hmacKey(s);
 
     const call = async (name: string, args: Record<string, any>): Promise<[Content[], boolean]> => {
       if (!served.has(name)) throw new UnknownTool(name);
-      const gen = await this.generator(s);
-      if (!gen) return [[text(`Error: the image generator is not set up yet. Finish setup at ${url.origin}/`)], true];
-      if (gen.paused) return [[text(`Error: ${PC_PAUSED}`)], true];
+      // Uploads go to R2: no GPU needed.
       if (name === "request_upload") return uploads.requestUpload(args, url.origin, key, this.p.now());
-      const settingsUrl = `${url.origin}/`;
-      const bucket = this.p.bucket;
-      const hooks =
-        gen.kind === "pc"
-          ? new PcHooks(gen.client, key, this.fetch, this.store, settingsUrl, this.p.relay!, cfg.pc_keep_warm_minutes, bucket)
-          : new WorkerHooks(gen.client, key, this.fetch, modalAdmin.forGenerator(this.fetch, s.generator), this.store, settingsUrl, bucket);
-      const brain = new Brain(PACKS, cfg, gen.client, "refs", { hooks });
-      return render(await brain.call(name, args), gen.client, url.origin, bucket);
+      const gpus = await this.gpus(this.store);
+      if (!gpus.length) return [[text(`Error: no GPU is set up yet. Finish setup at ${url.origin}/`)], true];
+      const pack = selectedPacks(cfg).find((p) => p.tool_name === name) ?? null;
+      let gpu: Gpu | string;
+      if (name === "fetch_result") {
+        // The token names the GPU the job is on: only that one has it.
+        const [on, promptId] = splitToken(String(args.request_token ?? ""), gpus);
+        args = { ...args, request_token: promptId };
+        if (on) {
+          const st = await this.status(on);
+          gpu = st.online ? on : offlineMessage([on]);
+        } else {
+          gpu = await this.pick(gpus, null);
+        }
+      } else {
+        gpu = await this.pick(gpus, pack);
+      }
+      if (typeof gpu === "string") return [[text(`Error: ${gpu}`)], true];
+      const tried: Gpu[] = [];
+      for (;;) {
+        const target: Gpu = gpu;
+        let downloading = false; // this GPU lacks the pack: it starts the download, the next may answer
+        const onReady = async (packName: string, ready: boolean) => {
+          downloading = !ready;
+          if (target.kind === "pc") await this.setReady(target, packName, ready);
+        };
+        const client = this.client(target);
+        const hooks =
+          target.kind === "pc"
+            ? new PcHooks(client, key, this.fetch, this.store, `${url.origin}/`, this.p.relays(target.id), target, this.p.bucket, onReady)
+            : new WorkerHooks(client, key, this.fetch, this.admin(target), this.store, `${url.origin}/`, this.p.bucket, onReady);
+        const outcome = await new Brain(PACKS, cfg, client, "refs", { hooks }).call(name, args);
+        tried.push(target);
+        if (outcome.kind === "failed" && downloading && name !== "fetch_result") {
+          const next = await this.pick(gpus, pack, tried);
+          if (typeof next !== "string" && !tried.includes(next)) {
+            gpu = next;
+            continue;
+          }
+        }
+        if (outcome.kind === "pending") outcome.token = `${target.id}:${outcome.token}`;
+        return render(outcome, client, url.origin, this.p.bucket);
+      }
     };
 
     const handler = new McpHandler("Comfy-Gen-MCP", this.version, specs, call, INSTRUCTIONS);
@@ -286,18 +369,21 @@ export class App {
     const modal = data.modal;
     let warnings: string[] = [];
     if (modal && typeof modal === "object" && modal.server_url) {
-      const generator = {
-        kind: "modal",
+      // The Modal GPU: added at the end of the list (a fallback behind the PCs), or updated in place.
+      const gpus = await this.gpus();
+      const old = gpus.find((g) => g.kind === "modal");
+      const gpu: Gpu = {
+        id: "modal", kind: "modal", name: old?.name ?? "Modal", enabled: old?.enabled ?? true,
+        keep_warm_minutes: old?.keep_warm_minutes ?? DEFAULT_KEEP_WARM,
         base_url: modal.server_url,
         admin_url: modal.admin_url ?? null,
         headers: { "Modal-Key": modal.proxy_token_id ?? "", "Modal-Secret": modal.proxy_token_secret ?? "" },
         cold_start_s: MODAL_COLD_START_S,
       };
-      await this.fresh.updateSecrets({ generator });
+      await this.saveGpus(old ? gpus.map((g) => (g === old ? gpu : g)) : [...gpus, gpu]);
       // A deploy resets keep-warm to the app's default, and a fresh install has no models yet.
-      const admin = modalAdmin.forGenerator(this.fetch, generator);
-      if (admin) warnings = await this.applyToModal(admin, await this.fresh.config(), true);
-      warnings.push(...(await this.spreadLoras(await this.fresh.secrets(), new URL(req.url).origin)).warnings);
+      warnings = await this.applyToModal(this.admin(gpu)!, await this.fresh.config(), gpu.keep_warm_minutes);
+      warnings.push(...(await this.spreadLoras(new URL(req.url).origin)).warnings);
       await this.fresh.updateSetup({ modal_error: null });
     } else if (typeof data.modal_error === "string" || String(data.modal_result ?? "").startsWith("failed")) {
       // The setup page shows Modal's reason (no card on file, a bad token) and offers Try again.
@@ -306,13 +392,13 @@ export class App {
     return json({ ok: true, warnings });
   }
 
-  /** Best effort: apply keep-warm, start downloads for selected packs. Returns warnings. LoRAs are
-   * spreadLoras' (the callers call it after). */
-  private async applyToModal(admin: modalAdmin.ModalAdmin, cfg: Config, keepWarm: boolean): Promise<string[]> {
+  /** Best effort: apply keep-warm (when given), start downloads for selected packs. Returns warnings.
+   * LoRAs are spreadLoras' (the callers call it after). */
+  private async applyToModal(admin: modalAdmin.ModalAdmin, cfg: Config, keepWarmMinutes: number | null): Promise<string[]> {
     const warnings: string[] = [];
-    if (keepWarm) {
+    if (keepWarmMinutes !== null) {
       try {
-        await admin.idle(cfg.keep_warm_minutes);
+        await admin.idle(keepWarmMinutes);
       } catch (e) {
         if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
         warnings.push(`Could not apply keep-warm: ${e.message}`);
@@ -347,20 +433,7 @@ export class App {
     if (sub === "/setup/generator" && req.method === "POST") return this.setupGenerator(req);
     if (sub === "/setup/build" && req.method === "POST") return this.startBuild(req, url, s);
     if (sub === "/setup/build" && req.method === "GET") return this.buildState(url, s);
-    if (sub === "/pc/pair" && req.method === "POST") return this.pair(url);
-    if (sub === "/pc/pause" && req.method === "POST" && this.pcPaired(s)) {
-      // The tray's pause, from here: the agent sets it and says so in a fresh hello. Not kept across
-      // an agent restart, so a forgotten pause cannot send every image to Modal for days.
-      const paused = (await bodyJson(req)).paused === true;
-      const r = await this.pcControl("pause", { paused });
-      return r.ok ? json(r.data) : error(r.message === PC_OFFLINE ? 503 : 502, r.message);
-    }
-    if (sub === "/pc" && req.method === "DELETE") {
-      await this.fresh.updateSecrets({ agent_secret: null });
-      await this.fresh.updateSetup({ pc_seen: null });
-      await this.p.relay?.drop();
-      return json({ ok: true });
-    }
+    if (sub === "/gpus" || sub.startsWith("/gpus/")) return this.gpuApi(req, url, sub);
     if (sub === "/update") return this.update(req, s);
     if (sub === "/setup/rotate-connector" && req.method === "POST") {
       await this.fresh.updateSecrets({ mcp_secret: tokenUrlsafe(24) });
@@ -371,19 +444,17 @@ export class App {
   }
 
   private async state(url: URL, s: Secrets) {
-    const gen = s.generator;
     const setup = await this.fresh.setup();
     return {
       version: this.version,
       cloudflare: s.cf_token ? { account_id: s.cf_account_id ?? null, script: s.cf_script ?? null } : null,
-      generator: gen ? { kind: gen.kind ?? null, base_url: gen.base_url ?? null } : null,
+      gpus: await this.gpuStates(url),
       build: setup.build ?? null,
       update_build: setup.update_build ?? null,
       modal_error: setup.modal_error ?? null,
       connector_url: `${url.origin}/mcp/${s.mcp_secret}`,
       claude_seen: setup.claude_seen ?? null,
       password_set: Boolean(s.password),
-      pc: await this.pcState(url, s),
       config: await this.fresh.config(),
       schema: SETTINGS_SCHEMA,
       packs: PACK_METADATA,
@@ -419,30 +490,86 @@ export class App {
     return json({ build: await updates.startUpdate(this.fetch, this.fresh, latest), latest });
   }
 
-  /** A new pairing link. A PC paired before is disconnected: its secret no longer opens the relay. */
-  private async pair(url: URL): Promise<Response> {
-    await this.fresh.updateSecrets({ agent_secret: tokenUrlsafe(32) });
-    await this.fresh.updateSetup({ pc_seen: null }); // a new PC starts at the pairing view
-    await this.p.relay?.drop();
-    const s = await this.fresh.secrets();
-    return json({ link: pairingLink(url, s.agent_secret) });
+  /**
+   * The GPU list (design §2, "GPUs"):
+   *   POST   /gpus/pc            add a PC: {id, link} (the pairing link for its agent)
+   *   POST   /gpus/<id>/pair     a new pairing link; the old one stops working, its agent is dropped
+   *   POST   /gpus/<id>/pause    {paused}: the tray's pause, from here. The agent keeps it in memory
+   *                              only, so a forgotten pause cannot send every image elsewhere for days
+   *   PATCH  /gpus/<id>          {name, enabled, keep_warm_minutes}
+   *   PUT    /gpus/order         {ids}: the priority order
+   *   DELETE /gpus/<id>          remove it (a PC's agent is dropped; Modal's app stays deployed)
+   */
+  private async gpuApi(req: Request, url: URL, sub: string): Promise<Response> {
+    const gpus = await this.gpus();
+    if (sub === "/gpus/pc" && req.method === "POST") {
+      const gpu: Gpu = { id: newPcId(gpus), kind: "pc", name: newPcName(gpus), enabled: true, keep_warm_minutes: DEFAULT_KEEP_WARM, secret: tokenUrlsafe(32), seen: null };
+      // A new PC goes first: a GPU of one's own is free, the others are the fallback.
+      await this.saveGpus([gpu, ...gpus]);
+      return json({ id: gpu.id, link: pairingLink(url, gpu.secret!) });
+    }
+    if (sub === "/gpus/order" && req.method === "PUT") {
+      const ids = (await bodyJson(req)).ids;
+      if (!Array.isArray(ids) || ids.length !== gpus.length || !gpus.every((g) => ids.includes(g.id))) return error(400, "ids must list every GPU once");
+      await this.saveGpus(ids.map((id: string) => gpus.find((g) => g.id === id)!));
+      return json({ ok: true });
+    }
+    const m = /^\/gpus\/([\w-]+)(?:\/(pair|pause))?$/.exec(sub);
+    const gpu = m ? gpus.find((g) => g.id === m[1]) : undefined;
+    if (!m || !gpu) return error(404, "no such GPU");
+    if (m[2] === "pair" && req.method === "POST" && gpu.kind === "pc") {
+      const secret = tokenUrlsafe(32);
+      await this.updateGpu(gpu.id, { secret, seen: null }); // a new PC starts at the pairing view
+      await this.p.relays(gpu.id).drop();
+      return json({ link: pairingLink(url, secret) });
+    }
+    if (m[2] === "pause" && req.method === "POST" && gpu.kind === "pc") {
+      const r = await this.control(gpu, "pause", { paused: (await bodyJson(req)).paused === true });
+      return r.ok ? json(r.data) : error(r.message === offlineMessage([gpu]) ? 503 : 502, r.message);
+    }
+    if (!m[2] && req.method === "PATCH") {
+      const body = await bodyJson(req);
+      const changes: Partial<Gpu> = {};
+      if (typeof body.name === "string" && body.name.trim()) changes.name = body.name.trim().slice(0, 60);
+      if (typeof body.enabled === "boolean") changes.enabled = body.enabled;
+      if (body.keep_warm_minutes !== undefined) {
+        const minutes = Number(body.keep_warm_minutes);
+        if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) return error(400, "keep_warm_minutes must be 1 to 60");
+        changes.keep_warm_minutes = minutes;
+      }
+      const updated = (await this.updateGpu(gpu.id, changes))!;
+      const warnings: string[] = [];
+      const admin = this.admin(updated);
+      if (admin && changes.keep_warm_minutes !== undefined) {
+        try {
+          await admin.idle(updated.keep_warm_minutes);
+        } catch (e) {
+          if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+          warnings.push(`Could not apply keep-warm: ${e.message}`);
+        }
+      }
+      return json({ gpu: redact(updated, url), warnings });
+    }
+    if (!m[2] && req.method === "DELETE") {
+      await this.saveGpus(gpus.filter((g) => g !== gpu));
+      if (gpu.kind === "pc") await this.p.relays(gpu.id).drop();
+      return json({ ok: true });
+    }
+    return error(404, "not found");
   }
 
-  private async pcState(url: URL, s: Secrets) {
-    if (!this.pcPaired(s)) return { paired: false };
-    let status = { connected: false, since: null as number | null, info: null as Record<string, unknown> | null };
-    try {
-      status = await this.p.relay!.status();
-    } catch {
-      // unreachable: shown as offline
-    }
-    // Once this PC has connected, its being offline is a moment, not a pairing still to do.
-    let seen = (await this.fresh.setup()).pc_seen ?? null;
-    if (!seen && status.connected) {
-      seen = this.p.now();
-      await this.fresh.updateSetup({ pc_seen: seen });
-    }
-    return { paired: true, link: pairingLink(url, s.agent_secret), seen, ...status };
+  /** The GPU list for the settings page, with each one's live state. A PC's pairing link is shown
+   * there (the page is logged in); its secret on its own never is. */
+  private async gpuStates(url: URL) {
+    const gpus = await this.gpus();
+    return Promise.all(
+      gpus.map(async (g) => {
+        const st = await this.status(g);
+        // Once a PC has connected, its being offline is a moment, not a pairing still to do.
+        if (g.kind === "pc" && st.online && !g.seen) g = (await this.updateGpu(g.id, { seen: this.p.now() })) ?? g;
+        return { ...redact(g, url), ...st };
+      }),
+    );
   }
 
   /** A Cloudflare user token that can see this Worker proves ownership. It is also the token the
@@ -489,76 +616,79 @@ export class App {
   }
 
   /**
-   * Saving the settings applies them to every backend: Modal's keep-warm and downloads, the PC's
-   * downloads and a LoRA sync. Warns about LoRAs no backend has.
+   * Saving the settings applies them to every GPU: Modal's downloads, each online PC's downloads,
+   * and a LoRA copy. Warns about LoRAs not in storage.
    */
-  private async saveConfig(req: Request, s: Secrets): Promise<Response> {
-    const old = await this.fresh.config();
+  private async saveConfig(req: Request, _s: Secrets): Promise<Response> {
     const cfg = await this.fresh.saveConfig((await bodyJson(req)).config);
-    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
-    const warnings = admin ? await this.applyToModal(admin, cfg, old.keep_warm_minutes !== cfg.keep_warm_minutes) : [];
+    const gpus = await this.gpus();
+    const warnings: string[] = [];
     const notes: string[] = []; // informational, not a problem (none yet: an offline PC shows on the page)
-    const pcOnline = this.pcPaired(s) && (await this.pcConnected());
-    if (pcOnline) {
-      // As the extension does: a newly chosen pack starts downloading now.
-      for (const pack of selectedPacks(cfg)) await this.pcControl("download", { pack: needs(pack) });
+    for (const gpu of gpus) {
+      const admin = this.admin(gpu);
+      if (admin) warnings.push(...(await this.applyToModal(admin, cfg, null)));
     }
-    warnings.push(...(await this.spreadLoras(s, new URL(req.url).origin)).warnings);
-    if (wantedLoras(cfg).length) warnings.push(...missingLoras(cfg, await this.loraListing(s)));
+    // As the extension does: a newly chosen pack starts downloading now.
+    for (const pc of await this.onlinePcs(gpus)) {
+      for (const pack of selectedPacks(cfg)) await this.control(pc, "download", { pack: needs(pack) });
+    }
+    warnings.push(...(await this.spreadLoras(new URL(req.url).origin)).warnings);
+    if (wantedLoras(cfg).length) warnings.push(...missingLoras(cfg, await this.loraListing()));
     return json({ config: cfg, warnings, notes });
   }
 
   /**
-   * The LoRA files on each backend that has a listing, for the settings page: {backends, files:
-   * {name: {backend: size}}, syncing: the agent's copies in progress, errors: {backend: message}}.
-   * A ComfyUI reached by URL is listed as a backend with no files.
+   * The LoRA files in storage and on each GPU, for the settings page: {backends: ["storage", gpu
+   * ids…], gpus: [{id, name, kind}], files: {name: {backend: size}}, syncing: the agents' copies in
+   * progress, errors: {backend: message}, offline: PCs not connected now}. A ComfyUI reached by URL
+   * is listed with no files.
    */
-  private async loraListing(s: Secrets) {
+  private async loraListing() {
+    const gpus = await this.gpus();
     const out = {
-      backends: [] as string[],
+      backends: ["storage"] as string[], // R2: where every LoRA comes in and every GPU copies from
+      gpus: gpus.map((g) => ({ id: g.id, name: g.name, kind: g.kind })),
       files: {} as Record<string, Record<string, number>>,
       syncing: {} as Record<string, unknown>,
       errors: {} as Record<string, string>,
-      offline: [] as string[], // backends not reachable now (the PC off): not an error, nothing listed
+      offline: [] as string[], // not reachable now (a PC off): not an error, nothing listed
     };
     const add = (backend: string, list: Record<string, number>) => {
       for (const [name, size] of Object.entries(list ?? {})) (out.files[name] ??= {})[backend] = size;
     };
-    out.backends.push("storage"); // R2: where every LoRA comes in and every GPU copies from
     add("storage", await loras.stored(this.p.bucket));
-    if (this.pcPaired(s)) {
-      out.backends.push("pc");
-      const r = (await this.pcConnected()) ? await this.pcControl("loras") : null;
-      if (!r || (!r.ok && r.message === PC_OFFLINE)) {
-        out.offline.push("pc");
-      } else if (r.ok) {
-        add("pc", r.data?.files ?? {});
-        out.syncing = r.data?.syncing ?? {};
-      } else {
-        out.errors.pc = r.message;
+    for (const gpu of gpus) {
+      out.backends.push(gpu.id);
+      if (gpu.kind === "pc") {
+        const r = (await this.status(gpu)).online ? await this.control(gpu, "loras") : null;
+        if (!r || (!r.ok && r.message === offlineMessage([gpu]))) {
+          out.offline.push(gpu.id);
+        } else if (r.ok) {
+          add(gpu.id, r.data?.files ?? {});
+          for (const [name, job] of Object.entries((r.data?.syncing ?? {}) as Record<string, any>)) out.syncing[name] = { ...job, to: gpu.id };
+        } else {
+          out.errors[gpu.id] = r.message;
+        }
       }
-    }
-    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
-    if (admin) {
-      out.backends.push("modal");
-      try {
-        add("modal", await admin.loras());
-      } catch (e) {
-        if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-        out.errors.modal = e.message;
+      const admin = this.admin(gpu);
+      if (admin) {
+        try {
+          add(gpu.id, await admin.loras());
+        } catch (e) {
+          if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+          out.errors[gpu.id] = e.message;
+        }
       }
-    } else if (s.generator?.kind === "url") {
-      out.backends.push("url");
     }
     return out;
   }
 
   /** LoRA files on every backend, uploads into R2 from the settings page, delete. */
   private async loras(req: Request, url: URL, sub: string, s: Secrets): Promise<Response> {
-    if (sub === "/loras" && req.method === "GET") return json(await this.loraListing(s));
+    if (sub === "/loras" && req.method === "GET") return json(await this.loraListing());
     if (sub === "/loras/sync" && req.method === "POST") {
-      // Copy what R2 has to every GPU now, not at the PC's next connection or the next save.
-      return json({ started: (await this.spreadLoras(s, url.origin)).pc });
+      // Copy what R2 has to every GPU now, not at a PC's next connection or the next save.
+      return json({ started: (await this.spreadLoras(url.origin)).pcs > 0 });
     }
     if (sub.startsWith("/loras/uploads")) return this.loraUploads(req, url, sub, s);
     if (sub.startsWith("/loras/") && req.method === "DELETE") return this.deleteLora(decodeURIComponent(sub.slice("/loras/".length)), s);
@@ -585,7 +715,7 @@ export class App {
         const done = await uploads.finish(m[1], (await bodyJson(req)).parts);
         const deleted = (await this.fresh.setup()).lora_deleted ?? {};
         if (done.name in deleted) await this.fresh.updateSetup({ lora_deleted: { ...deleted, [done.name]: undefined } });
-        await this.spreadLoras(s, url.origin);
+        await this.spreadLoras(url.origin);
         return json(done);
       }
       if (m && m[2] !== undefined && m[2] !== "finish" && req.method === "PUT") return json(await uploads.chunk(m[1], Number(m[2]), req));
@@ -599,31 +729,35 @@ export class App {
 
   /**
    * Copy what R2 holds to every GPU (best effort): Modal fetches the LoRAs its Volume lacks from
-   * storage links; an online PC is told to sync. {pc: whether the PC was told, warnings}.
+   * storage links; each online PC is told to sync. {pcs: how many PCs were told, warnings}.
    */
-  private async spreadLoras(s: Secrets, origin: string): Promise<{ pc: boolean; warnings: string[] }> {
+  private async spreadLoras(origin: string): Promise<{ pcs: number; warnings: string[] }> {
     const warnings: string[] = [];
-    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
-    if (admin) {
+    const gpus = await this.gpus();
+    const s = await this.fresh.secrets();
+    let inR2: Record<string, number> | null = null;
+    for (const gpu of gpus) {
+      const admin = this.admin(gpu);
+      if (!admin) continue;
       try {
-        const inR2 = await loras.stored(this.p.bucket);
+        inR2 ??= await loras.stored(this.p.bucket);
         const onModal = Object.keys(inR2).length ? await admin.loras() : {};
         for (const name of Object.keys(inR2).filter((n) => !(n in onModal)).slice(0, SYNC_MAX_FILES)) {
           await admin.fetchLora(name, await this.storeUrl(origin, hmacKey(s), loras.loraKey(name)), inR2[name]);
         }
       } catch (e) {
         if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-        warnings.push(`Could not copy LoRAs to Modal: ${e.message}`);
+        warnings.push(`Could not copy LoRAs to ${gpu.name}: ${e.message}`);
       }
     }
-    const pc = this.pcPaired(s) && (await this.pcConnected());
-    if (pc) await this.pcControl("sync");
-    return { pc, warnings };
+    const pcs = await this.onlinePcs(gpus);
+    for (const pc of pcs) await this.control(pc, "sync");
+    return { pcs: pcs.length, warnings };
   }
 
   /** Delete a LoRA from R2 and every GPU that has it (one way in, one way out). A PC that is
    * offline drops its copy at its next sync: the name is kept as deleted until it is uploaded again. */
-  private async deleteLora(name: string, s: Secrets): Promise<Response> {
+  private async deleteLora(name: string, _s: Secrets): Promise<Response> {
     const from: string[] = [];
     const errors: string[] = [];
     if (await this.p.bucket.head(loras.loraKey(name))) {
@@ -632,72 +766,77 @@ export class App {
     }
     const setup = await this.fresh.setup();
     await this.fresh.updateSetup({ lora_deleted: { ...(setup.lora_deleted ?? {}), [name]: this.p.now() } });
-    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
-    if (admin) {
+    const gpus = await this.gpus();
+    for (const gpu of gpus) {
+      const admin = this.admin(gpu);
+      if (!admin) continue;
       try {
         await admin.deleteLora(name);
-        from.push("modal");
+        from.push(gpu.id);
       } catch (e) {
         if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-        if (e.status !== 404) errors.push(`Modal: ${e.message}`);
+        if (e.status !== 404) errors.push(`${gpu.name}: ${e.message}`);
       }
     }
-    if (this.pcPaired(s) && (await this.pcConnected())) {
-      const r = await this.p.relay!.control("lora_delete", { name });
-      if (r.status === 200) from.push("pc");
-      else if (r.status !== 404) errors.push(`PC: ${fromUtf8(r.body)}`);
+    for (const pc of await this.onlinePcs(gpus)) {
+      const r = await this.p.relays(pc.id).control("lora_delete", { name });
+      if (r.status === 200) from.push(pc.id);
+      else if (r.status !== 404) errors.push(`${pc.name}: ${fromUtf8(r.body)}`);
     }
     if (!from.length && !errors.length) return error(404, `no LoRA named ${name}`);
     return json({ deleted: name, from, errors });
   }
 
   /**
-   * Download state of the selected packs on each backend, for the pages to poll: {backends, packs:
-   * [{name, display_name, tool_name, size, on: {backend: status}}]}. ?backend= limits it to one.
+   * Download state of the selected packs on each GPU, for the pages to poll: {gpus: [{id, name,
+   * kind}], packs: [{name, display_name, tool_name, size, on: {gpu id: status}}]}. ?gpu= limits it
+   * to one. A PC's answer also tells routing which packs it has ready.
    */
-  private async models(url: URL, s: Secrets): Promise<Response> {
-    const only = url.searchParams.get("backend");
+  private async models(url: URL, _s: Secrets): Promise<Response> {
+    const only = url.searchParams.get("gpu");
     const packs = selectedPacks(await this.fresh.config());
     const on: Record<string, any>[] = packs.map(() => ({}));
-    const backends: string[] = [];
-    if (this.pcPaired(s) && (!only || only === "pc")) {
-      backends.push("pc");
-      const r = (await this.pcConnected()) ? await this.pcControl("models", { packs: packs.map(needs) }) : null;
-      const status = new Map<string, any>(r?.ok ? (r.data as any[]).map((st) => [st.name, st]) : []);
-      packs.forEach((p, i) => {
-        on[i].pc = !r ? { state: "offline" } : r.ok ? status.get(p.name) ?? { state: "unknown" } : { state: "unknown", error: r.message };
-      });
-    }
-    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
-    if (admin && (!only || only === "modal")) {
-      backends.push("modal");
-      for (const [i, pack] of packs.entries()) {
-        try {
-          on[i].modal = await modalAdmin.packStatus(admin, this.fresh, pack);
-        } catch (e) {
-          if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-          on[i].modal = { state: "unknown", error: e.message };
+    const gpus = (await this.gpus()).filter((g) => g.kind !== "url" && (!only || g.id === only));
+    for (const gpu of gpus) {
+      if (gpu.kind === "pc") {
+        const r = (await this.status(gpu)).online ? await this.control(gpu, "models", { packs: packs.map(needs) }) : null;
+        const status = new Map<string, any>(r?.ok ? (r.data as any[]).map((st) => [st.name, st]) : []);
+        for (const [i, p] of packs.entries()) {
+          on[i][gpu.id] = !r ? { state: "offline" } : r.ok ? status.get(p.name) ?? { state: "unknown" } : { state: "unknown", error: r.message };
+          if (r?.ok) await this.setReady(gpu, p.name, on[i][gpu.id].state === "done");
+        }
+      }
+      const admin = this.admin(gpu);
+      if (admin) {
+        for (const [i, pack] of packs.entries()) {
+          try {
+            on[i][gpu.id] = await modalAdmin.packStatus(admin, this.fresh, pack);
+          } catch (e) {
+            if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+            on[i][gpu.id] = { state: "unknown", error: e.message };
+          }
         }
       }
     }
     return json({
-      backends,
+      gpus: gpus.map((g) => ({ id: g.id, name: g.name, kind: g.kind })),
       packs: packs.map((p, i) => ({ name: p.name, display_name: p.display_name ?? p.name, tool_name: p.tool_name, size: downloadSize(p), on: on[i] })),
     });
   }
 
-  /** Start downloading a pack on one backend: {pack, backend: "modal" | "pc"}. */
-  private async seedPack(req: Request, s: Secrets): Promise<Response> {
+  /** Start downloading a pack on one GPU: {pack, gpu: id}. */
+  private async seedPack(req: Request, _s: Secrets): Promise<Response> {
     const body = await bodyJson(req);
     const pack = PACKS.find((p) => p.name === body.pack);
     if (!pack) return error(400, "no such pack");
-    if (body.backend === "pc") {
-      if (!this.pcPaired(s)) return error(400, "no PC is paired");
-      const r = await this.pcControl("download", { pack: needs(pack) });
-      return r.ok ? json(r.data) : error(r.message === PC_OFFLINE ? 503 : 502, r.message);
+    const gpu = (await this.gpus()).find((g) => g.id === body.gpu);
+    if (!gpu) return error(400, "no such GPU");
+    if (gpu.kind === "pc") {
+      const r = await this.control(gpu, "download", { pack: needs(pack) });
+      return r.ok ? json(r.data) : error(r.message === offlineMessage([gpu]) ? 503 : 502, r.message);
     }
-    const admin = modalAdmin.forGenerator(this.fetch, s.generator);
-    if (!admin) return error(400, "the GPU is not on Modal");
+    const admin = this.admin(gpu);
+    if (!admin) return error(400, "a ComfyUI by URL downloads its own models");
     try {
       return json(await admin.seed(pack));
     } catch (e) {
@@ -714,7 +853,11 @@ export class App {
     if (!baseUrl.startsWith("https://") && !baseUrl.startsWith("http://")) return error(400, "base_url must be an http(s) URL");
     const resp = await new FetchTransport(this.fetch, baseUrl, headers).request("GET", "/system_stats");
     if (resp.status !== 200) return error(502, `ComfyUI did not answer at ${baseUrl}/system_stats (HTTP ${resp.status})`);
-    await this.fresh.updateSecrets({ generator: { kind: "url", base_url: baseUrl, headers } });
+    // One ComfyUI by URL: added at the end of the list, or replacing the one there was.
+    const gpus = await this.gpus();
+    const old = gpus.find((g) => g.kind === "url");
+    const gpu: Gpu = { id: "url", kind: "url", name: old?.name ?? "Your ComfyUI", enabled: true, keep_warm_minutes: DEFAULT_KEEP_WARM, base_url: baseUrl, headers };
+    await this.saveGpus(old ? gpus.map((g) => (g === old ? gpu : g)) : [...gpus, gpu]);
     return json({ ok: true, system: resp.json().system ?? {} });
   }
 
@@ -747,17 +890,23 @@ export class App {
  * gets none: the agent copies it. */
 function missingLoras(
   cfg: Config,
-  listing: { backends: string[]; files: Record<string, unknown>; errors: Record<string, string>; offline: string[] },
+  listing: { backends: string[]; gpus: { id: string; name: string }[]; files: Record<string, unknown>; errors: Record<string, string>; offline: string[] },
 ): string[] {
   // Every LoRA comes in through R2 (storage): one a model uses that R2 lacks was deleted, or is a
   // PC's own not yet copied up. GPUs missing one get it copied; that shows on the page.
-  const place: Record<string, string> = { pc: "your PC", modal: "Modal" };
-  const out = listing.backends.filter((b) => listing.errors[b]).map((b) => `Could not check the LoRA files on ${place[b] ?? b}: ${listing.errors[b]}`);
+  const name = (id: string) => listing.gpus.find((g) => g.id === id)?.name ?? id;
+  const out = listing.backends.filter((b) => listing.errors[b]).map((b) => `Could not check the LoRA files on ${name(b)}: ${listing.errors[b]}`);
   const files = listing.files as Record<string, Record<string, number>>;
   for (const name of wantedLoras(cfg)) {
     if (!files[name]?.storage) out.push(`The LoRA ${name} is not uploaded: generations will fail until it is. Upload it under LoRAs.`);
   }
   return out;
+}
+
+/** A GPU as the settings page sees it: no secret or headers; a PC's pairing link instead. */
+function redact(g: Gpu, url: URL) {
+  const { secret, headers: _headers, ...rest } = g;
+  return { ...rest, ...(g.kind === "pc" && secret ? { link: pairingLink(url, secret) } : {}) };
 }
 
 /** What the agent's settings page takes: the Worker's address and the secret, in one paste. The

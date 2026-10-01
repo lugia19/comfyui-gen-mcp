@@ -4,15 +4,15 @@
   import LoraSection from './LoraSection.svelte'
   import Models from './Models.svelte'
 
-  // The settings: the extension's, for this computer, or the Worker's, for every backend it has
-  // (your PC, Modal or a ComfyUI URL). One config: Claude sees one set of tools. What differs per
-  // backend is only which models and LoRA files it has, shown per backend below, and keep-warm.
+  // The settings: the extension's, for this computer, or the Worker's, for every GPU it has (PCs,
+  // Modal or a ComfyUI URL). One config: Claude sees one set of tools. What differs per GPU is only
+  // which models and LoRA files it has, shown per GPU below; keep-warm is set per GPU on Setup.
   let { info, refresh } = $props()
   // Read once: the page is remounted each time its tab is opened.
   const fixed = untrack(() => ({ info }))
   const machine = fixed.info.mode === 'local'
-  const pcPaired = !machine && Boolean(fixed.info.pc?.paired)
-  const modal = !machine && fixed.info.generator?.kind === 'modal'
+  const gpus = machine ? [] : fixed.info.gpus ?? []
+  const anyPc = gpus.some((g) => g.kind === 'pc')
 
   const MP = 1024 * 1024
   const TOOL_TITLES = {
@@ -50,10 +50,8 @@
     packSettings(pack).max_pixels = Math.round(mp * MP)
   }
 
-  // Keep-warm per backend: the extension's own, Modal's (costs money while idle), the PC's.
-  const keepWarms = fixed.info.schema
-    .filter((f) => (f.key === 'keep_warm_minutes' ? machine || modal : f.pc ? pcPaired : false))
-    .map((f) => (f.key === 'keep_warm_minutes' && pcPaired ? { ...f, title: 'Keep warm on Modal (minutes)' } : f))
+  // The extension's own settings (keep-warm); a Worker's GPUs each have theirs on the Setup tab.
+  const keepWarms = machine ? fixed.info.schema.filter((f) => f.machine) : []
   // Packs that take LoRAs, one entry per settings key: packs sharing a key share their LoRAs
   // (Anima and Anima Turbo).
   const loraPacks = Object.values(
@@ -87,7 +85,7 @@
     // paired, so its going offline or coming back shows without a reload.
     const copying = Object.values(loraListing.syncing ?? {}).some((j) => !j.error)
     if (alive && (copying || Date.now() < watchUntil)) loraTimer = setTimeout(() => loadLoras(), 3000)
-    else if (alive && pcPaired) loraTimer = setTimeout(() => loadLoras(), 20_000)
+    else if (alive && anyPc) loraTimer = setTimeout(() => loadLoras(), 20_000)
   }
   onMount(() => loadLoras())
 
@@ -189,6 +187,6 @@
 {#each warnings as w}<p class="err">{w}</p>{/each}
 {#if error}<p class="err">{error}</p>{/if}
 
-{#if machine || pcPaired || modal}
+{#if machine || gpus.some((g) => g.kind !== 'url')}
   <section>{#key saves}<Models local={machine} />{/key}</section>
 {/if}

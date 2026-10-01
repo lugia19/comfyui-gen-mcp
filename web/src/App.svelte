@@ -13,11 +13,9 @@
   let checking = $state(true)
   let tab = $state('setup')
 
-  // One Settings page, for every backend the Worker has (or for this computer, on the extension),
-  // once there is something to set up. #settings opens it directly.
-  let hasSettings = $derived(
-    Boolean(info) && info.mode !== 'agent' && (info.mode === 'local' || Boolean(info.generator) || Boolean(info.pc?.paired)),
-  )
+  // One Settings page, for every GPU the Worker has (or for this computer, on the extension), once
+  // there is something to set up. #settings opens it directly.
+  let hasSettings = $derived(Boolean(info) && info.mode !== 'agent' && (info.mode === 'local' || Boolean(info.gpus?.length)))
 
   async function refresh() {
     try {
@@ -52,7 +50,7 @@
     await refresh()
     // The Worker's setup is finished once Claude has connected; until then it opens on Setup.
     const ready =
-      info?.mode === 'agent' ? false : info?.mode === 'local' ? info.comfyui.state !== 'not_installed' : info?.claude_seen && (info?.generator || info?.pc?.paired)
+      info?.mode === 'agent' ? false : info?.mode === 'local' ? info.comfyui.state !== 'not_installed' : info?.claude_seen && info?.gpus?.length
     tab = hasSettings && (ready || location.hash === '#settings') ? 'settings' : 'setup'
   }
 

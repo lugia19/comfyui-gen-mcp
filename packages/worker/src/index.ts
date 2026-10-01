@@ -46,15 +46,11 @@ class StateStub implements StateStorage {
   }
 }
 
-function relayStub(env: Env): RelayStub {
-  return env.RELAY.getByName("pc") as unknown as RelayStub;
-}
-
 function app(env: Env): App {
   return new App({
     storage: new StateStub(env.STATE),
     bucket: env.STORE as unknown as Bucket,
-    relay: relayStub(env),
+    relays: (id) => env.RELAY.getByName(id) as unknown as RelayStub,
     fetch: (url, init) => fetch(url, init),
     now: () => Date.now() / 1000,
     env: { VERSION: env.VERSION, DEV_WORKER_HOST: env.DEV_WORKER_HOST },
@@ -63,11 +59,11 @@ function app(env: Env): App {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    // The agent's WebSocket: checked here, then handed to the Relay object, which keeps it.
+    // The agent's WebSocket: checked here, then handed to its PC's Relay object, which keeps it.
     if (new URL(request.url).pathname === "/agent") {
       const a = app(env);
-      const refusal = await a.agentRefusal(request);
-      return refusal ?? env.RELAY.getByName("pc").fetch(request);
+      const gate = await a.agentGate(request);
+      return gate instanceof Response ? gate : env.RELAY.getByName(gate).fetch(request);
     }
     return app(env).handle(request);
   },

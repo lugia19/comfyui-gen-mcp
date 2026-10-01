@@ -79,12 +79,6 @@ export class ModalAdmin {
   }
 }
 
-/** The admin client for a Modal generator; null for any other kind. */
-export function forGenerator(fetch: Fetch, generator: Record<string, any> | null | undefined): ModalAdmin | null {
-  if (!generator || generator.kind !== "modal" || !generator.admin_url) return null;
-  return new ModalAdmin(fetch, generator.admin_url, generator.headers ?? {});
-}
-
 // Packs known to be fully on the Volume, in the setup key, so a ready pack costs no admin call.
 
 /** The pack's seed state: {state: done|queued|downloading|failed|missing, done, total, error}. */

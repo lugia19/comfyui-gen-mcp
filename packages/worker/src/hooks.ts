@@ -11,6 +11,7 @@
 import { ComfyUIError, Hooks, imageSize, refs, relay, tokenUrlsafe, type ComfyUIClient, type Pack, type ResolvedImage } from "@comfy-gen/core";
 import { getImage } from "./images.ts";
 import { ModalAdminError, packStatus, type ModalAdmin } from "./modal-admin.ts";
+import type { Gpu } from "./gpus.ts";
 import type { Bucket, Fetch } from "./platform.ts";
 import type { RelayStub } from "./relay.ts";
 import type { Store } from "./store.ts";
@@ -24,10 +25,22 @@ export class WorkerHooks extends Hooks {
   private store: Store;
   private settingsUrl: string;
   private bucket: Bucket;
+  /** Told whether this GPU has a pack's models: routing then sends the call elsewhere meanwhile. */
+  protected onReady: (pack: string, ready: boolean) => Promise<void>;
 
-  constructor(client: ComfyUIClient, key: Uint8Array, fetch: Fetch, admin: ModalAdmin | null, store: Store, settingsUrl: string, bucket: Bucket) {
+  constructor(
+    client: ComfyUIClient,
+    key: Uint8Array,
+    fetch: Fetch,
+    admin: ModalAdmin | null,
+    store: Store,
+    settingsUrl: string,
+    bucket: Bucket,
+    onReady: (pack: string, ready: boolean) => Promise<void> = async () => {},
+  ) {
     super();
     this.bucket = bucket;
+    this.onReady = onReady;
     this.client = client;
     this.key = key;
     this.fetch = fetch;
@@ -51,6 +64,7 @@ export class WorkerHooks extends Hooks {
       if (e instanceof ModalAdminError) return; // the admin API is down; let ComfyUI try
       throw e;
     }
+    await this.onReady(pack.name, false);
     if (status.state === "downloading" && status.total) {
       const pct = Math.floor((100 * (status.done ?? 0)) / status.total);
       throw new ComfyUIError(`The ${name} model is still downloading to your GPU (${pct}%). Try again in a few minutes.`);
@@ -96,10 +110,17 @@ export class WorkerHooks extends Hooks {
   }
 }
 
-export const PC_PAUSED =
-  "Your PC is paused: it is not taking image requests. Take requests again from the Comfy-Gen tray icon on it, then try again.";
-export const PC_OFFLINE =
-  "Your PC is offline. Start it (the Comfy-Gen agent starts with it), or check its tray icon, then try again.";
+/** None of these GPUs is taking calls because each is paused (a PC, from its tray or the page). */
+export function pausedMessage(gpus: Gpu[]): string {
+  const names = gpus.map((g) => g.name).join(", ");
+  return `${names} ${gpus.length > 1 ? "are" : "is"} paused: not taking image requests. Take requests again from the Comfy-Gen tray icon, or the settings page, then try again.`;
+}
+
+/** These GPUs are offline (a PC whose agent is not connected). */
+export function offlineMessage(gpus: Gpu[]): string {
+  const names = gpus.map((g) => g.name).join(", ");
+  return `${names} ${gpus.length > 1 ? "are" : "is"} offline. Start the PC (the Comfy-Gen agent starts with it), or check its tray icon, then try again.`;
+}
 // Starting ComfyUI and installing a node package can take minutes; the MCP client gives up at 5.
 export const ENSURE_TIMEOUT_S = 240;
 
@@ -107,7 +128,7 @@ export const ENSURE_TIMEOUT_S = 240;
  * MCPB does locally; images resolve as on Modal (from R2 or a URL, uploaded through the relay). */
 export class PcHooks extends WorkerHooks {
   private relay: RelayStub;
-  private keepWarmMinutes: number;
+  private gpu: Gpu;
 
   constructor(
     client: ComfyUIClient,
@@ -116,22 +137,28 @@ export class PcHooks extends WorkerHooks {
     store: Store,
     settingsUrl: string,
     relayStub: RelayStub,
-    keepWarmMinutes: number,
+    gpu: Gpu,
     bucket: Bucket,
+    onReady: (pack: string, ready: boolean) => Promise<void> = async () => {},
   ) {
-    super(client, key, fetch, null, store, settingsUrl, bucket);
+    super(client, key, fetch, null, store, settingsUrl, bucket, onReady);
     this.relay = relayStub;
-    this.keepWarmMinutes = keepWarmMinutes;
+    this.gpu = gpu;
   }
 
+  /** The agent makes the pack ready; the answer also tells routing whether this PC has the pack. */
   async ensure(pack: Pack): Promise<void> {
     const args = {
       pack: { name: pack.name, display_name: pack.display_name ?? pack.name, models: pack.models ?? [], required_nodes: pack.required_nodes ?? {} },
-      keep_warm_minutes: this.keepWarmMinutes,
+      keep_warm_minutes: this.gpu.keep_warm_minutes,
     };
     const r = await this.relay.control("ensure", args, ENSURE_TIMEOUT_S);
-    if (r.offline) throw new ComfyUIError(PC_OFFLINE);
+    if (r.offline) throw new ComfyUIError(offlineMessage([this.gpu]));
     const result = relay.controlResult(r.status, r.body);
-    if (!result.ok) throw new ComfyUIError(result.message);
+    if (!result.ok) {
+      if (/download/i.test(result.message)) await this.onReady(pack.name, false);
+      throw new ComfyUIError(result.message);
+    }
+    await this.onReady(pack.name, true);
   }
 }

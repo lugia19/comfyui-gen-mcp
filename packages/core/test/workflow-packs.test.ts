@@ -139,8 +139,9 @@ describe("packs and config", () => {
         other: "junk",
       },
     });
-    expect([cfg.keep_warm_minutes, cfg.pc_keep_warm_minutes]).toEqual([60, 45]);
-    expect(normalize({ pc_keep_warm_minutes: "x" }).pc_keep_warm_minutes).toBe(DEFAULT_KEEP_WARM_MINUTES);
+    expect(cfg.keep_warm_minutes).toBe(60);
+    expect(normalize({ keep_warm_minutes: "x" }).keep_warm_minutes).toBe(DEFAULT_KEEP_WARM_MINUTES);
+    expect("pc_keep_warm_minutes" in cfg).toBe(false); // keep-warm is per GPU on a Worker now
     expect(cfg.pack_loras).toEqual({
       anima: [
         { name: "bare.safetensors", strength: 1, trigger: "", hidden: false },

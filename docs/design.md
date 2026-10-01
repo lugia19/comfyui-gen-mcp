@@ -25,8 +25,8 @@ GPU is. Targets:
 
 | Component | Runs on | Job |
 |---|---|---|
-| Worker | Cloudflare Worker (TypeScript), free plan | The brain. MCP endpoint, settings and setup app, image route, config in a Durable Object, cron jobs, relay mailbox |
-| ComfyUI | Modal, a PC, or localhost | The generator. We ship no handler code: ComfyUI's own HTTP API is the interface |
+| Worker | Cloudflare Worker (TypeScript), free plan | The brain. MCP endpoint, settings and setup app, image route, config in a Durable Object, cron jobs, the GPU list, a relay per PC |
+| ComfyUI | Modal, PCs, a URL, or localhost | The generator. We ship no handler code: ComfyUI's own HTTP API is the interface |
 | Modal app | User's Modal workspace | ComfyUI server on an L4, a Volume, a seed function, a small admin web endpoint |
 | Agent | GPU owner's PC: a Go launcher running a Node bundle | ComfyUI install and lifecycle, model downloads, idle stop, tray, a loopback settings page; relays the Worker's ComfyUI calls to local ComfyUI (§9) |
 | MCPB | Claude Desktop | A stdio shim that loads the latest bundle; one Claude Desktop process runs the local server (MCP, settings page, tray, ComfyUI lifecycle), the others relay to it |
@@ -58,13 +58,38 @@ new Node) is a new download; running it installs it over the old one.
 | Mode | Brain | Config | Generator | Settings UI |
 |---|---|---|---|---|
 | MCPB | local server | local JSON file | ComfyUI on localhost | localhost page |
-| Worker, no GPU | Worker | State Durable Object | ComfyUI on Modal | Worker page |
-| Worker, GPU | Worker | State Durable Object | ComfyUI on the PC via the agent | Worker page |
+| Worker | Worker | State Durable Object | The GPU list: PCs through their agents, Modal, a ComfyUI by URL | Worker page |
 
 Rule: an MCPB install and a Worker install are separate; a machine uses one or the other. The MCPB
 is for Claude Desktop only: it has no tunnel and no remote route, and remote use (claude.ai, mobile)
 goes through a Worker, with the PC agent when the GPU is at home. The agent uses the same folder
 (ComfyUI, models, uv) with its own `agent.json`; like the MCPB, one or the other per machine.
+
+### GPUs
+
+A Worker's GPUs are one list in priority order (`secrets.gpus`, decided 2026-10-01): any number of
+PCs, at most one Modal app and at most one ComfyUI by URL. Each is plain compute: images and LoRAs
+live in R2 (§4), so nothing depends on which GPU made an image. An entry is
+`{id, kind: "pc"|"modal"|"url", name, enabled, keep_warm_minutes}` plus, by kind, a PC's pairing
+secret, or Modal's and a URL's base URL and headers (Modal also its admin URL and cold start).
+
+- **Adding:** a PC from the Setup page (`POST /api/gpus/pc`, which returns its pairing link; the
+  first PC's id is `pc`, later ones `pc-<random>`); Modal by its deploy's build callback (id
+  `modal`, added at the end); a URL from the advanced setup step (id `url`). A Worker from before
+  the list converts `generator` and `agent_secret` into it once, the PC first.
+- **Managing** (`/api/gpus`): `PATCH /<id>` sets name, enabled and keep-warm; `PUT /order` the
+  order; `POST /<id>/pair` a new pairing link; `POST /<id>/pause` pauses a PC; `DELETE /<id>`
+  removes one (a PC's agent is disconnected). `/api/state` lists them with their live state, never
+  their secrets.
+- **Routing:** a call goes to the first enabled GPU that is available (a PC: connected and not
+  paused) and not known to lack the call's pack; readiness unknown (a PC not asked yet) is worth a
+  try. A PC's readiness is kept per pack from its answers (`setup.ready`), Modal's from its seed
+  cache; a URL has what it has. With none ready, the first available one takes the call and starts
+  the download. A GPU that turns out to be downloading hands the call to the next one in the same
+  call. None available: the tools say which GPUs are offline or paused.
+- **`fetch_result` tokens** are `<gpuId>:<prompt_id>`: only that GPU has the job, so the call goes
+  there, or says it is offline.
+- **Keep-warm** is per GPU (§5).
 
 ### The MCPB process
 
@@ -322,18 +347,19 @@ description).
   JSON file for the MCPB.
 - One Svelte settings app, rendered from the declarative settings schema, served by the Worker
   (behind a Cloudflare-token login and a cookie session) and by the MCPB's local server.
-- Keep-warm is the one setting per backend: `keep_warm_minutes` applies to Modal's
-  `scaledown_window` (live, through `update_autoscaler`, S5) and to the extension's idle stop;
-  `pc_keep_warm_minutes` to the agent's idle stop (idle time on the PC costs nothing).
-- If both the PC and Modal are configured, the PC is used when online and Modal when it is not.
+- Keep-warm is set per GPU in the GPU list (§2, "GPUs"): Modal's applies to its
+  `scaledown_window` (live, through `update_autoscaler`, S5), a PC's to its agent's idle stop (idle
+  time on a PC costs nothing). The extension keeps `keep_warm_minutes` in its settings for its idle
+  stop.
+- Which GPU answers is the list's order (§2, "GPUs").
 - **One config for every backend** (decided 2026-09-30, after trying one per backend): Claude sees
   one tool list, and its descriptions (styles, LoRA triggers, packs) cannot change with which
   backend is online, so separate settings needed a "keep these the same by hand" warning. What
-  really differs per backend is its files, so the one Settings page shows those per backend:
-  - **Models:** a row per selected pack, with a mark per backend (PC, Modal: ready, downloading,
-    missing with a Download button). Saving starts the downloads on every backend
-    (`GET /api/models` returns `{backends, packs: [{…, on: {backend: status}}]}`).
-  - **LoRAs:** a row per file, with where it is (stored, PC, Modal, or copying) and its setup beside
+  really differs per GPU is its files, so the one Settings page shows those per GPU:
+  - **Models:** a row per selected pack, with a mark per GPU (ready, downloading, missing with a
+    Download button). Saving starts the downloads on every GPU (`GET /api/models` returns
+    `{gpus, packs: [{…, on: {gpuId: status}}]}`; `?gpu=` for one).
+  - **LoRAs:** a row per file, with where it is (stored, each GPU, or copying) and its setup beside
     it (which packs, strength, trigger, hidden); upload and delete. Packs sharing a settings key
     share their LoRAs (Anima and Anima Turbo). A new trigger is the file name, with the `@` that
     Anima's artist tags use for packs whose styles are @tags. Every stored LoRA is copied to each
@@ -483,10 +509,11 @@ Worker runs (S4).
 - The dashboard's "Entire Account" resource option on the newer account-token page is only a
   resource scope, not "all permissions"; worth a line in the setup page if users end up there.
 
-## 9. Relay (PC generator)
+## 9. Relay (PC GPUs)
 
-- A Durable Object per Worker is the rendezvous. A Worker has no memory between requests, so the
-  waiting `tools/call` and the agent need a shared addressable object to meet in.
+- A Durable Object per PC is the rendezvous, named after its GPU id (§2, "GPUs"). A Worker has no
+  memory between requests, so the waiting `tools/call` and the agent need a shared addressable
+  object to meet in.
 - The agent holds an outbound WebSocket, accepted with the hibernation API; `ping`/`pong` text
   frames are answered by the runtime without waking the object. A `tools/call` sends a request down
   the socket and awaits the reply with the same id. Round trip Worker to agent and back: 19 to 37 ms
@@ -495,8 +522,9 @@ Worker runs (S4).
 - The Durable Object and its migration are declared in the bootstrap template from the first
   release, so adding the PC path later needs no template change.
 
-**As built (M6).** `GET /agent` checks the pairing secret (401 without it, so the agent can tell
-"unpaired" from "not a WebSocket", 426), then forwards the upgrade to the one `Relay` object. A new
+**As built (M6; one per PC since the GPU list).** Each PC has its own pairing secret. `GET /agent`
+finds the PC whose secret the bearer matches (401 without one, so the agent can tell "unpaired"
+from "not a WebSocket", 426), then forwards the upgrade to that PC's `Relay` object. A new
 connection replaces the old (close 4000: "another agent connected"); unpairing or a new pairing
 link closes it with 4001. After either, or a 401, the agent retries only every 5 minutes, and at
 once when it is given a new link.
@@ -514,12 +542,10 @@ a header and its chunks in one synchronous run, so messages never interleave.
 
 On the Worker, `RelayTransport` is core's `Transport` over the object's `request()`, so the
 ComfyUI client, held waits and the brain are unchanged. A call with no agent connected waits 10 s
-for a reconnect, then fails with "your PC is offline"; one whose agent drops mid-call fails with
+for a reconnect, then fails with "<name> is offline"; one whose agent drops mid-call fails with
 "the connection to your PC dropped". Timeouts: 120 s for a ComfyUI request (a held wait is 50 s),
-30 s for control, 240 s for `ensure`. The generator is chosen per call: the PC when paired and
-connected, else Modal, else the offline message. An `image_id` names the backend that made it
-(§4): editing a Modal image while the PC answers copies it to the PC first, and the reverse copies
-from the PC, which fails with a clear message while the PC is off.
+30 s for control, 240 s for `ensure`. The GPU is chosen per call from the list (§2, "GPUs"); an
+image to edit comes from R2 (§4), whichever GPU made it.
 
 Measured on the test install (appendix, "M6 live"): a warm relayed generation costs the Worker a
 median 10 ms of CPU (8 to 19, as on the Modal path) and the Relay object 0 to 3 ms; a 3 MB image
@@ -527,8 +553,9 @@ crosses in 1 s each way. Durable Object duration cannot outgrow the free plan: o
 128 MB, active around the clock, is 10,800 GB-s a day of the 13,000 allowed, and a hibernating
 socket is not active. Requests: about 10 per generation, against 100,000 a day.
 
-**Images while ComfyUI is stopped.** The idle stop ends ComfyUI after keep-warm, but a PC image's
-link and edits by `image_id` read it back through `/view`. The agent answers such a `/view` from
+**Images while ComfyUI is stopped.** The idle stop ends ComfyUI after keep-warm, and before R2 a
+PC image's link and edits by `image_id` read it back through `/view` (now they read R2; this stays
+for a result fetched late). The agent answers such a `/view` from
 ComfyUI's output, input or temp folder on disk (confined to them) without starting ComfyUI; the
 `preview` parameter is ignored and the original sent.
 
@@ -538,21 +565,21 @@ the launcher left Node, the tray and ComfyUI behind. The launcher passes its pid
 agent checks it every 5 s: once it is gone, the agent stops ComfyUI and exits.
 
 **Pause.** The agent's tray has "Stop taking image requests", and the Worker's Setup page has
-Pause and Resume in the PC step's header (usable while it is folded, from a phone), sent to the agent
+Pause and Resume on each PC in its GPU list (usable from a phone), sent to the agent
 as a `pause` control op over its connection: the agent has no inbound port. Both set the same flag
 in the agent, which then sends a hello with `paused: true`; the tray re-reads the flag every 2 s and
 the page reads the hello, so they agree whichever changed it. The Worker then treats the PC as not
-there: Modal answers, or, with no other generator, the tools say the PC is paused. The pause is not
+there: the next GPU in the list answers, or, with none, the tools say the PC is paused. The pause is not
 saved, and both places say so: a restart takes requests again, so a forgotten pause cannot send
 every image to Modal for days.
 
 The agent (`packages/agent`) reconnects at once after a drop, then backs off (1 s to 60 s),
 resetting after a connection that lasted a minute; it pings every 20 s, answered by the runtime.
 Its settings page (loopback only) is the MCPB's machine setup plus the pairing section; pack
-settings stay on the Worker, whose settings page lists the PC's LoRAs and model status beside
-Modal's (`/api/loras`, `/api/models`).
+settings stay on the Worker, whose settings page lists each GPU's LoRAs and model status
+(`/api/loras`, `/api/models`).
 
-**LoRA sync.** Every LoRA in R2 should be on the PC. The agent posts its LoRA files (`{name: size}`,
+**LoRA sync.** Every LoRA in R2 should be on every PC. The agent posts its LoRA files (`{name: size}`,
 ours only) to `POST /agent/sync` (the pairing secret, as for `/agent`); the Worker answers with a
 plan: every stored LoRA the PC lacks is **pulled** (a storage link, downloaded with Range so a cut
 transfer resumes); one of the PC's that R2 lacks (uploaded before R2) is **pushed** (an upload to
@@ -623,6 +650,7 @@ Later: the ComfyUI client and the Modal app can become shared with Visual-Noveli
 | R2 or KV for image storage | The generator already holds the files; R2 needs a card on file. **Reversed 2026-10-01**: storage that outlives every GPU (links with the PC off, edits across GPUs, a LoRA hub for several PCs) is worth a card on file; R2's free tier stays free |
 | Durable Object storage for images and LoRAs (2026-10-01) | No card, but 5 GB per account, 1 GB per object and 2 MB per value on the free plan, and only reachable through the Worker: fine for WebP images, poor for LoRAs of hundreds of MB |
 | Full-size PNGs in storage (2026-10-01) | Every edit goes through the model's VAE, which loses far more than WebP at quality 90; ComfyUI's PNG stays on the GPU's disk. The `:lossless` switch dates from JPEG results (no transparency) and goes |
+| Two fixed generators, "main" (Modal or a URL) and "pc" (2026-10-01) | One PC at most, a fixed preference, and a `fetch_result` token that misrouted when the PC dropped. One list in priority order (§2, "GPUs") takes any number of PCs, and each token names its GPU |
 | QoL or settings-page uploads | The model would not know which reference to use; the sandbox upload keeps it in context |
 | Workers KV for the Worker's state | Reads are cached at the edge for up to a minute: after a save, reads alternated between old and new values for about 60 s, and a read-modify-write could undo a recent write. A SQLite Durable Object is consistent and on the free plan |
 | Hot pack manifest in KV | A second update path; a release build takes about 2 minutes and runs automatically |

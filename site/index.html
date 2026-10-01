@@ -55,8 +55,9 @@
     <p>
       A free Cloudflare Worker gives Claude an image tool. The images are made either in the cloud, on
       <a href="https://modal.com">Modal</a> (it only runs, and only bills, while it generates), or on
-      your own PC with a GPU, through a small agent that connects out to the Worker: no port to open,
-      no tunnel. Or both: your PC when it is on, Modal when it is off.
+      your own PCs with a GPU, through a small agent that connects out to the Worker: no port to open,
+      no tunnel. Or all of them, in the order you choose: your PC when it is on, Modal when it is off.
+      Images and LoRAs are kept in the Worker's storage, so any of them can edit any image.
     </p>
     <p class="muted">Only using Claude Desktop, on the PC with the GPU? You don't need any of this: skip to
       <a href="#desktop">the Claude Desktop extension</a>.</p>
@@ -64,7 +65,9 @@
     <ul>
       <li>A <a href="https://github.com/signup">GitHub account</a>. The deploy keeps a small copy of the setup in your GitHub,
         which is how your Worker updates itself.</li>
-      <li>A <a href="https://dash.cloudflare.com/sign-up">Cloudflare account</a> (the free plan is enough).</li>
+      <li>A <a href="https://dash.cloudflare.com/sign-up">Cloudflare account</a> (the free plan is enough), with
+        <b>R2 storage</b> turned on <i>before</i> the deploy: in the dashboard, <b>Storage &amp; databases → R2 →
+        Overview</b>, then the checkout. It is free (10 GB), but Cloudflare asks for a card on file.</li>
       <li>A claude.ai plan that can add custom connectors.</li>
       <li>For the cloud: a <a href="https://modal.com/signup">Modal account</a> with a card on file (new accounts get $30 of free compute a month).
         For your PC: an NVIDIA GPU (AMD on Linux), or an Apple silicon Mac.</li>

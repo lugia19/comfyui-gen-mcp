@@ -2,19 +2,20 @@
   import { onDestroy, onMount } from 'svelte'
   import { api, formatBytes } from './api.js'
 
-  // Download state of the selected packs, one row per pack. On the Worker a row has a mark per
-  // backend (your PC, the Modal Volume): {backends, packs: [{…, on: {backend: status}}]}. On this
+  // Download state of the selected packs, one row per pack. On the Worker a row has a mark per GPU
+  // (each PC, the Modal Volume): {gpus: [{id, name}], packs: [{…, on: {gpu id: status}}]}. On this
   // machine (the extension, the agent) there is one place, and the answer is {packs: [{…status}]}.
   // Saving the settings starts downloads everywhere; a missing pack can also be started here.
   //
   // It keeps checking while the page is open, since a tool call can start a download at any time.
   // Each check that finds nothing new, or gets no answer, waits twice as long before the next (5 s
   // up to 5 minutes); any change brings it back to 5 s.
-  // *backend* limits the Worker's list to one (the setup page's Modal step). *onchange* hears the
-  // rows after each check.
-  let { local = false, backend = '', onchange = null } = $props()
-  let packs = $state(null) // [{name, display_name, size, on: {backend: status}}]
+  // *gpu* limits the Worker's list to one (the setup page's Modal step). *onchange* hears the rows
+  // after each check.
+  let { local = false, gpu = '', onchange = null } = $props()
+  let packs = $state(null) // [{name, display_name, size, on: {gpu id: status}}]
   let backends = $state([])
+  let names = $state({}) // gpu id -> name
   let error = $state('')
   let timer = null
 
@@ -27,8 +28,7 @@
     done: 'Ready', queued: 'Queued', downloading: 'Downloading', failed: 'Failed', missing: 'Not downloaded',
     unknown: 'Unknown', offline: 'Offline',
   }
-  const PLACE = { pc: 'PC', modal: 'Modal' }
-  const query = backend ? `?backend=${backend}` : ''
+  const query = gpu ? `?gpu=${gpu}` : ''
 
   async function poll() {
     let changed = false
@@ -38,8 +38,9 @@
       changed = seen !== last
       last = seen
       // This machine's answer has one place: the pack's own fields are its status.
-      backends = got.backends ?? ['here']
-      packs = got.backends ? got.packs : got.packs.map((p) => ({ ...p, on: { here: p } }))
+      backends = got.gpus ? got.gpus.map((g) => g.id) : ['here']
+      names = Object.fromEntries((got.gpus ?? []).map((g) => [g.id, g.name]))
+      packs = got.gpus ? got.packs : got.packs.map((p) => ({ ...p, on: { here: p } }))
       error = ''
       onchange?.(packs)
     } catch (e) {
@@ -51,7 +52,7 @@
 
   async function start(pack, where) {
     try {
-      await api('POST', '/models/seed', where === 'here' ? { pack: pack.name } : { pack: pack.name, backend: where })
+      await api('POST', '/models/seed', where === 'here' ? { pack: pack.name } : { pack: pack.name, gpu: where })
       clearTimeout(timer)
       delay = FIRST_MS
       await poll()
@@ -81,7 +82,7 @@
         {#each backends as where (where)}
           {@const s = pack.on[where] ?? { state: 'unknown' }}
           <span class="place" class:ok={s.state === 'done'} class:err={s.state === 'failed'}>
-            {#if PLACE[where]}<b>{PLACE[where]}</b>{/if}
+            {#if names[where] && backends.length > 1}<b>{names[where]}</b>{/if}
             {s.state === 'done' ? '✓' : ''} {LABEL[s.state] || s.state}{s.state === 'downloading' ? pct(s) : ''}
           </span>
           {#if s.state === 'failed'}<button class="secondary" onclick={() => start(pack, where)}>Retry</button>{/if}
@@ -92,15 +93,13 @@
         <progress max={pack.on[backends[0]].total} value={pack.on[backends[0]].done}></progress>
       {/if}
       {#each backends as where (where)}
-        {#if pack.on[where]?.error}<p class="err">{PLACE[where] ? `${PLACE[where]}: ` : ''}{pack.on[where].error}</p>{/if}
+        {#if pack.on[where]?.error}<p class="err">{names[where] ? `${names[where]}: ` : ''}{pack.on[where].error}</p>{/if}
       {/each}
     </div>
   {/each}
   <p class="muted">
     {#if local}Models download once into ComfyUI's models folder, or are found in a shared one.
-    {:else if backends.includes('pc') && backends.includes('modal')}Models download once to your PC and to your Modal Volume.
-    {:else if backends.includes('pc')}Models download once into ComfyUI's models folder on your PC.
-    {:else}Models download once into your Modal Volume.{/if}
+    {:else}Models download once to each GPU: a PC's ComfyUI models folder, or your Modal Volume.{/if}
     A tool whose model is still downloading says so.
   </p>
 {/if}

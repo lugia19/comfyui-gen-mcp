@@ -3,7 +3,7 @@ import { fromBase64, fromHex, OutputImage, refs, utf8 } from "@comfy-gen/core";
 import { png } from "../../core/test/fake-comfy.ts";
 import { LORA_CHUNK } from "../src/loras.ts";
 import { REQUEST_BUDGET, type App } from "../src/app.ts";
-import { PC_OFFLINE } from "../src/hooks.ts";
+import { offlineMessage } from "../src/hooks.ts";
 import { cacheEntry } from "../src/store.ts";
 import * as updates from "../src/updates.ts";
 import golden from "../../core/test/golden.json" with { type: "json" };
@@ -20,9 +20,14 @@ async function mcp(app: App, method: string, params: unknown = {}, id = 1): Prom
   return [resp.status, text ? JSON.parse(text) : null];
 }
 
-const withGenerator = (app: App) => app.store.updateSecrets({ generator: { kind: "url", base_url: COMFY, headers: { "X-Test": "1" } } });
+/** Add a GPU at the end of the list (as the URL setup and the Modal build do). */
+const addGpu = async (app: App, gpu: Record<string, unknown>) => {
+  const gpus = (await app.gpus()).filter((g) => g.id !== gpu.id);
+  await app.store.updateSecrets({ gpus: [...gpus, { enabled: true, keep_warm_minutes: 5, ...gpu }] });
+};
+const withGenerator = (app: App) => addGpu(app, { id: "url", kind: "url", name: "Your ComfyUI", base_url: COMFY, headers: { "X-Test": "1" } });
 const withModal = (app: App) =>
-  app.store.updateSecrets({ generator: { kind: "modal", base_url: COMFY, admin_url: ADMIN, headers: { "Modal-Key": "wk", "Modal-Secret": "ws" } } });
+  addGpu(app, { id: "modal", kind: "modal", name: "Modal", base_url: COMFY, admin_url: ADMIN, headers: { "Modal-Key": "wk", "Modal-Secret": "ws" } });
 
 async function login(app: App): Promise<Record<string, string>> {
   const resp = await app.handle(request("POST", "/api/login", { token: TOKEN }));
@@ -69,7 +74,7 @@ describe("MCP", () => {
     const { app } = world();
     let [, r] = await mcp(app, "tools/call", { name: "generate_realistic_image", arguments: { prompt: "x" } });
     expect(r.result.isError).toBe(true);
-    expect(r.result.content[0].text).toContain("not set up");
+    expect(r.result.content[0].text).toContain("no GPU is set up yet");
     [, r] = await mcp(app, "tools/call", { name: "no_such_tool" });
     expect(r.error.code).toBe(-32602);
   });
@@ -185,7 +190,7 @@ describe("settings API", () => {
     expect([s.cf_account_id, s.cf_script, s.cf_branch, s.cf_trigger, s.cf_token]).toEqual(["acct1", "comfy-gen", "main", "trig1", TOKEN]);
     expect(net.calls.every((c) => c[2]["User-Agent"] === "comfy-gen-worker")).toBe(true); // every outbound call
     const state = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
-    expect(state.generator).toBeNull();
+    expect(state.gpus).toEqual([]);
     expect(state.cloudflare.script).toBe("comfy-gen");
     expect(state.connector_url.startsWith("https://comfy-gen.someone.workers.dev/mcp/")).toBe(true);
     expect(state.packs.some((g: any) => g.tool_name === "generate_illustrated_image")).toBe(true);
@@ -234,10 +239,10 @@ describe("settings API", () => {
     const cookie = await login(app);
     const bad = await app.handle(request("POST", "/api/setup/generator", { base_url: "https://nothing.example" }, cookie));
     expect(bad.status).toBe(502);
-    expect((await secretsOf(app)).generator).toBeUndefined();
+    expect(await app.gpus()).toEqual([]);
     const ok = await app.handle(request("POST", "/api/setup/generator", { base_url: COMFY + "/" }, cookie));
     expect((await body(ok)).system.comfyui_version).toBe("0.37.0");
-    expect((await secretsOf(app)).generator).toEqual({ kind: "url", base_url: COMFY, headers: {} });
+    expect(await app.gpus()).toEqual([{ id: "url", kind: "url", name: "Your ComfyUI", enabled: true, keep_warm_minutes: 5, base_url: COMFY, headers: {} }]);
   });
 
   it("build and callback", async () => {
@@ -261,8 +266,8 @@ describe("settings API", () => {
     );
     expect(ok.status).toBe(200);
     expect((await body(ok)).warnings).toEqual([]);
-    const gen = (await secretsOf(app)).generator;
-    expect([gen.kind, gen.headers, gen.admin_url]).toEqual(["modal", { "Modal-Key": "wk-1", "Modal-Secret": "ws-1" }, ADMIN]);
+    const [gen] = await app.gpus();
+    expect([gen.id, gen.kind, gen.headers, gen.admin_url]).toEqual(["modal", "modal", { "Modal-Key": "wk-1", "Modal-Secret": "ws-1" }, ADMIN]);
     // A deploy resets keep-warm, and a fresh install has no models: both are applied right away.
     expect(net.adminCalls).toContainEqual(["POST", "/idle", { seconds: 300 }]);
     const seeds = net.adminCalls.filter((c) => c[1] === "/seed");
@@ -278,7 +283,7 @@ describe("settings API", () => {
     const reason = "Please add a payment method to use L4 GPU functions.";
     await app.handle(request("POST", "/build-callback", { nonce, stage: "deployed", modal_result: "failed (exit 1)", modal_error: reason }));
     const state = async () => body(await app.handle(request("GET", "/api/state", undefined, cookie)));
-    expect([(await state()).modal_error, (await state()).generator]).toEqual([reason, null]);
+    expect([(await state()).modal_error, (await state()).gpus]).toEqual([reason, []]);
 
     // Try again: no token fields, so the stored ones stay; only the nonce changes.
     const retry = await app.handle(request("POST", "/api/setup/build", {}, cookie));
@@ -290,7 +295,8 @@ describe("settings API", () => {
     await app.handle(request("POST", "/build-callback", { nonce, stage: "deployed", modal_result: "failed (exit 1)" }));
     expect((await state()).modal_error).toBe("failed (exit 1)"); // no reason came: the result, at least
     await app.handle(request("POST", "/build-callback", { nonce, modal: { server_url: "https://m.modal.run", admin_url: ADMIN } }));
-    expect([(await state()).modal_error, (await state()).generator.kind]).toEqual([null, "modal"]);
+    expect([(await state()).modal_error, (await state()).gpus[0].kind]).toEqual([null, "modal"]);
+    expect((await state()).gpus[0]).not.toHaveProperty("headers"); // the proxy token stays on the Worker
   });
 });
 
@@ -302,7 +308,7 @@ describe("Modal models", () => {
     const ok = await app.handle(request("POST", "/build-callback", { nonce: "n", modal: { server_url: "https://m", admin_url: ADMIN } }));
     expect(ok.status).toBe(200);
     expect((await body(ok)).warnings.length).toBe(4); // keep-warm + three packs
-    expect((await secretsOf(app)).generator.kind).toBe("modal");
+    expect((await app.gpus())[0].kind).toBe("modal");
   });
 
   it("the models page reports and remembers ready packs", async () => {
@@ -311,18 +317,18 @@ describe("Modal models", () => {
     const cookie = await login(app);
     net.seedState = { anima_turbo: { state: "done", done: 9, total: 9 }, z_image_turbo: { state: "downloading", done: 1, total: 4 } };
     const models = await body(await app.handle(request("GET", "/api/models", undefined, cookie)));
-    expect(models.backends).toEqual(["modal"]);
+    expect(models.gpus).toEqual([{ id: "modal", name: "Modal", kind: "modal" }]);
     const packs = Object.fromEntries(models.packs.map((p: any) => [p.name, p.on.modal]));
     expect([packs.anima_turbo.state, packs.z_image_turbo.done, packs.flux2klein_edit.state]).toEqual(["done", 1, "missing"]);
     expect(models.packs[0].size).toBeGreaterThan(5e9);
     net.adminCalls = [];
     await app.handle(request("GET", "/api/models", undefined, cookie));
     expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["/seed/flux2klein_edit", "/seed/z_image_turbo"]); // anima is recorded
-    const retry = await app.handle(request("POST", "/api/models/seed", { pack: "flux2klein_edit", backend: "modal" }, cookie));
+    const retry = await app.handle(request("POST", "/api/models/seed", { pack: "flux2klein_edit", gpu: "modal" }, cookie));
     expect((await body(retry)).started).toBe(true);
   });
 
-  it("saving settings seeds new packs and applies keep-warm", async () => {
+  it("saving settings seeds new packs; keep-warm is set per GPU", async () => {
     const { app, net } = world();
     await withModal(app);
     const cookie = await login(app);
@@ -332,10 +338,13 @@ describe("Modal models", () => {
     expect((await body(resp)).warnings).toEqual([]);
     expect(net.adminCalls).toEqual([]); // nothing changed
     cfg.pack_selections = { generate_realistic_image: "flux2klein_9b" };
-    cfg.keep_warm_minutes = 15;
     await app.handle(request("PUT", "/api/config", { config: cfg }, cookie));
-    expect(net.adminCalls).toContainEqual(["POST", "/idle", { seconds: 900 }]);
     expect(net.adminCalls.filter((c) => c[1] === "/seed").map((c) => c[2].pack)).toEqual(["flux2klein_9b"]);
+    // Keep-warm belongs to the GPU: setting Modal's applies it on Modal at once.
+    const patched = await body(await app.handle(request("PATCH", "/api/gpus/modal", { keep_warm_minutes: 15 }, cookie)));
+    expect([patched.gpu.keep_warm_minutes, patched.warnings]).toEqual([15, []]);
+    expect(net.adminCalls).toContainEqual(["POST", "/idle", { seconds: 900 }]);
+    expect((await app.handle(request("PATCH", "/api/gpus/modal", { keep_warm_minutes: 0 }, cookie))).status).toBe(400);
   });
 
   it("a generation waits for its models", async () => {
@@ -526,45 +535,58 @@ describe("the PC path", () => {
   const ws = (secret: string) => request("GET", "/agent", undefined, { upgrade: "websocket", authorization: `Bearer ${secret}` });
   const pair = async (app: App) => {
     const cookie = await login(app);
-    const { link } = await body(await app.handle(request("POST", "/api/pc/pair", undefined, cookie)));
-    return { cookie, link: link as string, secret: (link as string).split("#")[1] };
+    const { id, link } = await body(await app.handle(request("POST", "/api/gpus/pc", undefined, cookie)));
+    return { cookie, id: id as string, link: link as string, secret: (link as string).split("#")[1] };
   };
   const toolText = (r: any) => r.result.content.map((c: any) => c.text ?? `[${c.type}]`).join(" ");
 
-  it("pairs with a link, which is what opens the relay, until unpaired or re-paired", async () => {
-    const { app, pc } = world();
-    expect(await app.agentRefusal(ws("anything"))).not.toBeNull(); // nothing paired
-    const { cookie, link, secret } = await pair(app);
-    expect(link).toBe(`https://${HOST}/agent#${secret}`);
+  it("pairs PCs with links: each opens its own relay, until removed or re-paired", async () => {
+    const { app, pc, relay } = world();
+    const gate = (secret: string) => app.agentGate(ws(secret));
+    expect(await gate("anything")).toBeInstanceOf(Response); // nothing paired
+    const { cookie, id, link, secret } = await pair(app);
+    expect([id, link]).toEqual(["pc", `https://${HOST}/agent#${secret}`]);
     expect(secret.length).toBeGreaterThan(40);
-    expect(await app.agentRefusal(ws(secret))).toBeNull();
-    expect((await app.agentRefusal(ws("wrong")))!.status).toBe(401);
-    expect((await app.agentRefusal(request("GET", "/agent", undefined, { authorization: `Bearer ${secret}` })))!.status).toBe(426);
-    const state = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
-    expect(state.pc).toMatchObject({ paired: true, connected: true, link, info: { gpu: "nvidia" }, seen: expect.any(Number) });
+    expect(await gate(secret)).toBe("pc"); // its socket goes to the Relay object named "pc"
+    expect(((await gate("wrong")) as Response).status).toBe(401);
+    expect(((await app.agentGate(request("GET", "/agent", undefined, { authorization: `Bearer ${secret}` }))) as Response).status).toBe(426);
+    const gpus = async () => (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).gpus;
+    const [first] = await gpus();
+    expect(first).toMatchObject({ id: "pc", kind: "pc", name: "Your PC", link, online: true, info: { gpu: "nvidia" }, seen: expect.any(Number) });
+    expect(first).not.toHaveProperty("secret");
     pc.connected = false; // offline for a moment: still seen, not a pairing to do
-    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).pc.seen).toBe(state.pc.seen);
+    expect((await gpus())[0].seen).toBe(first.seen);
     pc.connected = true;
 
-    const second = await pair(app); // a new link replaces the old one and disconnects that PC
+    // A second PC: its own id, secret, Relay object and name; the first keeps working.
+    const two = await pair(app);
+    expect(two.id).toMatch(/^pc-/);
+    expect(await gate(two.secret)).toBe(two.id);
+    expect(await gate(secret)).toBe("pc");
+    expect((await gpus()).map((g: any) => [g.id, g.name])).toEqual([[two.id, "PC 2"], ["pc", "Your PC"]]); // new PCs go first
+
+    // A new link for the first PC: the old one stops working and its agent is dropped.
+    const again = await body(await app.handle(request("POST", "/api/gpus/pc/pair", undefined, cookie)));
+    expect(await gate(secret)).toBeInstanceOf(Response);
+    expect(await gate(again.link.split("#")[1])).toBe("pc");
+    expect(pc.dropped).toBe(1);
     pc.connected = false;
-    expect((await body(await app.handle(request("GET", "/api/state", undefined, second.cookie)))).pc.seen).toBeNull(); // a new PC
-    pc.connected = true;
-    expect(await app.agentRefusal(ws(secret))).not.toBeNull();
-    expect(pc.dropped).toBe(2);
-    await app.handle(request("DELETE", "/api/pc", undefined, second.cookie));
-    expect(await app.agentRefusal(ws(second.secret))).not.toBeNull();
-    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).pc).toEqual({ paired: false });
+    expect((await gpus()).find((g: any) => g.id === "pc").seen).toBeNull(); // a new pairing view
+    // Removing the second PC drops its agent and its secret.
+    expect((await app.handle(request("DELETE", `/api/gpus/${two.id}`, undefined, cookie))).status).toBe(200);
+    expect(await gate(two.secret)).toBeInstanceOf(Response);
+    expect(relay(two.id).dropped).toBe(1);
+    expect((await gpus()).map((g: any) => g.id)).toEqual(["pc"]);
+    expect((await app.handle(request("DELETE", "/api/gpus/nope", undefined, cookie))).status).toBe(404);
   });
 
-  it("one config serves every backend; saving applies it to the PC too", async () => {
+  it("one config serves every GPU; saving applies it to the PC too; keep-warm is the PC's own", async () => {
     const { app, pc } = world();
     await withModal(app);
     await app.store.updateSetup({ seeded: ["anima_turbo", "z_image_turbo", "flux2klein_edit"] });
     const { cookie } = await pair(app);
     const state = async () => body(await app.handle(request("GET", "/api/state", undefined, cookie)));
-    expect((await state()).pc_config).toBeUndefined();
-    const cfg = { ...(await state()).config, pack_settings: { anima: { artist_list: "@one_artist" } }, keep_warm_minutes: 7, pc_keep_warm_minutes: 12 };
+    const cfg = { ...(await state()).config, pack_settings: { anima: { artist_list: "@one_artist" } } };
 
     const put = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
     expect(put.warnings).toEqual([]);
@@ -574,11 +596,13 @@ describe("the PC path", () => {
     const illustrated = async () => (await mcp(app, "tools/list"))[1].result.tools.find((t: any) => t.name === "generate_illustrated_image").description;
     expect(await illustrated()).toContain("@one_artist");
 
+    await app.handle(request("PATCH", "/api/gpus/pc", { keep_warm_minutes: 12, name: "Desk PC" }, cookie));
     pc.controlCalls.length = 0;
     await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } });
     expect(pc.controlCalls.find(([op]) => op === "ensure")![1].keep_warm_minutes).toBe(12); // the PC's keep-warm
+    expect((await state()).gpus[0].name).toBe("Desk PC");
 
-    pc.connected = false; // saving while the PC is off: a warning, and no wait for it
+    pc.connected = false; // saving while the PC is off: no warning, and no wait for it
     pc.controlCalls.length = 0;
     const off = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
     expect([off.warnings, off.notes]).toEqual([[], []]); // the page shows the PC offline already
@@ -689,7 +713,7 @@ describe("the PC path", () => {
     expect(toolText(alone)).toContain("Your PC is paused");
     expect(pc.comfy.prompts.length).toBe(0);
     const state = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
-    expect(state.pc).toMatchObject({ connected: true, info: { paused: true } }); // shown as paused, not offline
+    expect(state.gpus[0]).toMatchObject({ online: true, paused: true }); // shown as paused, not offline
 
     await withGenerator(app); // with another generator, it answers instead
     const [, other] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } }, 2);
@@ -717,12 +741,12 @@ describe("the PC path", () => {
     const { app, pc } = world();
     const { cookie } = await pair(app);
     pc.controls.pause = (args) => ((pc.paused = args.paused), [200, { paused: args.paused }]);
-    expect(await body(await app.handle(request("POST", "/api/pc/pause", { paused: true }, cookie)))).toEqual({ paused: true });
-    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).pc.info.paused).toBe(true);
-    await app.handle(request("POST", "/api/pc/pause", { paused: false }, cookie));
+    expect(await body(await app.handle(request("POST", "/api/gpus/pc/pause", { paused: true }, cookie)))).toEqual({ paused: true });
+    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).gpus[0].paused).toBe(true);
+    await app.handle(request("POST", "/api/gpus/pc/pause", { paused: false }, cookie));
     expect(pc.paused).toBe(false);
     pc.connected = false;
-    expect((await app.handle(request("POST", "/api/pc/pause", { paused: true }, cookie))).status).toBe(503);
+    expect((await app.handle(request("POST", "/api/gpus/pc/pause", { paused: true }, cookie))).status).toBe(503);
   });
 
   it("deletes a LoRA everywhere, and nudges the agent's sync after an upload", async () => {
@@ -743,7 +767,7 @@ describe("the PC path", () => {
     expect(await body(await app.handle(request("POST", "/api/loras/sync", undefined, cookie)))).toEqual({ started: false });
   });
 
-  it("shows the PC's LoRA files and model downloads beside Modal's", async () => {
+  it("shows each GPU's LoRA files and model downloads, and learns which packs a PC has", async () => {
     const { app, pc, net } = world();
     await withModal(app);
     await app.store.updateSetup({ seeded: ["anima_turbo", "z_image_turbo", "flux2klein_edit"] });
@@ -754,17 +778,21 @@ describe("the PC path", () => {
     pc.controls.download = (args) => [200, { state: "queued", done: 0, total: args.pack.models.length }];
     expect(await body(await app.handle(request("GET", "/api/loras", undefined, cookie)))).toEqual({
       backends: ["storage", "pc", "modal"],
+      gpus: [{ id: "pc", name: "Your PC", kind: "pc" }, { id: "modal", name: "Modal", kind: "modal" }],
       files: { "mine.safetensors": { pc: 123 }, "both.safetensors": { pc: 7, modal: 7 } },
       syncing: { "x.safetensors": { to: "pc", done: 1, total: 2 } },
       errors: {},
       offline: [],
     });
     const models = await body(await app.handle(request("GET", "/api/models", undefined, cookie)));
-    expect(models.backends).toEqual(["pc", "modal"]);
+    expect(models.gpus.map((g: any) => g.id)).toEqual(["pc", "modal"]);
     expect(models.packs[0]).toMatchObject({ on: { pc: { state: "downloading", total: 4 }, modal: { state: "done" } }, size: expect.any(Number) });
-    const onlyModal = await body(await app.handle(request("GET", "/api/models?backend=modal", undefined, cookie)));
-    expect([onlyModal.backends, onlyModal.packs[0].on]).toEqual([["modal"], { modal: { state: "done" } }]);
-    const seeded = await app.handle(request("POST", "/api/models/seed", { pack: models.packs[0].name, backend: "pc" }, cookie));
+    // Routing learned the PC lacks these packs: a call goes to Modal, which has them.
+    await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } });
+    expect(pc.comfy.prompts.length).toBe(0);
+    const onlyModal = await body(await app.handle(request("GET", "/api/models?gpu=modal", undefined, cookie)));
+    expect([onlyModal.gpus.map((g: any) => g.id), onlyModal.packs[0].on]).toEqual([["modal"], { modal: { state: "done" } }]);
+    const seeded = await app.handle(request("POST", "/api/models/seed", { pack: models.packs[0].name, gpu: "pc" }, cookie));
     expect((await body(seeded)).state).toBe("queued");
 
     pc.connected = false; // offline: listed as such at once, not waited for
@@ -773,6 +801,83 @@ describe("the PC path", () => {
     expect([loras.offline, loras.errors, loras.files]).toEqual([["pc"], {}, { "both.safetensors": { modal: 7 } }]);
     expect((await body(await app.handle(request("GET", "/api/models", undefined, cookie)))).packs[0].on.pc).toEqual({ state: "offline" });
     expect(pc.controlCalls).toEqual([]);
+  });
+});
+
+describe("the GPU list", () => {
+  const pairPc = async (app: App, cookie: Record<string, string>) =>
+    body(await app.handle(request("POST", "/api/gpus/pc", undefined, cookie))) as Promise<{ id: string; link: string }>;
+  const gen = (app: App, n: number) => mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } }, n);
+
+  it("a Worker from before the list keeps its PC and generator, the PC first, its agent still connected", async () => {
+    const { app } = world();
+    await app.store.updateSecrets({
+      agent_secret: "s".repeat(43),
+      generator: { kind: "modal", base_url: COMFY, admin_url: ADMIN, headers: { "Modal-Key": "k" }, cold_start_s: 300 },
+    });
+    const gpus = await app.gpus();
+    expect(gpus.map((g) => [g.id, g.kind, g.name])).toEqual([["pc", "pc", "Your PC"], ["modal", "modal", "Modal"]]);
+    expect(gpus[0].secret).toBe("s".repeat(43)); // the same pairing: the agent reconnects to the same Relay
+    const s = await secretsOf(app);
+    expect([s.generator, s.agent_secret, s.gpus.length]).toEqual([undefined, undefined, 2]);
+    expect(await app.agentGate(request("GET", "/agent", undefined, { upgrade: "websocket", authorization: `Bearer ${"s".repeat(43)}` }))).toBe("pc");
+  });
+
+  it("calls go down the list: offline, paused or disabled GPUs are passed over; the order is the user's", async () => {
+    const { app, relay, comfy } = world();
+    const cookie = await login(app);
+    await withGenerator(app);
+    const a = await pairPc(app, cookie);
+    const b = await pairPc(app, cookie); // new PCs go first: [b, a, url]
+    expect((await app.gpus()).map((g) => g.id)).toEqual([b.id, a.id, "url"]);
+    await gen(app, 1);
+    expect([relay(b.id).comfy.prompts.length, relay(a.id).comfy.prompts.length]).toEqual([1, 0]);
+    relay(b.id).connected = false;
+    await gen(app, 2);
+    expect(relay(a.id).comfy.prompts.length).toBe(1);
+    relay(a.id).paused = true;
+    await gen(app, 3);
+    expect(comfy.prompts.length).toBe(1); // both PCs out: the ComfyUI by URL
+    relay(b.id).connected = true;
+    relay(a.id).paused = false;
+    await app.handle(request("PATCH", `/api/gpus/${b.id}`, { enabled: false }, cookie));
+    await app.handle(request("PUT", "/api/gpus/order", { ids: ["url", a.id, b.id] }, cookie));
+    await gen(app, 4);
+    expect(comfy.prompts.length).toBe(2); // the URL is first now
+    expect((await app.handle(request("PUT", "/api/gpus/order", { ids: ["url"] }, cookie))).status).toBe(400);
+  });
+
+  it("a GPU still downloading the pack hands the call to the next; the next call skips it", async () => {
+    const { app, pc, comfy } = world();
+    const cookie = await login(app);
+    await withGenerator(app);
+    await pairPc(app, cookie);
+    pc.controls.ensure = () => [500, "The Anima model is downloading: 12% of 5.6 GB."];
+    const [, first] = await gen(app, 1);
+    expect(first.result.isError).toBe(false);
+    expect(comfy.prompts.length).toBe(1); // answered by the URL in the same call
+    pc.controlCalls.length = 0;
+    await gen(app, 2);
+    expect(pc.controlCalls.some(([op]) => op === "ensure")).toBe(false); // known to lack it: not asked
+  });
+
+  it("a fetch_result token names its GPU, and goes only there", async () => {
+    const { app, pc, comfy } = world();
+    const cookie = await login(app);
+    await withGenerator(app);
+    await pairPc(app, cookie);
+    pc.comfy.history = Array(500).fill("running");
+    const [, pending] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "slow" } });
+    const token = pending.result.content[0].text.match(/request_token '([^']+)'/)[1];
+    expect(token).toMatch(/^pc:/);
+    pc.connected = false;
+    const [, off] = await mcp(app, "tools/call", { name: "fetch_result", arguments: { request_token: token } }, 2);
+    expect([off.result.isError, off.result.content[0].text]).toEqual([true, `Error: ${offlineMessage([{ name: "Your PC" } as any])}`]);
+    expect(comfy.calls).toEqual([]); // never asked the URL, which does not have the job
+    pc.connected = true;
+    pc.comfy.history = [];
+    const [, done] = await mcp(app, "tools/call", { name: "fetch_result", arguments: { request_token: token } }, 3);
+    expect(done.result.content[0].type).toBe("image");
   });
 });
 

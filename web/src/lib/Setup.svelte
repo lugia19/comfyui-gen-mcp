@@ -1,47 +1,35 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { api, GUIDE, gpuName, hideFigure, platformName } from './api.js'
+  import { api, GUIDE, hideFigure } from './api.js'
   import BuildLog from './BuildLog.svelte'
+  import GpuList from './GpuList.svelte'
   import Models from './Models.svelte'
   import SetPassword from './SetPassword.svelte'
   import Step from './Step.svelte'
 
-  // The Worker's setup, one step at a time: log in, choose where images are made (Modal, the PC,
-  // both, or, under Advanced, a ComfyUI URL), that path's steps, then connect Claude. Someone who
-  // only uses Claude Desktop on the PC with the GPU is sent to the extension instead: it needs no
-  // Worker. Each step ticks itself from
-  // the Worker's state: the Modal deploy, the models on the Volume, the PC connected, Claude having
-  // listed the tools.
+  // The Worker's setup, one step at a time: log in, the GPUs (PCs with the agent, Modal, or under
+  // Advanced a ComfyUI URL, in priority order), Modal's deploy and models when it is wanted, then
+  // connect Claude. Someone who only uses Claude Desktop on the PC with the GPU is pointed at the
+  // extension instead: it needs no Worker. Each step ticks itself from the Worker's state.
   let { info, refresh } = $props()
 
   const RELEASE = 'https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/'
   const CHOICE_KEY = 'comfy-gen-setup-choice'
-  const CHOICES = {
-    modal: ['In the cloud, on Modal', 'No GPU needed. Modal only runs, and bills, while it generates.'],
-    pc: ['On my PC, for claude.ai and the phone app', 'A small agent on your PC runs ComfyUI and connects out to this Worker. Nothing to open on your network.'],
-    both: ['My PC, with Modal while it is off', 'The PC is used whenever it is online; Modal answers the rest of the time.'],
-    desktop: ['On my PC, only from Claude Desktop', 'The Claude Desktop extension does it all on your PC, with no Worker and no accounts.'],
-  }
-  const ADVANCED = { url: ['A ComfyUI I already run', 'Reachable from the internet, with its models and nodes already in place.'] }
-  const LABELS = { ...CHOICES, ...ADVANCED }
   let showAdvanced = $state(false)
 
-  // The choice follows what is set up; before anything is, it is remembered in this browser only.
+  // What the user means to add ('modal' or 'url'), remembered in this browser until it exists.
   let picked = $state(null)
   try {
     picked = localStorage.getItem(CHOICE_KEY)
   } catch {}
-  let gen = $derived(info.generator)
-  let pc = $derived(info.pc)
-  let choice = $derived(
-    gen?.kind === 'url' ? 'url'
-    : (gen?.kind === 'modal' || info.build) && pc?.paired ? 'both'
-    : gen?.kind === 'modal' || info.build ? (picked === 'both' ? 'both' : 'modal')
-    : pc?.paired ? (picked === 'both' ? 'both' : 'pc')
-    : picked,
-  )
-  let wantModal = $derived(choice === 'modal' || choice === 'both')
-  let wantPc = $derived(choice === 'pc' || choice === 'both')
+  let gpus = $derived(info.gpus ?? [])
+  let modalGpu = $derived(gpus.find((g) => g.kind === 'modal'))
+  let urlGpu = $derived(gpus.find((g) => g.kind === 'url'))
+  let pcs = $derived(gpus.filter((g) => g.kind === 'pc'))
+  let wantModal = $derived(Boolean(modalGpu) || Boolean(info.build && info.build !== info.update_build) || picked === 'modal')
+  let wantUrl = $derived(Boolean(urlGpu) || picked === 'url')
+  // Done once there is a GPU and every PC has paired (a PC waiting to pair keeps the step open).
+  let gpusReady = $derived(gpus.length > 0 && pcs.every((g) => g.seen))
 
   function choose(c) {
     picked = c
@@ -50,13 +38,28 @@
     } catch {}
   }
 
+  let addBusy = $state(false)
+  let addError = $state('')
+  async function addPc() {
+    addBusy = true
+    addError = ''
+    try {
+      await api('POST', '/gpus/pc')
+      await refresh()
+    } catch (e) {
+      addError = e.message
+    } finally {
+      addBusy = false
+    }
+  }
+
   // Modal
   let modalId = $state('')
   let modalSecret = $state('')
   let buildBusy = $state(false)
   let buildError = $state('')
   let packs = $state(null)
-  let deployed = $derived(gen?.kind === 'modal')
+  let deployed = $derived(Boolean(modalGpu))
   let modelsReady = $derived(deployed && packs !== null && packs.every((p) => p.on.modal?.state === 'done'))
 
   // Modal shows a new token only inside `modal token set --token-id ak-… --token-secret as-…`.
@@ -113,40 +116,9 @@
     }
   }
 
-  // The PC
-  let pcBusy = $state(false)
-  let pcError = $state('')
-  let copiedLink = $state(false)
-
-  async function pair(again) {
-    if (again && !confirm('Make a new pairing link? The PC paired now disconnects until you paste the new link into it.')) return
-    pcBusy = true
-    pcError = ''
-    try {
-      await api('POST', '/pc/pair')
-      await refresh()
-    } catch (e) {
-      pcError = e.message
-    } finally {
-      pcBusy = false
-    }
-  }
-
-  async function unpair() {
-    if (!confirm('Unpair this PC? It disconnects, and images go to Modal (if set up) instead.')) return
-    await api('DELETE', '/pc')
-    await refresh()
-  }
-
-  async function copyLink() {
-    await navigator.clipboard.writeText(pc.link)
-    copiedLink = true
-    setTimeout(() => (copiedLink = false), 1500)
-  }
-
   // Claude
   let copied = $state(false)
-  let generatorReady = $derived(Boolean(gen) || Boolean(pc?.connected))
+  let generatorReady = $derived(gpus.some((g) => g.kind !== 'pc' || g.online))
 
   async function copyConnector() {
     await navigator.clipboard.writeText(info.connector_url)
@@ -188,15 +160,15 @@
   }
   onMount(loadUpdate)
 
-  // Waiting on something outside this page: the PC connecting, Claude adding the connector.
+  // Waiting on something outside this page: a PC pairing, Claude adding the connector.
   let timer = null
   // Every 5 s while waiting on something; every 20 s while a PC is paired, so its status (paused,
   // offline, a new agent version) follows without a reload.
   let lastSlow = 0
   function poll() {
     timer = setTimeout(async () => {
-      const waiting = (pc?.paired && !pc.connected) || (generatorReady && !info.claude_seen)
-      const slow = pc?.paired && Date.now() - lastSlow >= 20_000
+      const waiting = pcs.some((g) => !g.seen) || (generatorReady && !info.claude_seen)
+      const slow = pcs.length > 0 && Date.now() - lastSlow >= 20_000
       if (waiting || slow) {
         lastSlow = Date.now()
         await refresh().catch(() => {})
@@ -205,20 +177,6 @@
     }, 5000)
   }
 
-  // Pause from here: the agent's tray pause, sent over its connection.
-  let pauseBusy = $state(false)
-  async function setPaused(paused) {
-    pauseBusy = true
-    pcError = ''
-    try {
-      await api('POST', '/pc/pause', { paused })
-      await refresh()
-    } catch (e) {
-      pcError = e.message
-    } finally {
-      pauseBusy = false
-    }
-  }
   // This tab is remounted each time it opens, with the state from when another tab last loaded it.
   onMount(() => {
     refresh().catch(() => {})
@@ -226,66 +184,18 @@
   })
   onDestroy(() => clearTimeout(timer))
 
-  const since = (t) => (t ? new Date(t).toLocaleString() : '')
   const status = (done, ready = true) => (done ? 'done' : ready ? 'current' : 'todo')
 
-  // Step numbers follow the chosen path.
+  // Step numbers follow what is wanted.
   let steps = $derived.by(() => {
     const list = []
     if (wantModal) list.push('deploy', 'models')
-    if (wantPc) list.push('pc')
-    if (choice === 'url') list.push('url')
+    if (wantUrl) list.push('url')
     return list
   })
   const num = (id) => 3 + steps.indexOf(id)
   let claudeN = $derived(3 + steps.length)
 </script>
-
-{#snippet pairing()}
-  <ol>
-    <li>
-      On your PC, download the agent:
-      <a href="{RELEASE}comfy-gen-agent-windows.exe">Windows</a>,
-      <a href="{RELEASE}comfy-gen-agent-macos.zip">macOS (Apple silicon)</a> or
-      <a href="{RELEASE}comfy-gen-agent-linux">Linux</a>, and run it. It is not signed yet: on Windows choose
-      <b>More info → Run anyway</b>; on macOS unzip it, right-click it and choose <b>Open</b>; on Linux,
-      <code>chmod +x</code> it first.
-    </li>
-    <li>Its page opens in your browser. Paste this pairing link there:</li>
-  </ol>
-  <div class="row"><code>{pc.link}</code></div>
-  <div class="row">
-    <button onclick={copyLink}>{copiedLink ? 'Copied' : 'Copy link'}</button>
-    <button class="secondary" onclick={() => pair(true)} disabled={pcBusy}>New link</button>
-    <button class="secondary" onclick={unpair}>Unpair</button>
-  </div>
-  <p class="muted">The link lets a PC generate for this Worker. Treat it like a password.</p>
-  <ol start="3">
-    <li>On the same page, install ComfyUI. It finds the models of ComfyUI installs you already have.</li>
-  </ol>
-{/snippet}
-
-{#snippet pcStatus()}
-  <p>
-    {#if pc.info?.paused}
-      <b>Paused:</b> <span class="muted">not taking image requests{choice === 'both' ? ', so Modal answers' : ''}.</span>
-    {:else}
-      <b class="ok">Connected</b> <span class="muted">since {since(pc.since)}</span>
-    {/if}
-    {#if pc.info}<span class="muted">· agent {pc.info.version} on {platformName(pc.info.platform)}{#if pc.info.gpu}, GPU: {gpuName(pc.info.gpu)}{/if}</span>{/if}
-  </p>
-  <div class="row">{@render pauseButton()}</div>
-  <p class="muted">
-    A pause lasts until you resume it, here or from the Comfy-Gen tray icon, or until the agent restarts.
-  </p>
-  <p class="muted">The agent starts with your PC from now on. {choice === 'both' ? 'While the PC is off, Modal answers.' : ''}</p>
-{/snippet}
-
-{#snippet pauseButton()}
-  <button type="button" class="secondary small" onclick={() => setPaused(!pc.info?.paused)} disabled={pauseBusy}>
-    {pauseBusy ? '…' : pc.info?.paused ? 'Resume' : 'Pause'}
-  </button>
-{/snippet}
 
 <Step n={1} title="Log in" status="done" summary={info.cloudflare ? `Worker ${info.cloudflare.script}` : 'Logged in'}>
   {#if info.cloudflare}
@@ -300,19 +210,30 @@
   </details>
 </Step>
 
-<Step n={2} title="Choose where images are made" status={status(choice)} summary={choice ? LABELS[choice][0] : ''}>
-  {#each Object.entries(showAdvanced || choice === 'url' ? LABELS : CHOICES) as [key, [label, detail]] (key)}
-    <label class="choice">
-      <input type="radio" name="where" value={key} checked={choice === key} onchange={() => choose(key)} />
-      <span><b>{label}</b><br /><span class="muted">{detail}</span></span>
-    </label>
-  {/each}
-  {#if choice !== 'url'}
-    <button type="button" class="secondary" onclick={() => (showAdvanced = !showAdvanced)}>
-      {showAdvanced ? 'Hide advanced' : 'Advanced'}
-    </button>
-  {/if}
-  {#if (gen || pc?.paired) && !choice}<p class="muted">Pick one to see its steps.</p>{/if}
+<Step n={2} title="Your GPUs" status={status(gpusReady)} summary={gpusReady ? gpus.map((g) => g.name).join(', ') : ''}>
+  <p>
+    Images are made on your GPUs, tried in this order. A PC runs a small agent that connects out to this Worker
+    (nothing to open on your network); Modal runs in the cloud and bills only while it generates. Images and LoRAs
+    are kept in this Worker's storage, so any GPU can edit any image.
+  </p>
+  <GpuList {gpus} {refresh} />
+  <div class="row">
+    <button type="button" onclick={addPc} disabled={addBusy}>{addBusy ? 'Adding…' : pcs.length ? 'Add another PC' : 'Add a PC'}</button>
+    {#if !wantModal}<button type="button" class="secondary" onclick={() => choose('modal')}>Add Modal</button>{/if}
+    {#if !wantUrl && showAdvanced}<button type="button" class="secondary" onclick={() => choose('url')}>Add a ComfyUI by URL</button>{/if}
+    {#if !wantUrl && !showAdvanced}<button type="button" class="secondary" onclick={() => (showAdvanced = true)}>Advanced</button>{/if}
+  </div>
+  {#if addError}<p class="err">{addError}</p>{/if}
+  <details class="guide">
+    <summary>Only using Claude Desktop, on the PC with the GPU?</summary>
+    <p>The Claude Desktop extension does it all on that PC, with no Worker and no accounts:</p>
+    <ol>
+      <li>Download <a href="{RELEASE}Comfy-Gen-MCP.mcpb">Comfy-Gen-MCP.mcpb</a> and open it: Claude Desktop installs it.</li>
+      <li>The Comfy-Gen icon appears in the tray. Open its settings page from there, choose your GPU and install ComfyUI.</li>
+      <li>Ask Claude Desktop for an image.</li>
+    </ol>
+    <p class="muted">This Worker costs nothing idle: keep it for claude.ai and the phone app, or delete it from your Cloudflare dashboard.</p>
+  </details>
 </Step>
 
 {#if wantModal}
@@ -393,66 +314,13 @@
     {#if deployed}
       <p>The models download straight into your Modal account (about 20 GB for the default choices, a few minutes).
         You can go on to the next step meanwhile.</p>
-      <Models backend="modal" onchange={(p) => (packs = p)} />
+      <Models gpu="modal" onchange={(p) => (packs = p)} />
     {/if}
   </Step>
 {/if}
 
-{#if wantPc}
-  <Step
-    n={num('pc')}
-    title="Run the agent on your PC"
-    status={status(pc?.connected)}
-    summary={pc?.connected ? `${pc.info?.paused ? 'Paused' : 'Connected'}${pc.info?.platform ? `: ${platformName(pc.info.platform)}` : ''}${pc.info?.gpu ? `, GPU: ${gpuName(pc.info.gpu)}` : ''}` : pc?.seen ? 'Offline' : ''}
-    actions={pc?.connected ? pauseButton : null}
-  >
-    {#if !pc?.paired}
-      <p>First, make the link that lets your PC connect to this Worker.</p>
-      <button onclick={() => pair(false)} disabled={pcBusy}>{pcBusy ? 'Making a link…' : 'Make a pairing link'}</button>
-    {:else if pc.seen}
-      <!-- This PC has connected before: offline is a moment (a restart, the PC off), not a pairing to do. -->
-      {#if pc.connected}
-        {@render pcStatus()}
-      {:else}
-        <p>
-          <b>Offline.</b>
-          <span class="muted">
-            It reconnects by itself whenever the agent is running (it starts with the PC).{choice === 'both' ? ' Meanwhile Modal answers.' : ''}
-          </span>
-        </p>
-      {/if}
-      <details class="guide">
-        <summary>Pair again or set up another PC</summary>
-        {@render pairing()}
-      </details>
-    {:else}
-      {@render pairing()}
-      {#if pc.connected}
-        {@render pcStatus()}
-      {:else}
-        <p class="muted">Waiting for your PC to connect…</p>
-      {/if}
-    {/if}
-    {#if pcError}<p class="err">{pcError}</p>{/if}
-  </Step>
-{/if}
-
-{#if choice === 'desktop'}
-  <Step n={3} title="Install the Claude Desktop extension" status="current">
-    <ol>
-      <li>On the PC with the GPU, download <a href="{RELEASE}Comfy-Gen-MCP.mcpb">Comfy-Gen-MCP.mcpb</a> and open it: Claude Desktop installs it.</li>
-      <li>The Comfy-Gen icon appears in the tray. Open its settings page from there, choose your GPU and install ComfyUI (a few minutes; it finds the models of ComfyUI installs you already have).</li>
-      <li>Ask Claude Desktop for an image.</li>
-    </ol>
-    <p class="muted">
-      This Worker is not needed for that. Keep it for later (it costs nothing idle): choose another option here to
-      use claude.ai or the phone app too, or delete it from your Cloudflare dashboard.
-    </p>
-  </Step>
-{/if}
-
-{#if choice === 'url'}
-  <Step n={num('url')} title="Connect your ComfyUI" status={status(gen?.kind === 'url')} summary={gen?.kind === 'url' ? gen.base_url : ''}>
+{#if wantUrl}
+  <Step n={num('url')} title="Connect your ComfyUI" status={status(Boolean(urlGpu))} summary={urlGpu ? urlGpu.base_url : ''}>
     <form onsubmit={saveDirect}>
       <label for="url">ComfyUI URL</label>
       <input id="url" type="url" bind:value={directUrl} placeholder="https://comfy.example.com" />
@@ -463,7 +331,6 @@
   </Step>
 {/if}
 
-{#if choice !== 'desktop'}
 <Step
   n={claudeN}
   title="Connect Claude"
@@ -482,9 +349,8 @@
   <p class="muted">Anyone with this URL can generate images with your setup. Treat it like a password.</p>
   {#if !info.claude_seen}<p class="muted">This step ticks itself once Claude has connected.</p>{/if}
 </Step>
-{/if}
 
-{#if info.claude_seen && choice !== 'desktop'}
+{#if info.claude_seen}
   <section class="finish">
     <h2>You're set</h2>
     <p>In a new chat, with the connector turned on, try:</p>
@@ -506,7 +372,7 @@
       </p>
       <p class="muted">
         It updates itself within a day. Update now starts the build at once: it takes a minute or two, and
-        {gen?.kind === 'modal' ? 'redeploys ComfyUI on Modal too' : 'image requests keep working meanwhile'}.
+        {modalGpu ? 'redeploys ComfyUI on Modal too' : 'image requests keep working meanwhile'}.
       </p>
       {#if !update.building && !(updating && !updateFinished)}
         <button onclick={updateNow} disabled={!update.can}>Update now</button>

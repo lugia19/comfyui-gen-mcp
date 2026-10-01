@@ -278,32 +278,29 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   owner's images by number; `p7.…` on the PC, `mupAbCd1234.…` for an upload); the public `/img/`
   link carries 12. JSON ids still verify.
 
-## Next: R2 and a list of GPUs (decided 2026-10-01; after the extension's test and the next release)
+## R2 and a list of GPUs (decided 2026-10-01; built, awaiting a live check)
 
-One milestone, as the two need each other:
-- **R2 as the Worker's storage** for uploads, outputs and LoRAs. Outputs are stored as WebP at
-  quality 90 (the file the inline result already uses); ComfyUI's PNG stays on the GPU's disk. GPUs
-  upload and download with signed links, so the bytes skip the Worker; streaming through the
-  Worker is the fallback. Links and edits read from R2, so they work with every GPU off. An expiry
-  rule by age keeps the bucket in the free tier.
-- **A list of GPUs in priority order** instead of "Modal" and "PC": a call goes to the first that
-  is online, not paused, and has the model. Several PCs can pair, each with its own secret and
-  socket on the relay. Modal is added to the list by its deploy (it stays HTTP and scales to
-  zero; it cannot hold an agent's WebSocket). A ComfyUI by URL is a third kind of entry.
-  Keep-warm, pause and models become per entry; the Settings page has a column per GPU.
-- **LoRAs:** R2 is the hub; every GPU pulls what it lacks (Modal possibly through a bucket mount).
-- **Image ids:** an id names a stored object; ids from before keep resolving to their backend.
-- **`:lossless` goes** (it dates from JPEG results).
-- **Upgrades:** a Worker config naming a missing bucket fails its deploy, so the build creates the
-  bucket, or leaves storage off and the setup page offers "Enable storage" (the card on file).
+One milestone, as the two need each other (design §2 "GPUs", §4, §9):
+- **Spike** (appendix): streaming through the R2 binding costs the Worker 0 to 1 ms of CPU, so
+  every transfer streams through it with Worker-signed links (`/store/<token>`); no S3 keys.
+  `wrangler deploy` creates a missing bucket; `deploy.py` sets the expiry rules.
+- **Images in R2:** outputs stored as WebP (`img/<id>`, an id of 8 random base62 characters,
+  expiring after a year), uploads the same; links and edits work with every GPU off. `:lossless`
+  is gone.
+- **LoRAs in R2:** uploaded in 8 MiB multipart chunks checked by MD5, copied to Modal
+  (`/loras/fetch`) and to each PC (the agent's sync plan); deleted everywhere with a tombstone for
+  PCs that were offline.
+- **The GPU list:** `secrets.gpus` in priority order, any number of PCs (each its own secret and
+  relay object), Modal added by its deploy, a ComfyUI by URL; routing by availability and pack
+  readiness, with a hand-off when a GPU is downloading; `fetch_result` tokens name their GPU;
+  keep-warm per GPU. The Setup page lists the GPUs (order, rename, enable, keep-warm, pause, new
+  link, remove); Models and LoRAs show a column per GPU.
+- **No upgrade path:** only two installs exist; both enable R2 by hand before updating. Old image
+  ids stop resolving.
 
-Spike first, on the test account with R2 enabled:
-- what enabling R2 asks for (card), and whether the build can create and bind a bucket with the
-  user's token (else which permission it lacks)
-- signed links: how the Worker gets S3 credentials (an R2 token made at setup), and a signed
-  upload from the agent and from Modal, timed
-- Worker CPU for streaming a 500 KB WebP and a 4 MB chunk through a binding, in and out
-- Modal's bucket mount against R2
+Still to do: on the test install, enable R2 and run a branch build (the build token creates the
+bucket and sets the rules; what the Deploy button does with the binding); read `cpuTimeMs` for a
+warm generation, `/img/`, an upload, a LoRA chunk and download; then two PCs plus Modal live.
 
 ## Verification
 

@@ -259,11 +259,14 @@ export function world() {
   const storage = new FakeStorage();
   const net = new FakeNet(comfy);
   const clock = new Clock();
-  const pc = new FakeRelay();
+  // One Relay object per PC, as the Durable Object namespace gives them: pc is the first PC's.
+  const relays = new Map<string, FakeRelay>();
+  const relay = (id: string) => relays.get(id) ?? (relays.set(id, new FakeRelay()), relays.get(id)!);
+  const pc = relay("pc");
   const bucket = new FakeBucket();
   const env: Record<string, string | undefined> = { VERSION: "v1.0.0" };
-  const app = new App({ storage, bucket, relay: pc, fetch: net.fetch, now: clock.now, env, sleep: async (s) => void (clock.t += s) });
-  return { app, storage, net, clock, comfy, pc, env, bucket };
+  const app = new App({ storage, bucket, relays: relay, fetch: net.fetch, now: clock.now, env, sleep: async (s) => void (clock.t += s) });
+  return { app, storage, net, clock, comfy, pc, relay, env, bucket };
 }
 
 export function request(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, base = `https://${HOST}`): Request {

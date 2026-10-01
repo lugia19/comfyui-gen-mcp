@@ -5,14 +5,14 @@
   // One place for LoRAs: each file, where it is, and its setup per pack beside it. *cfg* is the
   // page's working config (its pack_loras is edited in place and saved with the page). *packs* are
   // the packs that take LoRAs. *listing* is null while loading, then
-  //   {backends, files: {name: {backend: size}}, syncing: {name: {to, done, total, error}}, errors,
-  //    offline: backends not reachable now (the PC off), nothing listed for them}
+  //   {backends, gpus: [{id, name, kind}], files: {name: {backend: size}}, syncing: {name: {to, done,
+  //    total, error}}, errors, offline: backends not reachable now (a PC off), nothing listed for them}
   // with backends among:
   //   machine  this computer (the Claude Desktop extension)
   //   storage  the Worker's R2 storage: every LoRA comes in here, and every GPU copies from it
-  //   pc       the Worker's paired PC, listed through the agent
-  //   modal    the Modal Volume
-  //   url      a ComfyUI reached by URL: no listing, a file is added by name
+  //   <id>     one of the Worker's GPUs (gpus says its name and kind): a PC, the Modal Volume, or a
+  //            ComfyUI by URL, which has no listing (a file is added by name)
+  //   url      the extension's own ComfyUI by URL (the same)
   // One way in: every LoRA comes through Upload LoRA, into storage (or this computer's folder on the
   // extension), and the Worker copies it to each GPU. Only LoRAs that came in this way are listed,
   // never others that happen to be in a PC's folders.
@@ -23,11 +23,15 @@
   let error = $state('')
   let typed = $state('')
 
-  const PLACE = { storage: 'Stored', pc: 'PC', modal: 'Modal' }
   let backends = $derived(listing?.backends ?? [])
-  let listed = $derived(backends.filter((b) => b !== 'url'))
+  let gpus = $derived(listing?.gpus ?? [])
+  const kindOf = (b) => gpus.find((g) => g.id === b)?.kind
+  const place = (b) => (b === 'storage' ? 'Stored' : gpus.find((g) => g.id === b)?.name ?? '')
+  let listed = $derived(backends.filter((b) => b !== 'url' && kindOf(b) !== 'url'))
   let files = $derived(listing?.files ?? {})
   let has = (b) => backends.includes(b)
+  let hasKind = (k) => gpus.some((g) => g.kind === k)
+  let offline = $derived((listing?.offline ?? []).map(place).filter(Boolean))
   // Uploads go to the Worker's storage, or to this computer on the extension's page.
   let canUpload = $derived(has('storage') || has('machine'))
 
@@ -130,7 +134,7 @@
   // One family takes LoRAs today (Anima and Anima Turbo share them): then the checkbox just turns a
   // LoRA on. With more, each row names its models.
   let single = $derived(packs.length === 1)
-  let errors = $derived(Object.entries(listing?.errors ?? {}).map(([b, m]) => `${PLACE[b] ?? b}: ${m}`))
+  let errors = $derived(Object.entries(listing?.errors ?? {}).map(([b, m]) => `${place(b) || b}: ${m}`))
 </script>
 
 <h2>LoRAs</h2>
@@ -143,13 +147,11 @@
 {:else if has('machine')}
   <p class="muted">Uploads go to ComfyUI's LoRAs folder on this computer.</p>
 {/if}
-{#if has('modal')}
+{#if hasKind('modal')}
   <p class="muted">A GPU that is already running picks up a new LoRA once it is idle.</p>
 {/if}
-{#if listing?.offline?.includes('pc')}
-  <p class="muted">
-    Your PC is offline: {has('modal') ? 'it gets new models and LoRAs when it is next online' : 'uploads need it online'}.
-  </p>
+{#if offline.length}
+  <p class="muted">{offline.join(', ')} {offline.length > 1 ? 'are' : 'is'} offline: new LoRAs are copied when next online.</p>
 {/if}
 
 {#if !listing}
@@ -164,7 +166,7 @@
       <b class="name">{name}</b>
       {#each listed as where (where)}
         {@const m = mark(name, where)}
-        <span class="place" class:ok={m.ok} class:err={m.err} class:muted={!m.ok && !m.err}>{#if PLACE[where]}<b>{PLACE[where]}</b>&nbsp;{/if}{m.text}</span>
+        <span class="place" class:ok={m.ok} class:err={m.err} class:muted={!m.ok && !m.err}>{#if place(where)}<b>{place(where)}</b>&nbsp;{/if}{m.text}</span>
       {/each}
       {#if files[name] && listed.length}
         <button class="secondary" onclick={() => remove(name)} disabled={!!progress || deleting !== null}>
@@ -200,7 +202,7 @@
     </label>
   {/if}
 {/if}
-{#if has('url')}
+{#if has('url') || hasKind('url')}
   <div class="row">
     <input type="text" bind:value={typed} placeholder="file.safetensors" aria-label="LoRA file name" />
     <button class="secondary" onclick={addTyped} disabled={!typed.trim()}>Add</button>
