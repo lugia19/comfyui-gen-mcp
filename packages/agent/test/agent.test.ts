@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComfyUIError, fromUtf8, relay, utf8 } from "@comfy-gen/core";
 import { createHash } from "node:crypto";
-import { LoraRegistry, LoraUploads, paths, type Machine } from "@comfy-gen/local";
+import { agentInstance, LoraRegistry, LoraUploads, paths, type Machine } from "@comfy-gen/local";
 import { loadAgentConfig, parsePairingLink, saveAgentConfig } from "../src/config.ts";
 import { agentHandler, viewFromDisk } from "../src/handlers.ts";
 import { RelayClient } from "../src/relay-client.ts";
@@ -27,6 +27,18 @@ describe("pairing link", () => {
     expect(loadAgentConfig(p)).toMatchObject({ worker_url: "", port: 9248, keep_warm_minutes: 5 });
     saveAgentConfig(p, { ...loadAgentConfig(p), worker_url: "https://w", secret });
     expect(loadAgentConfig(p)).toMatchObject({ worker_url: "https://w", secret });
+  });
+  it("gives a second agent on the machine its own config, port and logs (a developer switch)", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-"));
+    const first = paths({ COMFY_GEN_HOME: home });
+    expect(agentInstance(first, { COMFY_GEN_AGENT_INSTANCE: "1" })).toBe(first); // 2 to 9 only
+    expect(agentInstance(first, { COMFY_GEN_AGENT_INSTANCE: "x" })).toBe(first);
+    const second = agentInstance(first, { COMFY_GEN_AGENT_INSTANCE: "2" });
+    expect(second).toMatchObject({ comfyui: first.comfyui, logs: join(home, "instances", "2", "logs"), instance: { n: 2 } });
+    saveAgentConfig(first, { ...loadAgentConfig(first), secret });
+    expect(loadAgentConfig(second)).toMatchObject({ secret: "", port: 9249 }); // unpaired, the next port
+    saveAgentConfig(second, { ...loadAgentConfig(second), secret: "t".repeat(43) });
+    expect(loadAgentConfig(first).secret).toBe(secret);
   });
 });
 
@@ -233,7 +245,7 @@ describe("images while ComfyUI is stopped", () => {
     // Through the handler: ComfyUI stopped, the image still comes back, and nothing starts it.
     let jobs = 0;
     const machine = {
-      comfy: { url: null, state: "stopped", install: { dir }, job: (fn: () => Promise<unknown>) => (jobs++, fn()) },
+      comfy: { url: null, state: "stopped", install: { dir }, dataDir: dir, job: (fn: () => Promise<unknown>) => (jobs++, fn()) },
     } as unknown as Machine;
     const handle = agentHandler({ machine, setKeepWarm: () => {}, settingsNote: "x" });
     const [status, body] = await handle({ header: { kind: "http", id: "1", method: "GET", path: "/view", params: { filename: "comfy-gen_00007_.png", type: "output" } }, body: new Uint8Array() });

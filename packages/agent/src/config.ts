@@ -14,8 +14,9 @@ export type AgentConfig = ComfySettings & {
   port: number;
 };
 
+/** agent.json, or a second agent's own (agentInstance). */
 export function agentConfigPath(p: Paths): string {
-  return join(p.home, "agent.json");
+  return join(p.instance?.dir ?? p.home, "agent.json");
 }
 
 export function loadAgentConfig(p: Paths): AgentConfig {
@@ -31,7 +32,9 @@ export function loadAgentConfig(p: Paths): AgentConfig {
   }
   const str = (k: string) => (typeof raw[k] === "string" ? raw[k].trim() : "");
   const keepWarm = Number.isInteger(raw.keep_warm_minutes) && raw.keep_warm_minutes > 0 ? raw.keep_warm_minutes : 5;
-  const port = Number.isInteger(raw.port) && raw.port > 0 && raw.port < 65536 ? raw.port : DEFAULT_AGENT_PORT;
+  // A second agent on this machine takes the next ports: 9249 for instance 2.
+  const defaultPort = DEFAULT_AGENT_PORT + (p.instance ? p.instance.n - 1 : 0);
+  const port = Number.isInteger(raw.port) && raw.port > 0 && raw.port < 65536 ? raw.port : defaultPort;
   return {
     worker_url: str("worker_url"), secret: str("secret"), port,
     comfyui_url: str("comfyui_url").replace(/\/+$/, ""), extra_models_dir: str("extra_models_dir"), gpu: str("gpu"),

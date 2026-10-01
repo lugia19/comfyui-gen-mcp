@@ -579,6 +579,15 @@ Its settings page (loopback only) is the MCPB's machine setup plus the pairing s
 settings stay on the Worker, whose settings page lists each GPU's LoRAs and model status
 (`/api/loras`, `/api/models`).
 
+**Several agents on one machine (a developer switch).** `COMFY_GEN_AGENT_INSTANCE=2` (to 9) in the
+launcher's environment starts another agent, for testing a Worker with several PCs on one computer.
+It keeps its own config (pairing), logs and ComfyUI output, input, temp and user folders in
+`~/.comfy-gen-mcp/instances/<n>/`, takes settings port 9248 + n - 1, and runs its own ComfyUI process
+from the shared install, with the shared models and LoRAs. Downloads write `.part-<n>` files, so two
+agents fetching the same file never share one. Two ComfyUIs share the GPU's memory, and both may
+install a pack's nodes at once on a first run, so set packs up on the first agent before starting a
+second.
+
 **LoRA sync.** Every LoRA in R2 should be on every PC. The agent posts its LoRA files (`{name: size}`,
 ours only) to `POST /agent/sync` (the pairing secret, as for `/agent`); the Worker answers with a
 plan: every stored LoRA the PC lacks is **pulled** (a storage link, downloaded with Range so a cut

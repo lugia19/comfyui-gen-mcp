@@ -8,6 +8,14 @@ export const USER_AGENT = "comfy-gen-local";
 
 export type Progress = (done: number, total: number | null) => void;
 
+// The unfinished file is <dest>.part, or <dest>.part-<n> in a second agent on this machine
+// (agentInstance), so two agents fetching the same model or LoRA never write into one file: each
+// downloads its own, and the rename into place is atomic.
+let partSuffix = ".part";
+export function setPartSuffix(instance: number): void {
+  partSuffix = `.part-${instance}`;
+}
+
 export type FetchFileOptions = {
   sha256?: string;
   size?: number;
@@ -21,7 +29,7 @@ export type FetchFileOptions = {
  * nothing is left at *dest* unless the file is complete and checked. Returns the file's SHA-256. */
 export async function fetchFile(url: string, dest: string, opts: FetchFileOptions = {}): Promise<string> {
   mkdirSync(dirname(dest), { recursive: true });
-  const part = `${dest}.part`;
+  const part = `${dest}${partSuffix}`;
   const hash = createHash("sha256");
   let done = 0;
   const have = opts.resume && existsSync(part) ? statSync(part).size : 0;

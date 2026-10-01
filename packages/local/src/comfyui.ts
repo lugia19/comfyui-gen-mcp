@@ -94,6 +94,12 @@ export class LocalComfy {
     );
   }
 
+  /** Where this ComfyUI keeps its output, input and temp folders: the install, or a second agent's
+   * own folder (agentInstance). */
+  get dataDir(): string | null {
+    return this.p.instance ? join(this.p.instance.dir, "comfyui") : (this.install?.dir ?? null);
+  }
+
   get logFile(): string {
     return join(this.p.logs, "comfyui.log");
   }
@@ -151,6 +157,13 @@ export class LocalComfy {
     const url = `http://127.0.0.1:${port}`;
     const args = ["main.py", "--listen", "127.0.0.1", "--port", String(port), "--disable-auto-launch"];
     if ((inst.gpu ?? this.settings().gpu) === "cpu") args.push("--cpu");
+    const data = this.p.instance ? this.dataDir! : null;
+    if (data) {
+      // ComfyUI adds "temp" to --temp-directory itself.
+      const dirs = { output: join(data, "output"), input: join(data, "input"), user: join(data, "user") };
+      for (const d of Object.values(dirs)) mkdirSync(d, { recursive: true });
+      args.push("--output-directory", dirs.output, "--input-directory", dirs.input, "--temp-directory", data, "--user-directory", dirs.user);
+    }
     mkdirSync(this.p.logs, { recursive: true });
     // The previous run's log is kept as comfyui.prev.log: after a crash, the next start would
     // otherwise overwrite the evidence.

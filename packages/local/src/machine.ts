@@ -208,7 +208,7 @@ export class Machine {
       const which = (await bodyJson(req)).which;
       const dirs: Record<string, string> = { models: this.comfy.models.ownModels, logs: this.p.logs };
       dirs.loras = this.lorasDir;
-      if (this.comfy.install) dirs.output = join(this.comfy.install.dir, "output");
+      if (this.comfy.dataDir) dirs.output = join(this.comfy.dataDir, "output");
       if (!(which in dirs)) return error(400, "unknown folder");
       (this.opts.openFolder ?? openExternal)(dirs[which]);
       return json({ ok: true, path: dirs[which] });

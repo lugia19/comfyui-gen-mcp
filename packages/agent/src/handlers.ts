@@ -49,7 +49,7 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
 
   const fromDisk = async (h: relay.HttpMessage): Promise<Reply | null> => {
     if (h.method !== "GET" || h.path !== "/view") return null;
-    const data = await viewFromDisk(comfy.install?.dir, h.params);
+    const data = await viewFromDisk(comfy.dataDir ?? undefined, h.params);
     return data ? [200, data] : null;
   };
 

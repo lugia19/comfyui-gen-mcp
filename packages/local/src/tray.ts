@@ -141,7 +141,7 @@ const STATE_COLORS: Record<string, TrayColor> = {
 };
 
 /** An extra tray item for one program (the agent's pause), and the note it adds to the status. */
-export type TrayExtra = { title: () => string; onClick: () => void; note: () => string | null };
+export type TrayExtra = { title: () => string; onClick: () => void; note: () => string | null; name?: string };
 
 /**
  * The tray for a machine: Open settings, the status, Restart and Stop ComfyUI. The icon's color is
@@ -172,7 +172,8 @@ export async function machineTray(
     return byState === "green" && extra?.note() ? "yellow" : byState;
   };
   let shown = color();
-  let shownTip = `Comfy-Gen-MCP: ${status()}`;
+  const name = extra?.name ?? "Comfy-Gen-MCP"; // the tooltip's, to tell two agents apart
+  let shownTip = `${name}: ${status()}`;
   const items: TrayItem[] = [
     { title: "Open settings", onClick: () => openExternal(settingsUrl) },
     { title: status() }, // enabled: a disabled item is too faint to read (seen on Windows); clicking does nothing
@@ -187,7 +188,7 @@ export async function machineTray(
     t.update(1, { title: status() });
     if (extra) t.update(2, { title: extra.title() });
     const now = color();
-    const tip = `Comfy-Gen-MCP: ${status()}`;
+    const tip = `${name}: ${status()}`;
     if (now !== shown || tip !== shownTip) t.setIcon(icons[(shown = now)], (shownTip = tip));
   }
 

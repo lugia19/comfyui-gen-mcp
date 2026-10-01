@@ -6,7 +6,7 @@
 // started it by hand (open the settings page), 0 when it started at login or restarts us; exit code
 // RESTART_EXIT_CODE asks it to start us again at once (into a newer bundle), 0 to stay stopped.
 
-import { listen, log, logTo, Machine, machineTray, openExternal, paths, type Paths, type TrayColor, type WebFiles } from "@comfy-gen/local";
+import { agentInstance, setPartSuffix, listen, log, logTo, Machine, machineTray, openExternal, paths, type Paths, type TrayColor, type WebFiles } from "@comfy-gen/local";
 import { AgentApp } from "./app.ts";
 import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts";
 import { agentHandler } from "./handlers.ts";
@@ -29,9 +29,10 @@ export type AgentOptions = {
 export type Agent = { app: AgentApp; close(): Promise<void>; restartWhenIdle(tag: string): void };
 
 export async function startAgent(opts: AgentOptions): Promise<Agent> {
-  const p = opts.paths ?? paths();
+  const p = opts.paths ?? agentInstance(paths());
   const openSettings = process.env.COMFY_GEN_OPEN_SETTINGS;
   logTo(p.logs);
+  if (p.instance) setPartSuffix(p.instance.n);
   // So an ending always leaves a line in the log (one once ended with none).
   process.on("uncaughtException", (e) => {
     log.error("Uncaught:", e);
@@ -119,7 +120,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     exit(0);
     throw new Error("already running");
   }
-  log.info(`Comfy-Gen agent ${opts.version}: settings on ${settingsUrl}`);
+  log.info(`Comfy-Gen agent ${opts.version}${p.instance ? ` (instance ${p.instance.n}, in ${p.instance.dir})` : ""}: settings on ${settingsUrl}`);
   reconnect();
   // Unpaired, pairing and install happen there; started by hand, the user expects to see something.
   if (!cfg.worker_url || openSettings === "1") openExternal(settingsUrl);
@@ -131,6 +132,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
         title: () => (paused ? "Take image requests again" : "Stop taking image requests"),
         note: () => (paused ? "paused until resumed or restarted" : null),
         onClick: () => setPaused(!paused, "the tray"),
+        name: p.instance ? `Comfy-Gen agent ${p.instance.n}` : undefined,
       })
     : null;
 
