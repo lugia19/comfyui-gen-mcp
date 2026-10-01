@@ -82,7 +82,7 @@ describe("MCP", () => {
     expect(fromBase64(image.data)).toEqual(comfy.viewBody);
     expect(comfy.calls.find((c) => c[1] === "/view")![2]!.preview).toBe("webp;90");
     const ref = info.text.split("image_id: ")[1].split("\n")[0];
-    expect(ref).toBe("m1"); // the model's id: the bare name; the public link carries a MAC
+    expect(ref).toMatch(/^m1\.[\w-]{4}$/); // the model's id: the name and a short check; the link has 12
     const key = fromHex((await secretsOf(app)).hmac_key);
     expect(await refs.resolve(ref, key)).toMatchObject({ image: { filename: "comfy-gen_00001_.png" }, backend: "main" });
     const link = info.text.split("/img/")[1].split("\n")[0];
@@ -111,7 +111,7 @@ describe("MCP", () => {
     const up = await app.handle(request("POST", `/upload/${token}`, png(640, 480)));
     expect(up.status).toBe(200);
     const imageId = (await body(up)).image_id;
-    expect(imageId).toMatch(/^mup[\w-]{8}$/); // short: the model copies it
+    expect(imageId).toMatch(/^mup[\w-]{8}\.[\w-]{4}$/); // short: the model copies it
     [, r] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "add a hat", image: imageId } });
     expect(r.result.isError).toBe(false);
     const loads = Object.values<any>(comfy.prompts.at(-1)!).filter((n) => n.class_type === "LoadImage").map((n) => n.inputs.image);
@@ -136,6 +136,10 @@ describe("MCP", () => {
     [, r] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "x", image: "forged.id" } });
     expect(r.result.isError).toBe(true);
     expect(r.result.content[0].text).toContain("image_id");
+    // A name without its check is no id: whoever the connector is shared with can't count through yours.
+    [, r] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "x", image: "m1" } }, 2);
+    expect(r.result.isError).toBe(true);
+    expect(r.result.content[0].text).toContain("Pass an image_id");
   });
 
   it("the image route streams full resolution", async () => {
@@ -147,7 +151,7 @@ describe("MCP", () => {
     expect(new Uint8Array(await resp.arrayBuffer())).toEqual(comfy.viewBody);
     expect(comfy.calls.at(-1)![2]).not.toHaveProperty("preview");
     expect((await app.handle(request("GET", "/img/bogus"))).status).toBe(404);
-    expect((await app.handle(request("GET", "/img/m1"))).status).toBe(404); // the bare id is no link
+    expect((await app.handle(request("GET", "/img/m1"))).status).toBe(404);
     // An id in the JSON form (what chats hold from before compact ids) still opens.
     const legacy = await refs.sign(new OutputImage("comfy-gen_00001_.png", "sub"), fromHex((await secretsOf(app)).hmac_key));
     expect(legacy.startsWith("Wy")).toBe(true);
@@ -640,7 +644,8 @@ describe("the PC path", () => {
     const [, onMain] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a girl" } }, 2);
     const [pcId, mainId] = [idOf(onPc), idOf(onMain)];
     // Both ComfyUIs named their first output comfy-gen_00001_.png; the ids still differ.
-    expect([pcId, mainId]).toEqual(["p1", "m1"]);
+    expect(pcId).toMatch(/^p1\.[\w-]{4}$/);
+    expect(mainId).toMatch(/^m1\.[\w-]{4}$/);
     expect((await refs.resolve(pcId, key)).image).toEqual((await refs.resolve(mainId, key)).image);
 
     pc.connected = true; // /img/ serves each from its own backend, whichever answers calls now

@@ -14,11 +14,11 @@
 //
 // Compact ids (2026-10-01; models mistyped the long ones): an image this app named, a generated
 // comfy-gen_NNNNN_.png or an upload-<nonce>.<ext>, has a plain-text payload: m7 (p42 for the PC;
-// mupAbC123 for an upload, its extension a letter). The model's image_id is that payload alone:
-// it can only name our own outputs and uploads, and edit_image is behind the connector's secret
-// URL, which already allows everything. The public /img/ link adds a 9-byte MAC over "c:" + payload
-// (m7.Ab3dE9fGh1Jk), so one link doesn't lead to the others. Anything else keeps the JSON form
-// below, always with its MAC.
+// mupAbC123 for an upload, its extension a letter), and a MAC over "c:" + payload. The model's
+// image_id carries 4 characters of it (m7.Ab3d): the name alone could only point at our own
+// images, but someone the connector is shared with could then reach every one by number. The
+// public /img/ link carries 12 (m7.Ab3dE9fGh1Jk); nobody types it. Anything else keeps the JSON
+// form below.
 //
 // The formats are a compatibility surface (test/golden.json pins them): ids in users' chats must
 // keep verifying. Ids for non-ASCII names issued by v0 (the Python Worker) spell them as \uXXXX in
@@ -57,7 +57,10 @@ function decode(payload: string): unknown {
   return JSON.parse(fromUtf8(fromBase64Url(payload)));
 }
 
-const COMPACT_MAC_BYTES = 9; // 72 bits: an id is only ever checked online, one guess per request
+const COMPACT_MAC_BYTES = 9; // 72 bits, on links: an id is only ever checked online, one guess per request
+// 24 bits on the model's ids: about 8M guesses per image, 80 days at the free plan's 100k requests a day
+const ID_MAC_CHARS = 4;
+const LINK_MAC_CHARS = 12;
 const COMPACT = /^([mp])(?:(\d+)|u([pjwg])([A-Za-z0-9_-]{1,32}))$/;
 const OUTPUT_NAME = /^comfy-gen_(\d+)_\.png$/;
 const UPLOAD_NAME = /^upload-([A-Za-z0-9_-]{1,32})\.(png|jpg|webp|gif)$/;
@@ -93,14 +96,15 @@ function fromCompact(payload: string): { image: OutputImage; backend: Backend } 
 
 /** The image id the model sees: the bare compact payload when the image has one, else signed. */
 export async function imageId(image: OutputImage, key: Uint8Array, backend: Backend = "main"): Promise<string> {
-  return compactPayload(image, backend) ?? (await sign(image, key, backend));
+  const compact = compactPayload(image, backend);
+  if (!compact) return sign(image, key, backend);
+  return `${compact}.${(await compactMac(key, compact)).slice(0, ID_MAC_CHARS)}`;
 }
 
-/** The image an image_id from the model points at: a bare compact payload, or anything verify()
- * takes (a link's id pasted back, a JSON id from before compact ids). */
-export async function resolve(id: string, key: Uint8Array): Promise<{ image: OutputImage; backend: Backend }> {
-  const t = id.trim();
-  return COMPACT.test(t) ? fromCompact(t) : verify(t, key);
+/** The image an image_id from the model points at: a compact id (or a link's, pasted back), or a
+ * JSON id from before compact ids. Throws RefError if it isn't one of ours. */
+export function resolve(id: string, key: Uint8Array): Promise<{ image: OutputImage; backend: Backend }> {
+  return openRef(id, key, [ID_MAC_CHARS, LINK_MAC_CHARS]);
 }
 
 /** The signed reference, for a public link: compact with its MAC when it can be, else the JSON form. */
@@ -112,13 +116,21 @@ export async function sign(image: OutputImage, key: Uint8Array, backend: Backend
   return `${payload}.${await mac(key, payload)}`;
 }
 
-/** The image a signed reference points at, and its backend. Throws RefError if it isn't one of ours. */
-export async function verify(ref: string, key: Uint8Array): Promise<{ image: OutputImage; backend: Backend }> {
+/** The image a link's reference points at, and its backend. Throws RefError if it isn't one of ours. */
+export function verify(ref: string, key: Uint8Array): Promise<{ image: OutputImage; backend: Backend }> {
+  return openRef(ref, key, [LINK_MAC_CHARS]);
+}
+
+/** A compact id whose MAC has one of *lengths* (a prefix of the full one), or a JSON id. */
+async function openRef(ref: string, key: Uint8Array, lengths: number[]): Promise<{ image: OutputImage; backend: Backend }> {
   const t = ref.trim();
+  if (COMPACT.test(t)) throw new RefError("Invalid image id: it is missing the part after the dot.");
   const dot = t.lastIndexOf(".");
   if (dot > 0 && COMPACT.test(t.slice(0, dot))) {
-    const payload = t.slice(0, dot);
-    if (!safeEqual(t.slice(dot + 1), await compactMac(key, payload))) throw new RefError("Invalid image id.");
+    const [payload, given] = [t.slice(0, dot), t.slice(dot + 1)];
+    if (!lengths.includes(given.length) || !safeEqual(given, (await compactMac(key, payload)).slice(0, given.length))) {
+      throw new RefError("Invalid image id.");
+    }
     return fromCompact(payload);
   }
   const payload = await check(key, ref, "image id");

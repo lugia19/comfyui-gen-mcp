@@ -247,16 +247,16 @@ stored `custom_workflow` setting is dropped on read.
 - **Compact ids** (2026-10-01): models mistyped the 70-character JSON ids. An image this app named
   has a plain name: `m7` (the main generator's `comfy-gen_00007_.png`), `p7` (the PC's), or
   `mupAbCd1234` for an upload (`m`/`p`, `u`, the extension as a letter `p`/`j`/`w`/`g`, the
-  8-character nonce). **The model's `image_id` is that name alone, with no MAC.** It can only name
-  our own outputs and uploads, never another path, and `edit_image` is behind the connector's
-  secret URL, which already allows everything (so whoever has that URL can reach old images by
-  number; a typo such as m7 for m8 edits another of the user's images rather than erroring;
-  both accepted). **The public `/img/` link carries a MAC**, `m7.Ab3dE9fGh1Jk`: HMAC-SHA256 over
-  `"c:" + payload`, cut to 9 bytes, so one link does not lead to the others. `imageId` gives the
-  bare name when the name rebuilds exactly (`%05d` numbering), else the signed JSON form; `resolve`
-  (MCP input) takes a bare name, a link's id or a JSON id, which must verify; `verify` (`/img/`)
-  needs the MAC. Ids in existing chats keep working. `golden.json` pins all of them (`refs`,
-  `refs_pc`, `refs_compact`).
+  8-character nonce), plus a MAC: HMAC-SHA256 over `"c:" + payload`. A name alone could only point
+  at our own outputs and uploads, never another path, but the connector URL is all that stands
+  between a shared connector and the owner's images, and names can be counted. So **the model's
+  `image_id` carries 4 characters of the MAC**, `m7.Ab3d` (3 bytes, 24 bits): about 8M guesses
+  per image, 80 days at the free plan's 100k requests a day (weaker on a paid plan, which has no
+  such cap). It also catches typos. **The public `/img/` link carries 12** (9 bytes),
+  `m7.Ab3dE9fGh1Jk`; nobody types it. `imageId` gives the short form when the name rebuilds
+  exactly (`%05d` numbering), else the signed JSON form; `resolve` (MCP input) takes a 4- or
+  12-character check or a JSON id; `verify` (`/img/`) needs all 12. Ids in existing chats keep
+  working. `golden.json` pins all of them (`refs`, `refs_pc`, `refs_compact`).
 - **Results are inline WebP.** claude.ai does not support `resource_link` (it shows "Resource links
   are not currently supported" and the model sees only the name and URL), while inline
   `ImageContent` is shown to the user and seen by the model, WebP included (S2, S2c). Every result

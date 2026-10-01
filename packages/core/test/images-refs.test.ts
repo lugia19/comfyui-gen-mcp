@@ -107,14 +107,23 @@ describe("refs", () => {
     await expect(refs.verify(`${json}.${mac}`, KEY)).rejects.toBeInstanceOf(refs.RefError);
   });
 
-  it("image ids for the model: bare names, resolved without a MAC; anything else must verify", async () => {
+  it("image ids for the model: the name and a 4-character check; anything else must verify", async () => {
     const m7 = new OutputImage("comfy-gen_00007_.png", "", "output");
-    expect(await refs.imageId(m7, KEY)).toBe("m7");
-    expect(await refs.imageId(m7, KEY, "pc")).toBe("p7");
-    for (const id of ["m7", " m7\n", await refs.sign(m7, KEY)]) expect(await refs.resolve(id, KEY)).toEqual({ image: m7, backend: "main" });
+    const id = await refs.imageId(m7, KEY);
+    const link = await refs.sign(m7, KEY);
+    expect(id).toMatch(/^m7\.[\w-]{4}$/);
+    expect(link.startsWith(id)).toBe(true); // the same MAC, cut shorter
+    expect(await refs.imageId(m7, KEY, "pc")).toMatch(/^p7\.[\w-]{4}$/);
+    for (const ok of [id, ` ${id}\n`, link]) expect(await refs.resolve(ok, KEY)).toEqual({ image: m7, backend: "main" });
+    const mac = link.split(".")[1];
+    const flip = (s: string, i: number) => s.slice(0, i) + (s[i] === "A" ? "B" : "A") + s.slice(i + 1);
+    for (const bad of ["m7", `m7.${mac.slice(0, 3)}`, `m7.${mac.slice(0, 5)}`, `m7.${mac.slice(0, 11)}`, `m7.${flip(mac.slice(0, 4), 2)}`, `m8.${mac.slice(0, 4)}`]) {
+      await expect(refs.resolve(bad, KEY), bad).rejects.toBeInstanceOf(refs.RefError);
+    }
+    await expect(refs.verify(id, KEY)).rejects.toBeInstanceOf(refs.RefError); // a link needs the full MAC
     const upload = refs.uploadFilename(await refs.checkUpload(await refs.mintUpload(KEY, 0, 60), KEY, 1), "image/png");
     const upId = await refs.imageId(new OutputImage(upload, refs.UPLOAD_SUBFOLDER, "input"), KEY);
-    expect(upId).toMatch(/^mup[\w-]{8}$/);
+    expect(upId).toMatch(/^mup[\w-]{8}\.[\w-]{4}$/);
     // Other images keep a signed JSON id, which must verify.
     const other = new OutputImage("x.png", "sub", "output");
     const otherId = await refs.imageId(other, KEY);

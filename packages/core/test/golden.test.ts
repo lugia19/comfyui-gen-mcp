@@ -35,7 +35,7 @@ describe("golden: what users hold", () => {
     }
   });
 
-  // The model's image_id is the bare payload; the public /img/ link (ref) carries its MAC.
+  // The model's image_id carries 4 characters of the MAC; the public /img/ link (ref) all 12.
   it("compact image ids and their links (added 2026-10-01)", async () => {
     for (const { image, backend, image_id, ref } of g.refs_compact) {
       const img = new OutputImage(image[2], image[1], image[0]);
@@ -43,7 +43,8 @@ describe("golden: what users hold", () => {
       expect(await refs.sign(img, KEY, backend)).toBe(ref);
       for (const id of [image_id, ref]) expect(await refs.resolve(id, KEY)).toEqual({ image: img, backend });
       expect(await refs.verify(ref, KEY)).toEqual({ image: img, backend });
-      await expect(refs.verify(image_id, KEY)).rejects.toBeInstanceOf(refs.RefError); // a link needs its MAC
+      await expect(refs.verify(image_id, KEY)).rejects.toBeInstanceOf(refs.RefError); // a link needs all of it
+      await expect(refs.resolve(image_id.split(".")[0], KEY)).rejects.toBeInstanceOf(refs.RefError); // the name alone
     }
     for (const { ref } of [...g.refs, ...g.refs_pc]) expect(await refs.resolve(ref, KEY)).toEqual(await refs.verify(ref, KEY));
   });
