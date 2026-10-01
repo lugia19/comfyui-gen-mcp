@@ -43,7 +43,7 @@ def test_template_bindings_match_the_release():
     # The template's bindings are what the button provisions; the release's are what gets deployed.
     template = deploy.read_jsonc((ROOT / "bootstrap" / "wrangler.jsonc").read_text())
     release = deploy.read_jsonc((WORKER / "wrangler.jsonc").read_text())
-    for key in ("main", "compatibility_date", "durable_objects", "migrations", "triggers"):
+    for key in ("main", "compatibility_date", "durable_objects", "migrations", "triggers", "r2_buckets"):
         assert template[key] == release[key], key
     assert template["name"] not in ("comfy-gen-mcp", "comfy-dxt")  # CLAUDE.md hard rule
 
@@ -123,11 +123,36 @@ def test_button_deploy_without_setup(build):
     cfg = json.loads((build.src / "packages" / "worker" / "wrangler.jsonc").read_text())
     assert cfg["name"] == "comfy-gen" and cfg["vars"]["VERSION"] == "v1.0.0"
     assert cfg["assets"]["directory"] == "../../web/dist"
-    assert build.calls == [
+    assert cfg["r2_buckets"] == [{"binding": "STORE", "bucket_name": "comfy-gen-storage"}]
+    assert build.calls[:2] == [
         (["npm", "ci", "--workspace", "packages/worker"], build.src),
         (["npx", "wrangler", "deploy"], build.src / "packages" / "worker"),
     ]
+    rules, cwd = build.calls[2]
+    assert rules[:7] == ["npx", "wrangler", "r2", "bucket", "lifecycle", "set", "comfy-gen-storage"] and cwd == build.src / "packages" / "worker"
+    assert len(build.calls) == 3
     assert build.posts == []  # no callback until the setup page starts a build
+
+
+def test_the_bucket_is_named_after_the_worker_and_expires_only_images(build):
+    (build.user / "wrangler.jsonc").write_text((build.user / "wrangler.jsonc").read_text().replace('"name": "comfy-gen"', '"name": "my-comfy"'))
+    seen = {}
+    real_run = deploy.subprocess.run
+
+    def run(cmd, cwd=None, **kw):
+        if "lifecycle" in cmd:
+            seen["rules"] = json.loads(Path(cmd[cmd.index("--file") + 1]).read_text())
+        return real_run(cmd, cwd=cwd, **kw)
+
+    deploy.subprocess.run = run
+    try:
+        assert build.go() == 0
+    finally:
+        deploy.subprocess.run = real_run
+    cfg = json.loads((build.src / "packages" / "worker" / "wrangler.jsonc").read_text())
+    assert cfg["r2_buckets"][0]["bucket_name"] == "my-comfy-storage"
+    prefixes = {r["id"]: r["conditions"]["prefix"] for r in seen["rules"]["rules"]}
+    assert prefixes == {"expire-images": "img/", "abort-multipart": ""}  # LoRAs (lora/) never expire
 
 
 def test_the_log_ends_with_the_workers_address(build, capsys):
@@ -162,6 +187,7 @@ def test_failed_deploy_is_reported(build, monkeypatch):
     build.exit_code = 1
     assert build.go() == 1
     assert build.posts[0][2]["stage"] == "failed"
+    assert not any("lifecycle" in cmd for cmd, _ in build.calls)  # no bucket rules after a failed deploy
 
 
 def test_modal_failure_still_deploys_the_worker_and_says_so(build, monkeypatch):

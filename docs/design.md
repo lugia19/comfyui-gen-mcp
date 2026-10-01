@@ -176,8 +176,7 @@ ComfyUI, node installs) to the same budget: past it, the call says ComfyUI is st
 the launch goes on for the next call to join. Keep-warm's idle stop counts ComfyUI's queue as use,
 so a generation that outlived its call (answered with a token) is not stopped under it.
 
-Jobs are stateless: the request token is ComfyUI's own `prompt_id` (plus a `:lossless` marker when
-asked). `fetch_result` just resumes polling `/history`, so nothing is kept between requests, which
+Jobs are stateless: the request token is ComfyUI's own `prompt_id`. `fetch_result` just resumes polling `/history`, so nothing is kept between requests, which
 suits the Worker and survives an MCPB restart.
 
 Our one addition to ComfyUI's API is `GET /comfy-gen/wait/<prompt_id>?timeout=S` (up to 120 s):
@@ -235,49 +234,40 @@ stored `custom_workflow` setting is dropped on read.
 
 ## 4. Images, references, uploads, edits
 
-- **The generator is the storage.** Modal: ComfyUI's input and output folders live on the Volume, so
-  outputs survive scale-to-zero (S5). PC: the agent's disk. MCPB: local paths. No Cloudflare
-  storage, no R2. **To be replaced** (decided 2026-10-01): R2 holds uploads, outputs and LoRAs for
-  a Worker, and every GPU (Modal, PCs) becomes plain compute; see the build plan's "Next: R2 and
-  a list of GPUs". The extension stays local.
-- **References are opaque.** Claude sees an id, the brain maps it to a ComfyUI filename it owns. Never
-  paths from the model (path traversal on the PC, cross-reading on a shared volume). An id is the
-  ComfyUI location signed with an HMAC under the Worker's secret, so it cannot be forged and needs
-  no storage. It also names its backend, since each ComfyUI numbers its outputs from
-  `comfy-gen_00001_`: the main generator's ids are `[type, subfolder, filename]`, the format of
-  every id before the PC path, and the PC's add `"pc"`. So ids issued before the PC resolve to the
-  main generator, `/img/` serves each id from its own backend, and an edit of the other backend's
-  image copies it into the answering ComfyUI's inputs first. (Found in the from-scratch test: the
-  PC's first image had exactly the id of Modal's first image.)
-- **Compact ids** (2026-10-01): models mistyped the 70-character JSON ids. An image this app named
-  has a plain name: `m7` (the main generator's `comfy-gen_00007_.png`), `p7` (the PC's), or
-  `mupAbCd1234` for an upload (`m`/`p`, `u`, the extension as a letter `p`/`j`/`w`/`g`, the
-  8-character nonce), plus a MAC: HMAC-SHA256 over `"c:" + payload`. A name alone could only point
-  at our own outputs and uploads, never another path, but the connector URL is all that stands
-  between a shared connector and the owner's images, and names can be counted. So **the model's
-  `image_id` carries 4 characters of the MAC**, `m7.Ab3d` (3 bytes, 24 bits): about 8M guesses
-  per image, 80 days at the free plan's 100k requests a day (weaker on a paid plan, which has no
-  such cap). It also catches typos. **The public `/img/` link carries 12** (9 bytes),
-  `m7.Ab3dE9fGh1Jk`; nobody types it. `imageId` gives the short form when the name rebuilds
-  exactly (`%05d` numbering), else the signed JSON form; `resolve` (MCP input) takes a 4- or
-  12-character check or a JSON id; `verify` (`/img/`) needs all 12. Ids in existing chats keep
-  working. `golden.json` pins all of them (`refs`, `refs_pc`, `refs_compact`).
+- **R2 is the storage** (2026-10-01, replacing "the generator is the storage"). The Worker keeps
+  every image in its R2 bucket (`STORE`, named `<worker>-storage` by the build, which wrangler
+  creates on deploy): generated outputs as the WebP the result shows, uploads as uploaded, each
+  under `img/<id>`. A bucket rule deletes them after a year. So no image depends on the GPU that
+  made it: links open and edits work with every GPU off, and any GPU edits any image. GPUs are
+  plain compute; ComfyUI's own PNGs stay on their disks (the Modal Volume, a PC) untouched. R2
+  needs a card on file on the Cloudflare account (free tier: 10 GB, free egress), set up before
+  the Deploy button. The extension (no Worker) keeps local paths.
+- **Image ids are random R2 keys**: 8 base62 characters (about 47 bits), e.g. `h3Kd9QxA`. The id is
+  the capability, with no MAC: it names nothing on any GPU, and at 100k requests a day guessing one
+  of a few thousand images takes centuries. Never paths from the model. (Before: a signed ComfyUI
+  location plus its backend, `m7.Ab3d`; those ids are gone, as only two installs existed.)
+- **No PNGs, no `:lossless`.** Every edit goes through the model's VAE, which loses far more than
+  WebP at quality 90; the `:lossless` switch dated from JPEG results (no transparency) and is now
+  stripped and ignored.
 - **Results are inline WebP.** claude.ai does not support `resource_link` (it shows "Resource links
   are not currently supported" and the model sees only the name and URL), while inline
   `ImageContent` is shown to the user and seen by the model, WebP included (S2, S2c). Every result
   carries the image inline as base64. The Worker fetches `/view?filename=...&preview=webp;90`,
   where ComfyUI converts with PIL before sending (about 0.1 s on the generator, nothing in the
   Worker), and base64s it with the runtime's native encoder (about 3 ms of Worker CPU per MB,
-  appendix). If the WebP comes back over about 700 KB, the Worker asks again at quality 75. The
-  MCPB does the same against its local ComfyUI (PNG when `:lossless` is asked).
-- **Image URLs.** A Worker route resolves a reference and streams the full-resolution PNG from
-  `/view` over the right transport. Each result's text block carries the image id and this URL for
-  the user. No `resource_link`.
-- **Edits** are `LoadImage` by reference inside the generator; a prior output loads directly as
-  `"<name> [output]"` (S5). Only results pass image bytes through the Worker.
+  appendix). If the WebP comes back over about 700 KB, the Worker asks again at quality 75. Those
+  bytes are also what it stores in R2 (one `put`, about 1 ms of CPU). The MCPB does the same
+  against its local ComfyUI, without storing.
+- **Image URLs.** `/img/<id>` streams the stored image from R2 (no GPU involved; about 0 ms of
+  CPU). Each result's text block carries the image id and this URL for the user. No
+  `resource_link`.
+- **Edits** read the image from R2 and upload it into the answering ComfyUI's inputs as
+  `upload-<id>.<ext>`, so editing the same image twice reuses one file; its size comes from the
+  bytes. A URL is downloaded and uploaded the same way.
 - **Uploads from claude.ai** use the code-execution sandbox (S3). A `request_upload` tool returns a
-  one-time URL plus the snippet to run. The sandbox posts the attached file, the Worker forwards it
-  to ComfyUI's `/upload/image`, the tool result carries the reference, and `edit_image` takes it.
+  one-time URL plus the snippet to run. The sandbox posts the attached file, the Worker stores it
+  in R2 under the token's nonce (which is the new image id), the tool result carries that id, and
+  `edit_image` takes it. No GPU has to be online for an upload.
   Attached files stay available in the sandbox for the conversation, so the upload happens when the
   edit is requested. The tool description covers the case where code execution is off: ask the user
   to enable it or give a URL. The snippet sets its own `User-Agent` (see section 8).
@@ -917,3 +907,13 @@ this container (started by the Linux launcher) with a CPU ComfyUI, a two-node cu
   release server, and the restart into v9 came after exactly the 10 quiet minutes.
 
 **S8, 2026-09-28: the client timeout is 5 minutes.**
+
+**R2 through the Worker, 2026-10-01: effectively free.** A throwaway Worker (`comfy-gen-r2probe`,
+deleted after) with an R2 binding, median billed `cpuTimeMs`: a 500 KB `put` from memory 1 ms; a
+20 MB request body streamed into `put` 1 ms (Content-Length is enough, no `FixedLengthStream`); an
+8 MiB multipart part 1 ms (about 0.6 s wall); a 200 MB object streamed out, whole or with a Range
+(206), 0 ms and 4.5 to 6 s wall, with no response size cap. So bytes go through the Worker, with
+no S3 keys or presigned URLs. Also seen: `wrangler deploy` (4.143) creates a missing `bucket_name`
+bucket on its own; `wrangler r2 bucket lifecycle add` fails on a second run, `lifecycle set
+--file` is idempotent; `put(key, body, {sha256})` is checked by R2; a multipart part's ETag is its
+MD5, so an uploader can check each chunk itself.

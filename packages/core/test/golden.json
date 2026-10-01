@@ -1,27 +1,11 @@
 {
   "key_hex": "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f",
-  "refs": [
-    {"image": ["output", "", "comfy-gen_00001_.png"], "ref": "WyJvdXRwdXQiLCIiLCJjb21meS1nZW5fMDAwMDFfLnBuZyJd.zI4QNPiFZvdr0YVOmoFxpA"},
-    {"image": ["input", "comfy-gen-uploads", "upload-abc.png"], "ref": "WyJpbnB1dCIsImNvbWZ5LWdlbi11cGxvYWRzIiwidXBsb2FkLWFiYy5wbmciXQ._6UatItAsTlEonMgRWIfgQ"},
-    {"image": ["output", "sub dir", "café ☕.png"], "ref": "WyJvdXRwdXQiLCJzdWIgZGlyIiwiY2FmXHUwMGU5IFx1MjYxNS5wbmciXQ.XiTxwuBNuUPNn2MvAXs4_A"}
-  ],
-  "refs_pc": [
-    {"image": ["output", "", "comfy-gen_00001_.png"], "ref": "WyJvdXRwdXQiLCIiLCJjb21meS1nZW5fMDAwMDFfLnBuZyIsInBjIl0.U_rOMcs55CHXTxgEXkDmHg"},
-    {"image": ["input", "comfy-gen-uploads", "upload-abc.png"], "ref": "WyJpbnB1dCIsImNvbWZ5LWdlbi11cGxvYWRzIiwidXBsb2FkLWFiYy5wbmciLCJwYyJd.uVkr-L-q8bd1jsoeIrJvKg"}
-  ],
-  "refs_compact": [
-    {"image": ["output", "", "comfy-gen_00001_.png"], "backend": "main", "image_id": "m1.tQ4u", "ref": "m1.tQ4uD7Lf7Ykd"},
-    {"image": ["output", "", "comfy-gen_00001_.png"], "backend": "pc", "image_id": "p1.ssuQ", "ref": "p1.ssuQGqlWJljU"},
-    {"image": ["output", "", "comfy-gen_00042_.png"], "backend": "main", "image_id": "m42.kXEF", "ref": "m42.kXEFAQvf896t"},
-    {"image": ["output", "", "comfy-gen_123456_.png"], "backend": "pc", "image_id": "p123456.P-Ub", "ref": "p123456.P-Ub_LeoXWnP"},
-    {"image": ["input", "comfy-gen-uploads", "upload-abc.png"], "backend": "main", "image_id": "mupabc.jjI-", "ref": "mupabc.jjI-JRvb0lgc"},
-    {"image": ["input", "comfy-gen-uploads", "upload-abc.png"], "backend": "pc", "image_id": "pupabc._XFV", "ref": "pupabc._XFVHEQLF_kz"},
-    {"image": ["input", "comfy-gen-uploads", "upload-Xy_9-Z.jpg"], "backend": "main", "image_id": "mujXy_9-Z.6jTa", "ref": "mujXy_9-Z.6jTas613p0MV"},
-    {"image": ["input", "comfy-gen-uploads", "upload-n0nce.webp"], "backend": "pc", "image_id": "puwn0nce.v4Xy", "ref": "puwn0nce.v4XyrC6VzVRV"},
-    {"image": ["input", "comfy-gen-uploads", "upload-n0nce.gif"], "backend": "main", "image_id": "mugn0nce.DcWn", "ref": "mugn0nce.DcWnZveDjcMX"}
-  ],
   "upload_tokens": [
     {"now": 1800000000, "ttl": 600, "token": "WzE4MDAwMDA2MDAsIk5vbmNlXzEyMy1hYmMiXQ.LenX5vdMA2qvuLKQgDc9Iw", "nonce": "Nonce_123-abc"}
+  ],
+  "store_tokens": [
+    {"now": 1800000000, "ttl": 3600, "object": "lora/style.safetensors", "token": "WzE4MDAwMDM2MDAsInM6bG9yYS9zdHlsZS5zYWZldGVuc29ycyJd.dnXGlb6RG1XzLmWoL7GCNA"},
+    {"now": 1800000000, "ttl": 86400, "object": "lora/Café ☕ v2.safetensors", "token": "WzE4MDAwODY0MDAsInM6bG9yYS9DYWbDqSDimJUgdjIuc2FmZXRlbnNvcnMiXQ.3Lc7r-w75AzIe89bhCFq-Q"}
   ],
   "upload_filenames": [
     {"nonce": "Nonce_123-abc", "mime": "image/png", "name": "upload-Nonce_123-abc.png"},
@@ -102,13 +86,6 @@
     {"aspect": "", "max_pixels": 786432, "wh": [896, 896]},
     {"aspect": "", "max_pixels": 1500000, "wh": [1216, 1216]},
     {"aspect": "", "max_pixels": 100, "wh": [64, 64]}
-  ],
-  "split_lossless": [
-    {"in": "abc", "out": ["abc", false]},
-    {"in": "abc:lossless", "out": ["abc", true]},
-    {"in": "C:\\x.png :LOSSLESS", "out": ["C:\\x.png", true]},
-    {"in": " a ", "out": [" a ", false]},
-    {"in": "", "out": ["", false]}
   ],
   "edit_scaling": [
     {"pack": "flux2klein_9b_edit", "images": [["a.png [output]", [1920, 1080]]], "prompt_node": "166", "megapixels": {"163": 1.9775}, "loads": {"154": "a.png [output]"}},

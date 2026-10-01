@@ -14,6 +14,7 @@ import * as cloudflare from "./cloudflare.ts";
 import { PC_OFFLINE, PC_PAUSED, PcHooks, WorkerHooks } from "./hooks.ts";
 import * as modalAdmin from "./modal-admin.ts";
 import { bodyJson, error, json, withUserAgent, type Fetch, type Platform } from "./platform.ts";
+import { serveImage } from "./images.ts";
 import { render, text } from "./render.ts";
 import { RelayTransport } from "./relay.ts";
 import { Store, type Secrets } from "./store.ts";
@@ -78,7 +79,7 @@ export class App {
     const path = url.pathname;
     try {
       if (path.startsWith("/mcp/")) return await this.mcp(req, url, path.slice(5));
-      if (path.startsWith("/img/") && req.method === "GET") return await this.image(path.slice(5));
+      if (path.startsWith("/img/") && req.method === "GET") return await serveImage(this.p.bucket, path.slice(5));
       if (path.startsWith("/upload/") && req.method === "POST") return await this.upload(req, path.slice(8));
       if (path === "/build-callback" && req.method === "POST") return await this.buildCallback(req);
       if (path === "/agent/sync" && req.method === "POST") return await this.agentSync(req, url);
@@ -177,12 +178,6 @@ export class App {
     return new ComfyUIClient(new RelayTransport(this.p.relay!), { requestBudget: PC_REQUEST_BUDGET, sleep: this.p.sleep, now: this.p.now });
   }
 
-  /** The client for images on *backend* (an image id names it), or null if it is not set up. */
-  private clientFor(s: Secrets, backend: refs.Backend): ComfyUIClient | null {
-    if (backend === "pc") return this.pcPaired(s) ? this.pcClient() : null;
-    return this.client(s.generator);
-  }
-
   private pcPaired(s: Secrets): boolean {
     return Boolean(s.agent_secret && this.p.relay);
   }
@@ -242,14 +237,13 @@ export class App {
       if (gen.paused) return [[text(`Error: ${PC_PAUSED}`)], true];
       if (name === "request_upload") return uploads.requestUpload(args, url.origin, key, this.p.now());
       const settingsUrl = `${url.origin}/`;
-      const backend: refs.Backend = gen.kind === "pc" ? "pc" : "main";
-      const source = (b: refs.Backend) => this.clientFor(s, b); // an image id from the other backend
+      const bucket = this.p.bucket;
       const hooks =
         gen.kind === "pc"
-          ? new PcHooks(gen.client, key, this.fetch, this.store, settingsUrl, this.p.relay!, cfg.pc_keep_warm_minutes, source)
-          : new WorkerHooks(gen.client, key, this.fetch, modalAdmin.forGenerator(this.fetch, s.generator), this.store, settingsUrl, "main", source);
+          ? new PcHooks(gen.client, key, this.fetch, this.store, settingsUrl, this.p.relay!, cfg.pc_keep_warm_minutes, bucket)
+          : new WorkerHooks(gen.client, key, this.fetch, modalAdmin.forGenerator(this.fetch, s.generator), this.store, settingsUrl, bucket);
       const brain = new Brain(PACKS, cfg, gen.client, "refs", { hooks });
-      return render(await brain.call(name, args), gen.client, url.origin, key, backend);
+      return render(await brain.call(name, args), gen.client, url.origin, bucket);
     };
 
     const handler = new McpHandler("Comfy-Gen-MCP", this.version, specs, call, INSTRUCTIONS);
@@ -260,35 +254,9 @@ export class App {
     return new Response(body, { status, headers: { "Content-Type": "application/json" } });
   }
 
-  private async image(ref: string): Promise<Response> {
-    const s = await this.store.secrets();
-    let image, backend;
-    try {
-      ({ image, backend } = await refs.verify(ref, hmacKey(s)));
-    } catch (e) {
-      if (e instanceof refs.RefError) return error(404, "not found");
-      throw e;
-    }
-    // Served by the backend that made it, whichever answers calls now.
-    const client = this.clientFor(s, backend);
-    if (!client) return error(404, backend === "pc" ? "the PC that made this image is no longer paired" : "generator not set up");
-    try {
-      const resp = await client.view(image);
-      return new Response(resp.content, {
-        status: 200,
-        headers: { "Content-Type": sniffMime(resp.content) ?? "application/octet-stream", "Cache-Control": "private, max-age=86400" },
-      });
-    } catch (e) {
-      if (e instanceof ComfyUIError) return error(502, e.message);
-      throw e;
-    }
-  }
-
   private async upload(req: Request, token: string): Promise<Response> {
     const s = await this.store.secrets();
-    const gen = await this.generator(s);
-    if (!gen) return error(503, "generator not set up");
-    return uploads.receive(token, new Uint8Array(await req.arrayBuffer()), gen.client, hmacKey(s), this.p.now(), gen.kind === "pc" ? "pc" : "main");
+    return uploads.receive(token, new Uint8Array(await req.arrayBuffer()), this.p.bucket, hmacKey(s), this.p.now());
   }
 
   // ── builds ────────────────────────────────────────────────────────

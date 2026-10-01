@@ -4,7 +4,7 @@ import { utf8 } from "@comfy-gen/core";
 import { FakeComfy, png } from "../../core/test/fake-comfy.ts";
 import { App } from "../src/app.ts";
 import type { RelayReply, RelayRequest, RelayStatus, RelayStub } from "../src/relay.ts";
-import type { StateStorage } from "../src/platform.ts";
+import type { Bucket, MultipartUpload, StoredObject, StateStorage } from "../src/platform.ts";
 import { clearCache } from "../src/store.ts";
 
 export const COMFY = "https://comfy.example";
@@ -22,6 +22,92 @@ export class FakeStorage implements StateStorage {
     this.writes += 1;
     this.data.set(key, value);
   }
+}
+
+/** R2 in memory: objects, ranges (as the binding reads them from request headers), multipart
+ * uploads. A part's ETag is its SHA-256 here (R2's is its MD5; the Worker only passes it on). */
+export class FakeBucket implements Bucket {
+  objects = new Map<string, { data: Uint8Array; contentType?: string }>();
+  uploads = new Map<string, { key: string; parts: Map<number, Uint8Array>; contentType?: string }>();
+  ops: string[] = [];
+
+  private obj(key: string, data: Uint8Array, contentType?: string, range?: { offset: number; length: number }): StoredObject {
+    const slice = range ? data.subarray(range.offset, range.offset + range.length) : data;
+    return {
+      key, size: data.length, httpEtag: `"${key}:${data.length}"`,
+      httpMetadata: { contentType }, ...(range ? { range } : {}),
+      body: new Response(slice as BodyInit).body!,
+      arrayBuffer: async () => slice.slice().buffer,
+    };
+  }
+
+  async get(key: string, options?: { range?: Headers }): Promise<StoredObject | null> {
+    this.ops.push(`get ${key}`);
+    const o = this.objects.get(key);
+    if (!o) return null;
+    const m = /^bytes=(\d+)-(\d*)$/.exec(options?.range?.get("range") ?? "");
+    if (!m) return this.obj(key, o.data, o.contentType);
+    const offset = Number(m[1]);
+    const end = m[2] ? Math.min(Number(m[2]), o.data.length - 1) : o.data.length - 1;
+    return this.obj(key, o.data, o.contentType, { offset, length: end - offset + 1 });
+  }
+
+  async head(key: string) {
+    const o = this.objects.get(key);
+    return o ? { key, size: o.data.length } : null;
+  }
+
+  async put(key: string, value: ReadableStream | ArrayBuffer | ArrayBufferView | null, options?: { httpMetadata?: { contentType?: string } }) {
+    this.ops.push(`put ${key}`);
+    const data = new Uint8Array(await new Response(value as BodyInit).arrayBuffer());
+    this.objects.set(key, { data, contentType: options?.httpMetadata?.contentType });
+    return { size: data.length };
+  }
+
+  async delete(keys: string | string[]) {
+    for (const k of Array.isArray(keys) ? keys : [keys]) {
+      this.ops.push(`delete ${k}`);
+      this.objects.delete(k);
+    }
+  }
+
+  async list(options: { prefix?: string } = {}) {
+    const objects = [...this.objects].filter(([k]) => k.startsWith(options.prefix ?? "")).map(([key, o]) => ({ key, size: o.data.length }));
+    return { objects, truncated: false };
+  }
+
+  async createMultipartUpload(key: string, options?: { httpMetadata?: { contentType?: string } }) {
+    const uploadId = `up${this.uploads.size + 1}`;
+    this.uploads.set(uploadId, { key, parts: new Map(), contentType: options?.httpMetadata?.contentType });
+    return { uploadId };
+  }
+
+  resumeMultipartUpload(key: string, uploadId: string): MultipartUpload {
+    const up = this.uploads.get(uploadId);
+    return {
+      uploadPart: async (n, value) => {
+        if (!up || up.key !== key) throw new Error("NoSuchUpload");
+        const data = new Uint8Array(await new Response(value as BodyInit).arrayBuffer());
+        up.parts.set(n, data);
+        return { partNumber: n, etag: await sha256Hex(data) };
+      },
+      complete: async (parts) => {
+        if (!up || up.key !== key) throw new Error("NoSuchUpload");
+        const chunks = parts.sort((a, b) => a.partNumber - b.partNumber).map((p) => up.parts.get(p.partNumber)!);
+        const data = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+        let at = 0;
+        for (const c of chunks) (data.set(c, at), (at += c.length));
+        this.objects.set(key, { data, contentType: up.contentType });
+        this.uploads.delete(uploadId);
+        return { size: data.length };
+      },
+      abort: async () => void this.uploads.delete(uploadId),
+    };
+  }
+}
+
+export async function sha256Hex(data: Uint8Array): Promise<string> {
+  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", data as BufferSource))].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 const jsonResp = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
@@ -186,9 +272,10 @@ export function world() {
   const net = new FakeNet(comfy);
   const clock = new Clock();
   const pc = new FakeRelay();
+  const bucket = new FakeBucket();
   const env: Record<string, string | undefined> = { VERSION: "v1.0.0" };
-  const app = new App({ storage, relay: pc, fetch: net.fetch, now: clock.now, env, sleep: async (s) => void (clock.t += s) });
-  return { app, storage, net, clock, comfy, pc, env };
+  const app = new App({ storage, bucket, relay: pc, fetch: net.fetch, now: clock.now, env, sleep: async (s) => void (clock.t += s) });
+  return { app, storage, net, clock, comfy, pc, env, bucket };
 }
 
 export function request(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, base = `https://${HOST}`): Request {

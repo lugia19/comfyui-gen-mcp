@@ -24,8 +24,8 @@ export const ASPECT_RATIOS: Record<string, [number, number]> = {
 // It's for scripted callers, not the model.
 const WH_RE = /^\s*(\d+)\s*[xX]\s*(\d+)\s*$/;
 
-// ":lossless" suffix on an existing string argument, asking for a PNG instead of the default lossy
-// format. Smuggled rather than a real parameter so the model never sees it.
+// A ":lossless" suffix once asked for a PNG (results were JPEG, which has no transparency). WebP
+// has both, so it is only stripped now, in case an old habit or script still adds it.
 const LOSSLESS_SUFFIX = ":lossless";
 
 // Loaders whose output carries MODEL, and at which index. LoRAs go on the model path only.
@@ -36,11 +36,10 @@ export const MODEL_LOADERS: Record<string, number> = {
   CheckpointLoader: 0,
 };
 
-/** Strip a trailing ":lossless" marker (case-insensitive). Only a trailing match, so drive colons survive. */
-export function splitLossless(value: string): [string, boolean] {
+/** Without a trailing ":lossless" (case-insensitive). Only a trailing match, so drive colons survive. */
+export function stripLossless(value: string): string {
   const s = (value || "").trim();
-  if (s.toLowerCase().endsWith(LOSSLESS_SUFFIX)) return [s.slice(0, -LOSSLESS_SUFFIX.length).trim(), true];
-  return [value, false];
+  return s.toLowerCase().endsWith(LOSSLESS_SUFFIX) ? s.slice(0, -LOSSLESS_SUFFIX.length).trim() : value;
 }
 
 /**

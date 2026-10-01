@@ -73,21 +73,18 @@ describe("MCP", () => {
     expect(r.error.code).toBe(-32602);
   });
 
-  it("generate returns inline WebP and an image id", async () => {
-    const { app, net, comfy } = world();
+  it("generate returns inline WebP and an image id; the WebP is stored in R2", async () => {
+    const { app, net, comfy, bucket } = world();
     await withGenerator(app);
     const [, r] = await mcp(app, "tools/call", { name: "generate_realistic_image", arguments: { prompt: "a harbor" } });
     const [image, info] = r.result.content;
     expect([image.type, image.mimeType]).toEqual(["image", "image/webp"]);
     expect(fromBase64(image.data)).toEqual(comfy.viewBody);
     expect(comfy.calls.find((c) => c[1] === "/view")![2]!.preview).toBe("webp;90");
-    const ref = info.text.split("image_id: ")[1].split("\n")[0];
-    expect(ref).toMatch(/^m1\.[\w-]{4}$/); // the model's id: the name and a short check; the link has 12
-    const key = fromHex((await secretsOf(app)).hmac_key);
-    expect(await refs.resolve(ref, key)).toMatchObject({ image: { filename: "comfy-gen_00001_.png" }, backend: "main" });
-    const link = info.text.split("/img/")[1].split("\n")[0];
-    expect(link).toMatch(/^m1\.[\w-]{12}$/);
-    expect(await refs.verify(link, key)).toEqual(await refs.resolve(ref, key));
+    const id = info.text.split("image_id: ")[1].split("\n")[0];
+    expect(id).toMatch(refs.IMAGE_ID);
+    expect(info.text).toContain(`https://${HOST}/img/${id}`);
+    expect(bucket.objects.get(`img/${id}`)).toEqual({ data: comfy.viewBody, contentType: "image/webp" });
     const comfyCalls = net.calls.filter((c) => c[1].startsWith(COMFY));
     expect(comfyCalls.every((c) => c[2]["X-Test"] === "1")).toBe(true); // generator headers on every call
     expect(comfyCalls.length).toBeLessThanOrEqual(REQUEST_BUDGET);
@@ -111,17 +108,15 @@ describe("MCP", () => {
     const up = await app.handle(request("POST", `/upload/${token}`, png(640, 480)));
     expect(up.status).toBe(200);
     const imageId = (await body(up)).image_id;
-    expect(imageId).toMatch(/^mup[\w-]{8}\.[\w-]{4}$/); // short: the model copies it
+    expect(imageId).toMatch(refs.IMAGE_ID); // short: the model copies it
     [, r] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "add a hat", image: imageId } });
     expect(r.result.isError).toBe(false);
     const loads = Object.values<any>(comfy.prompts.at(-1)!).filter((n) => n.class_type === "LoadImage").map((n) => n.inputs.image);
     expect(loads[0]).toMatch(/^comfy-gen-uploads\/upload-.*\.png$/);
+    expect(loads[0]).toBe(`comfy-gen-uploads/upload-${imageId}.png`); // named after the id: edited again, the same file
     // The input keeps its size: its pixels, not the pack's 4 MP budget (768×768 came back 2048×2048).
-    comfy.viewBody = png(640, 480); // what /view answers for the uploaded file
-    [, r] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "add a hat", image: imageId } }, 2);
-    const scale2 = Object.values<any>(comfy.prompts.at(-1)!).find((n) => n.class_type === "ImageScaleToTotalPixels");
-    expect(scale2.inputs.megapixels).toBeCloseTo((640 * 480) / 1_048_576, 3);
-    expect(comfy.calls.some(([, path, params]) => path === "/view" && params?.preview === "webp;1")).toBe(true);
+    const scale = Object.values<any>(comfy.prompts.at(-1)!).find((n) => n.class_type === "ImageScaleToTotalPixels");
+    expect(scale.inputs.megapixels).toBeCloseTo((640 * 480) / 1_048_576, 3);
 
     clock.t += 3600; // the link expires
     expect((await app.handle(request("POST", `/upload/${token}`, png()))).status).toBe(403);
@@ -136,26 +131,34 @@ describe("MCP", () => {
     [, r] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "x", image: "forged.id" } });
     expect(r.result.isError).toBe(true);
     expect(r.result.content[0].text).toContain("image_id");
-    // A name without its check is no id: whoever the connector is shared with can't count through yours.
-    [, r] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "x", image: "m1" } }, 2);
+    // A well-formed id that names nothing: deleted after a year, or mistyped.
+    [, r] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "x", image: "h3Kd9QxA" } }, 2);
     expect(r.result.isError).toBe(true);
-    expect(r.result.content[0].text).toContain("Pass an image_id");
+    expect(r.result.content[0].text).toContain("There is no image h3Kd9QxA");
   });
 
-  it("the image route streams full resolution", async () => {
-    const { app, comfy } = world();
-    await withGenerator(app);
-    const ref = await refs.sign(new OutputImage("comfy-gen_00001_.png"), fromHex((await secretsOf(app)).hmac_key));
-    const resp = await app.handle(request("GET", `/img/${ref}`));
+  it("the image route streams from R2, with no generator involved", async () => {
+    const { app, comfy, bucket } = world(); // no generator set up at all
+    await bucket.put("img/h3Kd9QxA", png(10, 10), { httpMetadata: { contentType: "image/png" } });
+    const resp = await app.handle(request("GET", "/img/h3Kd9QxA"));
     expect(resp.status).toBe(200);
-    expect(new Uint8Array(await resp.arrayBuffer())).toEqual(comfy.viewBody);
-    expect(comfy.calls.at(-1)![2]).not.toHaveProperty("preview");
-    expect((await app.handle(request("GET", "/img/bogus"))).status).toBe(404);
-    expect((await app.handle(request("GET", "/img/m1"))).status).toBe(404);
-    // An id in the JSON form (what chats hold from before compact ids) still opens.
-    const legacy = await refs.sign(new OutputImage("comfy-gen_00001_.png", "sub"), fromHex((await secretsOf(app)).hmac_key));
-    expect(legacy.startsWith("Wy")).toBe(true);
-    expect((await app.handle(request("GET", `/img/${legacy}`))).status).toBe(200);
+    expect(resp.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await resp.arrayBuffer())).toEqual(png(10, 10));
+    expect(comfy.calls).toEqual([]);
+    for (const bad of ["bogus", "h3Kd9QxB", "..%2Fimg%2Fh3Kd9QxA"]) expect((await app.handle(request("GET", `/img/${bad}`))).status).toBe(404);
+  });
+
+  it("uploads land in R2, not on a GPU", async () => {
+    const { app, comfy, bucket } = world();
+    await withGenerator(app);
+    const [, r] = await mcp(app, "tools/call", { name: "request_upload", arguments: { filename: "cat.png" } });
+    const token = r.result.content[0].text.split("/upload/")[1].split("'")[0];
+    const up = await app.handle(request("POST", `/upload/${token}`, png(64, 48)));
+    expect(up.status).toBe(200);
+    const { image_id } = await body(up);
+    expect(bucket.objects.get(`img/${image_id}`)!.data).toEqual(png(64, 48));
+    expect(comfy.calls).toEqual([]); // the GPU sees it only when an edit uses it
+    expect((await app.handle(request("POST", `/upload/${token}`, utf8("not an image")))).status).toBe(415);
   });
 
   it("fetch_result resumes", async () => {
@@ -626,45 +629,32 @@ describe("the PC path", () => {
     expect(net.adminCalls.length).toBeGreaterThan(0);
   });
 
-  it("image ids name their backend: the PC's first image and the main generator's don't collide", async () => {
+  it("images outlive their GPU: a PC image opens and is edited on Modal while the PC is off", async () => {
     const { app, pc, comfy } = world();
     await withGenerator(app);
     await pair(app);
-    const key = fromHex((await secretsOf(app)).hmac_key);
     const fox = png(64, 32);
     const girl = png(32, 64);
     pc.comfy.viewBody = fox;
     comfy.viewBody = girl;
     const bytes = async (r: Response) => new Uint8Array(await r.arrayBuffer());
     const idOf = (r: any) => r.result.content.find((c: any) => c.text?.includes("image_id: ")).text.split("image_id: ")[1].split("\n")[0];
-    const linkOf = (r: any) => r.result.content.find((c: any) => c.text?.includes("/img/")).text.split("/img/")[1].split("\n")[0];
 
     const [, onPc] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a fox" } });
     pc.connected = false;
     const [, onMain] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a girl" } }, 2);
     const [pcId, mainId] = [idOf(onPc), idOf(onMain)];
-    // Both ComfyUIs named their first output comfy-gen_00001_.png; the ids still differ.
-    expect(pcId).toMatch(/^p1\.[\w-]{4}$/);
-    expect(mainId).toMatch(/^m1\.[\w-]{4}$/);
-    expect((await refs.resolve(pcId, key)).image).toEqual((await refs.resolve(mainId, key)).image);
+    // Both ComfyUIs named their first output comfy-gen_00001_.png; the ids are R2's, so they differ.
+    expect(pcId).not.toBe(mainId);
+    expect(await bytes(await app.handle(request("GET", `/img/${pcId}`)))).toEqual(fox); // the PC is off
+    expect(await bytes(await app.handle(request("GET", `/img/${mainId}`)))).toEqual(girl);
 
-    pc.connected = true; // /img/ serves each from its own backend, whichever answers calls now
-    expect(await bytes(await app.handle(request("GET", `/img/${linkOf(onPc)}`)))).toEqual(fox);
-    expect(await bytes(await app.handle(request("GET", `/img/${linkOf(onMain)}`)))).toEqual(girl);
-
-    // Editing the main generator's image while the PC answers copies it to the PC first.
-    const uploads = pc.comfy.uploads.length;
-    const [, edited] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "at night", image: mainId } }, 3);
+    // The PC's image, edited while only Modal answers: it comes from R2 into Modal's inputs.
+    const before = comfy.uploads.length;
+    const [, edited] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "at night", image: pcId } }, 3);
     expect(edited.result.isError).toBe(false);
-    expect(pc.comfy.uploads.length).toBe(uploads + 1);
-    const sent = pc.comfy.uploads.at(-1)!;
-    expect(Buffer.from(sent).includes(Buffer.from(girl))).toBe(true); // the main generator's image, copied
-
-    // A PC image edited while the PC is off: the main generator cannot fetch it, and says so.
-    pc.connected = false;
-    const [, stuck] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "at night", image: pcId } }, 4);
-    expect(stuck.result.isError).toBe(true);
-    expect(toolText(stuck)).toContain("on your PC");
+    expect(comfy.uploads.length).toBe(before + 1);
+    expect(Buffer.from(comfy.uploads.at(-1)!).includes(Buffer.from(fox))).toBe(true);
   });
 
   it("a PC paused from its tray takes no requests: Modal answers, or the tools say it is paused", async () => {

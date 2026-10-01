@@ -3,12 +3,13 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { App } from "./app.ts";
-import type { StateStorage } from "./platform.ts";
+import type { Bucket, StateStorage } from "./platform.ts";
 import { CONTROL_TIMEOUT_S, RelayCore, type RelayReply, type RelayRequest, type RelayStatus, type RelayStub } from "./relay.ts";
 
 export interface Env {
   STATE: DurableObjectNamespace<State>;
   RELAY: DurableObjectNamespace<Relay>;
+  STORE: R2Bucket;
   VERSION?: string;
   DEV_WORKER_HOST?: string;
 }
@@ -52,6 +53,7 @@ function relayStub(env: Env): RelayStub {
 function app(env: Env): App {
   return new App({
     storage: new StateStub(env.STATE),
+    bucket: env.STORE as unknown as Bucket,
     relay: relayStub(env),
     fetch: (url, init) => fetch(url, init),
     now: () => Date.now() / 1000,

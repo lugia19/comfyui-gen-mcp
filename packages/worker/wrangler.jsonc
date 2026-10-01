@@ -17,6 +17,8 @@
     { "tag": "v1", "new_sqlite_classes": ["Relay"] },
     { "tag": "v2", "new_sqlite_classes": ["State"] }
   ],
+  // Images and LoRAs (design §4). deploy.py names the bucket after the Worker; wrangler creates it.
+  "r2_buckets": [{ "binding": "STORE", "bucket_name": "comfy-gen-storage" }],
   "assets": {
     "directory": "../../web/dist",
     "not_found_handling": "single-page-application",

@@ -94,21 +94,21 @@ describe("brain", () => {
     const { comfy, brain } = setup();
     const out = await brain().call("generate_realistic_image", { prompt: "a lighthouse", aspect_ratio: "wide" });
     expect(out).toBeInstanceOf(Done);
-    expect([(out as Done).promptId, (out as Done).lossless]).toEqual(["p1", false]);
+    expect((out as Done).promptId).toBe("p1");
     expect(Object.values<any>(comfy.prompts[0]).map((n) => n.inputs.text)).toContain("a lighthouse");
   });
 
   it("a timeout returns a stateless token, and fetch_result resumes", async () => {
     const { comfy, brain } = setup();
     comfy.history = Array(3).fill("running");
+    // A ":lossless" from before results were WebP is ignored, on the aspect ratio and on the token.
     const out = await brain({ waitS: 0 }).call("generate_illustrated_image", { prompt: "x", aspect_ratio: "portrait:lossless" });
     expect(out).toBeInstanceOf(Pending);
-    expect((out as Pending).token).toBe("p1:lossless");
+    expect((out as Pending).token).toBe("p1");
     expect((out as Pending).text()).toContain("fetch_result");
     comfy.history = [];
-    const again = await brain().call("fetch_result", { request_token: (out as Pending).token });
+    const again = await brain().call("fetch_result", { request_token: "p1:lossless" });
     expect(again).toBeInstanceOf(Done);
-    expect((again as Done).lossless).toBe(true);
   });
 
   it("errors become Failed, not exceptions", async () => {

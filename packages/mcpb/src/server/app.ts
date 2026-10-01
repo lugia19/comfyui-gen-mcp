@@ -130,7 +130,7 @@ export class LocalApp {
     const content: Content[] = [];
     for (const image of outcome.images) {
       try {
-        content.push(await inlineImage(client, image, outcome.lossless));
+        content.push(await inlineImage(client, image));
       } catch (e) {
         if (!(e instanceof ComfyUIError)) throw e;
         return [[textBlock(`Error: the image was generated but could not be fetched: ${e.message}`)], true];

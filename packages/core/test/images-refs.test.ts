@@ -48,90 +48,25 @@ describe("images", () => {
 describe("refs", () => {
   const KEY = utf8("k".repeat(32));
 
-  it("round trip, and tampering is rejected", async () => {
-    const img = new OutputImage("comfy-gen_00001_.png", "sub", "output");
-    const ref = await refs.sign(img, KEY);
-    expect(await refs.verify(ref, KEY)).toEqual({ image: img, backend: "main" });
-    const pcRef = await refs.sign(img, KEY, "pc");
-    expect(pcRef).not.toBe(ref); // the same file name on the PC is a different image
-    expect(await refs.verify(pcRef, KEY)).toEqual({ image: img, backend: "pc" });
-    await expect(refs.verify(ref, utf8("other key".repeat(4)))).rejects.toBeInstanceOf(refs.RefError);
-    const mac = ref.split(".")[1];
-    const forged = (await refs.sign(new OutputImage("../../etc/passwd", "", "output"), utf8("attacker".repeat(4)))).split(".")[0];
-    await expect(refs.verify(`${forged}.${mac}`, KEY)).rejects.toBeInstanceOf(refs.RefError);
-    await expect(refs.verify("garbage", KEY)).rejects.toBeInstanceOf(refs.RefError);
+  it("image ids: 8 random base62 characters, read back from what the model passes", () => {
+    const ids = new Set(Array.from({ length: 2000 }, () => refs.newImageId()));
+    expect(ids.size).toBe(2000);
+    for (const id of ids) expect(id).toMatch(refs.IMAGE_ID);
+    const chars = new Set([...ids].join(""));
+    expect(chars.size).toBe(62); // every character is used
+    expect(refs.imageIdIn("  h3Kd9QxA\n")).toBe("h3Kd9QxA");
+    expect(refs.imageIdIn("image_id: h3Kd9QxA")).toBe("h3Kd9QxA"); // the label copied along
+    expect(refs.imageKey("h3Kd9QxA")).toBe("img/h3Kd9QxA");
+    for (const bad of ["", "h3Kd9Qx", "h3Kd9QxAB", "h3Kd9Qx-", "../etc/pa", "m7.Ab3d"]) expect(() => refs.imageIdIn(bad), bad).toThrow(refs.RefError);
   });
 
-  it("compact ids for the images this app names; others keep the JSON form", async () => {
-    const out = (name: string, subfolder = "") => new OutputImage(name, subfolder, "output");
-    const up = (name: string) => new OutputImage(name, refs.UPLOAD_SUBFOLDER, "input");
-    const nonce = refs.uploadFilename((await refs.checkUpload(await refs.mintUpload(KEY, 0, 60), KEY, 1)), "image/webp");
-    for (const [img, prefix] of [
-      [out("comfy-gen_00007_.png"), "m7."],
-      [out("comfy-gen_99999_.png"), "m99999."],
-      [out("comfy-gen_100000_.png"), "m100000."],
-      [up("upload-abc.png"), "mupabc."],
-      [up("upload-abc.jpg"), "mujabc."],
-      [up(nonce), "muw"],
-    ] as const) {
-      const ref = await refs.sign(img, KEY);
-      expect(ref.startsWith(prefix)).toBe(true);
-      expect(ref.length).toBeLessThanOrEqual(32);
-      expect(await refs.verify(ref, KEY)).toEqual({ image: img, backend: "main" });
-      expect(await refs.verify(` ${ref}\n`, KEY)).toEqual({ image: img, backend: "main" }); // pasted with spaces
-    }
-    // Names that do not rebuild exactly stay JSON (and still round trip).
-    for (const img of [
-      out("comfy-gen_7_.png"), out("comfy-gen_007_.png"), out("comfy-gen_000007_.png"), out("comfy-gen_00007_.png", "sub"),
-      out("other_00007_.png"), out("comfy-gen_00007_.jpg"), new OutputImage("upload-abc.png", "", "input"),
-      up("upload-abc.bmp"), up("upload-ünï.png"), up("upload-a.b.png"),
-    ]) {
-      const ref = await refs.sign(img, KEY, "pc");
-      expect(ref.startsWith("Wy")).toBe(true);
-      expect(await refs.verify(ref, KEY)).toEqual({ image: img, backend: "pc" });
-    }
-  });
-
-  it("compact ids: any change is rejected", async () => {
-    const ref = await refs.sign(new OutputImage("comfy-gen_00007_.png", "", "output"), KEY); // m7.<12>
-    const [payload, mac] = ref.split(".");
-    const flip = (s: string, i: number) => s.slice(0, i) + (s[i] === "A" ? "B" : "A") + s.slice(i + 1);
-    const bad = [
-      `m8.${mac}`, `p7.${mac}`, `m07.${mac}`, `m7.${flip(mac, 0)}`, `m7.${flip(mac, 11)}`, `m7.${mac.slice(0, 11)}`, `m7.${mac}A`,
-      `${payload}.${(await refs.sign(new OutputImage("x.png", "sub", "output"), KEY)).split(".")[1]}`, // a JSON id's MAC length
-      `mupabc.${mac}`, `${payload}.`, `.${mac}`, payload,
-    ];
-    for (const r of bad) await expect(refs.verify(r, KEY), r).rejects.toBeInstanceOf(refs.RefError);
-    // A JSON payload with a compact MAC is no id either.
-    const json = (await refs.sign(new OutputImage("x.png", "sub", "output"), KEY)).split(".")[0];
-    await expect(refs.verify(`${json}.${mac}`, KEY)).rejects.toBeInstanceOf(refs.RefError);
-  });
-
-  it("image ids for the model: the name and a 4-character check; anything else must verify", async () => {
-    const m7 = new OutputImage("comfy-gen_00007_.png", "", "output");
-    const id = await refs.imageId(m7, KEY);
-    const link = await refs.sign(m7, KEY);
-    expect(id).toMatch(/^m7\.[\w-]{4}$/);
-    expect(link.startsWith(id)).toBe(true); // the same MAC, cut shorter
-    expect(await refs.imageId(m7, KEY, "pc")).toMatch(/^p7\.[\w-]{4}$/);
-    for (const ok of [id, ` ${id}\n`, link]) expect(await refs.resolve(ok, KEY)).toEqual({ image: m7, backend: "main" });
-    const mac = link.split(".")[1];
-    const flip = (s: string, i: number) => s.slice(0, i) + (s[i] === "A" ? "B" : "A") + s.slice(i + 1);
-    for (const bad of ["m7", `m7.${mac.slice(0, 3)}`, `m7.${mac.slice(0, 5)}`, `m7.${mac.slice(0, 11)}`, `m7.${flip(mac.slice(0, 4), 2)}`, `m8.${mac.slice(0, 4)}`]) {
-      await expect(refs.resolve(bad, KEY), bad).rejects.toBeInstanceOf(refs.RefError);
-    }
-    await expect(refs.verify(id, KEY)).rejects.toBeInstanceOf(refs.RefError); // a link needs the full MAC
-    const upload = refs.uploadFilename(await refs.checkUpload(await refs.mintUpload(KEY, 0, 60), KEY, 1), "image/png");
-    const upId = await refs.imageId(new OutputImage(upload, refs.UPLOAD_SUBFOLDER, "input"), KEY);
-    expect(upId).toMatch(/^mup[\w-]{8}\.[\w-]{4}$/);
-    // Other images keep a signed JSON id, which must verify.
-    const other = new OutputImage("x.png", "sub", "output");
-    const otherId = await refs.imageId(other, KEY);
-    expect(otherId).toBe(await refs.sign(other, KEY));
-    expect(await refs.resolve(otherId, KEY)).toEqual({ image: other, backend: "main" });
-    for (const bad of ["", "m", "x7", "mu", "m7.wrongmacxxx", `${otherId.split(".")[0]}.AAAAAAAAAAAAAAAAAAAAAA`, "../../etc/passwd", "m7/../x"]) {
-      await expect(refs.resolve(bad, KEY), bad).rejects.toBeInstanceOf(refs.RefError);
-    }
+  it("storage links: the object until expiry; an upload token is no storage link", async () => {
+    const token = await refs.mintStore(KEY, "lora/a.safetensors", 1000, 60);
+    expect(await refs.checkStore(token, KEY, 1060)).toBe("lora/a.safetensors");
+    await expect(refs.checkStore(token, KEY, 1061)).rejects.toThrow(/expired/);
+    await expect(refs.checkStore(token, utf8("other key".repeat(4)), 1000)).rejects.toBeInstanceOf(refs.RefError);
+    await expect(refs.checkStore(await refs.mintUpload(KEY, 1000, 60), KEY, 1000)).rejects.toThrow(/Invalid storage link/);
+    await expect(refs.checkUpload(token, KEY, 1000)).resolves.toBe("s:lora/a.safetensors"); // harmless: not an image id
   });
 
   it("loadValue", () => {
@@ -142,7 +77,7 @@ describe("refs", () => {
   it("upload tokens expire", async () => {
     const token = await refs.mintUpload(KEY, 1000, 600);
     const nonce = await refs.checkUpload(token, KEY, 1500);
-    expect(nonce).toBeTruthy();
+    expect(nonce).toMatch(refs.IMAGE_ID); // the uploaded image's id
     await expect(refs.checkUpload(token, KEY, 1601)).rejects.toThrow(/expired/);
     await expect(refs.checkUpload(token + "x", KEY, 1500)).rejects.toBeInstanceOf(refs.RefError);
     expect(refs.uploadFilename(nonce, "image/jpeg").endsWith(".jpg")).toBe(true);

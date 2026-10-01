@@ -20,5 +20,7 @@
     { "tag": "v1", "new_sqlite_classes": ["Relay"] },
     { "tag": "v2", "new_sqlite_classes": ["State"] }
   ],
+  // Images and LoRAs. R2 must be enabled on the account first (free, with a card on file).
+  "r2_buckets": [{ "binding": "STORE", "bucket_name": "comfy-gen-storage" }],
   "triggers": { "crons": ["17 4 * * *"] }
 }

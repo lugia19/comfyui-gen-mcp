@@ -4,14 +4,14 @@
 // otherwise the call says the download is under way (starting it if needed) instead of failing
 // inside ComfyUI.
 //
-// resolveImage: an image id of this backend resolves to a file its ComfyUI already has (an output,
-// or an earlier upload): nothing is transferred. An id from the other backend (a Modal image
-// edited while the PC answers, or the reverse) is fetched from there and uploaded here, as is an
-// https URL.
+// resolveImage: an image id is read from R2 (images live there, not on any GPU) and uploaded into
+// the answering ComfyUI's inputs, under a name derived from the id, so editing the same image
+// twice reuses one file. An https URL is downloaded and uploaded the same way.
 
-import { ComfyUIError, Hooks, imageSize, refs, relay, tokenUrlsafe, type ComfyUIClient, type OutputImage, type Pack, type ResolvedImage } from "@comfy-gen/core";
+import { ComfyUIError, Hooks, imageSize, refs, relay, tokenUrlsafe, type ComfyUIClient, type Pack, type ResolvedImage } from "@comfy-gen/core";
+import { getImage } from "./images.ts";
 import { ModalAdminError, packStatus, type ModalAdmin } from "./modal-admin.ts";
-import type { Fetch } from "./platform.ts";
+import type { Bucket, Fetch } from "./platform.ts";
 import type { RelayStub } from "./relay.ts";
 import type { Store } from "./store.ts";
 import { BadImage, storeInput } from "./uploads.ts";
@@ -23,22 +23,11 @@ export class WorkerHooks extends Hooks {
   private admin: ModalAdmin | null;
   private store: Store;
   private settingsUrl: string;
-  private backend: refs.Backend;
-  private source: (backend: refs.Backend) => ComfyUIClient | null;
+  private bucket: Bucket;
 
-  constructor(
-    client: ComfyUIClient,
-    key: Uint8Array,
-    fetch: Fetch,
-    admin: ModalAdmin | null,
-    store: Store,
-    settingsUrl: string,
-    backend: refs.Backend = "main",
-    source: (backend: refs.Backend) => ComfyUIClient | null = () => null,
-  ) {
+  constructor(client: ComfyUIClient, key: Uint8Array, fetch: Fetch, admin: ModalAdmin | null, store: Store, settingsUrl: string, bucket: Bucket) {
     super();
-    this.backend = backend;
-    this.source = source;
+    this.bucket = bucket;
     this.client = client;
     this.key = key;
     this.fetch = fetch;
@@ -72,49 +61,25 @@ export class WorkerHooks extends Hooks {
   async resolveImage(arg: string): Promise<ResolvedImage> {
     arg = arg.trim();
     if (arg.startsWith("https://") || arg.startsWith("http://")) return this.fromUrl(arg);
-    if (arg.toLowerCase().startsWith("image_id:")) arg = arg.slice(arg.indexOf(":") + 1).trim(); // the label copied along
-    let found;
+    let id: string;
     try {
-      found = await refs.resolve(arg, this.key);
+      id = refs.imageIdIn(arg);
     } catch (e) {
       if (!(e instanceof refs.RefError)) throw e;
       throw new ComfyUIError(`${e.message} Pass an image_id from an earlier result or from request_upload, or a public https URL.`);
     }
-    const { image, backend } = found;
-    if (backend === this.backend) return [image.loadValue(), await this.sizeOf(image)]; // ComfyUI has it
-    return this.fromOtherBackend(image, backend);
+    const data = await getImage(this.bucket, id);
+    if (!data) throw new ComfyUIError(`There is no image ${id}: it was deleted after a year, or the id is mistyped.`);
+    return this.input(data, id, `Image ${id}`);
   }
 
-  /** An image's size, which the edit graph needs: it scales its input to min(input pixels, the
-   * pack's budget), and without the size it scaled every input up to the budget (768×768 came
-   * back 2048×2048). A quality-1 WebP of it carries the dimensions in a few KB. */
-  private async sizeOf(image: OutputImage): Promise<[number, number] | null> {
+  /** Bytes into this ComfyUI's inputs: [what LoadImage takes, the size]. */
+  private async input(data: Uint8Array, nonce: string, what: string): Promise<ResolvedImage> {
     try {
-      return imageSize((await this.client.view(image, "webp;1")).content);
-    } catch (e) {
-      if (e instanceof ComfyUIError) return null;
-      throw e;
-    }
-  }
-
-  /** An image the other backend made (or took the upload of): copied into this ComfyUI's inputs. */
-  private async fromOtherBackend(image: OutputImage, backend: refs.Backend): Promise<ResolvedImage> {
-    const where = backend === "pc" ? "your PC" : "the cloud GPU";
-    const src = this.source(backend);
-    if (!src) throw new ComfyUIError(`That image was made on ${where}, which is no longer set up, so it cannot be edited.`);
-    src.stopBy = this.client.stopBy; // its cold start counts against this call's time too
-    let data: Uint8Array;
-    try {
-      data = (await src.view(image)).content;
-    } catch (e) {
-      if (!(e instanceof ComfyUIError)) throw e;
-      throw new ComfyUIError(`That image is on ${where}, which could not provide it (${e.message}). Try again once it is online.`);
-    }
-    try {
-      const [uploaded] = await storeInput(this.client, data, tokenUrlsafe(9));
+      const uploaded = await storeInput(this.client, data, nonce);
       return [uploaded.loadValue(), imageSize(data)];
     } catch (e) {
-      if (e instanceof BadImage) throw new ComfyUIError(`That image, from ${where}, could not be used: ${e.message}.`);
+      if (e instanceof BadImage) throw new ComfyUIError(`${what}: ${e.message}.`);
       throw e;
     }
   }
@@ -127,14 +92,7 @@ export class WorkerHooks extends Hooks {
       throw new ComfyUIError(`Could not download ${url}: ${e}`);
     }
     if (resp.status !== 200) throw new ComfyUIError(`Could not download ${url} (HTTP ${resp.status}). The URL must be public.`);
-    const data = new Uint8Array(await resp.arrayBuffer());
-    try {
-      const [uploaded] = await storeInput(this.client, data, tokenUrlsafe(9));
-      return [uploaded.loadValue(), imageSize(data)];
-    } catch (e) {
-      if (e instanceof BadImage) throw new ComfyUIError(`${url}: ${e.message}.`);
-      throw e;
-    }
+    return this.input(new Uint8Array(await resp.arrayBuffer()), tokenUrlsafe(9), url);
   }
 }
 
@@ -146,7 +104,7 @@ export const PC_OFFLINE =
 export const ENSURE_TIMEOUT_S = 240;
 
 /** The PC path: the agent makes its ComfyUI ready for a pack (running, nodes, models), as the
- * MCPB does locally; images resolve as on Modal (ids of outputs, URLs uploaded through the relay). */
+ * MCPB does locally; images resolve as on Modal (from R2 or a URL, uploaded through the relay). */
 export class PcHooks extends WorkerHooks {
   private relay: RelayStub;
   private keepWarmMinutes: number;
@@ -159,9 +117,9 @@ export class PcHooks extends WorkerHooks {
     settingsUrl: string,
     relayStub: RelayStub,
     keepWarmMinutes: number,
-    source: (backend: refs.Backend) => ComfyUIClient | null = () => null,
+    bucket: Bucket,
   ) {
-    super(client, key, fetch, null, store, settingsUrl, "pc", source);
+    super(client, key, fetch, null, store, settingsUrl, bucket);
     this.relay = relayStub;
     this.keepWarmMinutes = keepWarmMinutes;
   }

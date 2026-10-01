@@ -2,8 +2,10 @@
 
 1. Deploy the Modal app when the setup page stored a Modal token (packages/modal_app).
 2. Write the release's wrangler config with the user's name (and any routes) merged in from their
-   copy of bootstrap/wrangler.jsonc, and VERSION set.
-3. `npm ci` for the Worker's workspace, then `wrangler deploy` from packages/worker.
+   copy of bootstrap/wrangler.jsonc, VERSION set, and the R2 bucket named after the Worker.
+3. `npm ci` for the Worker's workspace, then `wrangler deploy` from packages/worker. wrangler
+   creates the bucket if it is missing (R2 must be enabled on the account), then this sets its
+   lifecycle rules: images expire after a year, unfinished multipart uploads after a day.
 4. Report to the Worker's /build-callback when the setup page started this build.
 5. End the log with the Worker's address: after a Deploy button, this log is where the user is.
 
@@ -65,13 +67,42 @@ def read_jsonc(text: str) -> dict:
     return json.loads("".join(out))
 
 
+# R2 (design §4): images under img/ expire after a year; LoRAs (lora/) never do. A multipart upload
+# left unfinished (a closed browser tab) is dropped after a day.
+LIFECYCLE = {"rules": [
+    {"id": "expire-images", "enabled": True, "conditions": {"prefix": "img/"},
+     "deleteObjectsTransition": {"condition": {"type": "Age", "maxAge": 365 * 86400}}},
+    {"id": "abort-multipart", "enabled": True, "conditions": {"prefix": ""},
+     "abortMultipartUploadsTransition": {"condition": {"type": "Age", "maxAge": 86400}}},
+]}
+
+
+def bucket_name(worker: str) -> str:
+    return f"{worker}-storage"
+
+
 def merge(release: dict, template: dict, version: str) -> dict:
     cfg = {k: v for k, v in release.items() if k != "$schema"}
     for key in USER_KEYS:
         if key in template:
             cfg[key] = template[key]
     cfg["vars"] = {**(cfg.get("vars") or {}), "VERSION": version}
+    cfg["r2_buckets"] = [{**b, "bucket_name": bucket_name(cfg["name"])} for b in cfg.get("r2_buckets") or []]
     return cfg
+
+
+def set_lifecycle(worker: Path, bucket: str) -> None:
+    """Apply LIFECYCLE to the bucket. `set` replaces the rules, so it is safe on every build (`add`
+    fails once a rule exists). A failure is only logged: the Worker is deployed and works."""
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(LIFECYCLE, f)
+    try:
+        cmd = ["npx", "wrangler", "r2", "bucket", "lifecycle", "set", bucket, "--file", f.name, "--force"]
+        result = subprocess.run(cmd, cwd=worker, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        tail = (result.stdout or "").strip().splitlines()[-1:] or [""]
+        print(f"storage: {bucket}, " + ("rules set" if result.returncode == 0 else f"setting its rules failed: {tail[0]}"), flush=True)
+    finally:
+        os.unlink(f.name)
 
 
 def deploy_modal(src: Path) -> tuple[dict | None, str, str | None]:
@@ -141,6 +172,9 @@ def main() -> int:
         print(result.stdout or "", end="", flush=True)
         deployed = result.returncode == 0
         url = worker_url(result.stdout or "")
+    if deployed and not args.dry_run:
+        for b in cfg.get("r2_buckets") or []:
+            set_lifecycle(worker, b["bucket_name"])
     report = {"stage": "deployed" if deployed else "failed", "version": args.version, "modal_result": modal_result}
     if modal:
         report["modal"] = modal

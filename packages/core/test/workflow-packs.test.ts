@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize } from "../src/config.ts";
 import { builtinPacks, configKey, groupByTool, prepare, select, supportsLoras, validate } from "../src/packs.ts";
-import { buildPrompt, calcDimensions, injectLoras, splitLossless, type Workflow } from "../src/workflow.ts";
+import { buildPrompt, calcDimensions, injectLoras, stripLossless, type Workflow } from "../src/workflow.ts";
 
 const smallWorkflow = (): Workflow => ({
   "1": { class_type: "UNETLoader", inputs: { unet_name: "m.safetensors" } },
@@ -16,12 +16,12 @@ const smallWorkflow = (): Workflow => ({
 
 describe("workflow", () => {
   it.each([
-    ["portrait", "portrait", false],
-    ["portrait:lossless", "portrait", true],
-    ["C:/x.png:LOSSLESS", "C:/x.png", true],
-    ["C:/x.png", "C:/x.png", false],
-  ])("splitLossless(%s)", (value, rest, flag) => {
-    expect(splitLossless(value)).toEqual([rest, flag]);
+    ["portrait", "portrait"],
+    ["portrait:lossless", "portrait"],
+    ["C:/x.png:LOSSLESS", "C:/x.png"],
+    ["C:/x.png", "C:/x.png"],
+  ])("stripLossless(%s)", (value, rest) => {
+    expect(stripLossless(value)).toBe(rest);
   });
 
   it("calcDimensions: named and custom", () => {

@@ -1,11 +1,12 @@
 // Images the user attached in claude.ai, uploaded through the code-execution sandbox (S3).
 //
 // request_upload hands the model a one-time link and a Python snippet. The sandbox runs the
-// snippet, which posts the attached file to /upload/<token>; the Worker stores it in ComfyUI's input
-// folder and answers with an image id that edit_image takes.
+// snippet, which posts the attached file to /upload/<token>; the Worker stores it in R2 and answers
+// with an image id that edit_image takes. No GPU needs to be online for it.
 
-import { ComfyUIError, refs, sniffMime, type ComfyUIClient, type Content, type OutputImage } from "@comfy-gen/core";
-import { error, json } from "./platform.ts";
+import { refs, sniffMime, type ComfyUIClient, type Content, type OutputImage } from "@comfy-gen/core";
+import { putImage } from "./images.ts";
+import { error, json, type Bucket } from "./platform.ts";
 import { text } from "./render.ts";
 
 export const UPLOAD_TTL_S = 600;
@@ -20,16 +21,21 @@ export class BadImage extends Error {
   }
 }
 
-/** Put image bytes in ComfyUI's input folder: [the stored image, its mime type]. Throws BadImage
- * for anything that isn't a supported image of a sane size. */
-export async function storeInput(client: ComfyUIClient, data: Uint8Array, nonce: string): Promise<[OutputImage, string]> {
+/** The image's mime type. Throws BadImage for anything that isn't a supported image of a sane size. */
+export function checkImage(data: Uint8Array): string {
   const mime = sniffMime(data);
   if (!mime) throw new BadImage(415, "not a PNG, JPEG, WebP or GIF image");
   if (data.length > MAX_IMAGE_BYTES) {
     throw new BadImage(413, `too large (${Math.floor(data.length / 1e6)} MB; the limit is ${MAX_IMAGE_BYTES / 1e6} MB)`);
   }
-  const image = await client.upload(data, refs.uploadFilename(nonce, mime), mime, refs.UPLOAD_SUBFOLDER);
-  return [image, mime];
+  return mime;
+}
+
+/** Put image bytes in a ComfyUI's input folder, named after *nonce* (the same nonce, the same file):
+ * the stored image. Throws BadImage as checkImage does. */
+export async function storeInput(client: ComfyUIClient, data: Uint8Array, nonce: string): Promise<OutputImage> {
+  const mime = checkImage(data);
+  return client.upload(data, refs.uploadFilename(nonce, mime), mime, refs.UPLOAD_SUBFOLDER);
 }
 
 /** A Python string literal (repr-style), for the snippet. */
@@ -74,29 +80,23 @@ export async function requestUpload(args: Record<string, any>, baseUrl: string, 
   ];
 }
 
-/** POST /upload/<token>: store the body in ComfyUI's input folder, answer with its image id. */
-export async function receive(
-  token: string,
-  body: Uint8Array,
-  client: ComfyUIClient,
-  key: Uint8Array,
-  now: number,
-  backend: refs.Backend = "main",
-): Promise<Response> {
-  let nonce: string;
+/** POST /upload/<token>: store the body in R2 under the token's nonce, answer with that image id. */
+export async function receive(token: string, body: Uint8Array, bucket: Bucket, key: Uint8Array, now: number): Promise<Response> {
+  let id: string;
   try {
-    nonce = await refs.checkUpload(token, key, now);
+    id = await refs.checkUpload(token, key, now);
   } catch (e) {
     if (e instanceof refs.RefError) return error(403, e.message);
     throw e;
   }
+  if (!refs.IMAGE_ID.test(id)) return error(403, "Invalid upload link.");
   if (!body.length) return error(400, "empty body");
   try {
-    const [image, mime] = await storeInput(client, body, nonce);
-    return json({ image_id: await refs.imageId(image, key, backend), bytes: body.length, mime });
+    const mime = checkImage(body);
+    await putImage(bucket, body, id);
+    return json({ image_id: id, bytes: body.length, mime });
   } catch (e) {
     if (e instanceof BadImage) return error(e.status, e.message);
-    if (e instanceof ComfyUIError) return error(502, e.message);
     throw e;
   }
 }

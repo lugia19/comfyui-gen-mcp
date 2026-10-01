@@ -13,7 +13,7 @@ import { normalize, type Config } from "./config.ts";
 import { UnknownTool } from "./mcp.ts";
 import { groupByTool, prepare, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
-import { buildPrompt, splitLossless, type NodeField, type Workflow } from "./workflow.ts";
+import { buildPrompt, stripLossless, type NodeField, type Workflow } from "./workflow.ts";
 
 // A tool call answers within this, counted from its start: the clients give up at 300 s (claude.ai,
 // S8; Claude Code's idle timeout for HTTP servers). Before, it counted from the submit, so a slow
@@ -29,11 +29,9 @@ export class Done {
   readonly kind = "done";
   images: OutputImage[];
   promptId: string;
-  lossless: boolean;
-  constructor(images: OutputImage[], promptId: string, lossless = false) {
+  constructor(images: OutputImage[], promptId: string) {
     this.images = images;
     this.promptId = promptId;
-    this.lossless = lossless;
   }
 }
 
@@ -108,7 +106,7 @@ export class Brain {
   private async generate(rawPack: Pack, args: Record<string, any>): Promise<Outcome> {
     const prompt = String(args.prompt || "").trim();
     if (!prompt) return new Failed("prompt is required.");
-    const [aspect, lossless] = splitLossless(String(args.aspect_ratio || "square"));
+    const aspect = stripLossless(String(args.aspect_ratio || "square"));
     const pack = prepare(rawPack, this.cfg);
     const wf = buildPrompt(pack.workflow, prompt, pack.prompt_node_id, pack.seed_nodes, {
       dimensionNodes: pack.dimension_nodes,
@@ -116,28 +114,21 @@ export class Brain {
       maxPixels: pack.max_pixels ?? 1_048_576,
       loraToggles: pack.lora_toggles,
     });
-    return this.run(pack, wf, lossless);
+    return this.run(pack, wf);
   }
 
   private async fetch(args: Record<string, any>): Promise<Outcome> {
-    const [token, lossless] = splitLossless(String(args.request_token || ""));
+    const token = stripLossless(String(args.request_token || ""));
     if (!token) return new Failed("request_token is required.");
-    return this.wait(token, lossless);
+    return this.wait(token);
   }
 
   private async edit(args: Record<string, any>): Promise<Outcome> {
     const prompt = String(args.prompt || "").trim();
     // Accept either mode's argument names: models sometimes use the other spelling.
-    let first = String(args.image_path || args.image || "").trim();
-    let second = String(args.second_image_path || args.second_image || "").trim();
+    const first = stripLossless(String(args.image_path || args.image || "").trim());
+    const second = stripLossless(String(args.second_image_path || args.second_image || "").trim());
     if (!prompt || !first) return new Failed("prompt and an image are required.");
-    let lossless: boolean;
-    [first, lossless] = splitLossless(first);
-    if (second) {
-      let lossless2: boolean;
-      [second, lossless2] = splitLossless(second);
-      lossless ||= lossless2;
-    }
     const pack = prepare(this.selected.edit_image, this.cfg);
     const images: ResolvedImage[] = [];
     try {
@@ -149,10 +140,10 @@ export class Brain {
       throw e;
     }
     const [wf, promptNode, seedNodes] = editWorkflow(pack, images);
-    return this.run(pack, buildPrompt(wf, prompt, promptNode, seedNodes), lossless, true);
+    return this.run(pack, buildPrompt(wf, prompt, promptNode, seedNodes), true);
   }
 
-  private async run(pack: Pack, wf: Workflow, lossless: boolean, ensured = false): Promise<Outcome> {
+  private async run(pack: Pack, wf: Workflow, ensured = false): Promise<Outcome> {
     let promptId: string;
     try {
       if (!ensured) await this.hooks.ensure(pack);
@@ -161,17 +152,17 @@ export class Brain {
       if (e instanceof ComfyUIError) return new Failed(e.message);
       throw e;
     }
-    return this.wait(promptId, lossless);
+    return this.wait(promptId);
   }
 
-  private async wait(promptId: string, lossless: boolean): Promise<Outcome> {
+  private async wait(promptId: string): Promise<Outcome> {
     try {
       const stopBy = this.client.stopBy;
       const images = await this.client.wait(promptId, stopBy === null ? this.waitS : Math.max(0, stopBy - this.client.time()));
       if (images === null) {
-        return new Pending(promptId + (lossless ? ":lossless" : ""), await this.client.statusMessage(promptId));
+        return new Pending(promptId, await this.client.statusMessage(promptId));
       }
-      return new Done(images, promptId, lossless);
+      return new Done(images, promptId);
     } catch (e) {
       if (e instanceof ComfyUIError) return new Failed(e.message);
       throw e;

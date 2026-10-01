@@ -12,8 +12,41 @@ export interface StateStorage {
   put(key: string, value: string): Promise<void>;
 }
 
+/** The part of an R2 object the app uses. */
+export interface StoredObject {
+  key: string;
+  size: number;
+  httpEtag: string;
+  httpMetadata?: { contentType?: string };
+  range?: { offset?: number; length?: number };
+  body: ReadableStream;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+export interface MultipartUpload {
+  uploadPart(partNumber: number, value: ReadableStream | ArrayBuffer | ArrayBufferView): Promise<{ partNumber: number; etag: string }>;
+  complete(parts: { partNumber: number; etag: string }[]): Promise<{ size: number }>;
+  abort(): Promise<void>;
+}
+
+/** The part of an R2 bucket the app uses: the STORE binding in production (design §4). */
+export interface Bucket {
+  get(key: string, options?: { range?: Headers }): Promise<StoredObject | null>;
+  head(key: string): Promise<{ key: string; size: number } | null>;
+  put(
+    key: string,
+    value: ReadableStream | ArrayBuffer | ArrayBufferView | null,
+    options?: { httpMetadata?: { contentType?: string } },
+  ): Promise<{ size: number } | null>;
+  delete(keys: string | string[]): Promise<void>;
+  list(options?: { prefix?: string; cursor?: string; limit?: number }): Promise<{ objects: { key: string; size: number }[]; truncated: boolean; cursor?: string }>;
+  createMultipartUpload(key: string, options?: { httpMetadata?: { contentType?: string } }): Promise<{ uploadId: string }>;
+  resumeMultipartUpload(key: string, uploadId: string): MultipartUpload;
+}
+
 export type Platform = {
   storage: StateStorage;
+  bucket: Bucket; // R2: images and LoRAs
   relay?: RelayStub; // the Relay Durable Object (the PC path); tests without a PC leave it out
   fetch: Fetch;
   now: () => number; // seconds

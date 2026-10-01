@@ -13,9 +13,9 @@ architecture, and update it when a decision changes. `docs/build-plan.md` is the
   `Uint8Array`, `structuredClone`. No `Buffer`, no `node:` imports in `src/` (tests may use them). It
   runs in the Worker and, later, in the Node MCPB and agent. I/O goes through the `Transport`
   interface.
-- Stored formats are compatibility surfaces: image ids and upload tokens (`refs.ts`), session
-  cookies (`auth.ts`), the State Durable Object's keys and JSON values. `test/golden.json` pins them;
-  change them only with a migration.
+- Stored formats are compatibility surfaces: upload tokens and storage links (`refs.ts`), session
+  cookies (`auth.ts`), the State Durable Object's keys and JSON values, and R2 keys (`img/<id>`,
+  `lora/<name>`). `test/golden.json` pins the tokens; change any of them only with a migration.
 - The MCPB and the agent share one machine-side package (M5). Don't fork that logic between them.
 - Any code that calls a Worker from outside (build callbacks, the upload snippet, the agent) sets its
   own `User-Agent`. Cloudflare rejects urllib's default `Python-urllib/x.y` with Error 1010 before
