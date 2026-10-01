@@ -218,7 +218,11 @@
       pauseBusy = false
     }
   }
-  onMount(poll)
+  // This tab is remounted each time it opens, with the state from when another tab last loaded it.
+  onMount(() => {
+    refresh().catch(() => {})
+    poll()
+  })
   onDestroy(() => clearTimeout(timer))
 
   const since = (t) => (t ? new Date(t).toLocaleString() : '')
@@ -235,6 +239,46 @@
   const num = (id) => 3 + steps.indexOf(id)
   let claudeN = $derived(3 + steps.length)
 </script>
+
+{#snippet pairing()}
+  <ol>
+    <li>
+      On your PC, download the agent:
+      <a href="{RELEASE}comfy-gen-agent-windows.exe">Windows</a>,
+      <a href="{RELEASE}comfy-gen-agent-macos.zip">macOS (Apple silicon)</a> or
+      <a href="{RELEASE}comfy-gen-agent-linux">Linux</a>, and run it. It is not signed yet: on Windows choose
+      <b>More info → Run anyway</b>; on macOS unzip it, right-click it and choose <b>Open</b>; on Linux,
+      <code>chmod +x</code> it first.
+    </li>
+    <li>Its page opens in your browser. Paste this pairing link there:</li>
+  </ol>
+  <div class="row"><code>{pc.link}</code></div>
+  <div class="row">
+    <button onclick={copyLink}>{copiedLink ? 'Copied' : 'Copy link'}</button>
+    <button class="secondary" onclick={() => pair(true)} disabled={pcBusy}>New link</button>
+    <button class="secondary" onclick={unpair}>Unpair</button>
+  </div>
+  <p class="muted">The link lets a PC generate for this Worker. Treat it like a password.</p>
+  <ol start="3">
+    <li>On the same page, install ComfyUI. It finds the models of ComfyUI installs you already have.</li>
+  </ol>
+{/snippet}
+
+{#snippet pcStatus()}
+  <p>
+    {#if pc.info?.paused}
+      <b>Paused:</b> <span class="muted">not taking image requests{choice === 'both' ? ', so Modal answers' : ''}.</span>
+    {:else}
+      <b class="ok">Connected</b> <span class="muted">since {since(pc.since)}</span>
+    {/if}
+    {#if pc.info}<span class="muted">· agent {pc.info.version} on {platformName(pc.info.platform)}{#if pc.info.gpu}, GPU: {gpuName(pc.info.gpu)}{/if}</span>{/if}
+  </p>
+  <div class="row">{@render pauseButton()}</div>
+  <p class="muted">
+    A pause lasts until you resume it, here or from the Comfy-Gen tray icon, or until the agent restarts.
+  </p>
+  <p class="muted">The agent starts with your PC from now on. {choice === 'both' ? 'While the PC is off, Modal answers.' : ''}</p>
+{/snippet}
 
 {#snippet pauseButton()}
   <button type="button" class="secondary small" onclick={() => setPaused(!pc.info?.paused)} disabled={pauseBusy}>
@@ -354,48 +398,32 @@
     n={num('pc')}
     title="Run the agent on your PC"
     status={status(pc?.connected)}
-    summary={pc?.connected ? `${pc.info?.paused ? 'Paused' : 'Connected'}${pc.info?.platform ? `: ${platformName(pc.info.platform)}` : ''}${pc.info?.gpu ? `, GPU: ${gpuName(pc.info.gpu)}` : ''}` : ''}
+    summary={pc?.connected ? `${pc.info?.paused ? 'Paused' : 'Connected'}${pc.info?.platform ? `: ${platformName(pc.info.platform)}` : ''}${pc.info?.gpu ? `, GPU: ${gpuName(pc.info.gpu)}` : ''}` : pc?.seen ? 'Offline' : ''}
     actions={pc?.connected ? pauseButton : null}
   >
     {#if !pc?.paired}
       <p>First, make the link that lets your PC connect to this Worker.</p>
       <button onclick={() => pair(false)} disabled={pcBusy}>{pcBusy ? 'Making a link…' : 'Make a pairing link'}</button>
-    {:else}
-      <ol>
-        <li>
-          On your PC, download the agent:
-          <a href="{RELEASE}comfy-gen-agent-windows.exe">Windows</a>,
-          <a href="{RELEASE}comfy-gen-agent-macos.zip">macOS (Apple silicon)</a> or
-          <a href="{RELEASE}comfy-gen-agent-linux">Linux</a>, and run it. It is not signed yet: on Windows choose
-          <b>More info → Run anyway</b>; on macOS unzip it, right-click it and choose <b>Open</b>; on Linux,
-          <code>chmod +x</code> it first.
-        </li>
-        <li>Its page opens in your browser. Paste this pairing link there:</li>
-      </ol>
-      <div class="row"><code>{pc.link}</code></div>
-      <div class="row">
-        <button onclick={copyLink}>{copiedLink ? 'Copied' : 'Copy link'}</button>
-        <button class="secondary" onclick={() => pair(true)} disabled={pcBusy}>New link</button>
-        <button class="secondary" onclick={unpair}>Unpair</button>
-      </div>
-      <p class="muted">The link lets a PC generate for this Worker. Treat it like a password.</p>
-      <ol start="3">
-        <li>On the same page, install ComfyUI. It finds the models of ComfyUI installs you already have.</li>
-      </ol>
+    {:else if pc.seen}
+      <!-- This PC has connected before: offline is a moment (a restart, the PC off), not a pairing to do. -->
       {#if pc.connected}
+        {@render pcStatus()}
+      {:else}
         <p>
-          {#if pc.info?.paused}
-            <b>Paused:</b> <span class="muted">not taking image requests{choice === 'both' ? ', so Modal answers' : ''}.</span>
-          {:else}
-            <b class="ok">Connected</b> <span class="muted">since {since(pc.since)}</span>
-          {/if}
-          {#if pc.info}<span class="muted">· agent {pc.info.version} on {platformName(pc.info.platform)}{#if pc.info.gpu}, GPU: {gpuName(pc.info.gpu)}{/if}</span>{/if}
+          <b>Offline.</b>
+          <span class="muted">
+            It reconnects by itself whenever the agent is running (it starts with the PC).{choice === 'both' ? ' Meanwhile Modal answers.' : ''}
+          </span>
         </p>
-        <div class="row">{@render pauseButton()}</div>
-        <p class="muted">
-          A pause lasts until you resume it, here or from the Comfy-Gen tray icon, or until the agent restarts.
-        </p>
-        <p class="muted">The agent starts with your PC from now on. {choice === 'both' ? 'While the PC is off, Modal answers.' : ''}</p>
+      {/if}
+      <details class="guide">
+        <summary>Pair again or set up another PC</summary>
+        {@render pairing()}
+      </details>
+    {:else}
+      {@render pairing()}
+      {#if pc.connected}
+        {@render pcStatus()}
       {:else}
         <p class="muted">Waiting for your PC to connect…</p>
       {/if}

@@ -507,9 +507,15 @@ describe("the PC path", () => {
     expect((await app.agentRefusal(ws("wrong")))!.status).toBe(401);
     expect((await app.agentRefusal(request("GET", "/agent", undefined, { authorization: `Bearer ${secret}` })))!.status).toBe(426);
     const state = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
-    expect(state.pc).toMatchObject({ paired: true, connected: true, link, info: { gpu: "nvidia" } });
+    expect(state.pc).toMatchObject({ paired: true, connected: true, link, info: { gpu: "nvidia" }, seen: expect.any(Number) });
+    pc.connected = false; // offline for a moment: still seen, not a pairing to do
+    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).pc.seen).toBe(state.pc.seen);
+    pc.connected = true;
 
     const second = await pair(app); // a new link replaces the old one and disconnects that PC
+    pc.connected = false;
+    expect((await body(await app.handle(request("GET", "/api/state", undefined, second.cookie)))).pc.seen).toBeNull(); // a new PC
+    pc.connected = true;
     expect(await app.agentRefusal(ws(secret))).not.toBeNull();
     expect(pc.dropped).toBe(2);
     await app.handle(request("DELETE", "/api/pc", undefined, second.cookie));

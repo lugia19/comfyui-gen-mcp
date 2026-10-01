@@ -173,6 +173,10 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   list and a LoRA list that show each backend's state, `pc_keep_warm_minutes` as the one
   per-backend setting, and the agent copying LoRAs between the PC and Modal (design §9, "LoRA
   sync"). Kept from the split: one LoRA section by file, and the `@` in pre-filled triggers.
+- **v1.3.10 loose ends.** Done 2026-10-01: the Setup tab refreshes when opened, and a PC that has
+  connected before shows "Offline … reconnects by itself" with the pairing steps folded away,
+  instead of the first-pairing view (`setup.pc_seen`, cleared on unpair or a new link). The site
+  has a tab icon.
 - **v1.3.9 test report fixes; a blue accent; a Modal command field.** Done 2026-10-01:
   - Ending the agent and starting it again within about 3 s left none running: the new one gave
     up on the taken port while the old one was still stopping. It now waits up to 6 s for the

@@ -360,6 +360,7 @@ export class App {
     }
     if (sub === "/pc" && req.method === "DELETE") {
       await this.fresh.updateSecrets({ agent_secret: null });
+      await this.fresh.updateSetup({ pc_seen: null });
       await this.p.relay?.drop();
       return json({ ok: true });
     }
@@ -423,6 +424,7 @@ export class App {
   /** A new pairing link. A PC paired before is disconnected: its secret no longer opens the relay. */
   private async pair(url: URL): Promise<Response> {
     await this.fresh.updateSecrets({ agent_secret: tokenUrlsafe(32) });
+    await this.fresh.updateSetup({ pc_seen: null }); // a new PC starts at the pairing view
     await this.p.relay?.drop();
     const s = await this.fresh.secrets();
     return json({ link: pairingLink(url, s.agent_secret) });
@@ -436,7 +438,13 @@ export class App {
     } catch {
       // unreachable: shown as offline
     }
-    return { paired: true, link: pairingLink(url, s.agent_secret), ...status };
+    // Once this PC has connected, its being offline is a moment, not a pairing still to do.
+    let seen = (await this.fresh.setup()).pc_seen ?? null;
+    if (!seen && status.connected) {
+      seen = this.p.now();
+      await this.fresh.updateSetup({ pc_seen: seen });
+    }
+    return { paired: true, link: pairingLink(url, s.agent_secret), seen, ...status };
   }
 
   /** A Cloudflare user token that can see this Worker proves ownership. It is also the token the
