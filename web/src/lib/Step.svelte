@@ -3,8 +3,26 @@
   // Show opens it again), "todo" (waiting on an earlier step: the title only). The content stays
   // mounted while folded, so a step can keep reporting (downloads, connections).
   // *actions*: controls kept in the head, usable while the step is folded (the PC's Pause).
+  // A step shown again stays shown when the page switches tabs and back (this browser tab only).
   let { n, title, status, summary = '', actions = null, children } = $props()
-  let open = $state(false)
+  const KEY = `step-open:${title}`
+  const remembered = () => {
+    try {
+      return sessionStorage.getItem(KEY) === '1'
+    } catch {
+      return false
+    }
+  }
+  let open = $state(remembered())
+  function toggle() {
+    open = !open
+    try {
+      if (open) sessionStorage.setItem(KEY, '1')
+      else sessionStorage.removeItem(KEY)
+    } catch {
+      // no storage (a private window): it folds again on the next visit, as before
+    }
+  }
   let shown = $derived(status === 'current' || (status === 'done' && open))
 </script>
 
@@ -15,7 +33,7 @@
     {#if status === 'done'}
       <span class="summary muted">{summary}</span>
       {@render actions?.()}
-      <button type="button" class="link" onclick={() => (open = !open)}>{open ? 'Hide' : 'Show'}</button>
+      <button type="button" class="link" onclick={toggle}>{open ? 'Hide' : 'Show'}</button>
     {/if}
   </div>
   <div class="body" hidden={!shown}>{@render children?.()}</div>

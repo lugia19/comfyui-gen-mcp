@@ -66,13 +66,13 @@
       <a class="button" href="{worker.url}/#settings" target="_blank" rel="noopener">Edit settings</a>
     </p>
     <p class="muted">
-      Models, styles and LoRAs are set on your Worker's page, under Settings, for this PC and Modal alike. LoRAs you
-      turn on there are copied between this PC and Modal.
+      Models, styles and LoRAs are set on your Worker's page, under Settings, for all its GPUs alike. LoRAs
+      uploaded there are copied to this PC from your Worker's storage.
     </p>
   {:else}
     <p>
-      Pair this PC with your Worker: on the Worker's page, the step <b>Run the agent on your PC</b> shows
-      the pairing link. Copy it and paste it here.
+      Pair this PC with your Worker: on the Worker's Setup page, under <b>Your GPUs</b>, press <b>Add a PC</b>
+      (or <b>New pairing link</b> on this PC's entry). Copy the link and paste it here.
     </p>
   {/if}
   <form onsubmit={pair}>

@@ -58,11 +58,18 @@ describe("workflow", () => {
     expect(toggles).toEqual([{ node_id: "7", trigger: "@b", strength: 1.0 }]);
   });
 
-  it("LoRA toggles follow the prompt", () => {
+  it("LoRA toggles follow the prompt: one not called for is taken out of the chain", () => {
     const wf = smallWorkflow();
-    const toggles = injectLoras(wf, [{ name: "b.safetensors", trigger: "@B", strength: 0.7 }]);
-    expect(buildPrompt(wf, "art by @b", "3", [], { loraToggles: toggles })["6"].inputs.strength_model).toBe(0.7);
-    expect(buildPrompt(wf, "no trigger", "3", [], { loraToggles: toggles })["6"].inputs.strength_model).toBe(0.0);
+    const toggles = injectLoras(wf, [{ name: "a.safetensors" }, { name: "b.safetensors", trigger: "@B", strength: 0.7 }, { name: "c.safetensors", trigger: "@c" }]);
+    const on = buildPrompt(wf, "art by @b", "3", [], { loraToggles: toggles });
+    expect(on["7"].inputs.strength_model).toBe(0.7);
+    expect("8" in on).toBe(false); // @c is not in the prompt: its file need not exist
+    expect(on["2"].inputs.model).toEqual(["7", 0]);
+    const off = buildPrompt(wf, "no trigger", "3", [], { loraToggles: toggles });
+    expect(["7", "8"].some((id) => id in off)).toBe(false);
+    expect(off["2"].inputs.model).toEqual(["6", 0]); // straight from the always-on LoRA
+    expect(off["5"].inputs.model).toEqual(["6", 0]);
+    expect(wf["8"]).toBeDefined(); // the pack's workflow is untouched
   });
 
   it("injectLoras without a loader throws", () => {

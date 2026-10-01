@@ -15,10 +15,10 @@ import { groupByTool, prepare, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
 import { buildPrompt, stripLossless, type NodeField, type Workflow } from "./workflow.ts";
 
-// A tool call answers within this, counted from its start: the clients give up at 300 s (claude.ai,
-// S8; Claude Code's idle timeout for HTTP servers). Before, it counted from the submit, so a slow
-// cold start plus the wait ran past 300 s and the call timed out (seen from Claude Code).
-export const DEFAULT_WAIT_S = 240;
+// A tool call answers within this, counted from its start. claude.ai gives up at 300 s (S8), but a
+// claude.ai connector used from Claude Code gave up at about 183 s (2026-10-01: a cold Modal edit
+// answered at 211 s, to nobody). 150 s leaves room for rendering after the wait.
+export const DEFAULT_WAIT_S = 150;
 
 // calcDimensions rounds to multiples of 64, so a pack's own output can land a couple of percent
 // above its declared max_pixels. The edit path tolerates that much rather than shaving pixels off

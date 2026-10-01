@@ -64,10 +64,15 @@
   }
 
   const since = (t) => (t ? new Date(t).toLocaleString() : '')
+  // The rename box takes the cursor, with the old name selected.
+  const focused = (el) => {
+    el.focus()
+    el.select()
+  }
 
   function describe(g) {
     if (!g.enabled) return { text: 'Turned off', cls: 'muted' }
-    if (g.kind === 'modal') return { text: 'Starts when a call comes', cls: 'ok' }
+    if (g.kind === 'modal') return { text: 'Runs on demand', cls: 'ok' }
     if (g.kind === 'url') return { text: g.base_url, cls: 'muted' }
     if (g.online && g.paused) return { text: 'Paused', cls: 'muted' }
     if (g.online) return { text: `Connected since ${since(g.since)}`, cls: 'ok' }
@@ -84,7 +89,7 @@
     <div class="row head">
       <span class="order">{i + 1}</span>
       {#if names[g.id] !== undefined}
-        <input class="name" type="text" bind:value={names[g.id]} onblur={() => rename(g)} onkeydown={(e) => e.key === 'Enter' && rename(g)} aria-label="Name" />
+        <input class="name" type="text" use:focused bind:value={names[g.id]} onblur={() => rename(g)} onkeydown={(e) => e.key === 'Enter' && rename(g)} aria-label="Name" />
       {:else}
         <button type="button" class="link name" title="Rename" onclick={() => (names[g.id] = g.name)}><b>{g.name}</b></button>
       {/if}

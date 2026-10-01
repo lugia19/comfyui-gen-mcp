@@ -7,7 +7,7 @@
 import {
   Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, SETTINGS_SCHEMA, UnknownTool,
   builtinPacks, downloadSize, fromHex, fromUtf8, groupByTool, packMetadata, refs, relay, select, sniffMime, tokenUrlsafe, safeEqual,
-  type Config, type Content, type Pack,
+  withoutLora, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
@@ -83,7 +83,7 @@ export class App {
     const path = url.pathname;
     try {
       if (path.startsWith("/mcp/")) return await this.mcp(req, url, path.slice(5));
-      if (path.startsWith("/img/") && req.method === "GET") return await serveImage(this.p.bucket, path.slice(5));
+      if (path.startsWith("/img/") && (req.method === "GET" || req.method === "HEAD")) return await serveImage(this.p.bucket, path.slice(5), req.method === "HEAD");
       if (path.startsWith("/upload/") && req.method === "POST") return await this.upload(req, path.slice(8));
       if (path === "/build-callback" && req.method === "POST") return await this.buildCallback(req);
       if (path === "/agent/sync" && req.method === "POST") return await this.agentSync(req, url);
@@ -482,7 +482,8 @@ export class App {
         }
         if (!building) await this.fresh.updateSetup({ update_finished: build });
       }
-      return json({ current: this.version, latest, newer: updates.isNewer(latest, this.version), can, build, building });
+      const dev = !updates.parseVersion(this.version); // a branch build: no updates from here
+      return json({ current: this.version, latest, dev, newer: !dev && updates.isNewer(latest, this.version), can, build, building });
     }
     if (req.method !== "POST") return error(405, "GET or POST");
     if (!can) return error(400, "Log in again with a Cloudflare token: this Worker has none to start builds with.");
@@ -665,7 +666,7 @@ export class App {
           out.offline.push(gpu.id);
         } else if (r.ok) {
           add(gpu.id, r.data?.files ?? {});
-          for (const [name, job] of Object.entries((r.data?.syncing ?? {}) as Record<string, any>)) out.syncing[name] = { ...job, to: gpu.id };
+          for (const [name, job] of Object.entries((r.data?.syncing ?? {}) as Record<string, any>)) out.syncing[name] = { ...job, to: job.to === "storage" ? "storage" : gpu.id }; // a push goes to storage
         } else {
           out.errors[gpu.id] = r.message;
         }
@@ -766,6 +767,9 @@ export class App {
     }
     const setup = await this.fresh.setup();
     await this.fresh.updateSetup({ lora_deleted: { ...(setup.lora_deleted ?? {}), [name]: this.p.now() } });
+    const cfg = await this.fresh.config();
+    const packLoras = withoutLora(cfg.pack_loras, name);
+    if (packLoras) await this.fresh.saveConfig({ ...cfg, pack_loras: packLoras });
     const gpus = await this.gpus();
     for (const gpu of gpus) {
       const admin = this.admin(gpu);

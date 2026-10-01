@@ -110,19 +110,28 @@ export class WorkerHooks extends Hooks {
   }
 }
 
+/** "A", "A and B", "A, B and C". */
+const listNames = (gpus: Gpu[]) => {
+  const names = gpus.map((g) => g.name);
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? "");
+};
+
 /** None of these GPUs is taking calls because each is paused (a PC, from its tray or the page). */
 export function pausedMessage(gpus: Gpu[]): string {
-  const names = gpus.map((g) => g.name).join(", ");
-  return `${names} ${gpus.length > 1 ? "are" : "is"} paused: not taking image requests. Take requests again from the Comfy-Gen tray icon, or the settings page, then try again.`;
+  const many = gpus.length > 1;
+  return `${listNames(gpus)} ${many ? "are" : "is"} paused: not taking image requests. Take requests again from ${many ? "their" : "its"} Comfy-Gen tray icon${many ? "s" : ""}, or the settings page, then try again.`;
 }
 
 /** These GPUs are offline (a PC whose agent is not connected). */
 export function offlineMessage(gpus: Gpu[]): string {
-  const names = gpus.map((g) => g.name).join(", ");
-  return `${names} ${gpus.length > 1 ? "are" : "is"} offline. Start the PC (the Comfy-Gen agent starts with it), or check its tray icon, then try again.`;
+  const many = gpus.length > 1;
+  return many
+    ? `${listNames(gpus)} are offline. Start them (the Comfy-Gen agent starts with each), or check their tray icons, then try again.`
+    : `${listNames(gpus)} is offline. Start the PC (the Comfy-Gen agent starts with it), or check its tray icon, then try again.`;
 }
-// Starting ComfyUI and installing a node package can take minutes; the MCP client gives up at 5.
-export const ENSURE_TIMEOUT_S = 240;
+// Starting ComfyUI and installing a node package can take minutes, longer than a call may wait
+// (DEFAULT_WAIT_S). Past this the call says so; the agent carries on, and the next call joins it.
+export const ENSURE_TIMEOUT_S = 100;
 
 /** The PC path: the agent makes its ComfyUI ready for a pack (running, nodes, models), as the
  * MCPB does locally; images resolve as on Modal (from R2 or a URL, uploaded through the relay). */
@@ -154,6 +163,7 @@ export class PcHooks extends WorkerHooks {
     };
     const r = await this.relay.control("ensure", args, ENSURE_TIMEOUT_S);
     if (r.offline) throw new ComfyUIError(offlineMessage([this.gpu]));
+    if (r.status === 504) throw new ComfyUIError(`ComfyUI is still starting on ${this.gpu.name}. Call the tool again in a minute.`);
     const result = relay.controlResult(r.status, r.body);
     if (!result.ok) {
       if (/download/i.test(result.message)) await this.onReady(pack.name, false);

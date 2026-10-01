@@ -3,7 +3,7 @@ import { fromBase64, fromHex, OutputImage, refs, utf8 } from "@comfy-gen/core";
 import { png } from "../../core/test/fake-comfy.ts";
 import { LORA_CHUNK } from "../src/loras.ts";
 import { REQUEST_BUDGET, type App } from "../src/app.ts";
-import { offlineMessage } from "../src/hooks.ts";
+import { offlineMessage, pausedMessage } from "../src/hooks.ts";
 import { cacheEntry } from "../src/store.ts";
 import * as updates from "../src/updates.ts";
 import golden from "../../core/test/golden.json" with { type: "json" };
@@ -150,6 +150,9 @@ describe("MCP", () => {
     expect(resp.status).toBe(200);
     expect(resp.headers.get("content-type")).toBe("image/png");
     expect(new Uint8Array(await resp.arrayBuffer())).toEqual(png(10, 10));
+    const head = await app.handle(request("HEAD", "/img/h3Kd9QxA")); // link previews ask this way
+    expect([head.status, head.headers.get("content-type"), head.headers.get("content-length"), head.body]).toEqual([200, "image/png", String(png(10, 10).length), null]);
+    expect((await app.handle(request("HEAD", "/img/h3Kd9QxB"))).status).toBe(404);
     expect(comfy.calls).toEqual([]);
     for (const bad of ["bogus", "h3Kd9QxB", "..%2Fimg%2Fh3Kd9QxA"]) expect((await app.handle(request("GET", `/img/${bad}`))).status).toBe(404);
   });
@@ -424,9 +427,15 @@ describe("LoRAs", () => {
     expect((await app.handle(request("GET", "/api/loras/uploads/nope", undefined, cookie))).status).toBe(404);
 
     net.loras["style.safetensors"] = data.length;
+    const entry = { name: "style.safetensors", strength: 1, trigger: "@style", hidden: false };
+    const other = { name: "keep.safetensors", strength: 1, trigger: "", hidden: false };
+    await app.handle(request("PUT", "/api/config", { config: { pack_loras: { anima: [entry, other] } } }, cookie));
     const del = await app.handle(request("DELETE", "/api/loras/style.safetensors", undefined, cookie));
     expect(await body(del)).toEqual({ deleted: "style.safetensors", from: ["storage", "modal"], errors: [] });
     expect(bucket.objects.has("lora/style.safetensors")).toBe(false);
+    // Turned off in every model too: a generation must not ask ComfyUI for the missing file.
+    const state = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
+    expect(state.config.pack_loras).toEqual({ anima: [other] });
     expect((await app.handle(request("DELETE", "/api/loras/style.safetensors", undefined, cookie))).status).toBe(404);
     expect((await app.handle(request("GET", "/api/loras"))).status).toBe(401); // cookie required
   });
@@ -494,6 +503,7 @@ describe("updates", () => {
     expect(net.buildsStarted.length).toBe(1);
     net.latestRelease = null; // no release yet: github.com redirects to the releases list
     expect(await updates.check(net.fetch, app.store, "v0.9.0")).toBe("no release found");
+    expect(await updates.check(net.fetch, app.store, "claude/some-branch")).toBe("development build (claude/some-branch): no automatic updates");
     expect(net.calls.at(-1)?.[1]).toBe("https://github.com/lugia19/comfyui-gen-mcp/releases/latest");
   });
 
@@ -502,7 +512,10 @@ describe("updates", () => {
     env.VERSION = "v0.9.0";
     const cookie = await login(app);
     const info = await body(await app.handle(request("GET", "/api/update", undefined, cookie)));
-    expect(info).toEqual({ current: "v0.9.0", latest: "v1.0.0", newer: true, can: true, build: null, building: false });
+    expect(info).toEqual({ current: "v0.9.0", latest: "v1.0.0", dev: false, newer: true, can: true, build: null, building: false });
+    env.VERSION = "claude/some-branch"; // a branch build: the page says so, and offers no update
+    expect(await body(await app.handle(request("GET", "/api/update", undefined, cookie)))).toMatchObject({ dev: true, newer: false });
+    env.VERSION = "v0.9.0";
     const started = await body(await app.handle(request("POST", "/api/update", undefined, cookie)));
     expect(started).toEqual({ build: "build1", latest: "v1.0.0" });
     expect((await app.store.setup()).update_build).toBe("build1");
@@ -805,6 +818,13 @@ describe("the PC path", () => {
 });
 
 describe("the GPU list", () => {
+  it("names the GPUs in its messages, as a list", () => {
+    const g = (name: string) => ({ name }) as any;
+    expect(offlineMessage([g("Your PC")])).toMatch(/^Your PC is offline\. Start the PC .*its tray icon/);
+    expect(offlineMessage([g("Your PC"), g("PC 2")])).toMatch(/^Your PC and PC 2 are offline\. Start them .*their tray icons/);
+    expect(pausedMessage([g("A"), g("B"), g("C")])).toMatch(/^A, B and C are paused: .*their Comfy-Gen tray icons/);
+  });
+
   const pairPc = async (app: App, cookie: Record<string, string>) =>
     body(await app.handle(request("POST", "/api/gpus/pc", undefined, cookie))) as Promise<{ id: string; link: string }>;
   const gen = (app: App, n: number) => mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } }, n);

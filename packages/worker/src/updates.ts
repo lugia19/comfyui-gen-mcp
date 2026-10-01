@@ -46,13 +46,16 @@ export function isNewer(latest: string | null, current: string): boolean {
   return Boolean(next) && (!cur || newer(next!, cur));
 }
 
-/** Start a build if a newer release exists. Returns what happened, for the log. */
+/** Start a build if a newer release exists. Returns what happened, for the log. A development
+ * build (a branch or "dev", not a release tag) never updates itself: its build variables would only
+ * rebuild the same branch, and whoever set them decides when it goes back to releases. */
 export async function check(fetch: Fetch, store: Store, current: string): Promise<string> {
+  const cur = parseVersion(current);
+  if (!cur) return `development build (${current}): no automatic updates`;
   const latest = await latestRelease(fetch);
   const next = parseVersion(latest ?? "");
-  const cur = parseVersion(current);
   if (!next) return "no release found";
-  if (cur && !newer(next, cur)) return `up to date (${current})`;
+  if (!newer(next, cur)) return `up to date (${current})`;
   const setup = await store.setup();
   if (setup.update_tried === latest) return `already tried ${latest}`;
   const s = await store.secrets();

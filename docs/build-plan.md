@@ -302,8 +302,11 @@ Done on the test install (2026-10-01): a branch build created the bucket inside 
 set both rules; `/img/`, `/store/` and `/agent` answer as designed.
 
 Still to do:
-- the live run (two PCs on one machine with `COMFY_GEN_AGENT_INSTANCE`, plus Modal), then
-  `cpuTimeMs` for a warm generation, `/img/`, an upload, a LoRA chunk and download
+- ~~the live run~~ done 2026-10-01 (design appendix): fixed from its report: untriggered LoRAs
+  leave the workflow, a deleted LoRA leaves the settings, a call's budget is 150 s (a connector
+  from Claude Code gives up at about 183 s), `HEAD /img/`, no self-update on a branch build, Anima
+  asks for prompts of at least 10 tags, and wording
+- itemize the warm generation's CPU (median about 18 ms live, against 10 at M6)
 - what the Deploy button does with the binding on a fresh install
 - **The Worker reports what the user must do on another site** (decided 2026-10-01): card
   steps (R2's checkout, Modal's billing) cannot be automated, OAuth or not. So the site lists them

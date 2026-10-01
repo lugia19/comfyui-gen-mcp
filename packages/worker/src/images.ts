@@ -16,11 +16,12 @@ export async function getImage(bucket: Bucket, id: string): Promise<Uint8Array |
   return obj ? new Uint8Array(await obj.arrayBuffer()) : null;
 }
 
-/** GET /img/<id>: the stored image, streamed. */
-export async function serveImage(bucket: Bucket, id: string): Promise<Response> {
+/** GET /img/<id>: the stored image, streamed. HEAD: its headers only (link previews ask that way). */
+export async function serveImage(bucket: Bucket, id: string, head = false): Promise<Response> {
   const obj = refs.IMAGE_ID.test(id) ? await bucket.get(refs.imageKey(id)) : null;
   if (!obj) return new Response("This image does not exist, or it was deleted after a year.", { status: 404 });
-  return new Response(obj.body, {
+  if (head) await obj.body?.cancel();
+  return new Response(head ? null : obj.body, {
     headers: {
       "Content-Type": obj.httpMetadata?.contentType ?? "application/octet-stream",
       "Content-Length": String(obj.size),

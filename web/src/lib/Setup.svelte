@@ -365,7 +365,12 @@
 {#if update}
   <section>
     <h2>Updates</h2>
-    {#if update.newer}
+    {#if update.dev}
+      <p class="muted">
+        This Worker runs a development build (<b>{update.current}</b>). It doesn't update itself; remove the
+        build's <code>COMFY_GEN_REF</code> variable to go back to releases.
+      </p>
+    {:else if update.newer}
       <p>
         This Worker runs <b>{update.current}</b>; <b>{update.latest}</b> is out.
         <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/tag/{update.latest}" target="_blank" rel="noopener">What's new</a>
@@ -380,7 +385,11 @@
       {/if}
     {:else}
       <p class="muted">
-        This Worker runs {update.current}, the latest release. It checks for new ones every day.
+        {#if update.latest}
+          This Worker runs {update.current}, the latest release. It checks for new ones every day.
+        {:else}
+          This Worker runs {update.current}. Couldn't check for a new release just now; it checks every day.
+        {/if}
       </p>
     {/if}
     {#if updateError}<p class="err">{updateError}</p>{/if}

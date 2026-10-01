@@ -100,7 +100,7 @@
 
   async function remove(name) {
     const where = has('storage') ? ' from storage and every GPU' : ''
-    if (!confirm(`Delete ${name}${where}? It is turned off in every model.`)) return
+    if (!confirm(`Delete ${name}${where}? Models that use it stop using it.`)) return
     error = ''
     deleting = name
     try {

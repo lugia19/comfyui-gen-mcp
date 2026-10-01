@@ -60,7 +60,7 @@ function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: nu
 }
 
 describe("one time budget per tool call", () => {
-  // The clients give up at 300 s. A cold start plus a full wait after it used to run past that.
+  // Clients give up after 3 to 5 minutes. A cold start plus a full wait after it used to run past that.
   const coldSetup = () => {
     const comfy = new FakeComfy();
     const client = fastClient(comfy, { coldStartS: 300 });
@@ -70,11 +70,11 @@ describe("one time budget per tool call", () => {
 
   it("a slow cold start still answers within the budget, with a token to fetch later", async () => {
     const { comfy, client, brain } = coldSetup();
-    comfy.bootFails = 40; // 200 s of booting, 5 s per retry
+    comfy.bootFails = 20; // 100 s of booting, 5 s per retry
     comfy.history = Array(200).fill("running"); // then a long first load
     const out = await brain.call("generate_realistic_image", { prompt: "a lighthouse" });
     expect(out).toBeInstanceOf(Pending);
-    expect(client.time()).toBeLessThanOrEqual(DEFAULT_WAIT_S + 15); // not 200 + 240
+    expect(client.time()).toBeLessThanOrEqual(DEFAULT_WAIT_S + 15); // not 100 + 150
     comfy.history = [];
     expect(await brain.call("fetch_result", { request_token: (out as Pending).token })).toBeInstanceOf(Done);
   });

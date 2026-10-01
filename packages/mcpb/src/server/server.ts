@@ -5,6 +5,7 @@
 
 import type { Server } from "node:http";
 import { listen, loadConfig, log, logTo, Machine, paths, saveConfig, type LocalConfig, type Paths, type WebFiles } from "@comfy-gen/local";
+import { withoutLora } from "@comfy-gen/core";
 import { LocalApp, selectedPacks } from "./app.ts";
 
 export type ServerOptions = {
@@ -40,6 +41,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     saveGpu: (gpu) => saveConfig(p.config, { ...config(), gpu }),
     waitExtension: opts.waitExtension,
     onInstalled: downloadSelected,
+    onLoraDeleted: (name) => {
+      const packLoras = withoutLora(config().pack_loras, name);
+      if (packLoras) saveConfig(p.config, { ...config(), pack_loras: packLoras });
+    },
   });
   await machine.comfy.refresh();
 

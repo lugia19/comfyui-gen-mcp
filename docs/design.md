@@ -185,15 +185,16 @@ it; the MCPB's stdio shim may use the official TypeScript SDK.
 
 ### Waiting
 
-`tools/call` blocks up to about 4 minutes, returning the image directly. The MCP client timeout is
-5 minutes (S8; Claude Code's idle timeout for HTTP servers is the same) and a cold start plus
+`tools/call` blocks up to 2.5 minutes, returning the image directly. claude.ai's MCP client
+timeout is 5 minutes (S8), but a claude.ai connector used from Claude Code gave up at about 183 s
+(2026-10-01: a cold Modal edit the Worker answered at 211 s reached nobody). A cold start plus
 generation usually stays under 2. The request-token path plus `fetch_result` is the fallback. No
 cold/warm status vocabulary.
 
-The 4 minutes (`DEFAULT_WAIT_S` = 240 s) are **one budget per tool call, counted from its start**:
+The 2.5 minutes (`DEFAULT_WAIT_S` = 150 s; 240 s until 2026-10-01) are **one budget per tool call, counted from its start**:
 the client's `stopBy`. The cold-start retries of submit, uploads and `/view` stop at it as well as
 at their own limit (`MODAL_COLD_START_S`), and the wait gets what is left. So a call answers within
-240 s with the image, a `fetch_result` token (submitted, still running), or "The GPU is still
+150 s with the image, a `fetch_result` token (submitted, still running), or "The GPU is still
 starting up; call the tool again in a minute" (never got to submit). Until 2026-10-01 the 240 s
 counted from after the submit, so a slow cold start plus the wait passed 300 s and a tester's
 Claude Code gave up with "operation timed out". The extension holds its own start-up (launching
@@ -325,7 +326,9 @@ and uploads would land where it doesn't look).
 LoRAs (Anima family only, as in the old extension: `supportsLoras` in `packs.ts`) are uploaded from
 the settings page and configured per pack family: file, strength, trigger (it applies only when the
 prompt contains the trigger; no trigger means always), hidden (the trigger is not listed in the tool
-description).
+description). A LoRA whose trigger is not in the prompt is taken out of the workflow, not set to
+strength 0: ComfyUI checks every loader's file, so a missing file would fail calls that never asked
+for it (seen 2026-10-01). Deleting a LoRA also takes it out of every pack's settings.
 
 - **Upload path, through the Worker into R2.** `POST /api/loras/uploads` opens an R2 multipart
   upload (the session, with R2's upload id, in the State object's `lora_uploads`, 24 h); each
@@ -544,7 +547,8 @@ On the Worker, `RelayTransport` is core's `Transport` over the object's `request
 ComfyUI client, held waits and the brain are unchanged. A call with no agent connected waits 10 s
 for a reconnect, then fails with "<name> is offline"; one whose agent drops mid-call fails with
 "the connection to your PC dropped". Timeouts: 120 s for a ComfyUI request (a held wait is 50 s),
-30 s for control, 240 s for `ensure`. The GPU is chosen per call from the list (§2, "GPUs"); an
+30 s for control, 100 s for `ensure` (past it the call says ComfyUI is still starting on that PC,
+and the agent carries on for the next call). The GPU is chosen per call from the list (§2, "GPUs"); an
 image to edit comes from R2 (§4), whichever GPU made it.
 
 Measured on the test install (appendix, "M6 live"): a warm relayed generation costs the Worker a
@@ -695,7 +699,7 @@ The order puts first what can be built and tested without Modal, Windows or a GP
 | Modal cold start / warm, L4 | about 44 s / 0.5 s to accept a prompt | S5, 2026-09-28 |
 | Modal free compute | $30 a month, card required | Modal pricing and billing docs |
 | Workers Builds | 3,000 free minutes a month, 1 concurrent; a deploy takes 1.5 to 2.4 min | S4, 2026-09-28 |
-| MCP client timeout | 5 minutes | S8, 2026-09-28 |
+| MCP client timeout | 5 minutes (claude.ai); about 3 from Claude Code through a claude.ai connector | S8, 2026-09-28; test report 2026-10-01 |
 | Blocking tool call through a Worker | 250 s works | Tested, 2026-09-28 |
 | Workers free subrequests | 50 external + 1,000 to Cloudflare services, per invocation | Cloudflare limits, 2026-09-05 |
 | Builds API token | User-scoped only: an account token with Workers CI Write gets "Invalid token" (12006) | Tested, 2026-09-27 |
@@ -937,6 +941,16 @@ this container (started by the Linux launcher) with a CPU ComfyUI, a two-node cu
   release server, and the restart into v9 came after exactly the 10 quiet minutes.
 
 **S8, 2026-09-28: the client timeout is 5 minutes.**
+
+**R2 and the GPU list live, 2026-10-01.** The test install on the branch, two agents on one Windows
+PC (`COMFY_GEN_AGENT_INSTANCE`) plus Modal, driven by a local Claude Code. Worker `cpuTimeMs` from
+Workers Logs over the run (27 `/mcp` calls): warm generations median about 18 ms (9 to 27; M6 had
+10), a cold Modal edit that waited 211 s 73 ms, a cold Modal call 57 ms; nothing over the limit.
+`/img/` 0 to 1 ms, an upload 7 ms, `/store/` 2 to 3 ms, a LoRA chunk 1 to 2 ms, `/agent/sync` median
+4 ms, `/api/state` 2, `/api/models` 4, the State and Relay objects 0 to 2 ms. Times: 142 MiB LoRA
+upload about 9 s; R2 to a PC 6.5 s, to Modal about 20 s; PC generations 40 to 56 s with ComfyUI
+cold, Modal cold 108 to 140 s. The warm-generation rise is not itemized yet (a probe, as on
+2026-09-28, is next).
 
 **R2 through the Worker, 2026-10-01: effectively free.** A throwaway Worker (`comfy-gen-r2probe`,
 deleted after) with an R2 binding, median billed `cpuTimeMs`: a 500 KB `put` from memory 1 ms; a

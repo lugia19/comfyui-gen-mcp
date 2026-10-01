@@ -17,7 +17,7 @@ const RETRIES = 5;
 export type Push = { name: string; size: number; upload_url: string; chunk_size: number; chunks: number };
 export type Pull = { name: string; size: number; url: string };
 /** A copy in progress, or one that failed (kept until the next round). */
-export type SyncJob = { to: "modal" | "pc"; done: number; total: number; error?: string };
+export type SyncJob = { to: "storage" | "pc"; done: number; total: number; error?: string };
 
 export type LoraSyncOptions = {
   machine: Pick<Machine, "loras" | "loraPaths" | "lorasDir"> & { loraRegistry: { add(name: string): void; delete(name: string): void } };
@@ -87,11 +87,11 @@ export class LoraSync {
     const push = plan.push ?? [];
     const pull = plan.pull ?? [];
     this.jobs = {};
-    for (const p of push) this.jobs[p.name] = { to: "modal", done: 0, total: p.size };
+    for (const p of push) this.jobs[p.name] = { to: "storage", done: 0, total: p.size };
     for (const p of pull) this.jobs[p.name] = { to: "pc", done: 0, total: p.size };
     let copied = 0;
     const run = async (name: string, copy: () => Promise<void>) => {
-      const where = this.jobs[name].to === "pc" ? "this PC" : "Modal";
+      const where = this.jobs[name].to === "pc" ? "this PC" : "the Worker's storage";
       const started = Date.now();
       try {
         log.info(`LoRA sync: copying ${name} to ${where}`);

@@ -67,7 +67,9 @@ export type BuildOptions = {
   rng?: Rng;
 };
 
-/** Copy a workflow, inject the prompt, randomize seeds, set dimensions, gate LoRAs on their triggers. */
+/** Copy a workflow, inject the prompt, randomize seeds, set dimensions, gate LoRAs on their triggers
+ * (one whose trigger is not in the prompt is taken out of the chain: ComfyUI checks every loader's
+ * file, so a LoRA left in at strength 0 fails the call when its file is missing). */
 export function buildPrompt(
   workflow: Workflow,
   promptText: string,
@@ -99,8 +101,13 @@ export function buildPrompt(
       const nid = String(tog.node_id);
       if (!(nid in wf)) continue;
       const trigger = tog.trigger || "";
-      const active = !trigger || lowered.includes(trigger.toLowerCase());
-      wf[nid].inputs.strength_model = active ? Number(tog.strength) : 0.0;
+      if (!trigger || lowered.includes(trigger.toLowerCase())) {
+        wf[nid].inputs.strength_model = Number(tog.strength);
+        continue;
+      }
+      const source = wf[nid].inputs.model;
+      for (const [consumer, key] of consumersOf(wf, [nid, 0])) wf[consumer].inputs[key] = source;
+      delete wf[nid];
     }
   }
   return wf;

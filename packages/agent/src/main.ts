@@ -132,7 +132,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
         title: () => (paused ? "Take image requests again" : "Stop taking image requests"),
         note: () => (paused ? "paused until resumed or restarted" : null),
         onClick: () => setPaused(!paused, "the tray"),
-        name: p.instance ? `Comfy-Gen agent ${p.instance.n}` : undefined,
+        name: p.instance ? `Comfy-Gen agent ${p.instance.n}` : "Comfy-Gen agent",
       })
     : null;
 

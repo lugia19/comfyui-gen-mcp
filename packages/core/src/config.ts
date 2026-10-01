@@ -84,6 +84,13 @@ function strengthOf(value: unknown): number {
   return Number.isFinite(n) ? n : 1;
 }
 
+/** *pack_loras* without the LoRA *name* in any pack, or null if no pack had it. A deleted LoRA leaves
+ * the config with its file, or every generation of that pack would ask ComfyUI for a missing file. */
+export function withoutLora(packLoras: Record<string, LoraEntry[]>, name: string): Record<string, LoraEntry[]> | null {
+  if (!Object.values(packLoras).some((list) => list.some((e) => e.name === name))) return null;
+  return Object.fromEntries(Object.entries(packLoras).map(([key, list]) => [key, list.filter((e) => e.name !== name)]));
+}
+
 /** A pack's LoRA list, cleaned: a bare string is a file name; entries without a name are dropped;
  * strength is clamped to ±LORA_STRENGTH_MAX. Everything downstream reads this shape. */
 function loraEntries(list: unknown): LoraEntry[] {

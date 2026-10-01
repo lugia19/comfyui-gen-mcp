@@ -25,6 +25,8 @@ export type MachineOptions = {
   /** Remember the GPU kind an install was made for. */
   saveGpu: (gpu: string) => void;
   waitExtension: string; // comfy_node/__init__.py
+  /** After a LoRA is deleted (the MCPB takes it out of its packs' settings). */
+  onLoraDeleted?: (name: string) => void;
   /** After a successful install (the MCPB starts its selected packs' downloads). */
   onInstalled?: () => void;
   openFolder?: (path: string) => void;
@@ -175,6 +177,7 @@ export class Machine {
       if (!up && m === "DELETE") {
         const name = decodeURIComponent(sub.slice("/loras/".length));
         this.loraRegistry.delete(name);
+        this.opts.onLoraDeleted?.(name);
         log.info(`LoRA deleted: ${name}`);
         return json({ deleted: name });
       }
