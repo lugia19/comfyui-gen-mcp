@@ -158,6 +158,7 @@
   // Updates: the Worker checks for a release daily; Update now starts the same build at once.
   let update = $state(null) // {current, latest, newer, can, build}
   let updating = $state(false) // started from this page: keep its log after it finishes
+  let updateFinished = $state(false) // that build stopped (the button returns if it failed)
   let updateError = $state('')
 
   async function loadUpdate() {
@@ -173,6 +174,7 @@
     try {
       await api('POST', '/update')
       updating = true
+      updateFinished = false
       await loadUpdate()
       await refresh()
     } catch (e) {
@@ -460,7 +462,7 @@
         It updates itself within a day. Update now starts the build at once: it takes a minute or two, and
         {gen?.kind === 'modal' ? 'redeploys ComfyUI on Modal too' : 'image requests keep working meanwhile'}.
       </p>
-      {#if !updating && !(update.build && update.build === info.build)}
+      {#if !update.building && !(updating && !updateFinished)}
         <button onclick={updateNow} disabled={!update.can}>Update now</button>
         {#if !update.can}<p class="muted">Log in again with a Cloudflare token to update from here.</p>{/if}
       {/if}
@@ -470,18 +472,21 @@
       </p>
     {/if}
     {#if updateError}<p class="err">{updateError}</p>{/if}
-    {#if update.build && (updating || (update.newer && update.build === info.build))}
+    <!-- The log while an update builds (from here, the daily check or another tab), and after one
+         started here, so a failure stays readable. A finished build elsewhere shows nothing. -->
+    {#if update.build && (update.building || updating)}
       {#key update.build}
         <BuildLog
           onfinished={async () => {
             await refresh()
             await loadUpdate()
+            updateFinished = true
           }}
         />
       {/key}
-      {#if updating && update && !update.newer}
-        <p class="ok">Updated. <a href="/" onclick={() => location.reload()}>Reload this page</a> for the new version's settings page.</p>
-      {/if}
+    {/if}
+    {#if updating && updateFinished && !update.newer}
+      <p class="ok">Updated. <a href="/" onclick={() => location.reload()}>Reload this page</a> for the new version's settings page.</p>
     {/if}
   </section>
 {/if}

@@ -41,6 +41,8 @@ export class FakeNet {
   tokenStatus = "active";
   scripts: Record<string, string> = { "comfy-gen": "tag1" }; // what the token can see
   buildsStarted: any[] = [];
+  buildState = "running"; // what a build's status says
+  buildStatusCalls = 0;
   buildVars: Record<string, any> = {};
   adminCalls: [string, string, any][] = [];
   seedState: Record<string, any> = {};
@@ -93,7 +95,10 @@ export class FakeNet {
       return cf({ build_uuid: `build${this.buildsStarted.length}` });
     }
     if (path.includes("/builds/builds/") && path.endsWith("/logs")) return cf({ lines: [[1, "hello"], [2, "world"]], cursor: "c2" });
-    if (path.includes("/builds/builds/")) return cf({ status: "running", build_outcome: null });
+    if (path.includes("/builds/builds/")) {
+      this.buildStatusCalls += 1;
+      return cf({ status: this.buildState, build_outcome: this.buildState === "stopped" ? "success" : null });
+    }
     return cf(null, false);
   }
 

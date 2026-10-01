@@ -182,6 +182,9 @@ path for PC-only users. Revisit if users get stuck at the GitHub step specifical
   - The offline note after a save is quiet (`notes`), not a red warning.
   - Uploading a LoRA the PC already had no longer downloads it again (same name and size).
   - The agent logs LoRA deletes; the PC step's summary names the OS; texts fixed.
+  - Update now never came back after one update: a finished update build counted as running
+    while it was still the latest build. The Worker now asks Cloudflare whether it is still
+    running (once; a stopped build is recorded).
 - **v1.3.5 test report fixes.** Done 2026-09-30:
   - A PC image's link and edits failed once keep-warm had stopped ComfyUI: `/view` is served from
     disk (design §9).

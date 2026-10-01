@@ -459,7 +459,7 @@ describe("updates", () => {
     env.VERSION = "v0.9.0";
     const cookie = await login(app);
     const info = await body(await app.handle(request("GET", "/api/update", undefined, cookie)));
-    expect(info).toEqual({ current: "v0.9.0", latest: "v1.0.0", newer: true, can: true, build: null });
+    expect(info).toEqual({ current: "v0.9.0", latest: "v1.0.0", newer: true, can: true, build: null, building: false });
     const started = await body(await app.handle(request("POST", "/api/update", undefined, cookie)));
     expect(started).toEqual({ build: "build1", latest: "v1.0.0" });
     expect((await app.store.setup()).update_build).toBe("build1");
@@ -467,8 +467,18 @@ describe("updates", () => {
     // Again on demand, though the daily check would not retry a release it already tried.
     await app.handle(request("POST", "/api/update", undefined, cookie));
     expect(net.buildsStarted.length).toBe(2);
+    expect((await body(await app.handle(request("GET", "/api/update", undefined, cookie)))).building).toBe(true);
     env.VERSION = "v1.0.0"; // the build deployed it
-    expect((await body(await app.handle(request("GET", "/api/update", undefined, cookie)))).newer).toBe(false);
+    net.buildState = "stopped";
+    const done = await body(await app.handle(request("GET", "/api/update", undefined, cookie)));
+    expect([done.newer, done.building]).toEqual([false, false]);
+    expect((await app.store.setup()).update_finished).toBe("build2");
+    // The next release: the button comes back (not hidden by the finished build), and the
+    // finished build is not asked about again.
+    net.latestRelease = "v1.1.0";
+    const calls = net.buildStatusCalls;
+    const next = await body(await app.handle(request("GET", "/api/update", undefined, cookie)));
+    expect([next.newer, next.building, net.buildStatusCalls]).toEqual([true, false, calls]);
     expect((await app.handle(request("POST", "/api/update"))).status).toBe(401); // cookie required
   });
 
