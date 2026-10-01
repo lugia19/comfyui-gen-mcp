@@ -257,6 +257,10 @@ export class App {
   }
 
   private async setReady(gpu: Gpu, pack: string, ready: boolean): Promise<void> {
+    // Most calls change nothing: compare with the copy this call already read (routing did), and
+    // read fresh only to write. Saves a State read per generation (a 2026-10-01 CPU probe). A stale
+    // copy at worst skips one update of an advisory flag; the next call corrects it.
+    if ((await this.store.setup()).ready?.[gpu.id]?.[pack] === ready) return;
     const setup = await this.fresh.setup();
     const known: Record<string, boolean> = setup.ready?.[gpu.id] ?? {};
     if (known[pack] === ready) return;

@@ -949,8 +949,23 @@ Workers Logs over the run (27 `/mcp` calls): warm generations median about 18 ms
 `/img/` 0 to 1 ms, an upload 7 ms, `/store/` 2 to 3 ms, a LoRA chunk 1 to 2 ms, `/agent/sync` median
 4 ms, `/api/state` 2, `/api/models` 4, the State and Relay objects 0 to 2 ms. Times: 142 MiB LoRA
 upload about 9 s; R2 to a PC 6.5 s, to Modal about 20 s; PC generations 40 to 56 s with ComfyUI
-cold, Modal cold 108 to 140 s. The warm-generation rise is not itemized yet (a probe, as on
-2026-09-28, is next).
+cold, Modal cold 108 to 140 s. Itemized the same day with a throwaway Worker (`comfy-gen-cpuprobe3`, deleted after): the real
+`App` on the PC path with canned agent answers, one piece swapped per variant, medians over 15
+calls:
+
+| Variant | 2 KB image | 419 KB image |
+|---|---|---|
+| everything in memory | 2 ms | 11 ms |
+| + the relay as a Durable Object (RPC, as live) | 5 ms | 13.5 ms |
+| + the real State object | | 17 ms |
+| + the real R2 put | 7 ms | 16 ms |
+
+(The probe re-read and re-sent each response, which inflates the image column a little.) So no
+regression: the image (about 5 ms for 400 KB, as on the Modal path on 2026-09-28), five relay calls
+(status, ensure, prompt, wait, view: about 3 ms) and the State reads (about 3.5 ms; the 30 s cache
+misses when generations are 40 s apart) add up, R2 costs nothing measurable, and platform variance
+does the rest. M6's 10 ms was a two-node workflow with a tiny image, not a like-for-like baseline.
+The one cut taken: the readiness bookkeeping no longer re-reads the settings when nothing changed.
 
 **R2 through the Worker, 2026-10-01: effectively free.** A throwaway Worker (`comfy-gen-r2probe`,
 deleted after) with an R2 binding, median billed `cpuTimeMs`: a 500 KB `put` from memory 1 ms; a
