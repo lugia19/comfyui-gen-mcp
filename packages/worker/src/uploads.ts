@@ -93,7 +93,7 @@ export async function receive(
   if (!body.length) return error(400, "empty body");
   try {
     const [image, mime] = await storeInput(client, body, nonce);
-    return json({ image_id: await refs.sign(image, key, backend), bytes: body.length, mime });
+    return json({ image_id: await refs.imageId(image, key, backend), bytes: body.length, mime });
   } catch (e) {
     if (e instanceof BadImage) return error(e.status, e.message);
     if (e instanceof ComfyUIError) return error(502, e.message);

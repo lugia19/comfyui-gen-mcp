@@ -107,6 +107,24 @@ describe("refs", () => {
     await expect(refs.verify(`${json}.${mac}`, KEY)).rejects.toBeInstanceOf(refs.RefError);
   });
 
+  it("image ids for the model: bare names, resolved without a MAC; anything else must verify", async () => {
+    const m7 = new OutputImage("comfy-gen_00007_.png", "", "output");
+    expect(await refs.imageId(m7, KEY)).toBe("m7");
+    expect(await refs.imageId(m7, KEY, "pc")).toBe("p7");
+    for (const id of ["m7", " m7\n", await refs.sign(m7, KEY)]) expect(await refs.resolve(id, KEY)).toEqual({ image: m7, backend: "main" });
+    const upload = refs.uploadFilename(await refs.checkUpload(await refs.mintUpload(KEY, 0, 60), KEY, 1), "image/png");
+    const upId = await refs.imageId(new OutputImage(upload, refs.UPLOAD_SUBFOLDER, "input"), KEY);
+    expect(upId).toMatch(/^mup[\w-]{8}$/);
+    // Other images keep a signed JSON id, which must verify.
+    const other = new OutputImage("x.png", "sub", "output");
+    const otherId = await refs.imageId(other, KEY);
+    expect(otherId).toBe(await refs.sign(other, KEY));
+    expect(await refs.resolve(otherId, KEY)).toEqual({ image: other, backend: "main" });
+    for (const bad of ["", "m", "x7", "mu", "m7.wrongmacxxx", `${otherId.split(".")[0]}.AAAAAAAAAAAAAAAAAAAAAA`, "../../etc/passwd", "m7/../x"]) {
+      await expect(refs.resolve(bad, KEY), bad).rejects.toBeInstanceOf(refs.RefError);
+    }
+  });
+
   it("loadValue", () => {
     expect(new OutputImage("a.png", "", "output").loadValue()).toBe("a.png [output]");
     expect(new OutputImage("a.png", "sub", "input").loadValue()).toBe("sub/a.png");

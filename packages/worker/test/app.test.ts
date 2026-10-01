@@ -82,9 +82,12 @@ describe("MCP", () => {
     expect(fromBase64(image.data)).toEqual(comfy.viewBody);
     expect(comfy.calls.find((c) => c[1] === "/view")![2]!.preview).toBe("webp;90");
     const ref = info.text.split("image_id: ")[1].split("\n")[0];
-    expect(ref).toMatch(/^m1\.[\w-]{12}$/); // compact: short enough to copy
-    expect(await refs.verify(ref, fromHex((await secretsOf(app)).hmac_key))).toMatchObject({ image: { filename: "comfy-gen_00001_.png" }, backend: "main" });
-    expect(info.text).toContain("/img/" + ref);
+    expect(ref).toBe("m1"); // the model's id: the bare name; the public link carries a MAC
+    const key = fromHex((await secretsOf(app)).hmac_key);
+    expect(await refs.resolve(ref, key)).toMatchObject({ image: { filename: "comfy-gen_00001_.png" }, backend: "main" });
+    const link = info.text.split("/img/")[1].split("\n")[0];
+    expect(link).toMatch(/^m1\.[\w-]{12}$/);
+    expect(await refs.verify(link, key)).toEqual(await refs.resolve(ref, key));
     const comfyCalls = net.calls.filter((c) => c[1].startsWith(COMFY));
     expect(comfyCalls.every((c) => c[2]["X-Test"] === "1")).toBe(true); // generator headers on every call
     expect(comfyCalls.length).toBeLessThanOrEqual(REQUEST_BUDGET);
@@ -108,6 +111,7 @@ describe("MCP", () => {
     const up = await app.handle(request("POST", `/upload/${token}`, png(640, 480)));
     expect(up.status).toBe(200);
     const imageId = (await body(up)).image_id;
+    expect(imageId).toMatch(/^mup[\w-]{8}$/); // short: the model copies it
     [, r] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "add a hat", image: imageId } });
     expect(r.result.isError).toBe(false);
     const loads = Object.values<any>(comfy.prompts.at(-1)!).filter((n) => n.class_type === "LoadImage").map((n) => n.inputs.image);
@@ -143,6 +147,7 @@ describe("MCP", () => {
     expect(new Uint8Array(await resp.arrayBuffer())).toEqual(comfy.viewBody);
     expect(comfy.calls.at(-1)![2]).not.toHaveProperty("preview");
     expect((await app.handle(request("GET", "/img/bogus"))).status).toBe(404);
+    expect((await app.handle(request("GET", "/img/m1"))).status).toBe(404); // the bare id is no link
     // An id in the JSON form (what chats hold from before compact ids) still opens.
     const legacy = await refs.sign(new OutputImage("comfy-gen_00001_.png", "sub"), fromHex((await secretsOf(app)).hmac_key));
     expect(legacy.startsWith("Wy")).toBe(true);
@@ -628,20 +633,19 @@ describe("the PC path", () => {
     comfy.viewBody = girl;
     const bytes = async (r: Response) => new Uint8Array(await r.arrayBuffer());
     const idOf = (r: any) => r.result.content.find((c: any) => c.text?.includes("image_id: ")).text.split("image_id: ")[1].split("\n")[0];
+    const linkOf = (r: any) => r.result.content.find((c: any) => c.text?.includes("/img/")).text.split("/img/")[1].split("\n")[0];
 
     const [, onPc] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a fox" } });
     pc.connected = false;
     const [, onMain] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a girl" } }, 2);
     const [pcId, mainId] = [idOf(onPc), idOf(onMain)];
     // Both ComfyUIs named their first output comfy-gen_00001_.png; the ids still differ.
-    expect((await refs.verify(pcId, key)).image).toEqual((await refs.verify(mainId, key)).image);
-    expect(pcId).not.toBe(mainId);
-    // Ids from before the PC existed are the main generator's.
-    expect(mainId).toBe(await refs.sign(new OutputImage("comfy-gen_00001_.png", "", "output"), key));
+    expect([pcId, mainId]).toEqual(["p1", "m1"]);
+    expect((await refs.resolve(pcId, key)).image).toEqual((await refs.resolve(mainId, key)).image);
 
     pc.connected = true; // /img/ serves each from its own backend, whichever answers calls now
-    expect(await bytes(await app.handle(request("GET", `/img/${pcId}`)))).toEqual(fox);
-    expect(await bytes(await app.handle(request("GET", `/img/${mainId}`)))).toEqual(girl);
+    expect(await bytes(await app.handle(request("GET", `/img/${linkOf(onPc)}`)))).toEqual(fox);
+    expect(await bytes(await app.handle(request("GET", `/img/${linkOf(onMain)}`)))).toEqual(girl);
 
     // Editing the main generator's image while the PC answers copies it to the PC first.
     const uploads = pc.comfy.uploads.length;

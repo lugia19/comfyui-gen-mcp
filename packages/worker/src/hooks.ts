@@ -75,7 +75,7 @@ export class WorkerHooks extends Hooks {
     if (arg.toLowerCase().startsWith("image_id:")) arg = arg.slice(arg.indexOf(":") + 1).trim(); // the label copied along
     let found;
     try {
-      found = await refs.verify(arg, this.key);
+      found = await refs.resolve(arg, this.key);
     } catch (e) {
       if (!(e instanceof refs.RefError)) throw e;
       throw new ComfyUIError(`${e.message} Pass an image_id from an earlier result or from request_upload, or a public https URL.`);

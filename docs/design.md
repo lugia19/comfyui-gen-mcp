@@ -245,13 +245,18 @@ stored `custom_workflow` setting is dropped on read.
   image copies it into the answering ComfyUI's inputs first. (Found in the from-scratch test: the
   PC's first image had exactly the id of Modal's first image.)
 - **Compact ids** (2026-10-01): models mistyped the 70-character JSON ids. An image this app named
-  gets `<payload>.<mac>` with a plain payload: `m7` (the main generator's `comfy-gen_00007_.png`),
-  `p7` (the PC's), or `mupAbC…` for an upload (`m`/`p`, `u`, the extension as a letter
-  `p`/`j`/`w`/`g`, the nonce). The MAC is HMAC-SHA256 over `"c:" + payload`, cut to 9 bytes (12
-  characters); an id is only checked online, one guess per request. A generated image's id is 15
-  characters (`m7.Ab3dE9fGh1Jk`), an upload's about 32. `sign` uses the compact form only when the
-  name rebuilds exactly (`%05d` numbering), else the JSON form; `verify` takes both, so ids in
-  existing chats keep working. `golden.json` pins both (`refs`, `refs_pc`, `refs_compact`).
+  has a plain name: `m7` (the main generator's `comfy-gen_00007_.png`), `p7` (the PC's), or
+  `mupAbCd1234` for an upload (`m`/`p`, `u`, the extension as a letter `p`/`j`/`w`/`g`, the
+  8-character nonce). **The model's `image_id` is that name alone, with no MAC.** It can only name
+  our own outputs and uploads, never another path, and `edit_image` is behind the connector's
+  secret URL, which already allows everything (so whoever has that URL can reach old images by
+  number; a typo such as m7 for m8 edits another of the user's images rather than erroring;
+  both accepted). **The public `/img/` link carries a MAC**, `m7.Ab3dE9fGh1Jk`: HMAC-SHA256 over
+  `"c:" + payload`, cut to 9 bytes, so one link does not lead to the others. `imageId` gives the
+  bare name when the name rebuilds exactly (`%05d` numbering), else the signed JSON form; `resolve`
+  (MCP input) takes a bare name, a link's id or a JSON id, which must verify; `verify` (`/img/`)
+  needs the MAC. Ids in existing chats keep working. `golden.json` pins all of them (`refs`,
+  `refs_pc`, `refs_compact`).
 - **Results are inline WebP.** claude.ai does not support `resource_link` (it shows "Resource links
   are not currently supported" and the model sees only the name and URL), while inline
   `ImageContent` is shown to the user and seen by the model, WebP included (S2, S2c). Every result

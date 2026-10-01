@@ -35,12 +35,17 @@ describe("golden: what users hold", () => {
     }
   });
 
-  it("compact image ids (added 2026-10-01)", async () => {
-    for (const { image, backend, ref } of g.refs_compact) {
+  // The model's image_id is the bare payload; the public /img/ link (ref) carries its MAC.
+  it("compact image ids and their links (added 2026-10-01)", async () => {
+    for (const { image, backend, image_id, ref } of g.refs_compact) {
       const img = new OutputImage(image[2], image[1], image[0]);
+      expect(await refs.imageId(img, KEY, backend)).toBe(image_id);
       expect(await refs.sign(img, KEY, backend)).toBe(ref);
+      for (const id of [image_id, ref]) expect(await refs.resolve(id, KEY)).toEqual({ image: img, backend });
       expect(await refs.verify(ref, KEY)).toEqual({ image: img, backend });
+      await expect(refs.verify(image_id, KEY)).rejects.toBeInstanceOf(refs.RefError); // a link needs its MAC
     }
+    for (const { ref } of [...g.refs, ...g.refs_pc]) expect(await refs.resolve(ref, KEY)).toEqual(await refs.verify(ref, KEY));
   });
 
   it("upload tokens and file names", async () => {

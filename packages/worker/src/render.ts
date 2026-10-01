@@ -23,8 +23,9 @@ export async function render(
       if (!(e instanceof ComfyUIError)) throw e;
       return [[text(`Error: the image was generated but could not be fetched: ${e.message}`)], true];
     }
-    const ref = await refs.sign(image, hmacKey, backend);
-    content.push(text(`image_id: ${ref}\nFull resolution: ${baseUrl}/img/${ref}`));
+    const id = await refs.imageId(image, hmacKey, backend);
+    const link = `${baseUrl}/img/${await refs.sign(image, hmacKey, backend)}`;
+    content.push(text(`image_id: ${id}\nFull resolution: ${link}`));
   }
   return [content, false];
 }
