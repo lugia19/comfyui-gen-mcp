@@ -49,8 +49,11 @@ start it:
   restart: only while unpaired)
 
 The shim loads the same bundle as for the MCPB (`comfy-gen.mjs` holds both programs) and starts
-the agent. The agent runs for days, so the shim repeats the daily check while it runs and hands a newer bundle to
-the agent, which restarts into it once nothing has used ComfyUI for 10 minutes. A new launcher (a
+the agent. For the agent the shim checks at every start, so restarting it by hand updates it, and
+hourly while it runs (it runs for days); it hands a newer bundle to the agent, which restarts into
+it once nothing has used ComfyUI for 10 minutes and it is not paused (the pause is not saved, so a
+restart would take requests again). The shim is embedded in the launcher: a change to it reaches an
+agent when its user runs a newer launcher. A new launcher (a
 new Node) is a new download; running it installs it over the old one.
 
 ### Modes

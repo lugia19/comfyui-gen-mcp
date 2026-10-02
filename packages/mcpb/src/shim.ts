@@ -4,9 +4,9 @@
 // ~/.comfy-gen-mcp/app/<tag>/ or shipped in the .mcpb, and starts the app in this process. At most
 // once a day it looks up the latest release (the github.com/<repo>/releases/latest redirect, as the
 // Worker's update check does) and downloads that release's bundle in the background, for the next
-// start. The agent runs for days, so for it the check repeats while it runs, and a newer bundle is
-// handed to updateReady(), which restarts into it. Keep this file small and stable: it only changes
-// when users reinstall the extension or the launcher.
+// start. The agent checks at every start and then hourly while it runs (it is one process, so one
+// request an hour), and a newer bundle is handed to updateReady(), which restarts into it. Keep
+// this file small and stable: it only changes when users reinstall the extension or the launcher.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -102,7 +102,7 @@ type Bundle = { start?: (app: string) => Promise<void>; updateReady?: (tag: stri
 const broken = new Set<string>(); // bundles that failed to load in this process: never offered
 
 /** For a long-running bundle (the agent): tell it when the first check brought a newer bundle, and
- * repeat the check while it runs. */
+ * repeat the check hourly while it runs. */
 function watchUpdates(running: string, mod: Bundle, first: Promise<void>): void {
   const current = parseTag(running);
   const notify = mod.updateReady;
@@ -112,7 +112,7 @@ function watchUpdates(running: string, mod: Bundle, first: Promise<void>): void 
     if (newest && newer(newest, current)) notify(newest[0]);
   };
   void first.then(offer);
-  setInterval(() => void update(false).then(offer, failed), 3600 * 1000).unref();
+  setInterval(() => void update(true).then(offer, failed), 3600 * 1000).unref();
 }
 
 async function run(): Promise<void> {
@@ -121,7 +121,7 @@ async function run(): Promise<void> {
   let candidates = override ? [["dev", override] as [string, string]] : bundles();
   let checking = Promise.resolve();
   if (!override) {
-    const first = update(!candidates.length);
+    const first = update(APP === "agent" || !candidates.length); // the agent: at every start
     if (!candidates.length) {
       await first; // nothing to run yet: this one we wait for
       candidates = bundles();

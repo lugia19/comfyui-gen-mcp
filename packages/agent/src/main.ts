@@ -165,7 +165,8 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     if (restart) return;
     log.info(`Comfy-Gen agent ${tag} is downloaded; restarting into it once nothing has run for ${RESTART_WHEN_QUIET_MS / 60_000} minutes`);
     restart = setInterval(() => {
-      if (!machine.idleFor(RESTART_WHEN_QUIET_MS)) return;
+      // Not while paused: the pause isn't saved, so restarting would take requests again unasked.
+      if (paused || !machine.idleFor(RESTART_WHEN_QUIET_MS)) return;
       clearInterval(restart!);
       void close(`restarting into ${tag}`).then(() => exit(RESTART_EXIT_CODE));
     }, 60_000);
