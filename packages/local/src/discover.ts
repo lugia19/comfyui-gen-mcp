@@ -29,6 +29,10 @@ export type DiscoverOptions = {
 
 const MAX_DIRS_READ = 400; // the scan's budget: it runs at every ComfyUI start
 const SKIP = /^(\$|\.|windows$|program ?files|programdata$|appdata$|system volume information$|node_modules$|library$)/i;
+// macOS asks the user before a program reads these (privacy prompts at login, for a background
+// program, seen 2026-10-02), so the blind search stays out of them; a path an app's settings name
+// is still read.
+const MAC_PRIVATE = /^(desktop|documents|downloads|pictures|movies|music|public)$/i;
 
 /** The ComfyUI folder at *dir* (itself, or ComfyUI/ inside, as in the Windows portable build). */
 export function comfyAt(dir: string): string | null {
@@ -43,7 +47,11 @@ function comfyCliWorkspaces(home: string, platform: NodeJS.Platform): string[] {
     platform === "win32" ? join(home, "AppData", "Local", "comfy-cli")
     : platform === "darwin" ? join(home, "Library", "Application Support", "comfy-cli")
     : join(home, ".config", "comfy-cli");
-  const out = [platform === "linux" ? join(home, "comfy", "ComfyUI") : join(home, "Documents", "comfy", "ComfyUI")];
+  // comfy-cli's default workspace; on a Mac, only when comfy-cli is there (it is in Documents).
+  const out =
+    platform === "linux" ? [join(home, "comfy", "ComfyUI")]
+    : platform === "darwin" && !existsSync(configDir) ? []
+    : [join(home, "Documents", "comfy", "ComfyUI")];
   try {
     for (const line of readFileSync(join(configDir, "config.ini"), "utf8").split(/\r?\n/)) {
       const m = /^\s*(default_workspace|recent_workspace)\s*=\s*(.+?)\s*$/.exec(line);
@@ -85,6 +93,7 @@ function stringsUnder(data: unknown, key: string, out: string[] = []): string[] 
 }
 
 function scanRoots(home: string, platform: NodeJS.Platform): string[] {
+  if (platform === "darwin") return [home]; // its private folders are skipped (MAC_PRIVATE)
   const roots = [home, join(home, "Desktop"), join(home, "Documents"), join(home, "Downloads")];
   if (platform === "win32") {
     for (const letter of "CDEFGHIJKLMNOPQRSTUVWXYZ") if (existsSync(`${letter}:\\`)) roots.push(`${letter}:\\`);
@@ -94,13 +103,14 @@ function scanRoots(home: string, platform: NodeJS.Platform): string[] {
 
 /** ComfyUI folders under *roots*: children named like "comfy", and grandchildren so named (as in
  * D:\AI\ComfyUI_windows_portable). Bounded by MAX_DIRS_READ. */
-function scan(roots: string[]): string[] {
+function scan(roots: string[], platform: NodeJS.Platform): string[] {
   const found: string[] = [];
   let budget = MAX_DIRS_READ;
+  const skip = (name: string) => SKIP.test(name) || (platform === "darwin" && MAC_PRIVATE.test(name));
   const list = (dir: string): string[] => {
     if (budget-- <= 0) return [];
     try {
-      return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && !SKIP.test(e.name)).map((e) => e.name);
+      return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && !skip(e.name)).map((e) => e.name);
     } catch {
       return [];
     }
@@ -175,7 +185,7 @@ export function discoverModelSources(own: { models: string; comfy: string | null
     if (isDir(dir)) models(dir, "Comfy Desktop");
   }
   sources.push(...yamlSources(join(comfyDesktop, "shared_model_paths.yaml"), "Comfy Desktop's shared models"));
-  for (const dir of scan(opts.roots ?? scanRoots(home, platform))) addInstall(dir, "found on disk");
+  for (const dir of scan(opts.roots ?? scanRoots(home, platform), platform)) addInstall(dir, "found on disk");
 
   const ownComfy = own.comfy ? folderKey(own.comfy) : null;
   for (const [key, [dir, from]] of installs) {

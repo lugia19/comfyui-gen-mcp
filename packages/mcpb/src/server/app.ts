@@ -28,11 +28,12 @@ export const instructions = (settingsUrl: string) =>
 export type Services = {
   version: string;
   port: number;
+  network: boolean; // listening on every interface (mcp_network when the server started)
   config(): LocalConfig;
   saveConfig(cfg: Record<string, any>): LocalConfig;
   machine: Machine;
-  /** Start downloading the selected packs' missing models (the managed ComfyUI only). */
-  downloadSelected(): void;
+  /** Start downloading these packs' missing models (the managed ComfyUI only). */
+  download(packs: Pack[]): void;
   web: WebFiles;
 };
 
@@ -172,6 +173,7 @@ export class LocalApp {
       mode: "local",
       version: this.s.version,
       connector_url: `http://127.0.0.1:${this.s.port}${cfg.mcp_path}`,
+      listening_on_network: this.s.network,
       ...(await this.s.machine.state(cfg.gpu)),
       config: cfg,
       schema: SETTINGS_SCHEMA,
@@ -187,8 +189,10 @@ export class LocalApp {
     const merged = { ...current, ...incoming, mcp_path: current.mcp_path, mcp_port: current.mcp_port };
     const bad = checkMachineSettings(merged);
     if (bad) return error(400, bad);
+    const before = new Set(selectedPacks(current).map((p) => p.name));
     const cfg = this.s.saveConfig(merged);
-    this.s.downloadSelected(); // a newly chosen pack starts downloading now, not at its first use
+    // A newly chosen model starts downloading now, not at its first use; the others wait for theirs.
+    this.s.download(selectedPacks(cfg).filter((p) => !before.has(p.name)));
     const warnings = this.missingLoras(cfg);
     if (current.comfyui_url !== cfg.comfyui_url || current.extra_models_dir !== cfg.extra_models_dir) {
       if (this.s.machine.comfy.state === "running") warnings.push("Restart ComfyUI (Setup tab) for the change to take effect.");

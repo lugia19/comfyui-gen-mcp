@@ -19,7 +19,7 @@ function world(overrides: Partial<Services> = {}) {
   writeFileSync(join(models, "loras", "mine.safetensors"), "12345");
   const opened: string[] = [];
   const installs: string[] = [];
-  let downloadsStarted = 0;
+  const downloaded: string[] = [];
   // Discovery sees only this temporary home.
   const models_ = new ModelLocator(() => ({ models, comfy: join(home, "comfyui") }), () => "", { home, platform: "linux", env: {}, registry: join(home, "registry"), roots: [] });
   const comfy = {
@@ -37,14 +37,14 @@ function world(overrides: Partial<Services> = {}) {
     version: "1.2.3", port: PORT,
     config: () => loadConfig(p.config),
     saveConfig: (cfg) => (saveConfig(p.config, cfg), loadConfig(p.config)),
-    machine, downloadSelected: () => void downloadsStarted++,
+    machine, download: (packs: { name: string }[]) => void downloaded.push(...packs.map((p) => p.name)), network: false,
     web: (path) => (path === "/index.html" ? { body: new TextEncoder().encode("<html>app</html>"), type: "text/html" } : null),
     ...overrides,
   };
   const app = new LocalApp(services);
   const local = (path: string, init: RequestInit = {}, remote = "127.0.0.1") =>
     app.handle(new Request(`http://127.0.0.1:${PORT}${path}`, { ...init, headers: { host: `127.0.0.1:${PORT}`, ...(init.headers as any) } }), remote);
-  return { app, p, comfy, local, opened, installs, downloadsStarted: () => downloadsStarted, cfg: () => loadConfig(p.config) };
+  return { app, p, comfy, local, opened, installs, downloaded, cfg: () => loadConfig(p.config) };
 }
 
 const rpc = (method: string, params: object = {}) => ({ method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
@@ -102,7 +102,9 @@ describe("settings API", () => {
     expect(r.config.mcp_path).toBe(before.mcp_path);
     expect(r.config.mcp_port).toBe(before.mcp_port);
     expect(r.warnings.join()).toContain("gone.safetensors");
-    expect(w.downloadsStarted()).toBe(1); // saving starts the selected packs' downloads
+    expect(w.downloaded).toEqual([]); // the selection didn't change: models wait for their first use
+    await put({ pack_selections: { generate_illustrated_image: "anima" } });
+    expect(w.downloaded).toEqual(["anima"]); // a newly chosen one starts at once
     expect((await put({ extra_models_dir: "/no/such/dir" })).status).toBe(400);
     expect((await put({ comfyui_url: "ftp://x" })).status).toBe(400);
   });

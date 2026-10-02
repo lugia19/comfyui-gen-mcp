@@ -3,6 +3,7 @@
 // routes for all that. The MCPB adds MCP and pack settings on top; the agent adds the relay.
 
 import { existsSync, statSync } from "node:fs";
+import { totalmem } from "node:os";
 import { join } from "node:path";
 import { ComfyUIError, downloadSize } from "@comfy-gen/core";
 import { LocalComfy, type ComfySettings } from "./comfyui.ts";
@@ -27,8 +28,6 @@ export type MachineOptions = {
   waitExtension: string; // comfy_node/__init__.py
   /** After a LoRA is deleted (the MCPB takes it out of its packs' settings). */
   onLoraDeleted?: (name: string) => void;
-  /** After a successful install (the MCPB starts its selected packs' downloads). */
-  onInstalled?: () => void;
   openFolder?: (path: string) => void;
   comfy?: LocalComfy; // tests pass a stand-in
 };
@@ -115,7 +114,6 @@ export class Machine {
       this.opts.saveGpu(gpu);
       await this.comfy.refresh();
       state.state = "done";
-      this.opts.onInstalled?.();
     })().catch((e) => {
       log.error("Install failed:", e);
       state.state = "failed";
@@ -191,6 +189,7 @@ export class Machine {
       install: this.installState,
       gpus: GPUS,
       detected_gpu: await this.detectedGpu(),
+      memory_gb: Math.round(totalmem() / 2 ** 30), // a Mac's GPU shares it: the page warns below 16
       model_sources:
         comfy.state === "not_installed"
           ? []

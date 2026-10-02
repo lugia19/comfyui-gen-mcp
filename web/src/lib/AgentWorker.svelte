@@ -72,7 +72,7 @@
     </p>
   {:else}
     <p>
-      Pair this PC with your Worker: on the Worker's Setup page, under <b>Your GPUs</b>, press <b>Add a PC</b>
+      Pair this PC with your Worker: on the Worker's Setup page, under <b>Your GPUs</b>, press <b>Add a PC</b> (<b>Add another PC</b> once one is listed)
       (or <b>New pairing link</b> on this PC's entry). Copy the link and paste it here.
     </p>
   {/if}

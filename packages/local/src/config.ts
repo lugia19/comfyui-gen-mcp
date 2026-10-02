@@ -10,6 +10,7 @@ export const DEFAULT_MCP_PORT = 9247;
 export type LocalConfig = Config & {
   mcp_path: string; // the MCP route's secret path, "/mcp/<token>"
   mcp_port: number;
+  mcp_network: boolean; // the MCP route on every interface, for other computers; false: this one only
   comfyui_url: string; // a ComfyUI the user runs; empty: the managed one
   extra_models_dir: string; // another models folder to read from
   gpu: string; // "nvidia" | "amd" | "mac" | "cpu", chosen at install; empty until then
@@ -23,6 +24,7 @@ function withLocalDefaults(raw: Record<string, any>): LocalConfig {
     if (typeof cfg[key] !== "string") cfg[key] = "";
   }
   cfg.comfyui_url = cfg.comfyui_url.trim().replace(/\/+$/, "");
+  cfg.mcp_network = cfg.mcp_network === true;
   return cfg;
 }
 

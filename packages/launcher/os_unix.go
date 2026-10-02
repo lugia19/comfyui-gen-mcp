@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -77,6 +78,36 @@ func removeAutostart() error {
 		return err
 	}
 	return nil
+}
+
+const launchdLabel = "com.lugia19.comfy-gen-agent"
+
+// handOff, on macOS, has launchd start the agent from the LaunchAgent that addAutostart wrote, and
+// reports whether it did: the caller then exits. Started from Finder, a program runs in a Terminal
+// window, and closing it ended the agent; and after an update launchd refused to start the
+// replaced binary at login (OS_REASON_CODESIGNING) until the job was registered again, which this
+// does each time (2026-10-02). Elsewhere, or if launchd won't, the caller runs the agent itself.
+func handOff() bool {
+	if runtime.GOOS != "darwin" {
+		return false
+	}
+	plist, err := autostartFile()
+	if err != nil {
+		return false
+	}
+	domain := fmt.Sprintf("gui/%d", os.Getuid())
+	_ = exec.Command("launchctl", "bootout", domain+"/"+launchdLabel).Run() // not loaded yet: fine
+	var out []byte
+	for attempt := 0; attempt < 10; attempt++ {
+		// Right after a bootout, launchd may still be stopping the old job (error 5): wait and retry.
+		if out, err = exec.Command("launchctl", "bootstrap", domain, plist).CombinedOutput(); err == nil {
+			log.Print("Started the agent through launchd")
+			return true
+		}
+		time.Sleep(time.Second)
+	}
+	log.Printf("launchctl bootstrap failed, so the agent runs here: %v %s", err, strings.TrimSpace(string(out)))
+	return false
 }
 
 func hideWindow(*exec.Cmd) {}

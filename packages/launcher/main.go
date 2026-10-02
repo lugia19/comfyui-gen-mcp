@@ -5,7 +5,8 @@
 // up to date. The launcher itself changes rarely; a new one is installed by running it.
 //
 //	comfy-gen-agent              install or repair, then run the agent (a newer copy than the one
-//	                             installed ends the running one first, so the update takes effect)
+//	                             installed ends the running one first, so the update takes effect;
+//	                             on macOS, launchd runs it, from the login entry, and this one exits)
 //	comfy-gen-agent --autostart  what the login entry runs: the same, without opening the page
 //	comfy-gen-agent --uninstall  remove the login entry (the folder, with ComfyUI and models, stays)
 //
@@ -80,6 +81,10 @@ func main() {
 	shimPath := filepath.Join(home, "bin", "shim.mjs")
 	if err := writeIfChanged(shimPath, shim); err != nil {
 		fail("Could not write %s: %v", shimPath, err)
+	}
+	if !*autostart && handOff() {
+		fmt.Println("The Comfy-Gen agent is running. You can close this window.")
+		return
 	}
 	supervise(node, shimPath, out, !*autostart)
 }

@@ -155,4 +155,21 @@ describe("discovery", () => {
     expect(folders.loras[0]).toBe(join(ours, "models", "loras")); // ours first
     expect(folders.diffusion_models).toContain(drive);
   });
+
+  it("stays out of a Mac's private folders, which would ask the user", () => {
+    const home = dir();
+    const registry = mk(home, "registry");
+    const ours = join(home, ".comfy-gen-mcp", "comfyui");
+    const inDocuments = comfy(join(home, "Documents", "ComfyUI"), ["vae"]);
+    const inDownloads = comfy(join(home, "Downloads", "AI", "ComfyUI"), ["vae"]);
+    const elsewhere = comfy(join(home, "AI", "ComfyUI"), ["vae"]);
+    const found = (platform: NodeJS.Platform) =>
+      discoverModelSources({ models: join(ours, "models"), comfy: ours }, "", { home, platform, env: {}, registry })
+        .flatMap((s) => Object.values(s.folders).flat());
+    const mac = found("darwin");
+    expect(mac).toContain(join(elsewhere, "models", "vae"));
+    expect(mac).not.toContain(join(inDocuments, "models", "vae"));
+    expect(mac).not.toContain(join(inDownloads, "models", "vae"));
+    expect(found("linux")).toContain(join(inDocuments, "models", "vae")); // elsewhere, they're searched
+  });
 });

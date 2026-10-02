@@ -50,13 +50,18 @@ export async function trayBinary(p: Paths): Promise<string | null> {
 export type TrayItem = { title: string; tooltip?: string; enabled?: boolean; onClick?: () => void };
 
 export class Tray {
-  private child: ChildProcess;
+  private child: ChildProcess | null = null;
+  private shown = false; // the helper came up once: from then on, it is started again if it ends
+  private stopped = false;
+  private restarts: number[] = [];
+  private bin: string;
   private items: TrayItem[];
-  private menu: Record<string, unknown> = {};
+  private menu: Record<string, unknown>;
 
-  private constructor(child: ChildProcess, items: TrayItem[]) {
-    this.child = child;
+  private constructor(bin: string, items: TrayItem[], menu: Record<string, unknown>) {
+    this.bin = bin;
     this.items = items;
+    this.menu = menu;
   }
 
   /** Show the icon with *items*; null if the helper is unavailable or does not come up. */
@@ -69,12 +74,28 @@ export class Tray {
       return null;
     }
     if (!bin) return null;
-    const child = spawn(bin, [], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
-    const tray = new Tray(child, items);
+    const tray = new Tray(bin, items, { icon: Buffer.from(icon).toString("base64"), title: "", tooltip, isTemplateIcon: false });
+    if (!(await tray.spawn())) return null;
+    tray.shown = true;
+    return tray;
+  }
+
+  /** Start the helper and send it the menu; false if it does not come up. */
+  private async spawn(): Promise<boolean> {
+    const child = spawn(this.bin, [], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
+    this.child = child;
+    // Writing to a helper that is gone fails with EPIPE, which crashed the agent while it stopped
+    // (a Terminal window closed on macOS, 2026-10-02): a lost tray message is no matter.
+    child.stdin?.on("error", () => {});
     const ready = await new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => resolve(false), 10_000);
       child.once("error", (e) => (log.warn("No tray icon:", e.message), clearTimeout(timer), resolve(false)));
-      child.once("exit", (code) => (clearTimeout(timer), resolve(false), log.warn(`The tray helper exited (${code})`)));
+      child.once("exit", (code) => {
+        clearTimeout(timer);
+        resolve(false);
+        log.warn(`The tray helper exited (${code})`);
+        this.exited(child);
+      });
       createInterface({ input: child.stdout! }).on("line", (line) => {
         let msg: any;
         try {
@@ -86,7 +107,7 @@ export class Tray {
           clearTimeout(timer);
           resolve(true);
         } else if (msg.type === "clicked") {
-          const item = tray.items[Number(msg.__id) - 1];
+          const item = this.items[Number(msg.__id) - 1];
           try {
             item?.onClick?.();
           } catch (e) {
@@ -97,14 +118,29 @@ export class Tray {
     });
     if (!ready) {
       child.kill();
-      return null;
+      return false;
     }
-    tray.menu = { icon: Buffer.from(icon).toString("base64"), title: "", tooltip, isTemplateIcon: false };
-    tray.send({ ...tray.menu, items: items.map((item, i) => tray.wire(item, i)) });
+    this.send({ ...this.menu, items: this.items.map((item, i) => this.wire(item, i)) });
     child.unref();
     (child.stdout as any)?.unref?.();
     (child.stdin as any)?.unref?.();
-    return tray;
+    return true;
+  }
+
+  /** The helper ended by itself (on a Mac, once 25 minutes after login, leaving no icon to pause
+   * or quit with): start it again, at most five times an hour. */
+  private exited(child: ChildProcess): void {
+    if (this.stopped || !this.shown || child !== this.child) return;
+    const now = Date.now();
+    this.restarts = this.restarts.filter((t) => now - t < 3600_000);
+    if (this.restarts.length >= 5) {
+      log.warn("The tray helper keeps ending: no tray icon until the next start");
+      return;
+    }
+    this.restarts.push(now);
+    setTimeout(() => {
+      if (!this.stopped) void this.spawn().then((ok) => ok && log.info("The tray icon is back"));
+    }, 5000).unref();
   }
 
   private wire(item: TrayItem, i: number) {
@@ -112,7 +148,7 @@ export class Tray {
   }
 
   private send(msg: unknown): void {
-    if (this.child.stdin?.writable) this.child.stdin.write(JSON.stringify(msg) + "\n");
+    if (this.child?.stdin?.writable) this.child.stdin.write(JSON.stringify(msg) + "\n");
   }
 
   /** Change an item's title or state, by index. */
@@ -130,8 +166,10 @@ export class Tray {
   }
 
   stop(): void {
+    this.stopped = true;
     this.send({ type: "exit" });
-    setTimeout(() => this.child.kill(), 500).unref();
+    const child = this.child;
+    setTimeout(() => child?.kill(), 500).unref();
   }
 }
 

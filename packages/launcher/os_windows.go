@@ -44,6 +44,9 @@ func hideWindow(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: noWindow}
 }
 
+// handOff: only macOS hands the agent to its service manager (see os_unix.go).
+func handOff() bool { return false }
+
 // endOtherLaunchers ends every other running launcher. Windows has no signal to ask it, so it is
 // terminated; its agent watches it and stops ComfyUI and itself within 2 s. Returns how many.
 func endOtherLaunchers() int {

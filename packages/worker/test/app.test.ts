@@ -576,7 +576,7 @@ describe("the PC path", () => {
     expect(two.id).toMatch(/^pc-/);
     expect(await gate(two.secret)).toBe(two.id);
     expect(await gate(secret)).toBe("pc");
-    expect((await gpus()).map((g: any) => [g.id, g.name])).toEqual([[two.id, "PC 2"], ["pc", "Your PC"]]); // new PCs go first
+    expect((await gpus()).map((g: any) => [g.id, g.name])).toEqual([["pc", "Your PC"], [two.id, "PC 2"]]); // after the other PCs
 
     // A new link for the first PC: the old one stops working and its agent is dropped.
     const again = await body(await app.handle(request("POST", "/api/gpus/pc/pair", undefined, cookie)));
@@ -867,8 +867,8 @@ describe("the GPU list", () => {
     const { app, relay, comfy } = world();
     const cookie = await login(app);
     await withGenerator(app);
-    const a = await pairPc(app, cookie);
-    const b = await pairPc(app, cookie); // new PCs go first: [b, a, url]
+    const b = await pairPc(app, cookie);
+    const a = await pairPc(app, cookie); // after the other PCs, before the URL: [b, a, url]
     expect((await app.gpus()).map((g) => g.id)).toEqual([b.id, a.id, "url"]);
     await gen(app, 1);
     expect([relay(b.id).comfy.prompts.length, relay(a.id).comfy.prompts.length]).toEqual([1, 0]);

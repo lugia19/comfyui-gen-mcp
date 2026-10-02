@@ -315,6 +315,26 @@ Still to do:
   missing, with its link: a build that fails because R2 is not enabled says "R2 isn't enabled
   yet" on the setup page instead of a raw build error, and likewise for Modal billing.
 
+## macOS test (2026-10-02, v1.6.3 on an 8 GB M1)
+
+Everything ran; images work on MPS but swap on 8 GB (51 min for a 30-step Anima image). Fixed:
+- **The launcher on macOS hands the agent to launchd** (design §2): no Terminal window to close by
+  mistake, and the LaunchAgent re-registered at each manual start, so launchd takes an updated
+  binary (it refused one with `OS_REASON_CODESIGNING`).
+- **The tray helper is started again** when it ends by itself (at most five times an hour); a write
+  to a gone helper no longer crashes the agent (EPIPE).
+- **No privacy prompts at login:** the Mac's model search skips Desktop, Documents, Downloads and
+  the media folders.
+- **The extension:** models download at first use or when chosen, not all up front (22 GB); it
+  listens on 127.0.0.1 unless the user lets other computers in (Connect Claude → Advanced).
+- **A new PC goes after the other PCs**, not first. The agent logs to `agent.log`. A Mac under 16 GB
+  gets a memory warning on the page. Gatekeeper's way through (Open Anyway) is in the release notes
+  and the pairing steps. Wording and the folder example fixed.
+
+Not changed: the extension's several start-up processes (harmless now that none downloads at
+start), the two identical menu bar icons, the shared ComfyUI database when the agent and the
+extension both run (discouraged), and the Worker flagging models larger than a PC's memory (later).
+
 ## Verification
 
 - **Every change:** `npm run typecheck`, `npm test` and `uv run pytest` (CI also runs Python 3.14,

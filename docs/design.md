@@ -49,6 +49,16 @@ start it:
   on 0 (another agent already runs; the second one opened the first one's page while unpaired)
 - tells the agent whether it was started by hand; the agent opens its settings page only while
   unpaired (paired, its tray shows it runs, and the settings are on the Worker's page)
+- on macOS, started by hand, registers the LaunchAgent again (`launchctl bootout`, then
+  `bootstrap`), which starts the agent under launchd, and exits. A program opened from Finder runs
+  in a Terminal window, and closing it ended the agent; and after a launcher update, launchd refused
+  the replaced binary at login (`OS_REASON_CODESIGNING`, an ad-hoc signature being the file's hash)
+  until the job was registered again (macOS test, 2026-10-02). If launchd won't, it runs the agent
+  itself
+
+macOS: the launcher is not notarized, so Gatekeeper's first-run dialog offers only Done and Move
+to Bin (macOS 15 and later); the way through is System Settings → Privacy & Security → Open Anyway,
+once. The copy in `bin/` carries no quarantine flag, so login starts don't ask again.
 
 The shim loads the same bundle as for the MCPB (`comfy-gen.mjs` holds both programs) and starts
 the agent. For the agent the shim checks at every start, so restarting it by hand updates it, and
@@ -79,7 +89,8 @@ live in R2 (§4), so nothing depends on which GPU made an image. An entry is
 secret, or Modal's and a URL's base URL and headers (Modal also its admin URL and cold start).
 
 - **Adding:** a PC from the Setup page (`POST /api/gpus/pc`, which returns its pairing link; the
-  first PC's id is `pc`, later ones `pc-<random>`); Modal by its deploy's build callback (id
+  first PC's id is `pc`, later ones `pc-<random>`; it goes after the other PCs and before Modal and
+  the URL, so a later, smaller PC doesn't take over from the first: an 8 GB Mac did, 2026-10-02); Modal by its deploy's build callback (id
   `modal`, added at the end); a URL from the advanced setup step (id `url`). A Worker from before
   the list converts `generator` and `agent_secret` into it once, the PC first.
 - **Managing** (`/api/gpus`): `PATCH /<id>` sets name, enabled and keep-warm; `PUT /order` the
@@ -111,8 +122,11 @@ process per window or reload); each process tries to bind the port (9247, as in 
   `COMFY_GEN_PARENT_PID` is gone. Tested: ComfyUI gone within 4 s of a SIGKILL, the next message
   to a relay made it the owner.
 
-The server binds `0.0.0.0`. The MCP route answers any client behind its secret path; the settings
-page and `/api` answer loopback clients only, because they install software and change files.
+The server binds `127.0.0.1`, or `0.0.0.0` when the user lets other computers use it (Connect
+Claude → Advanced, `mcp_network`, read at start), for a client such as LibreChat on another machine:
+the MCP route then answers any client behind its secret path. The settings page and `/api` answer
+loopback clients only either way, because they install software and change files. (It bound
+`0.0.0.0` always until the macOS test found a Mac with a public address, 2026-10-02.)
 
 The `.mcpb` holds the shim (`server/shim.mjs`) and its own release's bundle. The shim
 `import()`s the newest bundle it has, shipped or cached in `~/.comfy-gen-mcp/app/<tag>/`, falling
@@ -140,15 +154,18 @@ many GB. The managed ComfyUI reads, through the `extra_model_paths.yaml` written
   Comfy Desktop app's `installations.json`, `settings.json` and `shared_model_paths.yaml`, the
   `~/.comfy-registry` entries (Visual-Novelist's too), and a shallow scan of home, Desktop,
   Documents, Downloads and each Windows drive root for folders named like ComfyUI (and installs one
-  level inside them, as `ComfyUI-Installs\<name>\ComfyUI`)
+  level inside them, as `ComfyUI-Installs\<name>\ComfyUI`). On a Mac the scan covers home only and
+  skips Desktop, Documents, Downloads and the media folders: reading them makes macOS ask the user,
+  which a background program did at login (2026-10-02); a path an app's settings name is still read
 - for each install found, the folders its own `extra_model_paths.yaml` names (often a big model
   drive), with ComfyUI's folder aliases (`unet` is `diffusion_models`, `clip` is `text_encoders`)
 
 Each folder counts once, by its real path (one model drive reached through three junctions was
 seen on the user's PC), and folders holding nothing but ComfyUI's placeholder files are left out.
-Only what is in none of them is downloaded, into ours. The selected packs download as soon as
-there is a managed ComfyUI (at start, after an install, when the selection changes), as the Worker
-seeds Modal after setup; a tool whose models are still coming says how much is left. The settings
+Only what is in none of them is downloaded, into ours. A pack's models download at its first use,
+or at once when it is chosen on the settings page; a tool whose models are still coming says how
+much is left. (All the selected packs downloaded up front until the macOS test, 2026-10-02: about
+22 GB on a new install before the first image.) The settings
 page lists the sources found.
 
 ## 3. Generation path

@@ -511,8 +511,10 @@ export class App {
     if (managed) return this.managePc(req, gpus, managed[1], managed[2]);
     if (sub === "/gpus/pc" && req.method === "POST") {
       const gpu: Gpu = { id: newPcId(gpus), kind: "pc", name: newPcName(gpus), enabled: true, keep_warm_minutes: DEFAULT_KEEP_WARM, secret: tokenUrlsafe(32), seen: null };
-      // A new PC goes first: a GPU of one's own is free, the others are the fallback.
-      await this.saveGpus([gpu, ...gpus]);
+      // A new PC goes after the other PCs and before Modal: a GPU of one's own is free, Modal is the
+      // fallback, and a PC added later (a laptop, say) shouldn't take over from the first.
+      const at = gpus.reduce((last, g, i) => (g.kind === "pc" ? i + 1 : last), 0);
+      await this.saveGpus([...gpus.slice(0, at), gpu, ...gpus.slice(at)]);
       return json({ id: gpu.id, link: pairingLink(url, gpu.secret!) });
     }
     if (sub === "/gpus/order" && req.method === "PUT") {

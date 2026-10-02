@@ -5,9 +5,9 @@ import { join } from "node:path";
 
 let file: string | null = null;
 
-export function logTo(dir: string): void {
+export function logTo(dir: string, name = "server.log"): void {
   mkdirSync(dir, { recursive: true });
-  file = join(dir, "server.log");
+  file = join(dir, name);
   try {
     if (statSync(file).size > 5 << 20) renameSync(file, file + ".1"); // one old log kept
   } catch {

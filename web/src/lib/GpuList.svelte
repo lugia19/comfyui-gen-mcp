@@ -138,7 +138,7 @@
           <a href="{RELEASE}comfy-gen-agent-windows.exe">Windows</a>,
           <a href="{RELEASE}comfy-gen-agent-macos.zip">macOS (Apple silicon)</a> or
           <a href="{RELEASE}comfy-gen-agent-linux">Linux</a>, and run it. It is not signed yet: on Windows choose
-          <b>More info → Run anyway</b>; on macOS unzip it, right-click it and choose <b>Open</b>; on Linux,
+          <b>More info → Run anyway</b>; on macOS unzip it and open it; macOS refuses it the first time, so then choose <b>Open Anyway</b> in System Settings → Privacy &amp; Security; on Linux,
           <code>chmod +x</code> it first.
         </li>
         <li>Its page opens in your browser. Paste this pairing link there:</li>

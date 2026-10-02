@@ -31,7 +31,7 @@ export type Agent = { app: AgentApp; close(): Promise<void>; restartWhenIdle(tag
 
 export async function startAgent(opts: AgentOptions): Promise<Agent> {
   const p = opts.paths ?? agentInstance(paths());
-  logTo(p.logs);
+  logTo(p.logs, "agent.log"); // its own: the extension's server.log shares the folder
   if (p.instance) setPartSuffix(p.instance.n);
   // So an ending always leaves a line in the log (one once ended with none).
   process.on("uncaughtException", (e) => {

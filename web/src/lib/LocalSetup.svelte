@@ -27,6 +27,11 @@
   }
 
   let comfy = $derived(info.comfyui)
+  // A Mac's GPU shares its memory: below 16 GB, images swap and take tens of minutes (macOS test, 2026-10-02).
+  let lowMemory = $derived((comfy.gpu || info.detected_gpu) === 'mac' && info.memory_gb > 0 && info.memory_gb < 16)
+  // The folder example in this computer's style (the page runs on it: the Worker's hides the field).
+  const examplePath = /Mac/.test(navigator.userAgent) ? '/Users/you/ComfyUI/models'
+    : /Linux/.test(navigator.userAgent) ? '/home/you/ComfyUI/models' : 'D:\\ComfyUI\\models'
   // The agent's page keeps the rarely needed parts (reinstalling, other model folders, a ComfyUI of
   // your own) folded under Advanced: its everyday settings live on the Worker's page.
   const agent = untrack(() => info.mode === 'agent')
@@ -48,6 +53,17 @@
   let shown = $derived(busy === 'restart' ? 'starting' : busy === 'stop' ? 'stopping' : comfy.state)
   let error = $state('')
   let timer = null
+
+  let network = $state(untrack(() => info.config.mcp_network === true))
+  async function saveNetwork(on) {
+    error = ''
+    try {
+      await api('PUT', '/config', { config: { mcp_network: on } })
+      network = on
+    } catch (e) {
+      error = e.message
+    }
+  }
 
   let comfyUrl = $state(untrack(() => info.config.comfyui_url || ''))
   let extraDir = $state(untrack(() => info.config.extra_models_dir || ''))
@@ -120,6 +136,13 @@
     </p>
   {/if}
   {#if comfy.error}<pre class="err">{comfy.error}</pre>{/if}
+  {#if lowMemory}
+    <p class="warn">
+      This Mac has {info.memory_gb} GB of memory, which its GPU shares. Image models need about 6 to 16 GB on
+      top of macOS, so an image here takes 10 to 50 minutes (measured on 8 GB). 16 GB is the practical
+      minimum; 24 GB or more is recommended. Modal or another PC will be much faster.
+    </p>
+  {/if}
   {#if comfy.state !== 'not_installed' && comfy.state !== 'external'}
     <div class="row">
       <button class:secondary={comfy.state === 'running'} onclick={() => action('restart')} disabled={!!busy || install.state === 'running'}>
@@ -216,7 +239,7 @@
 {#snippet folderForm()}
   <form onsubmit={saveFolders}>
     <label for="extra">Another models folder (optional)</label>
-    <input id="extra" type="text" bind:value={extraDir} placeholder="D:\ComfyUI\models" />
+    <input id="extra" type="text" bind:value={extraDir} placeholder={examplePath} />
     <p class="muted">
       The models folder of another ComfyUI install that isn't found by itself, used as is, so
       nothing is downloaded twice.
@@ -242,6 +265,20 @@
     <button type="button" class="link" onclick={copyUrl}>{copied ? 'Copied' : 'Copy'}</button>. For claude.ai and your
     phone, use a Worker install instead.
   </p>
+  <details class="advanced">
+    <summary>Advanced</summary>
+    <label class="check">
+      <input type="checkbox" checked={network} onchange={(e) => saveNetwork(e.currentTarget.checked)} />
+      Let other computers on the network use it
+    </label>
+    <p class="muted">
+      Off, only this computer can reach the extension. On, a client on another computer (such as
+      LibreChat) can use the address above with this computer's network address instead of
+      127.0.0.1; the address's secret part is all that guards it, so leave this off on public
+      networks. The settings page always answers only on this computer.
+      {#if network !== info.listening_on_network}<b>Restart Claude Desktop for the change to take effect.</b>{/if}
+    </p>
+  </details>
 </section>
 {/if}
 
@@ -251,5 +288,8 @@
   .source { margin: 8px 0; display: flex; flex-direction: column; gap: 2px; }
   .advanced { margin-top: 12px; }
   .advanced summary { cursor: pointer; color: var(--accent); }
+  .warn { border-left: 3px solid var(--err); padding-left: 10px; }
+  .check { display: flex; gap: 8px; align-items: center; font-weight: normal; }
+  .check input { width: auto; margin: 0; }
   button.link { background: none; border: 0; padding: 0; margin: 0 0 0 6px; color: var(--accent); }
 </style>
