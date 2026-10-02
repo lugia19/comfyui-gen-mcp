@@ -329,7 +329,7 @@ Still to do:
 Everything ran; images work on MPS but swap on 8 GB (51 min for a 30-step Anima image). Fixed:
 - **The launcher on macOS hands the agent to launchd** (design §2): no Terminal window to close by
   mistake, and the LaunchAgent re-registered at each manual start, so launchd takes an updated
-  binary (it refused one with `OS_REASON_CODESIGNING`).
+  binary (it refused one with `OS_REASON_CODESIGNING`). Confirmed working on the Mac (v1.6.4).
 - **The tray helper is started again** when it ends by itself (at most five times an hour); a write
   to a gone helper no longer crashes the agent (EPIPE).
 - **No privacy prompts at login:** the Mac's model search skips Desktop, Documents, Downloads and
