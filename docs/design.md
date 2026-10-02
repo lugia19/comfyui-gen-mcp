@@ -139,8 +139,8 @@ cached bundles are kept. The shim changes only when users reinstall the `.mcpb`,
 lives in the bundle. The tray icon is systray2's helper binary, downloaded once, pinned by SHA-256;
 where it cannot run, there is no tray and the settings URL is in the tool answers. The icon's
 color is the state: green running, yellow stopped or starting, red when something needs the user
-(ComfyUI failed or is not installed, a download failed). Its menu: Open settings, the status line
-(greyed, not clickable), Stop ComfyUI, and in the agent Pause agent / Resume agent. There is no
+(ComfyUI failed or is not installed, a download failed). Its menu: Open settings, Open images folder (ComfyUI's
+`output/`, where every generated image stays as a PNG), the status line (greyed, not clickable), Stop ComfyUI, and in the agent Pause agent / Resume agent. There is no
 Start or Restart: ComfyUI starts by itself with the first image, and the settings page has both.
 
 Everything else lives in `~/.comfy-gen-mcp`, the old extension's folder: the config file

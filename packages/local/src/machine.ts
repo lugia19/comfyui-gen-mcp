@@ -244,15 +244,26 @@ export class Machine {
       if (r) return r;
     }
     if (sub === "/open" && m === "POST") {
-      const which = (await bodyJson(req)).which;
-      const dirs: Record<string, string> = { models: this.comfy.models.ownModels, logs: this.p.logs };
-      dirs.loras = this.lorasDir;
-      if (this.comfy.dataDir) dirs.output = join(this.comfy.dataDir, "output");
-      if (!(which in dirs)) return error(400, "unknown folder");
-      (this.opts.openFolder ?? openExternal)(dirs[which]);
-      return json({ ok: true, path: dirs[which] });
+      const path = this.openFolder((await bodyJson(req)).which);
+      return path ? json({ ok: true, path }) : error(400, "unknown folder");
     }
     return null;
+  }
+
+  /** The folders the page's buttons and the tray open; output (the generated images, which are
+   * kept) only once ComfyUI is installed. */
+  folders(): Record<string, string> {
+    const dirs: Record<string, string> = { models: this.comfy.models.ownModels, logs: this.p.logs, loras: this.lorasDir };
+    if (this.comfy.dataDir) dirs.output = join(this.comfy.dataDir, "output");
+    return dirs;
+  }
+
+  /** Open one of folders() in the file manager; its path, or null if there is no such folder. */
+  openFolder(which: string): string | null {
+    const path = this.folders()[which];
+    if (!path) return null;
+    (this.opts.openFolder ?? openExternal)(path);
+    return path;
   }
 
   private async comfyAction(fn: () => Promise<unknown>): Promise<Response> {
