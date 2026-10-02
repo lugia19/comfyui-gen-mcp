@@ -750,6 +750,25 @@ describe("the PC path", () => {
     expect(toolText(dl)).toContain("downloading: 12%");
   });
 
+  it("relays the PC's own settings calls for the Worker's page, and says when it is offline", async () => {
+    const { app, pc } = world();
+    const { cookie, id } = await pair(app);
+    pc.controls.machine = (args) =>
+      args.path === "/state" ? [200, { comfyui: { state: "stopped" }, method: args.method }]
+      : args.path === "/setup/install" ? [200, { state: "running", body: args.body }]
+      : [403, "That can only be changed on the PC itself, on its Comfy-Gen page."];
+    const state = await app.handle(request("GET", `/api/gpus/${id}/machine/state`, undefined, cookie));
+    expect([state.status, await body(state)]).toEqual([200, { comfyui: { state: "stopped" }, method: "GET" }]);
+    expect(await body(await app.handle(request("POST", `/api/gpus/${id}/machine/setup/install`, { gpu: "nvidia" }, cookie)))).toEqual({ state: "running", body: '{"gpu":"nvidia"}' });
+    const refused = await app.handle(request("PUT", `/api/gpus/${id}/machine/config`, {}, cookie));
+    expect([refused.status, (await body(refused)).error]).toEqual([403, "Your PC: That can only be changed on the PC itself, on its Comfy-Gen page."]);
+    expect((await app.handle(request("GET", "/api/gpus/nope/machine/state", undefined, cookie))).status).toBe(404);
+    expect((await app.handle(request("GET", `/api/gpus/${id}/machine/state`))).status).toBe(401); // login required
+    pc.connected = false;
+    const off = await app.handle(request("GET", `/api/gpus/${id}/machine/state`, undefined, cookie));
+    expect([off.status, (await body(off)).error]).toEqual([503, offlineMessage([{ name: "Your PC" } as any])]);
+  });
+
   it("pauses and resumes the PC from the page", async () => {
     const { app, pc } = world();
     const { cookie } = await pair(app);

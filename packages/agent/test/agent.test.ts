@@ -224,6 +224,25 @@ describe("agent handlers", () => {
   });
 });
 
+describe("the Worker's page managing this PC", () => {
+  it("passes on state, install and start/stop; refuses folders, its own ComfyUI, opening folders and pairing", async () => {
+    const calls: string[] = [];
+    const page = async (method: string, path: string, body?: string): Promise<[number, string]> => (calls.push(`${method} ${path} ${body ?? ""}`.trim()), [200, '{"ok":true}']);
+    const handle = agentHandler({ machine: {} as Machine, setKeepWarm: () => {}, settingsNote: "x", page });
+    const machine = (method: string, path: string, body?: string) =>
+      handle({ header: { kind: "control", id: "1", op: "machine", args: { method, path, body } }, body: new Uint8Array() });
+    expect(await machine("get", "/state")).toEqual([200, '{"ok":true}']);
+    expect(await machine("POST", "/setup/install", '{"gpu":"nvidia"}')).toEqual([200, '{"ok":true}']);
+    expect((await machine("POST", "/comfyui/restart"))[0]).toBe(200);
+    for (const [method, path] of [["PUT", "/config"], ["POST", "/open"], ["POST", "/pair"], ["DELETE", "/pair"], ["POST", "/loras/uploads"], ["GET", "/state/../config"]]) {
+      expect((await machine(method, path))[0]).toBe(403);
+    }
+    expect(calls).toEqual(["GET /state", 'POST /setup/install {"gpu":"nvidia"}', "POST /comfyui/restart"]);
+    const old = agentHandler({ machine: {} as Machine, setKeepWarm: () => {}, settingsNote: "x" }); // no page: an older agent
+    expect((await old({ header: { kind: "control", id: "2", op: "machine", args: { method: "GET", path: "/state" } }, body: new Uint8Array() }))[0]).toBe(400);
+  });
+});
+
 describe("images while ComfyUI is stopped", () => {
   it("serves /view from ComfyUI's folders, and nothing outside them", async () => {
     const dir = mkdtempSync(join(tmpdir(), "comfy-"));

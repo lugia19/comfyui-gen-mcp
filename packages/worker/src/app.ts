@@ -507,6 +507,8 @@ export class App {
    */
   private async gpuApi(req: Request, url: URL, sub: string): Promise<Response> {
     const gpus = await this.gpus();
+    const managed = /^\/gpus\/([\w-]+)\/machine(\/[\w/-]+)$/.exec(sub);
+    if (managed) return this.managePc(req, gpus, managed[1], managed[2]);
     if (sub === "/gpus/pc" && req.method === "POST") {
       const gpu: Gpu = { id: newPcId(gpus), kind: "pc", name: newPcName(gpus), enabled: true, keep_warm_minutes: DEFAULT_KEEP_WARM, secret: tokenUrlsafe(32), seen: null };
       // A new PC goes first: a GPU of one's own is free, the others are the fallback.
@@ -758,6 +760,31 @@ export class App {
     const pcs = await this.onlinePcs(gpus);
     for (const pc of pcs) await this.control(pc, "sync");
     return { pcs: pcs.length, warnings };
+  }
+
+  /**
+   * The PC's own settings page, managed from here (design §9, "One settings page"): one call of its
+   * API, relayed. The agent decides what is allowed (state, install, start and stop, downloads); a
+   * restart waits for ComfyUI to come up, so it gets ComfyUI's start-up time.
+   */
+  private async managePc(req: Request, gpus: Gpu[], id: string, path: string): Promise<Response> {
+    const gpu = gpus.find((g) => g.id === id && g.kind === "pc");
+    if (!gpu) return error(404, "no such PC");
+    if (!(await this.status(gpu)).online) return error(503, offlineMessage([gpu]));
+    const body = req.method === "GET" ? undefined : await req.text();
+    const timeoutS = path === "/comfyui/restart" ? 300 : 30;
+    const r = await this.p.relays(gpu.id).control("machine", { method: req.method, path, body }, timeoutS);
+    if (r.offline) return error(503, offlineMessage([gpu]));
+    if (r.status === 200) return new Response(r.body as unknown as BodyInit, { headers: { "Content-Type": "application/json" } });
+    // Refusals come as text from the agent, its page's errors as {error}: the page reads {error}.
+    const text = fromUtf8(r.body);
+    let message = text;
+    try {
+      message = JSON.parse(text).error ?? text;
+    } catch {
+      // plain text
+    }
+    return error(r.status, `${gpu.name}: ${message}`);
   }
 
   /** Delete a LoRA from R2 and every GPU that has it (one way in, one way out). A PC that is

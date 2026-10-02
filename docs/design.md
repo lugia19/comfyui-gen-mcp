@@ -594,6 +594,19 @@ Its settings page (loopback only) is the MCPB's machine setup plus the pairing s
 settings stay on the Worker, whose settings page lists each GPU's LoRAs and model status
 (`/api/loras`, `/api/models`).
 
+**One settings page (2026-10-02).** A paired PC is managed from the Worker's page: under Setup, Your
+GPUs, each connected PC has Manage ComfyUI, which shows the PC's own machine section (its ComfyUI's
+state, Start and Stop, Install or Reinstall, the models found on it). Its calls go to
+`/api/gpus/<id>/machine/<path>` (logged in), which the Worker relays as a `machine` control op; the
+agent passes them to its own page's API through an allow-list it enforces itself, as the PC is
+where remote reach must stop: reading its state, install and its progress, restart and stop, its
+downloads. Folder paths, a ComfyUI of your own, opening folders, pairing and uploads stay on the
+PC's own page (rare, one-time settings, and the paths and URL would reach into the PC's network).
+An older agent answers that it can't be managed; an offline PC, that it is offline. The agent's own
+page keeps everything, folded under "This PC's ComfyUI and folders" once it is paired, connected
+and installed, and its tray's Open settings opens the Worker's Settings page while connected (this
+PC's page otherwise). The extension, which has no Worker, keeps its local page as it is.
+
 **Several agents on one machine (a developer switch).** `COMFY_GEN_AGENT_INSTANCE=2` (to 9) in the
 launcher's environment starts another agent, for testing a Worker with several PCs on one computer.
 It keeps its own config (pairing), logs and ComfyUI output, input, temp and user folders in

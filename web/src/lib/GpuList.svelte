@@ -1,5 +1,6 @@
 <script>
   import { api, gpuName, platformName } from './api.js'
+  import PcManage from './PcManage.svelte'
 
   // The Worker's GPUs, in priority order (design §2, "GPUs"): a call goes to the first that is
   // online, not paused and enabled, and has the model ready. Each PC pairs with its own link; Modal
@@ -13,6 +14,7 @@
   let error = $state('')
   let copied = $state('')
   let names = $state({}) // id -> the name being edited
+  let managing = $state({}) // id -> its ComfyUI section is open
 
   async function act(id, fn) {
     busy = id
@@ -115,6 +117,9 @@
           {g.paused ? 'Resume' : 'Pause'}
         </button>
       {/if}
+      {#if g.kind === 'pc' && g.online}
+        <button type="button" class="secondary small" onclick={() => (managing[g.id] = !managing[g.id])}>{managing[g.id] ? 'Hide ComfyUI' : 'Manage ComfyUI'}</button>
+      {/if}
       {#if g.kind === 'pc'}
         <button type="button" class="secondary small" disabled={busy === g.id} onclick={() => newLink(g)}>New pairing link</button>
       {/if}
@@ -125,6 +130,7 @@
     {:else if g.kind === 'pc'}
       <p class="muted hint">Keep warm: how long ComfyUI keeps the model loaded after the last image.</p>
     {/if}
+    {#if g.kind === 'pc' && g.online && managing[g.id]}<PcManage id={g.id} />{/if}
     {#if g.kind === 'pc' && !g.seen}
       <ol>
         <li>

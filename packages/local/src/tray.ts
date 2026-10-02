@@ -154,7 +154,7 @@ export type TrayExtra = { title: () => string; onClick: () => void; note: () => 
 export async function machineTray(
   machine: Machine,
   icons: Record<TrayColor, Uint8Array>,
-  settingsUrl: string,
+  settingsUrl: string | (() => string), // a function: decided at the click (the agent's Worker)
   trouble: () => string | null = () => null,
   extra?: TrayExtra,
 ): Promise<Tray | null> {
@@ -175,7 +175,7 @@ export async function machineTray(
   const name = extra?.name ?? "Comfy-Gen-MCP"; // the tooltip's, to tell two agents apart
   let shownTip = `${name}: ${status()}`;
   const items: TrayItem[] = [
-    { title: "Open settings", onClick: () => openExternal(settingsUrl) },
+    { title: "Open settings", onClick: () => openExternal(typeof settingsUrl === "function" ? settingsUrl() : settingsUrl) },
     { title: status() }, // enabled: a disabled item is too faint to read (seen on Windows); clicking does nothing
     ...(extra ? [{ title: extra.title(), onClick: () => (extra.onClick(), refresh()) }] : []),
     { title: "Restart ComfyUI", onClick: () => run("starting", () => comfy.restart()) },

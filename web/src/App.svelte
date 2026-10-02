@@ -83,7 +83,16 @@
   {:else if agent}
     <Checklist items={checklist} done="Ask Claude for an image, on claude.ai or the phone app: it is made on this PC." />
     <AgentWorker {info} {refresh} />
-    <LocalSetup {info} {refresh} />
+    {#if info.worker.state === 'connected' && info.comfyui.state !== 'not_installed'}
+      <!-- Managed from the Worker's page now (Setup, Your GPUs, Manage ComfyUI); kept here for when
+           it can't be reached, and for the folder settings that stay on this PC. -->
+      <details class="pc-settings">
+        <summary>This PC's ComfyUI and folders</summary>
+        <LocalSetup {info} {refresh} />
+      </details>
+    {:else}
+      <LocalSetup {info} {refresh} />
+    {/if}
   {:else}
     <nav>
       <button class:active={tab === 'setup'} onclick={() => (tab = 'setup')}>Setup</button>

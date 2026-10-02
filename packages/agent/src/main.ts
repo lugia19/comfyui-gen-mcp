@@ -79,6 +79,11 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
       }
     },
     settingsNote: `${settingsUrl} on your PC (the Comfy-Gen tray icon opens it)`,
+    // The Worker's page, managing this PC: a call of this page's own API, as if made here.
+    page: async (method, path, body) => {
+      const resp = await app.handle(new Request(`${settingsUrl}api${path}`, { method, body, headers: { host: `127.0.0.1:${cfg.port}`, "Content-Type": "application/json" } }), "127.0.0.1");
+      return [resp.status, await resp.text()];
+    },
   });
   const reconnect = () => {
     client?.stop();
@@ -128,7 +133,9 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
   const trouble = () =>
     !cfg.worker_url ? "not paired with a Worker" : client && client.state !== "connected" ? "not connected to your Worker" : null;
   const tray = opts.trayIcons
-    ? await machineTray(machine, opts.trayIcons, settingsUrl, trouble, {
+    ? // Paired and connected: the Worker's Settings page, where models and LoRAs are set; this PC's
+      // own page otherwise (pairing, or the Worker unreachable).
+      await machineTray(machine, opts.trayIcons, () => (cfg.worker_url && client?.state === "connected" ? `${cfg.worker_url}/#settings` : settingsUrl), trouble, {
         title: () => (paused ? "Take image requests again" : "Stop taking image requests"),
         note: () => (paused ? "paused until resumed or restarted" : null),
         onClick: () => setPaused(!paused, "the tray"),

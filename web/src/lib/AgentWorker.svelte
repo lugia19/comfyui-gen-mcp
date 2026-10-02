@@ -67,7 +67,8 @@
     </p>
     <p class="muted">
       Models, styles and LoRAs are set on your Worker's page, under Settings, for all its GPUs alike. LoRAs
-      uploaded there are copied to this PC from your Worker's storage.
+      uploaded there are copied to this PC from your Worker's storage. This PC's ComfyUI can be started,
+      stopped and installed from there too (Setup, Your GPUs, Manage ComfyUI).
     </p>
   {:else}
     <p>

@@ -4,8 +4,10 @@
   import Models from './Models.svelte'
 
   // The Claude Desktop extension's setup: install ComfyUI for this machine's GPU, see and control it,
-  // and point it at other model folders or at a ComfyUI of your own.
-  let { info, refresh } = $props()
+  // and point it at other model folders or at a ComfyUI of your own. The agent's page too, and, with
+  // *remote*, a PC managed from the Worker's page: its calls go to *base* (/gpus/<id>/machine, relayed
+  // to the PC), and what the PC keeps to itself (folders, your own ComfyUI) isn't shown.
+  let { info, refresh, base = '', remote = false } = $props()
 
   const GPU_LABELS = {
     nvidia: 'NVIDIA (CUDA)',
@@ -49,7 +51,7 @@
   let saved = $state('')
 
   async function pollInstall() {
-    install = await api('GET', '/setup/install')
+    install = await api('GET', base + '/setup/install')
     if (install.state === 'running') {
       timer = setTimeout(pollInstall, 1500)
     } else {
@@ -62,7 +64,7 @@
     if (again && !confirm('Reinstall ComfyUI? Models, outputs and settings are kept; custom nodes are reinstalled as needed.')) return
     error = ''
     try {
-      install = await api('POST', '/setup/install', { gpu })
+      install = await api('POST', base + '/setup/install', { gpu })
       pollInstall()
     } catch (e) {
       error = e.message
@@ -73,7 +75,7 @@
     busy = name
     error = ''
     try {
-      await api('POST', `/comfyui/${name}`)
+      await api('POST', `${base}/comfyui/${name}`)
     } catch (e) {
       error = e.message
     } finally {
@@ -156,8 +158,15 @@
   {@render installSection()}
 {/if}
 
-{#if comfy.state !== 'not_installed' && comfy.state !== 'external'}
+{#if comfy.state !== 'not_installed' && comfy.state !== 'external' && !remote}
   <section hidden={!packCount}><Models local onchange={(p) => (packCount = p.length)} /></section>
+{/if}
+
+{#if remote && comfy.state !== 'external' && comfy.state !== 'not_installed' && install.state === 'idle'}
+  <details class="advanced">
+    <summary>Advanced</summary>
+    {@render installSection()}
+  </details>
 {/if}
 
 {#if comfy.state !== 'not_installed' && comfy.state !== 'external'}
@@ -174,13 +183,14 @@
       {/each}
     {:else}
       <p class="muted">
-        No other ComfyUI found. If you have one somewhere unusual, set its models folder below as
-        "Another models folder".
+        No other ComfyUI found. If you have one somewhere unusual, set its models folder as
+        "Another models folder"{remote ? " on the PC's own Comfy-Gen page" : ' below'}.
       </p>
     {/if}
   </section>
 {/if}
 
+{#if !remote}
 <section>
   <h2>Folders</h2>
   <div class="row">
@@ -198,6 +208,7 @@
     {@render folderForm()}
   {/if}
 </section>
+{/if}
 
 {#snippet folderForm()}
   <form onsubmit={saveFolders}>
