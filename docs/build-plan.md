@@ -319,7 +319,10 @@ Still to do:
     GitHub connection page
   - enabling R2 on the account: a collapsible section walking through it (the checkout step
     included)
-  - avoiding charges: how to set usage limits and spending alerts on Modal and on Cloudflare
+  - avoiding charges: Modal's workspace spending limit; Cloudflare has no hard cap, so say what
+    it costs (on the free Workers plan, R2's reads and writes stay inside the free allowance, as
+    every one goes through the Worker's 100,000 requests a day; only storage past 10 GB bills, at
+    cents) and suggest a billing notification. A cap enforced by the Worker was judged not worth it
 
 ## macOS test (2026-10-02, v1.6.3 on an 8 GB M1)
 

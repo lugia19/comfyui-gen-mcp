@@ -196,6 +196,11 @@
   })
   const num = (id) => 3 + steps.indexOf(id)
   let claudeN = $derived(3 + steps.length)
+  // The bucket's img/ folder in Cloudflare's dashboard: the build names the bucket <worker>-storage
+  // (deploy.py), and the account is the one the login token found.
+  let imagesUrl = $derived(info.cloudflare?.account_id && info.cloudflare?.script
+    ? `https://dash.cloudflare.com/${info.cloudflare.account_id}/r2/default/buckets/${info.cloudflare.script}-storage?prefix=img%2F`
+    : '')
 </script>
 
 <Step n={1} title="Log in" status="done" summary={info.cloudflare ? `Worker ${info.cloudflare.script}` : 'Logged in'}>
@@ -225,6 +230,12 @@
     {#if !wantUrl && !showAdvanced}<button type="button" class="secondary" onclick={() => (showAdvanced = true)}>Advanced</button>{/if}
   </div>
   {#if addError}<p class="err">{addError}</p>{/if}
+  {#if imagesUrl}
+    <p class="muted">
+      <a class="button secondary" href={imagesUrl} target="_blank" rel="noopener">Your images on Cloudflare</a>
+      Every image made, in the R2 bucket's <code>img/</code> folder; they expire after a year.
+    </p>
+  {/if}
   <details class="guide">
     <summary>Only using Claude Desktop, on the PC with the GPU?</summary>
     <p>The Claude Desktop extension does it all on that PC, with no Worker and no accounts:</p>
