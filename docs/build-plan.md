@@ -308,7 +308,8 @@ Still to do:
   asks for prompts of at least 10 tags, and wording
 - ~~itemize the warm generation's CPU~~ done (design appendix): no regression, the sum of image,
   relay calls and State reads; one State read cut
-- what the Deploy button does with the binding on a fresh install
+- ~~what the Deploy button does with the binding on a fresh install~~ done 2026-10-02: a fresh
+  account's Deploy-button run with another tester worked
 - **The Worker reports what the user must do on another site** (decided 2026-10-01): card
   steps (R2's checkout, Modal's billing) cannot be automated, OAuth or not. So the site lists them
   first, with direct links, and the Worker recognises each when it fails and says which step is
