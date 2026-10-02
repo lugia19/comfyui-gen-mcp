@@ -3,8 +3,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,8 +88,11 @@ const launchdLabel = "com.lugia19.comfy-gen-agent"
 // reports whether it did: the caller then exits. Started from Finder, a program runs in a Terminal
 // window, and closing it ended the agent; and after an update launchd refused to start the
 // replaced binary at login (OS_REASON_CODESIGNING) until the job was registered again, which this
-// does each time (2026-10-02). Elsewhere, or if launchd won't, the caller runs the agent itself.
-func handOff() bool {
+// does each time (2026-10-02). It counts as done only once the agent's settings port answers: if
+// launchd took the job but the agent didn't come up, the job is taken back out and the caller runs
+// the agent itself, as before, rather than saying it runs when nothing does. Elsewhere, or if
+// launchd won't, the caller runs it too.
+func handOff(home string) bool {
 	if runtime.GOOS != "darwin" {
 		return false
 	}
@@ -101,13 +106,36 @@ func handOff() bool {
 	for attempt := 0; attempt < 10; attempt++ {
 		// Right after a bootout, launchd may still be stopping the old job (error 5): wait and retry.
 		if out, err = exec.Command("launchctl", "bootstrap", domain, plist).CombinedOutput(); err == nil {
-			log.Print("Started the agent through launchd")
-			return true
+			break
 		}
 		time.Sleep(time.Second)
 	}
-	log.Printf("launchctl bootstrap failed, so the agent runs here: %v %s", err, strings.TrimSpace(string(out)))
+	if err != nil {
+		log.Printf("launchctl bootstrap failed, so the agent runs here: %v %s", err, strings.TrimSpace(string(out)))
+		return false
+	}
+	port := agentPort(home)
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(500 * time.Millisecond) {
+		if c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second); err == nil {
+			c.Close()
+			log.Print("Started the agent through launchd")
+			return true
+		}
+	}
+	log.Printf("launchd took the agent, but its port %d didn't answer within 30 s: it runs here instead", port)
+	_ = exec.Command("launchctl", "bootout", domain+"/"+launchdLabel).Run()
 	return false
+}
+
+// agentPort is the agent's settings port: agent.json's "port", else 9248 (packages/agent/src/config.ts).
+func agentPort(home string) int {
+	var cfg struct {
+		Port int `json:"port"`
+	}
+	if data, err := os.ReadFile(filepath.Join(home, "agent.json")); err == nil && json.Unmarshal(data, &cfg) == nil && cfg.Port > 0 && cfg.Port < 65536 {
+		return cfg.Port
+	}
+	return 9248
 }
 
 func hideWindow(*exec.Cmd) {}

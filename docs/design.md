@@ -53,8 +53,9 @@ start it:
   `bootstrap`), which starts the agent under launchd, and exits. A program opened from Finder runs
   in a Terminal window, and closing it ended the agent; and after a launcher update, launchd refused
   the replaced binary at login (`OS_REASON_CODESIGNING`, an ad-hoc signature being the file's hash)
-  until the job was registered again (macOS test, 2026-10-02). If launchd won't, it runs the agent
-  itself
+  until the job was registered again (macOS test, 2026-10-02). It exits only once the agent's
+  settings port answers (30 s at most); if launchd won't take the job, or the agent doesn't come up
+  under it, the job is taken back out and the launcher runs the agent itself
 
 macOS: the launcher is not notarized, so Gatekeeper's first-run dialog offers only Done and Move
 to Bin (macOS 15 and later); the way through is System Settings → Privacy & Security → Open Anyway,

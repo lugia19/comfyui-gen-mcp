@@ -55,3 +55,18 @@ exit 75
 		t.Errorf("runs:\n%s", got)
 	}
 }
+
+func TestAgentPort(t *testing.T) {
+	home := t.TempDir()
+	if p := agentPort(home); p != 9248 {
+		t.Errorf("no agent.json: %d", p)
+	}
+	_ = os.WriteFile(filepath.Join(home, "agent.json"), []byte(`{"worker_url":"x","port":9300}`), 0o644)
+	if p := agentPort(home); p != 9300 {
+		t.Errorf("port 9300: %d", p)
+	}
+	_ = os.WriteFile(filepath.Join(home, "agent.json"), []byte(`{"port":"nope"}`), 0o644)
+	if p := agentPort(home); p != 9248 {
+		t.Errorf("a bad port: %d", p)
+	}
+}

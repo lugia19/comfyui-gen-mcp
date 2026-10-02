@@ -82,7 +82,7 @@ func main() {
 	if err := writeIfChanged(shimPath, shim); err != nil {
 		fail("Could not write %s: %v", shimPath, err)
 	}
-	if !*autostart && handOff() {
+	if !*autostart && handOff(home) {
 		fmt.Println("The Comfy-Gen agent is running. You can close this window.")
 		return
 	}
