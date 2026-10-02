@@ -363,8 +363,9 @@ Fixed:
   extension without a signal it can catch, so that is how its ComfyUI stops.
 
 Open: no tray on stock Ubuntu 24.04 (systray2's helper needs `libappindicator3.so.1`), to look
-into; and claude.ai calls the tester saw end in "The operation timed out." at about 60 s while
-the Worker answered them (76 to 151 s, all 200), to reproduce.
+into. The claude.ai calls the tester saw end in "The operation timed out." at about 60 s (the
+Worker answered them all, 76 to 151 s) were a transient error on claude.ai's side: retested,
+claude.ai waits well past 60 s.
 
 ## Verification
 
