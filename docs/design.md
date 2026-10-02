@@ -119,7 +119,9 @@ cached bundles are kept. The shim changes only when users reinstall the `.mcpb`,
 lives in the bundle. The tray icon is systray2's helper binary, downloaded once, pinned by SHA-256;
 where it cannot run, there is no tray and the settings URL is in the tool answers. The icon's
 color is the state: green running, yellow stopped or starting, red when something needs the user
-(ComfyUI failed or is not installed, a download failed).
+(ComfyUI failed or is not installed, a download failed). Its menu: Open settings, the status line
+(greyed, not clickable), Stop ComfyUI, and in the agent Pause agent / Resume agent. There is no
+Start or Restart: ComfyUI starts by itself with the first image, and the settings page has both.
 
 Everything else lives in `~/.comfy-gen-mcp`, the old extension's folder: the config file
 (`config.json`; the old `local_config.json` is not read, there being two users to move), the
@@ -579,7 +581,7 @@ the launcher left Node, the tray and ComfyUI behind. The launcher passes its pid
 (`COMFY_GEN_LAUNCHER_PID`; older launchers are the parent process, which is the same), and the
 agent checks it every 5 s: once it is gone, the agent stops ComfyUI and exits.
 
-**Pause.** The agent's tray has "Stop taking image requests", and the Worker's Setup page has
+**Pause.** The agent's tray has "Pause agent" ("Resume agent" while paused), and the Worker's Setup page has
 Pause and Resume on each PC in its GPU list (usable from a phone), sent to the agent
 as a `pause` control op over its connection: the agent has no inbound port. Both set the same flag
 in the agent, which then sends a hello with `paused: true`; the tray re-reads the flag every 2 s and

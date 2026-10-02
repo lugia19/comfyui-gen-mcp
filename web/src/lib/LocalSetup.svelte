@@ -20,6 +20,7 @@
     not_installed: 'Not installed',
     stopped: 'Installed, not running (it starts with the first image)',
     starting: 'Starting…',
+    stopping: 'Stopping…',
     running: 'Running',
     failed: 'Failed to start',
     external: 'Using your own ComfyUI',
@@ -43,6 +44,8 @@
   let gpu = $state(untrack(() => info.comfyui.gpu || info.detected_gpu))
   let install = $state(untrack(() => info.install))
   let busy = $state('')
+  // A start or stop call returns only once it is done, so while one runs the label says so.
+  let shown = $derived(busy === 'restart' ? 'starting' : busy === 'stop' ? 'stopping' : comfy.state)
   let error = $state('')
   let timer = null
 
@@ -106,10 +109,10 @@
 <section>
   <h2>ComfyUI</h2>
   <p>
-    <b class:ok={comfy.state === 'running' || comfy.state === 'external'} class:err={comfy.state === 'failed'}>
-      {STATE_LABELS[comfy.state] || comfy.state}
+    <b class:ok={shown === 'running' || shown === 'external'} class:err={shown === 'failed'}>
+      {STATE_LABELS[shown] || shown}
     </b>
-    {#if comfy.url && comfy.state !== 'stopped'}<span class="muted">at <code>{comfy.url}</code></span>{/if}
+    {#if comfy.url && shown !== 'stopped' && !busy}<span class="muted">at <code>{comfy.url}</code></span>{/if}
   </p>
   {#if comfy.dir}
     <p class="muted">
@@ -120,7 +123,7 @@
   {#if comfy.state !== 'not_installed' && comfy.state !== 'external'}
     <div class="row">
       <button class:secondary={comfy.state === 'running'} onclick={() => action('restart')} disabled={!!busy || install.state === 'running'}>
-        {busy === 'restart' ? 'Restarting…' : comfy.state === 'running' ? 'Restart' : 'Start'}
+        {comfy.state === 'running' ? (busy === 'restart' ? 'Restarting…' : 'Restart') : busy === 'restart' ? 'Starting…' : 'Start'}
       </button>
       {#if comfy.state === 'running'}
         <button class="secondary" onclick={() => action('stop')} disabled={!!busy}>{busy === 'stop' ? 'Stopping…' : 'Stop'}</button>

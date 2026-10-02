@@ -136,7 +136,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     ? // Paired and connected: the Worker's Settings page, where models and LoRAs are set; this PC's
       // own page otherwise (pairing, or the Worker unreachable).
       await machineTray(machine, opts.trayIcons, () => (cfg.worker_url && client?.state === "connected" ? `${cfg.worker_url}/#settings` : settingsUrl), trouble, {
-        title: () => (paused ? "Take image requests again" : "Stop taking image requests"),
+        title: () => (paused ? "Resume agent" : "Pause agent"),
         note: () => (paused ? "paused until resumed or restarted" : null),
         onClick: () => setPaused(!paused, "the tray"),
         name: p.instance ? `Comfy-Gen agent ${p.instance.n}` : "Comfy-Gen agent",

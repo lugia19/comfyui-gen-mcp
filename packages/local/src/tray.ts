@@ -143,13 +143,17 @@ const STATE_COLORS: Record<string, TrayColor> = {
 /** An extra tray item for one program (the agent's pause), and the note it adds to the status. */
 export type TrayExtra = { title: () => string; onClick: () => void; note: () => string | null; name?: string };
 
+/** A menu separator, in the tray helper's protocol (systray2's SysTray.separator). */
+const SEPARATOR: TrayItem = { title: "<SEPARATOR>", tooltip: "", enabled: true };
+
 /**
- * The tray for a machine: Open settings, the status, Restart and Stop ComfyUI. The icon's color is
- * the state at a glance: green running, yellow stopped or starting, red when something needs the
- * user (ComfyUI failed or is not installed, a download failed, or whatever *trouble* reports, such
- * as the agent's lost connection). A requested Restart or Stop shows "Starting…" or "Stopping…" at
- * once, not the old state until it is done. *extra* adds a program's own item after the status
- * (the agent's pause); its note shows in the status and turns green yellow.
+ * The tray for a machine: Open settings, the status (greyed: it is information, not an action),
+ * then Stop ComfyUI and *extra*, a program's own item (the agent's Pause agent). No Start or
+ * Restart: ComfyUI starts by itself with the first image. The icon's color is the state at a
+ * glance: green running, yellow stopped or starting, red when something needs the user (ComfyUI
+ * failed or is not installed, a download failed, or whatever *trouble* reports, such as the
+ * agent's lost connection). A requested Stop shows "Stopping…" at once, not the old state until it
+ * is done; *extra*'s note shows in the status and turns green yellow.
  */
 export async function machineTray(
   machine: Machine,
@@ -174,19 +178,21 @@ export async function machineTray(
   let shown = color();
   const name = extra?.name ?? "Comfy-Gen-MCP"; // the tooltip's, to tell two agents apart
   let shownTip = `${name}: ${status()}`;
+  const stoppable = () => !action && (comfy.state === "running" || comfy.state === "starting");
   const items: TrayItem[] = [
     { title: "Open settings", onClick: () => openExternal(typeof settingsUrl === "function" ? settingsUrl() : settingsUrl) },
-    { title: status() }, // enabled: a disabled item is too faint to read (seen on Windows); clicking does nothing
+    { title: status(), enabled: false }, // greyed (2026-10-02: the user's choice, over legibility on Windows)
+    SEPARATOR,
+    { title: "Stop ComfyUI", enabled: stoppable(), onClick: () => run("stopping", () => comfy.stop()) },
     ...(extra ? [{ title: extra.title(), onClick: () => (extra.onClick(), refresh()) }] : []),
-    { title: "Restart ComfyUI", onClick: () => run("starting", () => comfy.restart()) },
-    { title: "Stop ComfyUI", onClick: () => run("stopping", () => comfy.stop()) },
   ];
   const t = await Tray.start(machine.p, icons[shown], shownTip, items);
 
   function refresh(): void {
     if (!t) return;
-    t.update(1, { title: status() });
-    if (extra) t.update(2, { title: extra.title() });
+    t.update(1, { title: status(), enabled: false });
+    t.update(3, { title: "Stop ComfyUI", enabled: stoppable() });
+    if (extra) t.update(4, { title: extra.title() });
     const now = color();
     const tip = `${name}: ${status()}`;
     if (now !== shown || tip !== shownTip) t.setIcon(icons[(shown = now)], (shownTip = tip));
