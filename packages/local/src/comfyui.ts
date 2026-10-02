@@ -139,7 +139,7 @@ export class LocalComfy {
     const inst = this.install;
     if (!inst) {
       this.state = "not_installed";
-      throw new ComfyUIError("ComfyUI is not installed yet. Open the Comfy-Gen settings page (tray icon) to install it.");
+      throw new ComfyUIError("ComfyUI is not installed yet, so no image can be made. Tell the user to install it from the Comfy-Gen settings page (the tray icon opens it), then ask again.");
     }
     this.state = "starting";
     this.error = null;

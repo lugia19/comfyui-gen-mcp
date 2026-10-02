@@ -130,7 +130,13 @@ export class Machine {
     const comfy = this.comfy;
     await comfy.refresh();
     // The first answer a new user gets: it must say where to go (Claude passes the link on).
-    if (comfy.state === "not_installed") throw new ComfyUIError(`ComfyUI is not installed yet. Install it from the Comfy-Gen settings page: ${settingsUrl}`);
+    // Claude once drew an SVG instead of passing this on (2026-10-02): say what the user must do.
+    if (comfy.state === "not_installed") {
+      throw new ComfyUIError(
+        `ComfyUI is not installed yet, so no image can be made. Tell the user to open the Comfy-Gen settings page, ${settingsUrl}, ` +
+          "and install ComfyUI there (a few minutes), then ask again. Don't make a substitute image.",
+      );
+    }
     const models = pack.models ?? [];
     if (comfy.state !== "external" && models.length) {
       const name = pack.display_name ?? pack.name;

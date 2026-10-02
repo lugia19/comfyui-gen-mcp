@@ -109,7 +109,8 @@
       const r = await api('DELETE', `/loras/${encodeURIComponent(name)}`)
       if (r.errors?.length) error = r.errors.join(' ')
       // Windows: ComfyUI still had the file open. It is off the list; the file goes when ComfyUI stops.
-      const busy = r.pending === true ? ['ComfyUI'] : (r.pending ?? []).map((pc) => `ComfyUI on ${pc}`)
+      // The extension answers pending: true/false; the Worker, the names of the PCs concerned.
+      const busy = r.pending === true ? ['ComfyUI'] : Array.isArray(r.pending) ? r.pending.map((pc) => `ComfyUI on ${pc}`) : []
       if (busy.length) note = `${name} is deleted. ${busy.join(' and ')} still had its file open: the file is removed when ComfyUI next stops.`
       for (const pack of packs) if (entryOf(pack, name)) toggle(pack, name, false)
       await reload()
