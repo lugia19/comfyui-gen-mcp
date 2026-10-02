@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -39,7 +38,7 @@ func ensureNode(dir string) (string, error) {
 	root := filepath.Join(dir, nodeVersion)
 	exe := nodeExe(root)
 	if _, err := os.Stat(exe); err != nil {
-		log.Printf("Downloading Node.js %s", nodeVersion)
+		say("Setting up Node.js %s, which runs the agent (first start only, about 30 MB)...", nodeVersion)
 		if err := fetchNode(dir, root, archive.name, archive.sha256); err != nil {
 			return "", err
 		}

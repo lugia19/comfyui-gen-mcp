@@ -347,6 +347,25 @@ Not changed: the extension's several start-up processes (harmless now that none 
 start), the two identical menu bar icons, the shared ComfyUI database when the agent and the
 extension both run (discouraged), and the Worker flagging models larger than a PC's memory (later).
 
+## Linux test (2026-10-02, v1.6.5 in WSL2 with an RTX 4080)
+
+Everything Linux-specific passed: the launcher, Node, ComfyUI on CUDA, pairing, generating, Ctrl+C
+and a hard kill, and a newer launcher taking over; the extension too, in Claude Desktop for Linux.
+Fixed:
+- The launcher prints its progress (setting up Node) and the page's address in its terminal; a
+  browser that can't be opened (no `xdg-open`) is logged with the address.
+- Clearer second-run log lines, and a clearer "turned away" state on the agent's page, now logged.
+- The agent's Models list shows models by their names, not their ids.
+- "Never both": the Worker's, the agent's and the extension's pages say not to run the agent and
+  the extension on one PC (two ComfyUIs filled a 16 GB GPU).
+- A cut model download starts over, and its `.part` file goes; no resuming.
+- ComfyUI checks for its parent every second, not every 5 s: on Linux, Claude Desktop ends the
+  extension without a signal it can catch, so that is how its ComfyUI stops.
+
+Open: no tray on stock Ubuntu 24.04 (systray2's helper needs `libappindicator3.so.1`), to look
+into; and claude.ai calls the tester saw end in "The operation timed out." at about 60 s while
+the Worker answered them (76 to 151 s, all 200), to reproduce.
+
 ## Verification
 
 - **Every change:** `npm run typecheck`, `npm test` and `uv run pytest` (CI also runs Python 3.14,

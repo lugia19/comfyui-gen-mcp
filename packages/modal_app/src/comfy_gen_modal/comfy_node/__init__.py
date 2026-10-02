@@ -74,8 +74,10 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
-def watch_parent(pid: int, alive=pid_alive, every_s: float = 5.0, exit=os._exit) -> None:
-    """Exit the process once *pid* is gone. Blocks; run it in a daemon thread."""
+def watch_parent(pid: int, alive=pid_alive, every_s: float = 1.0, exit=os._exit) -> None:
+    """Exit the process once *pid* is gone. Blocks; run it in a daemon thread. Every second: the
+    check costs next to nothing, and on Linux Claude Desktop ends the extension without a signal it
+    can catch, so this is how its ComfyUI stops (it took up to 5 s, checking every 5)."""
     while alive(pid):
         time.sleep(every_s)
     # Straight to the file descriptor: ComfyUI wraps sys.stdout in its log interceptor, whose buffer

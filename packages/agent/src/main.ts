@@ -116,11 +116,11 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
 
   const server = await bindWhenFree(
     () => listen((req, remote) => app.handle(req, remote), cfg.port, "127.0.0.1"),
-    () => log.info("The settings port is taken: waiting for a previous agent to stop"),
+    () => log.info("The settings port is taken: waiting a few seconds, in case an agent there is stopping"),
   );
   if (!server) {
     // Already running (started at boot, then again by hand): show that one's page while unpaired.
-    log.info("The agent is already running");
+    log.info(`Another agent already runs on this computer (its page: ${settingsUrl}); this one exits`);
     if (!cfg.worker_url && process.env.COMFY_GEN_OPEN_SETTINGS !== "0") openExternal(settingsUrl);
     exit(0);
     throw new Error("already running");

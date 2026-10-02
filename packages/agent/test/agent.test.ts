@@ -152,7 +152,7 @@ describe("RelayClient", () => {
     FakeWS.last.drop();
     await vi.advanceTimersByTimeAsync(10);
     expect(client.state).toBe("refused");
-    expect(client.lastError).toContain("not paired");
+    expect(client.lastError).toContain("removed from the Worker");
     const n = FakeWS.all.length;
     await vi.advanceTimersByTimeAsync(60_000);
     expect(FakeWS.all.length).toBe(n); // no hammering

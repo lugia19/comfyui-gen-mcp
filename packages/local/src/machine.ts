@@ -139,7 +139,7 @@ export class Machine {
     if (comfy.state !== "external" && models.length) {
       const name = pack.display_name ?? pack.name;
       let status = this.downloads.status(pack.name, models);
-      if (status.state === "missing" || status.state === "failed") status = this.downloads.start(pack.name, models);
+      if (status.state === "missing" || status.state === "failed") status = this.downloads.start(pack.name, models, name);
       if (status.state === "failed") {
         throw new ComfyUIError(`The ${name} model can't be downloaded: ${status.error}. Free some space on that drive, then try again (the settings page: ${settingsUrl})`);
       }

@@ -244,7 +244,8 @@
       <li>The Comfy-Gen icon appears in the tray. Open its settings page from there, choose your GPU and install ComfyUI.</li>
       <li>Ask Claude Desktop for an image.</li>
     </ol>
-    <p class="muted">This Worker costs nothing idle: keep it for claude.ai and the phone app, or delete it from your Cloudflare dashboard.</p>
+    <p><b>Use the extension or this Worker's agent on a PC, never both:</b> each runs its own ComfyUI, and two don't fit on one GPU.</p>
+    <p class="muted">This Worker costs nothing idle: keep it for claude.ai and the phone app through Modal, or delete it from your Cloudflare dashboard.</p>
   </details>
 </Step>
 

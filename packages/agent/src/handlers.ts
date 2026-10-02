@@ -101,7 +101,7 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
           return ok({ started: Boolean(o.sync) });
         case "download": {
           const pack = args.pack as PackNeeds;
-          return ok(machine.downloads.start(pack.name, pack.models ?? []));
+          return ok(machine.downloads.start(pack.name, pack.models ?? [], pack.display_name));
         }
         case "models":
           return ok(((args.packs ?? []) as PackNeeds[]).map((p) => ({ name: p.name, ...machine.downloads.status(p.name, p.models ?? []) })));

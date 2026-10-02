@@ -120,7 +120,9 @@ process per window or reload); each process tries to bind the port (9247, as in 
   binds it and becomes the owner. ComfyUI starts again on the next job.
 - An owner killed outright (on Windows a killed process leaves its children running) takes its
   ComfyUI down anyway: our ComfyUI extension (`comfy_node`) exits ComfyUI once the process named in
-  `COMFY_GEN_PARENT_PID` is gone. Tested: ComfyUI gone within 4 s of a SIGKILL, the next message
+  `COMFY_GEN_PARENT_PID` is gone, checked every second (every 5 s until 2026-10-02: on Linux, Claude
+  Desktop ends the extension without a catchable signal, so this is the usual way it stops there).
+  Tested: ComfyUI gone within 4 s of a SIGKILL at the old interval, the next message
   to a relay made it the owner.
 
 The server binds `127.0.0.1`, or `0.0.0.0` when the user lets other computers use it (Connect

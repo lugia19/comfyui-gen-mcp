@@ -3,7 +3,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -125,17 +124,6 @@ func handOff(home string) bool {
 	log.Printf("launchd took the agent, but its port %d didn't answer within 30 s: it runs here instead", port)
 	_ = exec.Command("launchctl", "bootout", domain+"/"+launchdLabel).Run()
 	return false
-}
-
-// agentPort is the agent's settings port: agent.json's "port", else 9248 (packages/agent/src/config.ts).
-func agentPort(home string) int {
-	var cfg struct {
-		Port int `json:"port"`
-	}
-	if data, err := os.ReadFile(filepath.Join(home, "agent.json")); err == nil && json.Unmarshal(data, &cfg) == nil && cfg.Port > 0 && cfg.Port < 65536 {
-		return cfg.Port
-	}
-	return 9248
 }
 
 func hideWindow(*exec.Cmd) {}

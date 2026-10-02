@@ -15,7 +15,7 @@
   const LABEL = {
     connected: 'Connected',
     connecting: 'Connecting…',
-    refused: 'Refused by the Worker',
+    refused: 'Turned away',
     unpaired: 'Not paired',
   }
 
@@ -55,13 +55,17 @@
   {#if worker.paired}
     <p>
       <b class:ok={worker.state === 'connected'} class:err={worker.state === 'refused'}>{LABEL[worker.state] || worker.state}</b>
-      <span class="muted">to <code>{worker.url}</code></span>
+      <span class="muted">{worker.state === 'refused' ? 'by' : 'to'} <code>{worker.url}</code></span>
     </p>
     {#if worker.error}<p class="err">{worker.error}</p>{/if}
     {#if worker.paused}
       <p><b>Paused:</b> not taking image requests. Take them again from the Comfy-Gen tray icon.</p>
     {/if}
     <p class="muted">Claude (claude.ai, the phone app) generates on this PC through your Worker while it is connected.</p>
+    <p class="muted">
+      <b>Don't also install the Claude Desktop extension on this PC:</b> each runs its own ComfyUI, and two don't fit on
+      one GPU. Claude Desktop can use your Worker as a connector instead.
+    </p>
     <p>
       <a class="button" href="{worker.url}/#settings" target="_blank" rel="noopener">Edit settings</a>
     </p>

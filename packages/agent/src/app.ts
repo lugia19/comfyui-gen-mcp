@@ -83,7 +83,7 @@ export class AgentApp {
     }
     if (sub === "/models" && m === "GET") {
       // The packs the Worker asked for so far, with their downloads.
-      const packs = this.s.machine.downloads.jobs().map((j) => ({ name: j.key, display_name: j.key, size: j.total, ...j }));
+      const packs = this.s.machine.downloads.jobs().map((j) => ({ name: j.key, display_name: j.label, size: j.total, ...j }));
       return json({ packs });
     }
     return error(404, "not found");

@@ -27,7 +27,7 @@ export type PackDownload = {
   error?: string;
 };
 
-type Job = { key: string; files: ModelFile[]; status: PackDownload };
+type Job = { key: string; label: string; files: ModelFile[]; status: PackDownload };
 
 export class ModelDownloads {
   private models: ModelLocator;
@@ -53,8 +53,9 @@ export class ModelDownloads {
     return { state: "missing", done: 0, total: missing.reduce((n, f) => n + (f.size_bytes ?? 0), 0) };
   }
 
-  /** Queue *key*'s missing files, unless they are queued already. Returns the status. */
-  start(key: string, files: ModelFile[]): PackDownload {
+  /** Queue *key*'s missing files, unless they are queued already. Returns the status. *label* is
+   * the pack's display name, for the settings page. */
+  start(key: string, files: ModelFile[], label = key): PackDownload {
     const current = this.byKey.get(key);
     if (current && (current.status.state === "queued" || current.status.state === "downloading")) return { ...current.status };
     const missing = this.missing(files);
@@ -62,21 +63,21 @@ export class ModelDownloads {
     const total = missing.reduce((n, f) => n + (f.size_bytes ?? 0), 0);
     const room = noRoom(this.models.ownModels, total);
     if (room) {
-      const failed: Job = { key, files: missing, status: { state: "failed", done: 0, total, error: room } };
+      const failed: Job = { key, label, files: missing, status: { state: "failed", done: 0, total, error: room } };
       this.byKey.set(key, failed);
       log.error(`Not downloading the models for ${key}: ${room}`);
       return { ...failed.status };
     }
-    const job: Job = { key, files: missing, status: { state: "queued", done: 0, total } };
+    const job: Job = { key, label, files: missing, status: { state: "queued", done: 0, total } };
     this.byKey.set(key, job);
     this.queue.push(job);
     void this.pump();
     return { ...job.status };
   }
 
-  /** Every job since the start: {key, ...status}, for a settings page. */
-  jobs(): ({ key: string } & PackDownload)[] {
-    return [...this.byKey.values()].map((j) => ({ key: j.key, ...j.status }));
+  /** Every job since the start: {key, label, ...status}, for a settings page. */
+  jobs(): ({ key: string; label: string } & PackDownload)[] {
+    return [...this.byKey.values()].map((j) => ({ key: j.key, label: j.label, ...j.status }));
   }
 
   /** Whether any download ended in failure (and was not started again since). */
@@ -116,7 +117,8 @@ export class ModelDownloads {
         await fetchFile(f.url, join(own, f.subfolder, f.filename), {
           size: f.size_bytes,
           sha256: f.sha256,
-          resume: true,
+          // Not resumed: a cut download starts over and its .part file goes (a new process left a
+          // 2.4 GB one behind and started from zero anyway, 2026-10-02). Rare enough not to matter.
           onProgress: (d) => (job.status.done = before + d),
         });
       } catch (e) {

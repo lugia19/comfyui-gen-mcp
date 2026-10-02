@@ -1,6 +1,7 @@
 // Child processes: run a command to completion, start a long-running one, stop a process tree.
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { log } from "./log.ts";
 
 const WIN = process.platform === "win32";
 
@@ -89,10 +90,14 @@ export async function killTree(child: ChildProcess): Promise<void> {
   clearTimeout(late);
 }
 
-/** Open a folder or URL with the desktop's default handler. Best effort. */
+/** Open a folder or URL with the desktop's default handler. Best effort, but a failure is logged
+ * with the target, to open by hand: Ubuntu in WSL had no xdg-open, and nothing said so (2026-10-02). */
 export function openExternal(target: string): void {
   const cmd = WIN ? "explorer" : process.platform === "darwin" ? "open" : "xdg-open";
+  const failed = (why: string) => log.warn(`Could not open ${target} (${why}): open it yourself`);
   const child = spawn(cmd, [target], { detached: true, stdio: "ignore" });
-  child.on("error", () => {});
+  child.on("error", (e) => failed(e.message));
+  // explorer exits with 1 even when it worked: only the others' exit codes mean anything.
+  if (!WIN) child.on("exit", (code) => code && failed(`${cmd} exited with code ${code}`));
   child.unref();
 }

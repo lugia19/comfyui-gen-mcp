@@ -18,6 +18,7 @@ package main
 
 import (
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -83,9 +84,10 @@ func main() {
 		fail("Could not write %s: %v", shimPath, err)
 	}
 	if !*autostart && handOff(home) {
-		fmt.Println("The Comfy-Gen agent is running. You can close this window.")
+		fmt.Printf("The Comfy-Gen agent is running (its page: http://127.0.0.1:%d/). You can close this window.\n", agentPort(home))
 		return
 	}
+	say("The Comfy-Gen agent is starting. Its page: http://127.0.0.1:%d/", agentPort(home))
 	supervise(node, shimPath, out, !*autostart)
 }
 
@@ -114,6 +116,26 @@ func openLog(dir string) io.Writer {
 		return os.Stderr
 	}
 	return f
+}
+
+// agentPort is the agent's settings port: agent.json's "port", else 9248 (packages/agent/src/config.ts).
+func agentPort(home string) int {
+	var cfg struct {
+		Port int `json:"port"`
+	}
+	if data, err := os.ReadFile(filepath.Join(home, "agent.json")); err == nil && json.Unmarshal(data, &cfg) == nil && cfg.Port > 0 && cfg.Port < 65536 {
+		return cfg.Port
+	}
+	return 9248
+}
+
+// say tells someone who started the launcher in a terminal what it is doing, and the log: on Linux
+// it looked hung while it set up Node, and no browser could open its page (2026-10-02). On
+// Windows there is no console, and the line only reaches the log.
+func say(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	log.Print(msg)
+	fmt.Println(msg)
 }
 
 // fail tells the user (there is no console on Windows) and exits.
@@ -243,7 +265,7 @@ func supervise(node, shimPath string, out io.Writer, open bool) {
 		}
 		switch {
 		case code == 0:
-			log.Print("The agent stopped")
+			say("The agent exited: it was asked to stop, or one was already running (that one carries on)")
 			return
 		case code == restartCode:
 			log.Print("The agent is restarting")

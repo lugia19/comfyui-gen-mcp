@@ -259,6 +259,10 @@
 <section>
   <h2>Connect Claude</h2>
   <p>Claude Desktop connects through the extension by itself. Nothing to do here.</p>
+  <p>
+    <b>Don't also run the Comfy-Gen agent on this computer.</b> Each runs its own ComfyUI, and two don't
+    fit on one GPU: use this extension, or the agent with a Worker (which Claude Desktop can use too).
+  </p>
   <p class="muted">
     Other MCP clients on this computer can use <code>{showUrl ? info.connector_url : masked(info.connector_url)}</code>
     <button type="button" class="link" onclick={() => (showUrl = !showUrl)}>{showUrl ? 'Hide' : 'Show'}</button>

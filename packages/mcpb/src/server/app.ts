@@ -162,7 +162,7 @@ export class LocalApp {
       const wanted = (await bodyJson(req)).pack;
       const pack = PACKS.find((p) => p.name === wanted);
       if (!pack) return error(400, "no such pack");
-      return json(this.s.machine.downloads.start(pack.name, pack.models ?? []));
+      return json(this.s.machine.downloads.start(pack.name, pack.models ?? [], pack.display_name));
     }
     return error(404, "not found");
   }

@@ -148,8 +148,10 @@ export class RelayClient {
       this.lastError = `Cannot reach ${this.opts.workerUrl}: ${(e as Error).message}`;
     }
     if (status === 401) {
+      // Logged once, not at every retry (every 5 minutes): a removed PC was silent in the log.
+      if (this.state !== "refused") log.warn(`${this.opts.workerUrl} doesn't know this PC any more (removed or unpaired there)`);
       this.state = "refused";
-      this.lastError = "This PC is not paired with the Worker any more. Paste a new pairing link.";
+      this.lastError = "This PC was removed from the Worker, or unpaired there. Paste a new pairing link to connect again.";
       this.retry(REFUSED_RETRY_MS);
       return;
     }

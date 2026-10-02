@@ -39,7 +39,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     const comfy = machine.comfy;
     if (comfy.state === "external" || comfy.state === "not_installed" || !packs.length) return;
     comfy.models.sources(true); // look again: a folder may have appeared
-    for (const pack of packs) if (pack.models?.length) machine.downloads.start(pack.name, pack.models);
+    for (const pack of packs) if (pack.models?.length) machine.downloads.start(pack.name, pack.models, pack.display_name);
   };
   const machine = new Machine({
     paths: p,
