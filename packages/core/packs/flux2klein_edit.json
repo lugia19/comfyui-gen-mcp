@@ -4,7 +4,6 @@
   "description": "img2img editing workflow using Flux 2 Klein 4B",
   "tool_name": "edit_image",
   "is_default": true,
-  "tool_description": "Edit an existing image using Flux 2 Klein via ComfyUI. Provide a text prompt describing the desired changes and one or more reference images. The model will generate a new image based on the prompt and references.\n\nIMPORTANT: The generated image may not appear inline in the conversation, but it IS sent to the user. Do not assume the generation failed just because you cannot see the image.",
   "models": [
     {
       "filename": "flux-2-klein-4b-Q8_0.gguf",

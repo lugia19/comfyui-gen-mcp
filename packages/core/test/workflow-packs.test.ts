@@ -3,7 +3,8 @@ import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize } from "../src/config.ts";
-import { builtinPacks, configKey, groupByTool, prepare, select, supportsLoras, validate } from "../src/packs.ts";
+import { builtinPacks, family, groupByTool, prepare, select, supportsLoras, TOOLS, validate } from "../src/packs.ts";
+import { describe as describeTool } from "../src/tools.ts";
 import { buildPrompt, calcDimensions, injectLoras, stripLossless, type Workflow } from "../src/workflow.ts";
 
 const smallWorkflow = (): Workflow => ({
@@ -82,7 +83,7 @@ describe("packs and config", () => {
 
   it("every pack JSON file is listed, in file-name order", () => {
     const dir = new URL("../packs/", import.meta.url);
-    const files = readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
+    const files = readdirSync(dir).filter((f) => f.endsWith(".json") && f !== "tools.json").sort();
     expect(PACK_FILES.map(([f]) => f)).toEqual(files);
   });
 
@@ -117,7 +118,7 @@ describe("packs and config", () => {
 
   it("prepare clamps max_pixels to the limit", () => {
     const pack = builtin.find((p) => p.max_pixels_limit)!;
-    const key = configKey(pack);
+    const key = family(pack);
     expect(prepare(pack, normalize({ pack_settings: { [key]: { max_pixels: pack.max_pixels_limit * 10 } } })).max_pixels).toBe(pack.max_pixels_limit);
     expect(prepare(pack, normalize({ pack_settings: { [key]: { max_pixels: "big" } } })).max_pixels).toBe(pack.max_pixels);
   });
@@ -159,7 +160,24 @@ describe("packs and config", () => {
     });
   });
 
+  it("a tool is described once: its routing line, the pack's guide (else the tool's), the shared tail", () => {
+    for (const pack of builtin.filter((p) => p.tool_name !== "edit_image")) {
+      const tool = TOOLS[pack.tool_name];
+      const desc = describeTool(pack, normalize({}));
+      expect(desc.startsWith(tool.description + "\n" + (pack.prompt_guide ?? tool.default_guide)!.split("{")[0])).toBe(true);
+      expect(desc).toMatch(/aspect_ratio parameter[\s\S]*may not appear inline[\s\S]*image\.$/);
+      expect(desc).not.toMatch(/\{artist_list\}|\{lora_triggers\}/);
+    }
+    for (const tool of new Set(builtin.map((p) => p.tool_name))) expect(TOOLS[tool]?.title).toBeTruthy();
+    expect(() => validate({ ...builtin[0], tool_name: "nope" })).toThrow(/unknown tool/);
+  });
+
   it("only the Anima family takes LoRAs", () => {
     expect(builtinPacks().filter(supportsLoras).map((p) => p.name).sort()).toEqual(["anima", "anima_turbo"]);
+    // A family is the key users' settings are stored under: these must never change.
+    expect(Object.fromEntries(builtinPacks().map((p) => [p.name, family(p)]))).toEqual({
+      anima: "anima", anima_turbo: "anima", flux2klein: "flux2klein", flux2klein_9b: "flux2klein_9b",
+      flux2klein_9b_edit: "flux2klein_9b_edit", flux2klein_edit: "flux2klein_edit", z_image_turbo: "z_image_turbo",
+    });
   });
 });

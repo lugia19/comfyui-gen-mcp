@@ -207,8 +207,15 @@ plain data. Transports:
 
 ### Brain
 
-Packs (JSON: workflow, prompt node, seed and dimension nodes, model URLs, tool descriptions) are
-resolved per tool, prompts injected, seeds randomized, dimensions computed, LoRAs spliced. This is
+Packs (JSON: workflow, prompt node, seed and dimension nodes, model URLs, a prompting guide) are
+resolved per tool, prompts injected, seeds randomized, dimensions computed, LoRAs spliced. The
+tools themselves are defined once, in `packs/tools.json`: each one's settings-page title, the line
+that routes between them (illustration or photo), and a default prompting guide; a tool's
+description is that line, the selected pack's `prompt_guide` (else the default), then the part all
+generation tools share (aspect ratios, "may not appear inline"). Packs of one `family` (Anima and
+Anima Turbo) share their settings, stored under the family's name; `loras: true` marks the packs
+that take LoRAs (2026-10-02: these replaced per-pack tool descriptions, `config_key` and the
+artist-list test for LoRA support). This is
 the old `workflow.py`, `model_pack.py` and `tool_specs.py`, ported to TypeScript with Web-platform APIs
 only, plus the MCP handler.
 

@@ -15,11 +15,6 @@
   const anyPc = gpus.some((g) => g.kind === 'pc')
 
   const MP = 1024 * 1024
-  const TOOL_TITLES = {
-    generate_illustrated_image: 'Illustrations and anime',
-    generate_realistic_image: 'Realistic images',
-    edit_image: 'Image editing',
-  }
 
   // A working copy; saved as a whole.
   let cfg = $state($state.snapshot(fixed.info.config))
@@ -36,12 +31,12 @@
   }
 
   function packSettings(pack) {
-    cfg.pack_settings[pack.config_key] ??= {}
-    return cfg.pack_settings[pack.config_key]
+    cfg.pack_settings[pack.family] ??= {}
+    return cfg.pack_settings[pack.family]
   }
 
   function megapixels(pack) {
-    const px = cfg.pack_settings[pack.config_key]?.max_pixels ?? pack.max_pixels
+    const px = cfg.pack_settings[pack.family]?.max_pixels ?? pack.max_pixels
     return Math.round((px / MP) * 100) / 100
   }
 
@@ -55,7 +50,7 @@
   // Packs that take LoRAs, one entry per settings key: packs sharing a key share their LoRAs
   // (Anima and Anima Turbo).
   const loraPacks = Object.values(
-    Object.groupBy(fixed.info.packs.flatMap((g) => g.packs).filter((p) => p.supports_loras), (p) => p.config_key),
+    Object.groupBy(fixed.info.packs.flatMap((g) => g.packs).filter((p) => p.supports_loras), (p) => p.family),
   ).map((same) => ({ ...same[0], display_name: same.map((p) => p.display_name).join(' / ') }))
   // LoRA files on each backend. This computer's list is mapped to the Worker's shape.
   let loraListing = $state(null)
@@ -115,7 +110,7 @@
 {#each info.packs as group (group.tool_name)}
   {@const current = selectedPack(group)}
   <section>
-    <h2>{TOOL_TITLES[group.tool_name] || group.tool_name}</h2>
+    <h2>{group.title || group.tool_name}</h2>
     {#if group.packs.length > 1}
       {#each group.packs as pack (pack.name)}
         <label class="choice">
@@ -157,7 +152,7 @@
       <input
         id="artists-{group.tool_name}"
         type="text"
-        value={cfg.pack_settings[current.config_key]?.artist_list ?? ''}
+        value={cfg.pack_settings[current.family]?.artist_list ?? ''}
         placeholder={current.default_artist_list}
         oninput={(e) => (packSettings(current).artist_list = e.currentTarget.value)}
       />

@@ -53,7 +53,7 @@
     return pack.default_artist_list?.trim().startsWith('@') && !s.startsWith('@') ? `@${s}` : s
   }
 
-  const entries = (pack) => cfg.pack_loras[pack.config_key] ?? []
+  const entries = (pack) => cfg.pack_loras[pack.family] ?? []
   const entryOf = (pack, name) => entries(pack).find((e) => e.name === name)
 
   // *packs* has one entry per settings key (packs sharing a key share their LoRAs).
@@ -66,8 +66,8 @@
   })
 
   function toggle(pack, name, on) {
-    cfg.pack_loras[pack.config_key] ??= []
-    const list = cfg.pack_loras[pack.config_key]
+    cfg.pack_loras[pack.family] ??= []
+    const list = cfg.pack_loras[pack.family]
     if (on) list.push({ name, strength: 1, trigger: triggerFor(pack, name), hidden: false })
     else list.splice(list.findIndex((e) => e.name === name), 1)
   }
@@ -180,7 +180,7 @@
         </button>
       {/if}
     </div>
-    {#each packs as pack (pack.config_key)}
+    {#each packs as pack (pack.family)}
       {@const entry = entryOf(pack, name)}
       <div class="row pack">
         <label class="use"><input type="checkbox" checked={!!entry} onchange={(e) => toggle(pack, name, e.currentTarget.checked)} /> {single ? 'Enabled' : pack.display_name}</label>

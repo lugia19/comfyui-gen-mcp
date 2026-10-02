@@ -9,7 +9,7 @@
 //            come in through request_upload and the code-execution sandbox.
 
 import type { Config } from "./config.ts";
-import { configKey, groupByTool, select, type Pack } from "./packs.ts";
+import { family, groupByTool, select, TOOLS, type Pack } from "./packs.ts";
 
 export type ImageMode = "paths" | "refs";
 export type ToolSpec = { name: string; description: string; inputSchema: Record<string, any> };
@@ -116,15 +116,22 @@ export const UPLOAD_DESC =
 // edit packs back edit_image) is data for that tool, not a tool of its own.
 export const STATIC_TOOLS = new Set(["edit_image", "fetch_result", "request_upload"]);
 
+// The end of every generation tool's description.
+const GENERATION_TAIL =
+  "The aspect_ratio parameter controls image shape: square (1:1), portrait (3:4), landscape (4:3), tall (9:16), wide (16:9). Default is square.\n\n" +
+  "IMPORTANT: The generated image may not appear inline in the conversation, but it IS sent to the user. Do not assume the generation failed just because you cannot see the image.";
+
 /**
- * Final tool description for a selected pack. A tool with several packs uses
- * group_tool_description. {artist_list} is filled from the configured artists (else the pack's
- * defaults), {lora_triggers} from the configured trigger-gated LoRAs.
+ * Final tool description for a selected generation pack: the tool's routing line, the pack's
+ * prompt_guide (else the tool's default_guide), then the shared tail. In the guide, {artist_list}
+ * is filled from the configured artists (else the pack's defaults), {lora_triggers} from the
+ * configured trigger-gated LoRAs.
  */
-export function describe(pack: Pack, groups: Record<string, Pack[]>, cfg: Config): string {
-  const key = configKey(pack);
-  let desc: string = pack.tool_description;
-  if ((groups[pack.tool_name] ?? []).length > 1 && pack.group_tool_description) desc = pack.group_tool_description;
+export function describe(pack: Pack, cfg: Config): string {
+  const key = family(pack);
+  const tool = TOOLS[pack.tool_name] ?? { title: pack.tool_name };
+  const guide = pack.prompt_guide ?? tool.default_guide ?? "";
+  let desc = [tool.description, guide].filter(Boolean).join("\n") + "\n\n" + GENERATION_TAIL;
 
   if (pack.default_artist_list) {
     let artists: string = cfg.pack_settings?.[key]?.artist_list || pack.default_artist_list;
@@ -157,7 +164,7 @@ export function toolSpecs(allPacks: Pack[], cfg: Config, imageMode: ImageMode): 
   const selected = select(groups, cfg.pack_selections ?? {});
   const specs: ToolSpec[] = selected
     .filter((p) => !STATIC_TOOLS.has(p.tool_name))
-    .map((p) => ({ name: p.tool_name, description: describe(p, groups, cfg), inputSchema: GENERATION_SCHEMA }));
+    .map((p) => ({ name: p.tool_name, description: describe(p, cfg), inputSchema: GENERATION_SCHEMA }));
   if (selected.some((p) => p.tool_name === "edit_image")) {
     if (imageMode === "paths") {
       specs.push({ name: "edit_image", description: EDIT_DESC_PATHS, inputSchema: EDIT_SCHEMA_PATHS });

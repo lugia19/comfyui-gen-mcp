@@ -3,7 +3,6 @@
   "display_name": "Flux 2 Klein 9B (Edit)",
   "description": "img2img editing workflow using Flux 2 Klein 9B (higher quality, ~12GB+ VRAM)",
   "tool_name": "edit_image",
-  "tool_description": "Edit an existing image using Flux 2 Klein 9B via ComfyUI. Provide a text prompt describing the desired changes and one or more reference images. The model will generate a new image based on the prompt and references.\n\nIMPORTANT: The generated image may not appear inline in the conversation, but it IS sent to the user. Do not assume the generation failed just because you cannot see the image.",
   "models": [
     {
       "filename": "flux-2-klein-9b-Q8_0.gguf",

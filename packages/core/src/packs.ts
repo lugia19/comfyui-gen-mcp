@@ -2,9 +2,10 @@
 //
 // A pack is a JSON document: a workflow, the nodes to patch (prompt, seeds, dimensions), the model
 // files it needs, and the tool it backs. Several packs can back one tool (Anima and Anima Turbo both
-// back generate_illustrated_image); the user's config picks one.
+// back generate_illustrated_image); the user's config picks one. The tool itself (its title and the
+// description's shared parts) is defined once, in packs/tools.json; a pack adds its prompt_guide.
 
-import { PACK_FILES } from "../packs/index.ts";
+import { PACK_FILES, TOOL_FILE } from "../packs/index.ts";
 import { isPlainObject } from "./bytes.ts";
 import type { Config } from "./config.ts";
 import { injectLoras, type Lora } from "./workflow.ts";
@@ -13,22 +14,31 @@ export type Pack = Record<string, any> & {
   name: string;
   display_name: string;
   tool_name: string;
-  tool_description: string;
+  /** How to prompt this model, in the tool's description; else the tool's default_guide. */
+  prompt_guide?: string;
+  /** Packs of one family share their settings (artists, LoRAs, resolution): Anima and Anima Turbo. */
+  family?: string;
+  /** Whether the pack takes the user's LoRAs. */
+  loras?: boolean;
   models: { url: string; subfolder: string; filename: string; size_bytes?: number; sha256?: string }[];
   workflow: Record<string, any>;
   prompt_node_id: string;
   seed_nodes: { node_id: string; field: string }[];
 };
 
-export const REQUIRED_FIELDS = [
-  "name", "display_name", "tool_name", "tool_description", "models", "workflow", "prompt_node_id", "seed_nodes",
-];
+export const REQUIRED_FIELDS = ["name", "display_name", "tool_name", "models", "workflow", "prompt_node_id", "seed_nodes"];
+
+export type Tool = { title: string; description?: string; default_guide?: string };
+
+/** The tools packs back, by name (packs/tools.json). */
+export const TOOLS = TOOL_FILE as Record<string, Tool>;
 
 /** Check a pack has the required fields. Returns it; throws otherwise. */
 export function validate(pack: unknown, source = "pack"): Pack {
   if (!isPlainObject(pack)) throw new Error(`${source}: not a JSON object`);
   const missing = REQUIRED_FIELDS.filter((f) => !(f in pack));
   if (missing.length) throw new Error(`${source}: missing required fields ${JSON.stringify(missing)}`);
+  if (!(String(pack.tool_name) in TOOLS)) throw new Error(`${source}: unknown tool ${pack.tool_name} (packs/tools.json)`);
   return pack as Pack;
 }
 
@@ -45,9 +55,10 @@ export function builtinPacks(): Pack[] {
   return packs;
 }
 
-/** The config bucket a pack reads its settings from. Anima and Anima Turbo share one. */
-export function configKey(pack: Pack): string {
-  return pack.config_key ?? pack.name;
+/** The config bucket a pack reads its settings from (pack_settings, pack_loras): its family, else
+ * its name. These are the keys stored in users' configs: a pack's family must not change. */
+export function family(pack: Pack): string {
+  return pack.family ?? pack.name;
 }
 
 export function groupByTool(packs: Pack[]): Record<string, Pack[]> {
@@ -64,15 +75,15 @@ export function select(groups: Record<string, Pack[]>, selections: Record<string
   });
 }
 
-/** Whether the pack takes the user's LoRAs: the Anima family (the packs with an artist list), whose
- * plain UNET loader LoraLoaderModelOnly can follow. */
+/** Whether the pack takes the user's LoRAs (the Anima family: its plain UNET loader is one
+ * LoraLoaderModelOnly can follow). */
 export function supportsLoras(pack: Pack): boolean {
-  return Boolean(pack.default_artist_list);
+  return pack.loras === true;
 }
 
 /** The pack's LoRAs from a normalized config (config.ts cleans the entries). */
 function loras(pack: Pack, cfg: Config): Lora[] {
-  const entries = cfg.pack_loras?.[configKey(pack)] ?? [];
+  const entries = cfg.pack_loras?.[family(pack)] ?? [];
   if (entries.length && !supportsLoras(pack)) {
     console.warn(`Pack '${pack.name}': LoRAs configured but not supported for this pack, ignoring`);
     return [];
@@ -84,7 +95,7 @@ function loras(pack: Pack, cfg: Config): Lora[] {
 function maxPixels(pack: Pack, cfg: Config): number | null {
   const limit = pack.max_pixels_limit;
   if (!limit) return null;
-  const value = cfg.pack_settings?.[configKey(pack)]?.max_pixels;
+  const value = cfg.pack_settings?.[family(pack)]?.max_pixels;
   if (!Number.isInteger(value) || (value as number) <= 0) return null;
   return Math.min(value as number, limit);
 }
@@ -115,13 +126,14 @@ export function downloadSize(pack: Pack): number {
 export function packMetadata(packs: Pack[]) {
   return Object.entries(groupByTool(packs)).map(([tool, group]) => ({
     tool_name: tool,
+    title: TOOLS[tool]?.title ?? tool,
     packs: group.map((p) => ({
       name: p.name,
       display_name: p.display_name ?? p.name,
       description: p.description ?? "",
       download_size: downloadSize(p),
       is_default: Boolean(p.is_default),
-      config_key: configKey(p),
+      family: family(p),
       max_pixels: p.max_pixels ?? null,
       max_pixels_limit: p.max_pixels_limit ?? null,
       default_artist_list: p.default_artist_list ?? null,

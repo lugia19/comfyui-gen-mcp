@@ -6,8 +6,8 @@
 // add their own keys (the MCPB's ComfyUI URL, for instance); normalize() keeps them.
 //
 //   pack_selections   {tool_name: pack_name}
-//   pack_settings     {config_key: {artist_list: string, max_pixels: number}}
-//   pack_loras        {config_key: [{name, strength, trigger, hidden}]}
+//   pack_settings     {family: {artist_list: string, max_pixels: number}}
+//   pack_loras        {family: [{name, strength, trigger, hidden}]}
 //   keep_warm_minutes integer, how long an idle ComfyUI stays up (the extension's; on a Worker each
 //                     GPU in its list has its own)
 
