@@ -163,7 +163,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
   let restart: NodeJS.Timeout | null = null;
   const restartWhenIdle = (tag: string) => {
     if (restart) return;
-    log.info(`Comfy-Gen agent ${tag} is downloaded; restarting into it once nothing has run for ${RESTART_WHEN_QUIET_MS / 60_000} minutes`);
+    log.info(`Comfy-Gen agent ${tag} is downloaded; restarting into it once ComfyUI has been unused for ${RESTART_WHEN_QUIET_MS / 60_000} minutes (within a minute if it already has) and the agent isn't paused`);
     restart = setInterval(() => {
       // Not while paused: the pause isn't saved, so restarting would take requests again unasked.
       if (paused || !machine.idleFor(RESTART_WHEN_QUIET_MS)) return;

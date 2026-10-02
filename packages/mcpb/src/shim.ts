@@ -126,7 +126,13 @@ async function run(): Promise<void> {
       await first; // nothing to run yet: this one we wait for
       candidates = bundles();
     }
-    checking = first.catch(failed);
+    // The agent starts at login, often before the network is up (seen on macOS): one retry a
+    // minute later, rather than waiting an hour for the next check.
+    checking = first.catch((e) => {
+      failed(e);
+      if (APP !== "agent") return;
+      return new Promise<void>((r) => setTimeout(r, 60_000).unref()).then(() => update(true)).catch(failed);
+    });
   }
   for (const [tag, path] of candidates) {
     let mod: Bundle;

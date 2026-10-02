@@ -389,7 +389,7 @@
         <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/tag/{update.latest}" target="_blank" rel="noopener">What's new</a>
       </p>
       <p class="muted">
-        It updates itself within a day. Update now starts the build at once: it takes a minute or two, and
+        It updates itself within a day. Update now starts the build at once: it takes 2 to 5 minutes, and
         {modalGpu ? 'redeploys ComfyUI on Modal too' : 'image requests keep working meanwhile'}.
       </p>
       {#if !update.building && !(updating && !updateFinished)}
