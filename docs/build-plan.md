@@ -314,6 +314,12 @@ Still to do:
   first, with direct links, and the Worker recognises each when it fails and says which step is
   missing, with its link: a build that fails because R2 is not enabled says "R2 isn't enabled
   yet" on the setup page instead of a raw build error, and likewise for Modal billing.
+- **Setup guidance on the site** (noted 2026-10-02, for later):
+  - connecting GitHub to Cloudflare: clearer steps, ideally a direct button to Cloudflare's
+    GitHub connection page
+  - enabling R2 on the account: a collapsible section walking through it (the checkout step
+    included)
+  - avoiding charges: how to set usage limits and spending alerts on Modal and on Cloudflare
 
 ## macOS test (2026-10-02, v1.6.3 on an 8 GB M1)
 
