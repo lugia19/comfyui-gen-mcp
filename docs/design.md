@@ -146,7 +146,9 @@ Start or Restart: ComfyUI starts by itself with the first image, and the setting
 Everything else lives in `~/.comfy-gen-mcp`, the old extension's folder: the config file
 (`config.json`; the old `local_config.json` is not read, there being two users to move), the
 managed ComfyUI (ours only: an install without our marker file is replaced by the next install,
-which keeps its models, outputs and inputs) and its models.
+which keeps its models, outputs, inputs and user settings, in place: they used to be moved aside
+and back, and on Windows moving `models` failed with EPERM while anything had a file in it open,
+2026-10-02) and its models.
 
 **Models already on the machine are used where they are** (`local/discover.ts`), since they are
 many GB. The managed ComfyUI reads, through the `extra_model_paths.yaml` written at each start:

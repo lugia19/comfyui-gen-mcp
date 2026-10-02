@@ -4,7 +4,7 @@
 // Only our own installs count (they carry a marker file); anything else in the folder is replaced by
 // an install, which keeps its models, outputs and inputs.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fetchFile } from "./fetchfile.ts";
 import { log } from "./log.ts";
@@ -81,17 +81,8 @@ export async function install(p: Paths, gpu: Gpu, onLine: (l: string) => void = 
   const uv = await ensureUv(p, onLine);
   const env = pythonEnv(uvEnv(p));
   const ws = p.comfyui;
-  const kept = join(p.home, "reinstall-kept");
-  mkdirSync(kept, { recursive: true });
-
-  const old = comfyDir(ws);
-  if (old) {
-    onLine("Keeping models and outputs, removing the old ComfyUI");
-    for (const name of KEEP) {
-      if (existsSync(join(old, name)) && !existsSync(join(kept, name))) renameSync(join(old, name), join(kept, name));
-    }
-  }
-  await removeDir(ws);
+  if (comfyDir(ws)) onLine("Keeping models and outputs, removing the old ComfyUI");
+  await clearWorkspace(ws);
 
   onLine(`Downloading ComfyUI ${COMFYUI_VERSION}`);
   const tarball = join(p.home, `ComfyUI-${COMFYUI_VERSION}.tar.gz`);
@@ -101,12 +92,7 @@ export async function install(p: Paths, gpu: Gpu, onLine: (l: string) => void = 
   rmSync(tarball, { force: true });
   if (untar.code !== 0) throw new Error(`Unpacking ComfyUI failed: ${untar.output.trim()}`);
 
-  for (const name of KEEP) {
-    if (!existsSync(join(kept, name))) continue;
-    rmSync(join(ws, name), { recursive: true, force: true });
-    renameSync(join(kept, name), join(ws, name));
-  }
-  rmSync(kept, { recursive: true, force: true });
+  await restoreKept(ws, join(p.home, "reinstall-kept"), onLine);
 
   const uvRun = async (what: string, args: string[]) => {
     onLine(what);
@@ -124,6 +110,80 @@ export async function install(p: Paths, gpu: Gpu, onLine: (l: string) => void = 
   writeFileSync(join(ws, MARKER), JSON.stringify({ version: COMFYUI_VERSION, gpu, python }, null, 2));
   onLine("ComfyUI is installed");
   return done;
+}
+
+/**
+ * Empty the workspace for a new ComfyUI, leaving the kept folders (KEEP) where they are. They were
+ * moved aside and back, and on Windows moving `models` failed while anything had a file in it open
+ * (EPERM: a download, an Explorer window, the other program's ComfyUI; a user's reinstall,
+ * 2026-10-02). In the old extension's layout, ComfyUI one folder down, they are moved up first.
+ */
+export async function clearWorkspace(ws: string): Promise<void> {
+  const old = comfyDir(ws);
+  if (old && old !== ws) {
+    for (const name of KEEP) {
+      if (existsSync(join(old, name)) && !existsSync(join(ws, name))) await moveDir(join(old, name), join(ws, name));
+    }
+  }
+  if (!existsSync(ws)) return;
+  for (const entry of readdirSync(ws)) if (!KEEP.includes(entry)) await removeDir(join(ws, entry));
+}
+
+/** A reinstall from before 1.6.5 that failed midway left the kept folders in *kept*: put each
+ * back, unless the workspace's own already holds files (then both stay, and the user is told). */
+export async function restoreKept(ws: string, kept: string, onLine: (l: string) => void = () => {}): Promise<void> {
+  if (!existsSync(kept)) return;
+  for (const name of KEEP) {
+    const from = join(kept, name);
+    const to = join(ws, name);
+    if (!existsSync(from)) continue;
+    if (holdsFiles(to)) {
+      onLine(`Left ${from} from an earlier reinstall as it is: ${to} has files of its own`);
+      continue;
+    }
+    await removeDir(to);
+    await moveDir(from, to);
+  }
+  if (readdirSync(kept).length === 0) rmSync(kept, { recursive: true, force: true });
+}
+
+/** Whether *dir* holds a file with something in it (ComfyUI's placeholders are empty). */
+function holdsFiles(dir: string, budget = { dirs: 2000 }): boolean {
+  if (budget.dirs-- <= 0) return true; // too big to look through: assume so
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  for (const e of entries) {
+    const path = join(dir, e.name);
+    if (e.isDirectory() ? holdsFiles(path, budget) : statSafe(path) > 0) return true;
+  }
+  return false;
+}
+
+const statSafe = (path: string) => {
+  try {
+    return statSync(path).size;
+  } catch {
+    return 0;
+  }
+};
+
+/** Rename a folder, retrying for a while: on Windows it fails while a file in it is open. */
+async function moveDir(from: string, to: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (e) {
+      if (attempt >= 4) {
+        throw new Error(`Could not move ${from} to ${to}: ${(e as Error).message}. Close whatever has it open (an Explorer window, another ComfyUI), then try again.`);
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
 }
 
 /** Remove a folder, retrying: on Windows a process that just exited can hold files for a moment,
