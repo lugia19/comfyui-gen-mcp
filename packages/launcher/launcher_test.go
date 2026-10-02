@@ -158,16 +158,19 @@ func TestEnsureNodeDownloadsChecksAndKeepsOneVersion(t *testing.T) {
 
 func TestInstallCopiesItselfOnce(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "bin")
-	target, err := install(bin)
+	target, replaced, err := install(bin)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if replaced {
+		t.Error("a first install reported replacing a copy")
 	}
 	if target != filepath.Join(bin, exeName()) {
 		t.Fatalf("installed as %s", target)
 	}
 	st, _ := os.Stat(target)
-	if again, err := install(bin); err != nil || again != target {
-		t.Fatalf("second install: %s, %v", again, err)
+	if again, replaced, err := install(bin); err != nil || again != target || replaced {
+		t.Fatalf("second install: %s, %v, %v", again, replaced, err)
 	}
 	st2, _ := os.Stat(target)
 	if !st.ModTime().Equal(st2.ModTime()) {

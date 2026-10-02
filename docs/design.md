@@ -39,14 +39,16 @@ start it:
 
 - copies itself into `~/.comfy-gen-mcp/bin/` and registers that copy to start at login (the HKCU
   `Run` key on Windows, a LaunchAgent on macOS, an XDG autostart entry on Linux); `--uninstall`
-  removes the entry
+  removes the entry. When it replaces a different copy there (a new launcher, run by hand), it
+  first ends the running launchers of that name, and their agents end with them, so the new shim
+  and Node take over at once instead of the new agent finding the old one running
 - fetches Node (an LTS pinned in `node.go`, checked against the release's SHA-256 pinned beside
   it) into `~/.comfy-gen-mcp/node/<version>/`, once
 - runs the MCPB's shim, embedded, as `node shim.mjs --app agent`, hidden, and restarts it: at once
   on exit code 75 (the agent restarting into a downloaded update), after a backoff on a crash, not
-  on 0 (another agent already runs; the second one opened the first one's page)
-- tells the agent whether to open its settings page (started by hand: yes; at login or on a
-  restart: only while unpaired)
+  on 0 (another agent already runs; the second one opened the first one's page while unpaired)
+- tells the agent whether it was started by hand; the agent opens its settings page only while
+  unpaired (paired, its tray shows it runs, and the settings are on the Worker's page)
 
 The shim loads the same bundle as for the MCPB (`comfy-gen.mjs` holds both programs) and starts
 the agent. For the agent the shim checks at every start, so restarting it by hand updates it, and

@@ -3,7 +3,8 @@
 // its settings page on 127.0.0.1, the tray, and the relay connection to the paired Worker.
 //
 // The launcher's contract (packages/launcher/main.go): COMFY_GEN_OPEN_SETTINGS=1 when the user
-// started it by hand (open the settings page), 0 when it started at login or restarts us; exit code
+// started it by hand, 0 when it started at login or restarts us (the page opens only while
+// unpaired, either way: paired, its tray is the sign it runs); exit code
 // RESTART_EXIT_CODE asks it to start us again at once (into a newer bundle), 0 to stay stopped.
 
 import { agentInstance, setPartSuffix, listen, log, logTo, Machine, machineTray, openExternal, paths, type Paths, type TrayColor, type WebFiles } from "@comfy-gen/local";
@@ -30,7 +31,6 @@ export type Agent = { app: AgentApp; close(): Promise<void>; restartWhenIdle(tag
 
 export async function startAgent(opts: AgentOptions): Promise<Agent> {
   const p = opts.paths ?? agentInstance(paths());
-  const openSettings = process.env.COMFY_GEN_OPEN_SETTINGS;
   logTo(p.logs);
   if (p.instance) setPartSuffix(p.instance.n);
   // So an ending always leaves a line in the log (one once ended with none).
@@ -119,16 +119,16 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     () => log.info("The settings port is taken: waiting for a previous agent to stop"),
   );
   if (!server) {
-    // Already running (started at boot, then again by hand): show that one's page instead.
+    // Already running (started at boot, then again by hand): show that one's page while unpaired.
     log.info("The agent is already running");
-    if (openSettings !== "0") openExternal(settingsUrl);
+    if (!cfg.worker_url && process.env.COMFY_GEN_OPEN_SETTINGS !== "0") openExternal(settingsUrl);
     exit(0);
     throw new Error("already running");
   }
   log.info(`Comfy-Gen agent ${opts.version}${p.instance ? ` (instance ${p.instance.n}, in ${p.instance.dir})` : ""}: settings on ${settingsUrl}`);
   reconnect();
-  // Unpaired, pairing and install happen there; started by hand, the user expects to see something.
-  if (!cfg.worker_url || openSettings === "1") openExternal(settingsUrl);
+  // Unpaired: pairing and install happen there. Paired, the Worker's page has the settings.
+  if (!cfg.worker_url) openExternal(settingsUrl);
 
   const trouble = () =>
     !cfg.worker_url ? "not paired with a Worker" : client && client.state !== "connected" ? "not connected to your Worker" : null;

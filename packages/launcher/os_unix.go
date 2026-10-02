@@ -8,8 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // The login entry: a LaunchAgent on macOS, an XDG autostart entry elsewhere.
@@ -78,6 +80,28 @@ func removeAutostart() error {
 }
 
 func hideWindow(*exec.Cmd) {}
+
+// endOtherLaunchers asks every other running launcher to stop (SIGTERM: it stops its agent, which
+// stops ComfyUI) and waits up to 20 s for them to exit. It returns how many there were.
+func endOtherLaunchers() int {
+	out, _ := exec.Command("pgrep", "-x", exeName()).Output() // exit 1 when there are none
+	var pids []int
+	for _, f := range strings.Fields(string(out)) {
+		if pid, err := strconv.Atoi(f); err == nil && pid > 1 && pid != os.Getpid() && syscall.Kill(pid, syscall.SIGTERM) == nil {
+			pids = append(pids, pid)
+		}
+	}
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		alive := false
+		for _, pid := range pids {
+			alive = alive || syscall.Kill(pid, 0) == nil
+		}
+		if !alive {
+			break
+		}
+	}
+	return len(pids)
+}
 
 func interrupt(cmd *exec.Cmd) {
 	_ = cmd.Process.Signal(syscall.SIGTERM)

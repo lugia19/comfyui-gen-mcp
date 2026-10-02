@@ -1,10 +1,13 @@
 package main
 
 import (
+	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"unsafe"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -39,6 +42,34 @@ func removeAutostart() error {
 
 func hideWindow(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: noWindow}
+}
+
+// endOtherLaunchers ends every other running launcher. Windows has no signal to ask it, so it is
+// terminated; its agent watches it and stops ComfyUI and itself within 2 s. Returns how many.
+func endOtherLaunchers() int {
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return 0
+	}
+	defer windows.CloseHandle(snap)
+	self := uint32(os.Getpid())
+	n := 0
+	var e windows.ProcessEntry32
+	e.Size = uint32(unsafe.Sizeof(e))
+	for err = windows.Process32First(snap, &e); err == nil; err = windows.Process32Next(snap, &e) {
+		if e.ProcessID == self || !strings.EqualFold(windows.UTF16ToString(e.ExeFile[:]), exeName()) {
+			continue
+		}
+		h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, e.ProcessID)
+		if err != nil {
+			continue
+		}
+		if windows.TerminateProcess(h, 1) == nil {
+			n++
+		}
+		windows.CloseHandle(h)
+	}
+	return n
 }
 
 // interrupt: Windows has no signal for another process; the agent's ComfyUI has a watchdog on it.

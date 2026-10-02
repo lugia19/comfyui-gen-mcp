@@ -4,7 +4,8 @@
 // embedded shim in agent mode, and the shim loads the agent bundle from the releases and keeps it
 // up to date. The launcher itself changes rarely; a new one is installed by running it.
 //
-//	comfy-gen-agent              install or repair, then run the agent and open its settings page
+//	comfy-gen-agent              install or repair, then run the agent (a newer copy than the one
+//	                             installed ends the running one first, so the update takes effect)
 //	comfy-gen-agent --autostart  what the login entry runs: the same, without opening the page
 //	comfy-gen-agent --uninstall  remove the login entry (the folder, with ComfyUI and models, stays)
 //
@@ -57,9 +58,17 @@ func main() {
 		return
 	}
 
-	exe, err := install(filepath.Join(home, "bin"))
+	exe, replaced, err := install(filepath.Join(home, "bin"))
 	if err != nil {
 		log.Printf("Could not copy the launcher into %s (running from where it is): %v", home, err)
+	}
+	if replaced {
+		// The copy we replaced may still be running, with the old shim and Node: end it, and its agent
+		// ends with it (it watches its launcher), so ours takes over instead of finding it running.
+		if n := endOtherLaunchers(); n > 0 {
+			log.Printf("Ended %d running launcher(s) of the older version", n)
+			time.Sleep(3 * time.Second) // its agent notices within 2 s and frees the settings port
+		}
 	}
 	if err := addAutostart(exe); err != nil {
 		log.Printf("Could not register the start at login: %v", err)
@@ -111,41 +120,44 @@ func fail(format string, args ...any) {
 }
 
 // install copies this program into bin (when it runs from elsewhere) and returns the path the
-// login entry should start. A running copy there is renamed aside, which every OS allows.
-func install(bin string) (string, error) {
+// login entry should start, and whether it replaced a different copy. A running copy there is
+// renamed aside, which every OS allows.
+func install(bin string) (string, bool, error) {
 	self, err := os.Executable()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if s, err := filepath.EvalSymlinks(self); err == nil {
 		self = s
 	}
 	target := filepath.Join(bin, exeName())
 	if samePath(self, target) {
-		return target, nil
+		return target, false, nil
 	}
 	data, err := os.ReadFile(self)
 	if err != nil {
-		return self, err
+		return self, false, err
 	}
 	if old, err := os.ReadFile(target); err == nil && string(old) == string(data) {
-		return target, nil
+		return target, false, nil
 	}
 	if err := os.MkdirAll(bin, 0o755); err != nil {
-		return self, err
+		return self, false, err
 	}
 	_ = os.Remove(target + ".old") // left by the previous update, once that copy stopped
+	replaced := false
 	if _, err := os.Stat(target); err == nil {
 		if err := os.Rename(target, target+".old"); err != nil {
-			return self, err
+			return self, false, err
 		}
 		_ = os.Remove(target + ".old")
+		replaced = true
 	}
 	if err := writeAtomic(target, data, 0o755); err != nil {
-		return self, err
+		return self, false, err
 	}
 	log.Printf("Installed the launcher as %s", target)
-	return target, nil
+	return target, replaced, nil
 }
 
 func exeName() string {
