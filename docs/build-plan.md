@@ -399,9 +399,15 @@ Linux and Windows cross-compile with the launchers; a `macos-latest` release job
 (cgo). All three go in one release asset, `comfy-gen-tray.tgz` (7 files, not 9); the bundle
 downloads its own release's archive and extracts its helper, each checked against a hash built into
 it.
-Checked here on a private D-Bus session with a stub watcher: the menu, greyed items, the separator,
-updates and clicks; without a watcher the agent logs "no tray on this desktop". Plain GNOME shows no
-tray without the AppIndicator extension (release notes).
+Checked here on a private D-Bus session with a stub watcher (the menu, greyed items, the separator,
+updates and clicks), then in a real xfce4-panel on Xvfb, with screenshots: the icon, the menu, and
+Pause agent through it. Plain GNOME shows no tray without the AppIndicator extension (release
+notes).
+
+v1.8.1: the xfce run showed the login race (the agent up before the panel's tray), where v1.8.0's
+helper gave up at once and left no icon until a restart. It now waits for a tray (fyne registers
+when one appears) and ends only without a D-Bus session; checked with the agent started 6 s before
+the panel.
 
 To check live: the tray on Windows and the Mac, and on a Linux desktop (KDE or Ubuntu).
 

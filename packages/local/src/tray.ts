@@ -1,8 +1,9 @@
 // The tray icon, through our tray helper (packages/tray: a small Go program on fyne.io/systray,
 // speaking JSON lines on stdio). The release has all three platforms' helpers in one archive; the
-// bundle names it and the hashes, and this computer's helper is extracted from it once per release. A tray that cannot start (no tray on the
-// desktop, as on plain GNOME or a server) is logged and skipped: the settings page is also
-// reachable from every "not ready" tool answer.
+// bundle names it and the hashes, and this computer's helper is extracted from it once per release.
+// A tray that cannot start (no D-Bus session on Linux) is logged and skipped, and one waiting for
+// the desktop's tray says so in the log: the settings page is also reachable from every "not ready"
+// tool answer.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";

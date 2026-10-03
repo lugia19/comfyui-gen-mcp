@@ -142,10 +142,11 @@ lives in the bundle. The tray icon is our tray helper (`packages/tray`, Go on fy
 StatusNotifierItem over D-Bus on Linux, with no GTK or libappindicator; Win32; Cocoa, native on Apple
 silicon). The release has all three in one `comfy-gen-tray.tgz`; the bundle downloads it for its
 own tag, checks it against the SHA-256 built into it, and extracts its platform's helper with `tar`
-(checked against that one's hash); Node talks to it in JSON lines (the protocol is in its `main.go`). Where it cannot run
-there is no tray, and the settings URL is in the tool answers: on Linux the helper first checks that
-the desktop shows StatusNotifierItems (plain GNOME needs the AppIndicator extension) and logs why
-not. (It was systray2's helpers until v1.8.0: Linux's needed `libappindicator3`, gone from Ubuntu
+(checked against that one's hash); Node talks to it in JSON lines (the protocol is in its
+`main.go`). Where it cannot run there is no tray, and the settings URL is in the tool answers. On
+Linux the helper ends only without a D-Bus session (a server); a desktop with no StatusNotifierItem
+host yet is logged and waited for, since at login the agent can start before the panel, and plain
+GNOME gets one with the AppIndicator extension. (It was systray2's helpers until v1.8.0: Linux's needed `libappindicator3`, gone from Ubuntu
 24.04, and the Mac's was Intel-only, needing Rosetta.) The icon's
 color is the state: green running, yellow stopped or starting, red when something needs the user
 (ComfyUI failed or is not installed, a download failed). Its menu: Open settings, Open images folder (ComfyUI's
