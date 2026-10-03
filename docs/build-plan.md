@@ -324,6 +324,12 @@ Still to do:
     it costs (on the free Workers plan, R2's reads and writes stay inside the free allowance, as
     every one goes through the Worker's 100,000 requests a day; only storage past 10 GB bills, at
     cents) and suggest a billing notification. A cap enforced by the Worker was judged not worth it
+- **Cancelling images** (looked into 2026-10-03, not doing): a cancelled call still renders. The
+  MCP spec's cancel (`notifications/cancelled`) is optional. claude.ai sent none in a test (the
+  cancelled request ran to completion in the Worker's logs), and honouring one would mean issuing
+  `MCP-Session-Id`s to tell sessions apart. Revisit if a client starts sending cancels: the Worker
+  would map the request to its ComfyUI prompt, then drop it from the queue (`POST /queue
+  {"delete": […]}`) or `/interrupt` it.
 
 ## macOS test (2026-10-02, v1.6.3 on an 8 GB M1)
 
