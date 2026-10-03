@@ -47,11 +47,14 @@
 
   // The extension's own settings (keep-warm); a Worker's GPUs each have theirs on the Setup tab.
   const keepWarms = machine ? fixed.info.schema.filter((f) => f.machine) : []
-  // Packs that take LoRAs, one entry per settings key: packs sharing a key share their LoRAs
-  // (Anima and Anima Turbo).
-  const loraPacks = Object.values(
-    Object.groupBy(fixed.info.packs.flatMap((g) => g.packs).filter((p) => p.supports_loras), (p) => p.family),
-  ).map((same) => ({ ...same[0], display_name: same.map((p) => p.display_name).join(' / ') }))
+  // The LoRA groups that have models, in order (the first takes LoRAs without a group): packs of a
+  // group share its LoRAs (Anima and Anima Turbo). artistPrefix: its models take @artist tags, so
+  // a LoRA's trigger is one too.
+  const allPacks = fixed.info.packs.flatMap((g) => g.packs)
+  const loraGroups = (fixed.info.lora_groups ?? [])
+    .map((g) => ({ ...g, packs: allPacks.filter((p) => p.lora_group === g.id) }))
+    .filter((g) => g.packs.length)
+    .map((g) => ({ ...g, artistPrefix: g.packs.some((p) => p.default_artist_list?.trim().startsWith('@')) }))
   // LoRA files on each backend. This computer's list is mapped to the Worker's shape.
   let loraListing = $state(null)
 
@@ -73,6 +76,7 @@
       loraListing = machine
         ? { backends: [got.external ? 'url' : 'machine'], files: Object.fromEntries(Object.entries(got.loras).map(([n, size]) => [n, { machine: size }])), syncing: {}, errors: {} }
         : got
+      tagLoose()
     } catch (e) {
       loraListing = { backends: [], files: {}, syncing: {}, errors: { [machine ? 'machine' : 'the Worker']: e.message } }
     }
@@ -83,6 +87,18 @@
     else if (alive && anyPc) loraTimer = setTimeout(() => loadLoras(), 20_000)
   }
   onMount(() => loadLoras())
+
+  // As the server does: a stored LoRA in no group joins the first, switched off. Done on this
+  // working copy too, so saving it doesn't take a LoRA out of the group the server put it in.
+  function tagLoose() {
+    const into = loraGroups[0]?.id
+    if (!into) return
+    const grouped = new Set(Object.values(cfg.pack_loras).flat().map((e) => e.name))
+    for (const [name, where] of Object.entries(loraListing.files ?? {})) {
+      if (grouped.has(name) || !('storage' in where || 'machine' in where)) continue
+      ;(cfg.pack_loras[into] ??= []).push({ name, strength: 1, trigger: '', hidden: false, enabled: false })
+    }
+  }
 
   async function save() {
     saving = true
@@ -164,9 +180,9 @@
   </section>
 {/each}
 
-{#if loraPacks.length}
+{#if loraGroups.length}
   <section>
-    <LoraSection {cfg} packs={loraPacks} listing={loraListing} reload={loadLoras} />
+    <LoraSection {cfg} groups={loraGroups} listing={loraListing} reload={loadLoras} />
   </section>
 {/if}
 

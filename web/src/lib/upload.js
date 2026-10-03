@@ -46,10 +46,11 @@ async function putChunk(url, buf, hash) {
 }
 
 /**
- * Upload *file* as a LoRA. *onProgress* gets {phase: 'upload', done, total} in bytes. Resolves when
- * the file is stored; throws an Error with the reason otherwise.
+ * Upload *file* as a LoRA, for the LoRA group *group* (the server files it there). *onProgress*
+ * gets {phase: 'upload', done, total} in bytes. Resolves when the file is stored; throws an Error
+ * with the reason otherwise.
  */
-export async function uploadLora(file, onProgress) {
+export async function uploadLora(file, onProgress, group) {
   const session = await api('POST', '/loras/uploads', { filename: file.name, size: file.size })
   const { id, chunk_size: chunkSize, chunks, upload_url: url } = session
   const parts = []
@@ -68,6 +69,6 @@ export async function uploadLora(file, onProgress) {
   }
   await Promise.all(Array.from({ length: Math.min(PARALLEL, chunks) }, worker))
 
-  const done = await apiRetrying('POST', `/loras/uploads/${id}/finish`, { parts })
+  const done = await apiRetrying('POST', `/loras/uploads/${id}/finish`, { parts, group })
   if (done.state === 'failed') throw new Error(done.error || 'the upload could not be finished')
 }
