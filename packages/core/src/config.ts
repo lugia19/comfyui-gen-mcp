@@ -7,7 +7,8 @@
 //
 //   pack_selections   {tool_name: pack_name}
 //   pack_settings     {family: {artist_list: string, max_pixels: number}}
-//   pack_loras        {family: [{name, strength, trigger, hidden}]}
+//   pack_loras        {lora group: [{name, strength, trigger, hidden, enabled}]}: a LoRA belongs to
+//                     one group (the models it was trained for), and is on or off in it
 //   keep_warm_minutes integer, how long an idle ComfyUI stays up (the extension's; on a Worker each
 //                     GPU in its list has its own)
 
@@ -17,7 +18,7 @@ export const DEFAULT_KEEP_WARM_MINUTES = 5;
 const KEEP_WARM_MAX = 60;
 export const LORA_STRENGTH_MAX = 5;
 
-export type LoraEntry = { name: string; strength: number; trigger: string; hidden: boolean };
+export type LoraEntry = { name: string; strength: number; trigger: string; hidden: boolean; enabled: boolean };
 
 export type Config = {
   pack_selections: Record<string, string>;
@@ -67,7 +68,7 @@ export function normalize(raw: unknown): Config {
     } else if (key === "keep_warm_minutes") {
       if (Number.isInteger(val) && val > 0) cfg[key] = Math.min(val, KEEP_WARM_MAX);
     } else if (key === "pack_loras") {
-      if (isPlainObject(val)) cfg[key] = Object.fromEntries(Object.entries(val).map(([k, list]) => [k, loraEntries(list)]));
+      if (isPlainObject(val)) cfg[key] = loraGroups(val);
     } else if (isPlainObject(val)) {
       cfg[key] = structuredClone(val);
     }
@@ -91,8 +92,33 @@ export function withoutLora(packLoras: Record<string, LoraEntry[]>, name: string
   return Object.fromEntries(Object.entries(packLoras).map(([key, list]) => [key, list.filter((e) => e.name !== name)]));
 }
 
-/** A pack's LoRA list, cleaned: a bare string is a file name; entries without a name are dropped;
- * strength is clamped to ±LORA_STRENGTH_MAX. Everything downstream reads this shape. */
+/** *pack_loras* with every LoRA *names* lists that is in no group added to *group*, switched off
+ * (as a stored LoRA nobody ticked was before groups); null if every name already had a group. A
+ * LoRA uploaded before groups, or pushed from a PC, gets one this way (2026-10-03: they all became
+ * Anima LoRAs, the one family that took LoRAs). */
+export function tagLoras(packLoras: Record<string, LoraEntry[]>, names: Iterable<string>, group: string): Record<string, LoraEntry[]> | null {
+  const grouped = new Set(Object.values(packLoras).flatMap((list) => list.map((e) => e.name)));
+  const loose = [...new Set(names)].filter((n) => !grouped.has(n)).sort();
+  if (!loose.length) return null;
+  const added = loose.map((name) => ({ name, strength: 1, trigger: "", hidden: false, enabled: false }));
+  return { ...packLoras, [group]: [...(packLoras[group] ?? []), ...added] };
+}
+
+/** Every group's list cleaned, each LoRA in one group only: a name already listed in an earlier
+ * group is dropped from later ones (only a hand-edited config has that). */
+function loraGroups(val: Record<string, unknown>): Record<string, LoraEntry[]> {
+  const seen = new Set<string>();
+  return Object.fromEntries(
+    Object.entries(val).map(([group, list]) => [
+      group,
+      loraEntries(list).filter((e) => !seen.has(e.name) && (seen.add(e.name), true)),
+    ]),
+  );
+}
+
+/** A group's LoRA list, cleaned: a bare string is a file name; entries without a name are dropped;
+ * strength is clamped to ±LORA_STRENGTH_MAX; an entry is on unless it says enabled: false (entries
+ * from before the flag were on by being listed). Everything downstream reads this shape. */
 function loraEntries(list: unknown): LoraEntry[] {
   if (!Array.isArray(list)) return [];
   const out: LoraEntry[] = [];
@@ -104,6 +130,7 @@ function loraEntries(list: unknown): LoraEntry[] {
       strength: Math.max(-LORA_STRENGTH_MAX, Math.min(LORA_STRENGTH_MAX, strengthOf(e.strength))),
       trigger: typeof e.trigger === "string" ? e.trigger.trim() : "",
       hidden: e.hidden === true,
+      enabled: e.enabled !== false,
     });
   }
   return out;

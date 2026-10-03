@@ -2,8 +2,8 @@
 import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PACK_FILES } from "../packs/index.ts";
-import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize } from "../src/config.ts";
-import { builtinPacks, family, groupByTool, prepare, select, supportsLoras, TOOLS, validate } from "../src/packs.ts";
+import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize, tagLoras } from "../src/config.ts";
+import { builtinPacks, DEFAULT_LORA_GROUP, family, groupByTool, packLoras, prepare, select, supportsLoras, TOOLS, validate } from "../src/packs.ts";
 import { describe as describeTool } from "../src/tools.ts";
 import { buildPrompt, calcDimensions, injectLoras, stripLossless, type Workflow } from "../src/workflow.ts";
 
@@ -152,12 +152,16 @@ describe("packs and config", () => {
     expect("pc_keep_warm_minutes" in cfg).toBe(false); // keep-warm is per GPU on a Worker now
     expect(cfg.pack_loras).toEqual({
       anima: [
-        { name: "bare.safetensors", strength: 1, trigger: "", hidden: false },
-        { name: "a.safetensors", strength: 5, trigger: "@x", hidden: false },
-        { name: "b.safetensors", strength: 0.5, trigger: "", hidden: false },
+        { name: "bare.safetensors", strength: 1, trigger: "", hidden: false, enabled: true },
+        { name: "a.safetensors", strength: 5, trigger: "@x", hidden: false, enabled: true },
+        { name: "b.safetensors", strength: 0.5, trigger: "", hidden: false, enabled: true },
       ],
       other: [],
     });
+    // A LoRA is in one group, and on or off there; a name already in an earlier group is dropped.
+    const two = normalize({ pack_loras: { anima: [{ name: "x.safetensors", enabled: false }], klein: ["x.safetensors", "y.safetensors"] } });
+    expect(two.pack_loras.anima).toEqual([{ name: "x.safetensors", strength: 1, trigger: "", hidden: false, enabled: false }]);
+    expect(two.pack_loras.klein.map((e: any) => e.name)).toEqual(["y.safetensors"]);
   });
 
   it("a tool is described once: its routing line, the pack's guide (else the tool's), the shared tail", () => {
@@ -179,5 +183,27 @@ describe("packs and config", () => {
       anima: "anima", anima_turbo: "anima", flux2klein: "flux2klein", flux2klein_9b: "flux2klein_9b",
       flux2klein_9b_edit: "flux2klein_9b_edit", flux2klein_edit: "flux2klein_edit", z_image_turbo: "z_image_turbo",
     });
+    // The Anima packs' LoRA group is the key their LoRA lists were stored under before groups.
+    expect(builtinPacks().filter(supportsLoras).map((p) => p.lora_group)).toEqual(["anima", "anima"]);
+    expect(DEFAULT_LORA_GROUP).toBe("anima");
+    expect(() => validate({ ...builtinPacks()[0], lora_group: "nope" })).toThrow(/unknown LoRA group/);
+  });
+
+  it("a LoRA without a group joins one, switched off; a switched-off LoRA is neither loaded nor advertised", () => {
+    const on = { name: "on.safetensors", strength: 1, trigger: "@on", hidden: false, enabled: true };
+    const lists = { anima: [on], klein: [{ ...on, name: "k.safetensors" }] };
+    const tagged = tagLoras(lists, ["on.safetensors", "k.safetensors", "new.safetensors", "new.safetensors"], "anima")!;
+    expect(tagged.anima).toEqual([on, { name: "new.safetensors", strength: 1, trigger: "", hidden: false, enabled: false }]);
+    expect(tagged.klein).toBe(lists.klein); // a LoRA already in a group stays there
+    expect(tagLoras(tagged, ["new.safetensors", "on.safetensors"], "anima")).toBeNull(); // nothing to do
+
+    const anima = builtin.find((p) => p.name === "anima")!;
+    const cfg = normalize({ pack_loras: { anima: [on, { name: "off.safetensors", trigger: "@off", enabled: false }] } });
+    expect(packLoras(anima, cfg).map((e) => e.name)).toEqual(["on.safetensors"]);
+    const loaders = Object.values<any>(prepare(anima, cfg).workflow).filter((n) => n.class_type === "LoraLoaderModelOnly");
+    expect(loaders.map((n) => n.inputs.lora_name)).toEqual(["on.safetensors"]);
+    const desc = describeTool(anima, cfg);
+    expect(desc).toContain("@on");
+    expect(desc).not.toContain("@off");
   });
 });

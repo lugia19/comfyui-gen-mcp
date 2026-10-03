@@ -7,8 +7,8 @@
 
 import { PACK_FILES, TOOL_FILE } from "../packs/index.ts";
 import { isPlainObject } from "./bytes.ts";
-import type { Config } from "./config.ts";
-import { injectLoras, type Lora } from "./workflow.ts";
+import { tagLoras, type Config, type LoraEntry } from "./config.ts";
+import { injectLoras } from "./workflow.ts";
 
 export type Pack = Record<string, any> & {
   name: string;
@@ -18,8 +18,9 @@ export type Pack = Record<string, any> & {
   prompt_guide?: string;
   /** Packs of one family share their settings (artists, LoRAs, resolution): Anima and Anima Turbo. */
   family?: string;
-  /** Whether the pack takes the user's LoRAs. */
-  loras?: boolean;
+  /** The LoRA group the pack takes LoRAs from (a LoRA fits the models it was trained for: Anima and
+   * Anima Turbo share "anima"); none: no LoRAs. */
+  lora_group?: string;
   models: { url: string; subfolder: string; filename: string; size_bytes?: number; sha256?: string }[];
   workflow: Record<string, any>;
   prompt_node_id: string;
@@ -30,8 +31,20 @@ export const REQUIRED_FIELDS = ["name", "display_name", "tool_name", "models", "
 
 export type Tool = { title: string; description?: string; default_guide?: string };
 
+const TOOL_DEFS = TOOL_FILE as { tools: Record<string, Tool>; lora_groups: Record<string, string> };
+
 /** The tools packs back, by name (packs/tools.json). */
-export const TOOLS = TOOL_FILE as Record<string, Tool>;
+export const TOOLS = TOOL_DEFS.tools;
+
+/** The LoRA groups, id → the settings page's tab name, in order. The first is where a LoRA without
+ * a group goes (tagLoras). */
+export const LORA_GROUPS = TOOL_DEFS.lora_groups;
+export const DEFAULT_LORA_GROUP = Object.keys(LORA_GROUPS)[0];
+
+/** *packLoras* with every one of *names* in a group: see config.ts tagLoras. */
+export function tagLooseLoras(packLoras: Record<string, LoraEntry[]>, names: Iterable<string>): Record<string, LoraEntry[]> | null {
+  return tagLoras(packLoras, names, DEFAULT_LORA_GROUP);
+}
 
 /** Check a pack has the required fields. Returns it; throws otherwise. */
 export function validate(pack: unknown, source = "pack"): Pack {
@@ -39,6 +52,9 @@ export function validate(pack: unknown, source = "pack"): Pack {
   const missing = REQUIRED_FIELDS.filter((f) => !(f in pack));
   if (missing.length) throw new Error(`${source}: missing required fields ${JSON.stringify(missing)}`);
   if (!(String(pack.tool_name) in TOOLS)) throw new Error(`${source}: unknown tool ${pack.tool_name} (packs/tools.json)`);
+  if (pack.lora_group !== undefined && !(String(pack.lora_group) in LORA_GROUPS)) {
+    throw new Error(`${source}: unknown LoRA group ${pack.lora_group} (packs/tools.json)`);
+  }
   return pack as Pack;
 }
 
@@ -75,21 +91,18 @@ export function select(groups: Record<string, Pack[]>, selections: Record<string
   });
 }
 
-/** Whether the pack takes the user's LoRAs (the Anima family: its plain UNET loader is one
- * LoraLoaderModelOnly can follow). */
+/** Whether the pack takes the user's LoRAs: it has a LoRA group. */
 export function supportsLoras(pack: Pack): boolean {
-  return pack.loras === true;
+  return Boolean(pack.lora_group);
 }
 
-/** The pack's LoRAs from a normalized config (config.ts cleans the entries). */
-function loras(pack: Pack, cfg: Config): Lora[] {
-  const entries = cfg.pack_loras?.[family(pack)] ?? [];
-  if (entries.length && !supportsLoras(pack)) {
-    console.warn(`Pack '${pack.name}': LoRAs configured but not supported for this pack, ignoring`);
-    return [];
-  }
-  return entries;
+/** The pack's switched-on LoRAs, from its group's list in a normalized config (config.ts cleans
+ * the entries). */
+export function packLoras(pack: Pack, cfg: Config): LoraEntry[] {
+  if (!pack.lora_group) return [];
+  return ((cfg.pack_loras?.[pack.lora_group] ?? []) as LoraEntry[]).filter((e) => e.enabled !== false);
 }
+
 
 /** The user's resolution budget, clamped to the model's limit. null when unset or invalid. */
 function maxPixels(pack: Pack, cfg: Config): number | null {
@@ -104,7 +117,7 @@ function maxPixels(pack: Pack, cfg: Config): number | null {
  * logged and the pack served unmodified rather than taking the tool down. */
 export function prepare(pack: Pack, cfg: Config): Pack {
   const out = structuredClone(pack);
-  const ls = loras(out, cfg);
+  const ls = packLoras(out, cfg);
   if (ls.length) {
     try {
       out.lora_toggles = injectLoras(out.workflow, ls, out.lora_target);
@@ -120,6 +133,11 @@ export function prepare(pack: Pack, cfg: Config): Pack {
 /** Total bytes of the pack's model files, for the settings UI. */
 export function downloadSize(pack: Pack): number {
   return (pack.models ?? []).reduce((n, m) => n + (Number(m.size_bytes) || 0), 0);
+}
+
+/** The LoRA groups for a settings page: [{id, title}], in order (the first is the default). */
+export function loraGroupMetadata() {
+  return Object.entries(LORA_GROUPS).map(([id, title]) => ({ id, title }));
 }
 
 /** What a settings page needs to render the pack choices, per tool. */
@@ -138,6 +156,7 @@ export function packMetadata(packs: Pack[]) {
       max_pixels_limit: p.max_pixels_limit ?? null,
       default_artist_list: p.default_artist_list ?? null,
       supports_loras: supportsLoras(p),
+      lora_group: p.lora_group ?? null,
     })),
   }));
 }

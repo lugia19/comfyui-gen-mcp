@@ -117,8 +117,10 @@ describe("settings API", () => {
     expect(up.upload_url).toBe(`/api/loras/uploads/${up.id}`);
     const md5 = createHash("md5").update("abc").digest("hex");
     expect(await (await w.local(`${up.upload_url}/0`, { method: "PUT", body: "abc" })).json()).toEqual({ index: 0, etag: md5 });
-    expect(await (await w.local(`${up.upload_url}/finish`, { method: "POST" })).json()).toEqual({ state: "done" });
+    expect(await (await w.local(`${up.upload_url}/finish`, { method: "POST", body: JSON.stringify({ group: "anima" }) })).json()).toEqual({ state: "done", name: "new.safetensors" });
     expect((await (await w.local("/api/loras")).json()).loras).toEqual({ "new.safetensors": 3 });
+    // In the LoRA group it was uploaded for, off until the page saves it on.
+    expect(w.cfg().pack_loras).toEqual({ anima: [{ name: "new.safetensors", strength: 1, trigger: "", hidden: false, enabled: false }] });
     expect((await w.local("/api/loras/mine.safetensors", { method: "DELETE" })).status).toBe(404); // not ours to delete
     expect((await w.local("/api/loras/new.safetensors", { method: "DELETE" })).status).toBe(200);
     await w.local("/api/open", { method: "POST", body: JSON.stringify({ which: "loras" }) });

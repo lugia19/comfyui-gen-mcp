@@ -27,8 +27,8 @@ describe("LoRA uploads to this machine", () => {
     }
     expect(uploads.status(s.id)).toMatchObject({ state: "uploading", done: data.length });
     expect(registry.sizes()).toEqual({}); // not ours until finished
-    expect(uploads.finish(s.id)).toEqual({ state: "done" });
-    expect(uploads.finish(s.id)).toEqual({ state: "done" }); // a retried finish
+    expect(uploads.finish(s.id)).toMatchObject({ state: "done" });
+    expect(uploads.finish(s.id)).toMatchObject({ state: "done" }); // a retried finish
     expect(sha(readFileSync(join(dir, "style.safetensors")))).toBe(sha(data)); // not toEqual: slow on MBs
     expect(registry.sizes()).toEqual({ "style.safetensors": data.length });
     expect(existsSync(join(dir, "style.safetensors.part-upload"))).toBe(false);

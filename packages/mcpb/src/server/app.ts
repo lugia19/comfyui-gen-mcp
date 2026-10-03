@@ -8,6 +8,7 @@ import { join } from "node:path";
 import {
   Brain, ComfyUIClient, ComfyUIError, McpHandler, Response as CoreResponse, SETTINGS_SCHEMA, UnknownTool,
   builtinPacks, downloadSize, inlineImage, packMetadata, safeEqual, select, groupByTool, textBlock, utf8,
+  LORA_GROUPS, loraGroupMetadata, tagLoras, tagLooseLoras,
   type Config, type Content, type Outcome, type OutputImage, type Pack, type RequestOptions, type Transport,
 } from "@comfy-gen/core";
 import {
@@ -80,7 +81,17 @@ export class LocalApp {
     if (!fromThisMachine(req, remote)) return error(403, "the settings page answers only on this computer");
     if (path.startsWith("/api/")) {
       try {
-        return (await this.s.machine.api(req, path.slice(4))) ?? (await this.api(req, path.slice(4)));
+        const sub = path.slice(4);
+        // The machine side knows the LoRA files, this side the settings: every file keeps a group.
+        const finishing = req.method === "POST" && /^\/loras\/uploads\/[\w-]+\/finish$/.test(sub);
+        const group = finishing ? ((await req.clone().json().catch(() => ({}))) as { group?: unknown }).group : undefined;
+        const resp = (await this.s.machine.api(req, sub)) ?? (await this.api(req, sub));
+        if (finishing && resp.ok) {
+          const done = (await resp.clone().json()) as { state?: string; name?: string };
+          if (done.state === "done" && done.name) this.tagLoras([done.name], typeof group === "string" && group in LORA_GROUPS ? group : undefined);
+        }
+        if (sub === "/loras" && req.method === "GET") this.tagLoras(Object.keys(this.s.machine.loras()));
+        return resp;
       } catch (e) {
         log.error(`${req.method} ${path} failed:`, e);
         return error(500, (e as Error).message);
@@ -178,6 +189,7 @@ export class LocalApp {
       config: cfg,
       schema: SETTINGS_SCHEMA,
       packs: PACK_METADATA,
+      lora_groups: loraGroupMetadata(),
     };
   }
 
@@ -190,7 +202,10 @@ export class LocalApp {
     const bad = checkMachineSettings(merged);
     if (bad) return error(400, bad);
     const before = new Set(selectedPacks(current).map((p) => p.name));
-    const cfg = this.s.saveConfig(merged);
+    let cfg = this.s.saveConfig(merged);
+    // Every LoRA file keeps a group, also one the page's copy of the settings didn't know yet.
+    const tagged = tagLooseLoras(cfg.pack_loras, Object.keys(this.s.machine.loras()));
+    if (tagged) cfg = this.s.saveConfig({ ...cfg, pack_loras: tagged });
     // A newly chosen model starts downloading now, not at its first use; the others wait for theirs.
     this.s.download(selectedPacks(cfg).filter((p) => !before.has(p.name)));
     const warnings = this.missingLoras(cfg);
@@ -221,9 +236,17 @@ export class LocalApp {
 
   private missingLoras(cfg: LocalConfig): string[] {
     if (cfg.comfyui_url) return []; // your own ComfyUI's folders are not ours to see
-    const wanted = new Set(Object.values(cfg.pack_loras).flat().map((l) => l.name));
-    this.s.machine.loraRegistry.adopt([...wanted]); // in use, so ours (one typed in by hand, say)
+    const listed = Object.values(cfg.pack_loras).flat();
+    this.s.machine.loraRegistry.adopt(listed.map((l) => l.name)); // in use, so ours (one typed in by hand, say)
     const have = this.s.machine.loras();
+    const wanted = new Set(listed.filter((l) => l.enabled !== false).map((l) => l.name)); // only a switched-on one is loaded
     return [...wanted].filter((n) => !(n in have)).map((n) => `The LoRA ${n} is not in any LoRA folder: generations will fail until it is.`);
+  }
+
+  /** Give each of *names* (our LoRA files) a group if it has none: *group*, else the default. */
+  private tagLoras(names: string[], group?: string): void {
+    const cfg = this.s.config();
+    const tagged = group ? tagLoras(cfg.pack_loras, names, group) : tagLooseLoras(cfg.pack_loras, names);
+    if (tagged) this.s.saveConfig({ ...cfg, pack_loras: tagged });
   }
 }

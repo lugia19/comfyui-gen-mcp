@@ -8,7 +8,7 @@ import { closeSync, openSync } from "node:fs";
 import type { Server } from "node:http";
 import { join } from "node:path";
 import { listen, loadConfig, log, logTo, Machine, openExternal, paths, saveConfig, type LocalConfig, type Paths, type WebFiles } from "@comfy-gen/local";
-import { withoutLora } from "@comfy-gen/core";
+import { tagLooseLoras, withoutLora } from "@comfy-gen/core";
 import type { Pack } from "@comfy-gen/core";
 import { LocalApp } from "./app.ts";
 
@@ -72,6 +72,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   // LoRAs a model uses are ours, also those configured before uploads were the one way in (v1.3.6).
   const adopted = machine.loraRegistry.adopt(Object.values(config().pack_loras).flat().map((l) => l.name));
   if (adopted.length) log.info(`LoRAs in use, now listed: ${adopted.join(", ")}`);
+  // Every LoRA file is in a group: one without (from before groups) goes to the default (Anima).
+  const tagged = tagLooseLoras(config().pack_loras, Object.keys(machine.loras()));
+  if (tagged) saveConfig(p.config, { ...config(), pack_loras: tagged });
   log.info(`Comfy-Gen-MCP ${opts.version} serving on port ${bound} in process ${process.pid} (settings: http://127.0.0.1:${bound}/)`);
   // A new install opens its settings page once, as the agent does: nothing else tells a new user
   // where it is (seen 2026-10-02). Claude Desktop starts several copies at once; the marker file,

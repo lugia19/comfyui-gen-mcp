@@ -7,7 +7,7 @@
 import {
   Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, SETTINGS_SCHEMA, UnknownTool,
   builtinPacks, downloadSize, fromHex, fromUtf8, groupByTool, packMetadata, refs, relay, select, sniffMime, tokenUrlsafe, safeEqual,
-  withoutLora, type Config, type Content, type Pack,
+  withoutLora, LORA_GROUPS, loraGroupMetadata, tagLoras, tagLooseLoras, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
@@ -56,8 +56,9 @@ export const SYNC_MAX_FILES = 20;
 /** What the agent needs to know about a pack to download or check it. */
 const needs = (p: Pack) => ({ name: p.name, display_name: p.display_name ?? p.name, models: p.models ?? [], required_nodes: p.required_nodes ?? {} });
 
-/** Every LoRA file some pack is set up to use. */
-const wantedLoras = (cfg: Config): string[] => [...new Set(Object.values(cfg.pack_loras).flat().map((l) => l.name as string))];
+/** Every LoRA file some pack is set up to use (switched on in its group). */
+const wantedLoras = (cfg: Config): string[] =>
+  [...new Set(Object.values(cfg.pack_loras).flat().filter((l) => l.enabled !== false).map((l) => l.name as string))];
 
 const hmacKey = (s: Secrets) => fromHex(s.hmac_key);
 
@@ -462,6 +463,7 @@ export class App {
       config: await this.fresh.config(),
       schema: SETTINGS_SCHEMA,
       packs: PACK_METADATA,
+      lora_groups: loraGroupMetadata(),
     };
   }
 
@@ -629,7 +631,10 @@ export class App {
    * and a LoRA copy. Warns about LoRAs not in storage.
    */
   private async saveConfig(req: Request, _s: Secrets): Promise<Response> {
-    const cfg = await this.fresh.saveConfig((await bodyJson(req)).config);
+    let cfg = await this.fresh.saveConfig((await bodyJson(req)).config);
+    // Every stored LoRA keeps a group, also one the page's copy of the settings didn't know yet.
+    const tagged = tagLooseLoras(cfg.pack_loras, Object.keys(await loras.stored(this.p.bucket)));
+    if (tagged) cfg = await this.fresh.saveConfig({ ...cfg, pack_loras: tagged });
     const gpus = await this.gpus();
     const warnings: string[] = [];
     const notes: string[] = []; // informational, not a problem (none yet: an offline PC shows on the page)
@@ -692,9 +697,20 @@ export class App {
     return out;
   }
 
+  /** Give each of *names* (LoRAs in storage) a group if it has none: *group*, else the default. */
+  private async tagStored(names: string[], group?: string): Promise<void> {
+    const cfg = await this.fresh.config();
+    const tagged = group ? tagLoras(cfg.pack_loras, names, group) : tagLooseLoras(cfg.pack_loras, names);
+    if (tagged) await this.fresh.saveConfig({ ...cfg, pack_loras: tagged });
+  }
+
   /** LoRA files on every backend, uploads into R2 from the settings page, delete. */
   private async loras(req: Request, url: URL, sub: string, s: Secrets): Promise<Response> {
-    if (sub === "/loras" && req.method === "GET") return json(await this.loraListing());
+    if (sub === "/loras" && req.method === "GET") {
+      const listing = await this.loraListing();
+      await this.tagStored(Object.keys(listing.files).filter((n) => "storage" in listing.files[n]));
+      return json(listing);
+    }
     if (sub === "/loras/sync" && req.method === "POST") {
       // Copy what R2 has to every GPU now, not at a PC's next connection or the next save.
       return json({ started: (await this.spreadLoras(url.origin)).pcs > 0 });
@@ -721,7 +737,11 @@ export class App {
         return json({ ...session, upload_url: `${base}/${session.id}` });
       }
       if (m && m[2] === "finish" && req.method === "POST") {
-        const done = await uploads.finish(m[1], (await bodyJson(req)).parts);
+        const body = await bodyJson(req);
+        const done = await uploads.finish(m[1], body.parts);
+        // Into the LoRA group it was uploaded for (the page's open tab), switched off until the page
+        // saves it on; a push from a PC names none, and lands in the default group.
+        await this.tagStored([done.name], typeof body.group === "string" && body.group in LORA_GROUPS ? body.group : undefined);
         const deleted = (await this.fresh.setup()).lora_deleted ?? {};
         if (done.name in deleted) await this.fresh.updateSetup({ lora_deleted: { ...deleted, [done.name]: undefined } });
         await this.spreadLoras(url.origin);

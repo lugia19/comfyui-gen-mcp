@@ -6,7 +6,7 @@
   "tool_name": "generate_illustrated_image",
   "is_default": false,
   "default_artist_list": "@cutesexyrobutts, @shuuko \\(s h uuko\\), @nyantcha, @bone nigi",
-  "loras": true,
+  "lora_group": "anima",
   "models": [
     {
       "filename": "anima-base-v1.0.safetensors",

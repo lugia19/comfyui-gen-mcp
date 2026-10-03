@@ -221,9 +221,9 @@ export class LoraUploads {
     return { index, etag: createHash("md5").update(data).digest("hex") };
   }
 
-  finish(id: string): { state: string } {
+  finish(id: string): { state: string; name: string } {
     const s = this.session(id);
-    if (s.state !== "uploading") return { state: s.state };
+    if (s.state !== "uploading") return { state: s.state, name: s.filename };
     const missing = s.chunks - s.received.size;
     if (missing) throw new UploadError(`${missing} chunk(s) still missing`, 409);
     const part = this.part(s);
@@ -231,12 +231,12 @@ export class LoraUploads {
       rmSync(part, { force: true });
       s.state = "failed";
       s.error = "the file's size does not match";
-      return { state: s.state };
+      return { state: s.state, name: s.filename };
     }
     renameSync(part, join(this.dir(), s.filename));
     this.registry.add(s.filename);
     s.state = "done";
-    return { state: s.state };
+    return { state: s.state, name: s.filename };
   }
 
   status(id: string): { filename: string; size: number; state: string; done: number; error?: string } {

@@ -7,7 +7,7 @@
   "is_default": true,
   "family": "anima",
   "default_artist_list": "@cutesexyrobutts, @shuuko \\(s h uuko\\), @nyantcha, @bone nigi",
-  "loras": true,
+  "lora_group": "anima",
   "models": [
     {
       "filename": "anima-turbo-v1.0.safetensors",

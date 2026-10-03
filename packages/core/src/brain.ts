@@ -140,7 +140,8 @@ export class Brain {
       throw e;
     }
     const [wf, promptNode, seedNodes] = editWorkflow(pack, images);
-    return this.run(pack, buildPrompt(wf, prompt, promptNode, seedNodes), true);
+    // LoRAs gated on their triggers here too (an edit pack in a LoRA group).
+    return this.run(pack, buildPrompt(wf, prompt, promptNode, seedNodes, { loraToggles: pack.lora_toggles }), true);
   }
 
   private async run(pack: Pack, wf: Workflow, ensured = false): Promise<Outcome> {

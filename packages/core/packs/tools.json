@@ -1,14 +1,19 @@
 {
-  "generate_illustrated_image": {
-    "title": "Illustrations and anime",
-    "description": "Use this tool for anything drawn, painted, illustrated or anime-style, whatever the subject. For photographs and photorealistic images, use generate_realistic_image instead."
+  "tools": {
+    "generate_illustrated_image": {
+      "title": "Illustrations and anime",
+      "description": "Use this tool for anything drawn, painted, illustrated or anime-style, whatever the subject. For photographs and photorealistic images, use generate_realistic_image instead."
+    },
+    "generate_realistic_image": {
+      "title": "Realistic images",
+      "description": "Use this tool only for photographs and photorealistic images. For anything drawn, painted, illustrated or anime-style (even an illustration of a real-world subject), use generate_illustrated_image instead.",
+      "default_guide": "This tool generates realistic/general-purpose images via ComfyUI.\nUse natural language to describe the image you want. Be specific about composition, lighting, style, and subject.\n\nExamples:\n- A photorealistic portrait of an elderly man with weathered skin, dramatic side lighting\n- A cozy coffee shop interior with warm morning light streaming through windows, watercolor style\n- A futuristic cityscape at sunset with flying vehicles, cinematic wide shot\n\nNote: The first generation after launching ComfyUI may take 1-2 minutes while the model loads into GPU memory. If the request times out, please retry."
+    },
+    "edit_image": {
+      "title": "Image editing"
+    }
   },
-  "generate_realistic_image": {
-    "title": "Realistic images",
-    "description": "Use this tool only for photographs and photorealistic images. For anything drawn, painted, illustrated or anime-style (even an illustration of a real-world subject), use generate_illustrated_image instead.",
-    "default_guide": "This tool generates realistic/general-purpose images via ComfyUI.\nUse natural language to describe the image you want. Be specific about composition, lighting, style, and subject.\n\nExamples:\n- A photorealistic portrait of an elderly man with weathered skin, dramatic side lighting\n- A cozy coffee shop interior with warm morning light streaming through windows, watercolor style\n- A futuristic cityscape at sunset with flying vehicles, cinematic wide shot\n\nNote: The first generation after launching ComfyUI may take 1-2 minutes while the model loads into GPU memory. If the request times out, please retry."
-  },
-  "edit_image": {
-    "title": "Image editing"
+  "lora_groups": {
+    "anima": "Anima"
   }
 }

@@ -382,7 +382,7 @@ describe("Modal models", () => {
 
 describe("LoRAs", () => {
   /** Upload *data* as *name* the way the settings page does: chunks with their ETags, then finish. */
-  const upload = async (app: App, cookie: Record<string, string>, name: string, data: Uint8Array) => {
+  const upload = async (app: App, cookie: Record<string, string>, name: string, data: Uint8Array, group?: string) => {
     const created = await body(await app.handle(request("POST", "/api/loras/uploads", { filename: name, size: data.length }, cookie)));
     const parts = [];
     for (let i = 0; i < created.chunks; i++) {
@@ -391,8 +391,26 @@ describe("LoRAs", () => {
       expect(r.status).toBe(200);
       parts.push(await body(r));
     }
-    return app.handle(request("POST", `/api/loras/uploads/${created.id}/finish`, { parts }, cookie));
+    return app.handle(request("POST", `/api/loras/uploads/${created.id}/finish`, { parts, group }, cookie));
   };
+
+  it("every stored LoRA is in one group: an upload in the one it was made for, a loose one in Anima", async () => {
+    const { app, bucket } = world();
+    await withModal(app);
+    const cookie = await login(app);
+    const config = async () => (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
+    const off = (name: string) => ({ name, strength: 1, trigger: "", hidden: false, enabled: false });
+    await upload(app, cookie, "tab.safetensors", new Uint8Array(10), "anima");
+    expect((await config()).pack_loras).toEqual({ anima: [off("tab.safetensors")] }); // off until the page saves it on
+    await bucket.put("lora/loose.safetensors", new Uint8Array(3)); // from before groups, or pushed by a PC
+    await app.handle(request("GET", "/api/loras", undefined, cookie));
+    expect((await config()).pack_loras.anima).toEqual([off("tab.safetensors"), off("loose.safetensors")]);
+    // A page saving an older copy of the settings doesn't take a LoRA out of its group.
+    await bucket.put("lora/late.safetensors", new Uint8Array(3));
+    const saved = await body(await app.handle(request("PUT", "/api/config", { config: { pack_loras: { anima: [{ name: "tab.safetensors", trigger: "@tab" }] } } }, cookie)));
+    expect(saved.config.pack_loras.anima.map((e: any) => [e.name, e.enabled])).toEqual([["tab.safetensors", true], ["late.safetensors", false], ["loose.safetensors", false]]);
+    expect(saved.warnings).toEqual([]); // switched-off LoRAs are not loaded, so not wanted
+  });
 
   it("the settings page uploads into R2 in chunks; Modal is told to copy it; delete removes it everywhere", async () => {
     const { app, net, bucket } = world();
@@ -427,8 +445,8 @@ describe("LoRAs", () => {
     expect((await app.handle(request("GET", "/api/loras/uploads/nope", undefined, cookie))).status).toBe(404);
 
     net.loras["style.safetensors"] = data.length;
-    const entry = { name: "style.safetensors", strength: 1, trigger: "@style", hidden: false };
-    const other = { name: "keep.safetensors", strength: 1, trigger: "", hidden: false };
+    const entry = { name: "style.safetensors", strength: 1, trigger: "@style", hidden: false, enabled: true };
+    const other = { name: "keep.safetensors", strength: 1, trigger: "", hidden: false, enabled: true };
     await app.handle(request("PUT", "/api/config", { config: { pack_loras: { anima: [entry, other] } } }, cookie));
     const del = await app.handle(request("DELETE", "/api/loras/style.safetensors", undefined, cookie));
     expect(await body(del)).toEqual({ deleted: "style.safetensors", from: ["storage", "modal"], errors: [], pending: [] });
@@ -459,7 +477,7 @@ describe("LoRAs", () => {
     cfg.pack_loras = { anima: [{ name: "here.safetensors", trigger: "@a" }, { name: "gone.safetensors" }] };
     const resp = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
     expect(resp.warnings).toEqual(["The LoRA gone.safetensors is not uploaded: generations will fail until it is. Upload it under LoRAs."]);
-    expect(resp.config.pack_loras.anima[0]).toEqual({ name: "here.safetensors", strength: 1, trigger: "@a", hidden: false });
+    expect(resp.config.pack_loras.anima[0]).toEqual({ name: "here.safetensors", strength: 1, trigger: "@a", hidden: false, enabled: true });
   });
 
   it("the settings page learns which packs take LoRAs", async () => {

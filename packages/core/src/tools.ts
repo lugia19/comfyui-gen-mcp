@@ -9,7 +9,7 @@
 //            come in through request_upload and the code-execution sandbox.
 
 import type { Config } from "./config.ts";
-import { family, groupByTool, select, TOOLS, type Pack } from "./packs.ts";
+import { family, groupByTool, packLoras, select, TOOLS, type Pack } from "./packs.ts";
 
 export type ImageMode = "paths" | "refs";
 export type ToolSpec = { name: string; description: string; inputSchema: Record<string, any> };
@@ -140,20 +140,21 @@ export function describe(pack: Pack, cfg: Config): string {
     desc = desc.replaceAll("{artist_list}", artists);
   }
 
-  if (desc.includes("{lora_triggers}")) {
-    const triggers: string[] = [];
-    for (const e of cfg.pack_loras?.[key] ?? []) {
-      if (!e || typeof e !== "object" || Array.isArray(e) || e.hidden) continue; // hidden: gated, not advertised
-      const trig = String(e.trigger || "").trim();
-      if (trig && !triggers.includes(trig)) triggers.push(trig);
-    }
-    const text = triggers.length
-      ? "\n\nThe following trigger words will cause a LoRA to be applied to the prompt " +
-        "(these can be either artist styles, usually prefixed with @, or concept tags). " +
-        "These triggers must be used verbatim: " + triggers.join(", ") + "."
-      : "";
-    desc = desc.replaceAll("{lora_triggers}", text);
+  // The trigger words of the pack's switched-on, not hidden LoRAs: where the guide asks for them
+  // ({lora_triggers}, as Anima's does), else after the guide, for any pack with a LoRA group.
+  const triggers: string[] = [];
+  for (const e of packLoras(pack, cfg)) {
+    if (e.hidden) continue; // hidden: gated, not advertised
+    const trig = String(e.trigger || "").trim();
+    if (trig && !triggers.includes(trig)) triggers.push(trig);
   }
+  const text = triggers.length
+    ? "\n\nThe following trigger words will cause a LoRA to be applied to the prompt " +
+      "(these can be either artist styles, usually prefixed with @, or concept tags). " +
+      "These triggers must be used verbatim: " + triggers.join(", ") + "."
+    : "";
+  if (desc.includes("{lora_triggers}")) desc = desc.replaceAll("{lora_triggers}", text);
+  else if (text) desc = desc.replace("\n\n" + GENERATION_TAIL, text + "\n\n" + GENERATION_TAIL);
   return desc;
 }
 
