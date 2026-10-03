@@ -9,12 +9,12 @@
   <style>
     :root {
       --bg: #f6f6f7; --card: #fff; --text: #17171a; --muted: #5d5d66; --border: #e2e2e6;
-      --accent: #2563eb; --accent-text: #fff; --code: #efeff2;
+      --accent: #2563eb; --accent-text: #fff; --code: #efeff2; --ok: #15803d;
     }
     @media (prefers-color-scheme: dark) {
       :root {
         --bg: #111113; --card: #1b1b1f; --text: #ececf0; --muted: #a3a3ad; --border: #2d2d33;
-        --accent: #60a5fa; --accent-text: #111113; --code: #26262c;
+        --accent: #60a5fa; --accent-text: #111113; --code: #26262c; --ok: #4ade80;
       }
     }
     * { box-sizing: border-box; }
@@ -24,10 +24,12 @@
     }
     main { max-width: 720px; margin: 0 auto; padding: 40px 16px 64px; }
     h1 { font-size: 2rem; margin: 0 0 4px; }
-    h2 { font-size: 1.2rem; margin: 0 0 12px; }
-    .lede { color: var(--muted); margin: 0 0 32px; }
+    h2 { font-size: 1.15rem; margin: 0; }
+    .lede { color: var(--muted); margin: 0 0 28px; }
     .tip { border-left: 3px solid var(--border); padding-left: 10px; }
-    section { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; margin: 0 0 16px; }
+    section, .step { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin: 0 0 12px; }
+    section { padding: 20px 22px; }
+    section h2 { margin-bottom: 12px; }
     a { color: var(--accent); }
     code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
     ol, ul { padding-left: 22px; margin: 8px 0; }
@@ -38,108 +40,305 @@
     figure { margin: 10px 0 14px; }
     figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; }
     figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
-    #after { border-color: var(--accent); }
-    .button {
-      display: inline-block; background: var(--accent); color: var(--accent-text); text-decoration: none;
-      font-weight: 600; padding: 10px 18px; border-radius: 8px; margin: 8px 0;
+    .button, button.next {
+      display: inline-block; background: var(--accent); color: var(--accent-text); text-decoration: none; border: 0;
+      font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 8px; margin: 8px 8px 0 0; cursor: pointer;
     }
+    button.back { font: inherit; background: none; border: 1px solid var(--border); color: var(--text); padding: 9px 16px; border-radius: 8px; margin: 8px 8px 0 0; cursor: pointer; }
+    .tag { display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--accent); color: var(--accent-text); vertical-align: 2px; }
+
+    /* The steps. Without JavaScript every step shows, open, as one long page. */
+    .steps { list-style: none; padding: 0; margin: 0; }
+    .step { padding: 0; }
+    .head { display: flex; gap: 12px; align-items: center; width: 100%; padding: 16px 20px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: default; }
+    .num { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; font-size: 0.85rem; font-weight: 700; color: var(--muted); }
+    .summary { color: var(--muted); font-size: 0.92rem; margin-left: auto; text-align: right; }
+    .body { padding: 0 22px 20px; }
+    .path { display: none; }
+    .js .head { cursor: pointer; }
+    .js .step:not(.open) .body { display: none; }
+    .js .step.hidden { display: none; }
+    .js .step.open .num { border-color: var(--accent); color: var(--accent); }
+    .js .step.done:not(.open) .num { border-color: var(--ok); background: var(--ok); color: var(--card); }
+    .js [data-where].off { display: none; }
+    .nojs-path { color: var(--muted); font-size: 0.9rem; margin: 18px 4px 8px; }
+    .js .nojs-path { display: none; }
+
+    /* The answers. */
+    .cards { display: grid; gap: 10px; margin: 6px 0; }
+    .card {
+      display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+    }
+    .card:hover { border-color: var(--accent); }
+    .card.chosen { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+    .card b { font-size: 1.02rem; }
+    .card span.d { display: block; color: var(--muted); font-size: 0.92rem; margin-top: 2px; }
+    .card.best { border-width: 2px; }
   </style>
 </head>
 <body>
 <main>
   <h1>Comfy-Gen-MCP</h1>
-  <p class="lede">Image generation and editing for Claude, on a ComfyUI you own.</p>
+  <p class="lede">Image generation and editing for Claude, on a ComfyUI you own. A few questions, then only the steps you need.</p>
 
-  <section>
-    <h2>For claude.ai, on the web and your phone</h2>
-    <p>
-      A free Cloudflare Worker gives Claude an image tool. The images are made either in the cloud, on
-      <a href="https://modal.com">Modal</a> (it only runs, and only bills, while it generates), or on
-      your own PCs with a GPU, through a small agent that connects out to the Worker: no port to open,
-      no tunnel. Or all of them, in the order you choose: your PC when it is on, Modal when it is off.
-      Images and LoRAs are kept in the Worker's storage, so any of them can edit any image.
-    </p>
-    <p class="muted">Only using Claude Desktop, on the PC with the GPU? You don't need any of this: skip to
-      <a href="#desktop">the Claude Desktop extension</a>.</p>
-    <p><b>You need:</b></p>
+  <ol class="steps" id="steps">
+    <li class="step" data-step="use">
+      <button class="head" type="button"><span class="num">1</span><h2>How will you use it?</h2><span class="summary"></span></button>
+      <div class="body">
+        <div class="cards">
+          <button class="card best" type="button" data-answer="worker">
+            <b>claude.ai, on the web and your phone</b> <span class="tag">Recommended</span>
+            <span class="d">A free Cloudflare Worker gives Claude the image tool wherever you use Claude: the browser, the phone app, and Claude Desktop too.</span>
+          </button>
+          <button class="card" type="button" data-answer="desktop">
+            <b>Only Claude Desktop, on the PC with the GPU</b>
+            <span class="d">Everything runs on that PC, with no accounts and no Worker. Claude on the web and your phone won't have it.</span>
+          </button>
+        </div>
+      </div>
+    </li>
+
+    <li class="nojs-path">If you chose Claude Desktop only:</li>
+    <li class="step" data-step="desktop" data-path="desktop">
+      <button class="head" type="button"><span class="num">2</span><h2>Install the extension</h2><span class="summary"></span></button>
+      <div class="body">
+        <p>You need an NVIDIA GPU (AMD on Linux) or an Apple silicon Mac.</p>
+        <ol>
+          <li>Download <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/Comfy-Gen-MCP.mcpb">Comfy-Gen-MCP.mcpb</a> and open it: Claude Desktop installs it.</li>
+          <li>The Comfy-Gen icon appears in the tray (the menu bar on a Mac). Open its settings page from there: it takes you
+            through choosing your GPU, installing ComfyUI and picking models.</li>
+          <li>Ask Claude Desktop for an image.</li>
+        </ol>
+        <p class="muted">Later want claude.ai too? Choose the first answer above instead. Use the extension or the Worker's PC agent
+          on a PC, never both: each runs its own ComfyUI, and two don't fit on one GPU.</p>
+      </div>
+    </li>
+
+    <li class="nojs-path">If you chose claude.ai:</li>
+    <li class="step" data-step="where" data-path="worker">
+      <button class="head" type="button"><span class="num">2</span><h2>Where should images be made?</h2><span class="summary"></span></button>
+      <div class="body">
+        <div class="cards">
+          <button class="card best" type="button" data-answer="cloud">
+            <b>In the cloud (Modal)</b> <span class="tag">Recommended for most people</span>
+            <span class="d">No GPU needed, and it works with your PC off. Billed per second while it generates; new Modal accounts get $30 of free compute a month.</span>
+          </button>
+          <button class="card" type="button" data-answer="pc">
+            <b>On my PC</b>
+            <span class="d">Your own GPU: NVIDIA (AMD on Linux) or an Apple silicon Mac. Nothing billed, but the PC has to be on to make images.</span>
+          </button>
+          <button class="card" type="button" data-answer="both">
+            <b>Both</b>
+            <span class="d">Your PC when it is on, the cloud when it is off.</span>
+          </button>
+        </div>
+      </div>
+    </li>
+
+    <li class="step" data-step="accounts" data-path="worker">
+      <button class="head" type="button"><span class="num">3</span><h2>The accounts you need</h2><span class="summary"></span></button>
+      <div class="body">
+        <ul>
+          <li>A <a href="https://github.com/signup" target="_blank" rel="noopener">GitHub account</a>. The deploy keeps a small copy of
+            the setup in your GitHub, which is how your Worker updates itself.</li>
+          <li>A <a href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noopener">Cloudflare account</a>: the free plan is enough.
+            Your Worker's page has you turn on its storage later (R2: free up to 10 GB, but Cloudflare wants a card on file).</li>
+          <li data-where="cloud both">A <a href="https://modal.com/signup" target="_blank" rel="noopener">Modal account</a>, with a card on file:
+            Modal runs GPUs only with one, even on the free $30 a month. Your Worker's page walks through it.</li>
+          <li data-where="pc both">A PC with an NVIDIA GPU (AMD on Linux) or an Apple silicon Mac, for the agent.</li>
+          <li>A claude.ai plan that can add custom connectors.</li>
+        </ul>
+        <p class="tip"><b>Tip:</b> <span data-where="cloud both">Cloudflare and Modal both let</span><span data-where="pc">Cloudflare lets</span> you sign
+          up with your GitHub account (the <b>GitHub</b> button on the sign-up page). Make the GitHub account first and use it there: fewer logins.</p>
+        <button class="back" type="button">Back</button><button class="next" type="button">Done, next</button>
+      </div>
+    </li>
+
+    <li class="step" data-step="github" data-path="worker">
+      <button class="head" type="button"><span class="num">4</span><h2>Connect GitHub to Cloudflare</h2><span class="summary"></span></button>
+      <div class="body">
+        <p>Cloudflare builds your Worker from that copy in your GitHub, so it needs access to it. Once:</p>
+        <a class="button" href="https://github.com/apps/cloudflare-workers-and-pages/installations/new" target="_blank" rel="noopener">Install Cloudflare's app on GitHub</a>
+        <ol>
+          <li>Pick your GitHub account.</li>
+          <li>Keep <b>All repositories</b>: the deploy creates a new repository for your Worker.</li>
+          <li>Click <b>Install</b>, and log in to Cloudflare if it asks.</li>
+        </ol>
+        <figure><img src="guide/github-install.png" alt="GitHub's page for installing Cloudflare Workers and Pages, with All repositories selected" loading="lazy" onerror="this.parentElement.remove()"><figcaption>GitHub's install page.</figcaption></figure>
+        <details class="guide">
+          <summary>Or connect from Cloudflare's deploy page instead</summary>
+          <ol>
+            <li>On the deploy page (next step), open the <b>Git account</b> list and choose <b>New GitHub connection</b>.</li>
+            <li>GitHub asks you to install the Cloudflare app on your account: click <b>Install</b>.</li>
+            <li>Back on the deploy page, pick your GitHub account in the <b>Git account</b> list.</li>
+          </ol>
+          <figure><img src="guide/github-connect.png" alt="Cloudflare's deploy page with the Git account list open on New GitHub connection" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The deploy page before GitHub is connected.</figcaption></figure>
+        </details>
+        <details class="guide">
+          <summary>Your account isn't listed, or the deploy can't create the repository?</summary>
+          <p>Open <a href="https://github.com/settings/installations" target="_blank" rel="noopener">GitHub's installed apps</a>, then
+            <b>Cloudflare Workers and Pages → Configure</b>. Under <b>Repository access</b>, choose <b>All repositories</b> and <b>Save</b>.</p>
+          <figure><img src="guide/github-installations.png" alt="The Cloudflare Workers and Pages app's settings on GitHub, with All repositories selected" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The app's repository access.</figcaption></figure>
+        </details>
+        <button class="back" type="button">Back</button><button class="next" type="button">Done, next</button>
+      </div>
+    </li>
+
+    <li class="step" data-step="deploy" data-path="worker">
+      <button class="head" type="button"><span class="num">5</span><h2>Deploy your Worker</h2><span class="summary"></span></button>
+      <div class="body">
+        <p>Click the button. Cloudflare opens in a new tab with a form: pick your GitHub account under <b>Git account</b>, keep the
+          project name <code>comfy-gen</code> and everything else as it is, and click <b>Deploy</b>.</p>
+        <p class="muted js-only" hidden>The form shows <b>SETUP_MODE</b> set to <code class="answer-code">cloud</code>: your answer above.
+          Leave it: your Worker's page starts from it.</p>
+        <a class="button" id="deploy" target="_blank" rel="noopener" href="https://deploy.workers.cloudflare.com/?url=https://github.com/lugia19/comfyui-gen-mcp/tree/main/bootstrap">Deploy to Cloudflare</a>
+        <figure><img src="guide/deploy-form.png" alt="The deploy form with a GitHub account picked, the project name and the Deploy button" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The form: keep the name and click Deploy.</figcaption></figure>
+        <button class="back" type="button">Back</button><button class="next" type="button">Done, next</button>
+      </div>
+    </li>
+
+    <li class="step" data-step="open" data-path="worker">
+      <button class="head" type="button"><span class="num">6</span><h2>Open your Worker</h2><span class="summary"></span></button>
+      <div class="body">
+        <ol>
+          <li>In the Cloudflare tab, the build runs for about a minute. Its log is on the page.</li>
+          <li>When it finishes, the end of the log says <b>Your Worker is ready</b> with your Worker's address,
+            <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>. Open it, and bookmark it.</li>
+          <li>Lost the tab? In the <a href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noopener">Cloudflare dashboard</a>,
+            open <b>Workers &amp; Pages</b>: the address is under <b>comfy-gen</b>. Or open <b>comfy-gen</b> and click <b>Visit</b>.</li>
+        </ol>
+        <figure><img src="guide/build-done.png" alt="The end of the build log with the Worker's address" loading="lazy" onerror="this.parentElement.remove()"><figcaption>Done: the address is at the end of the log.</figcaption></figure>
+        <figure><img src="guide/worker-visit.png" alt="The Worker's page in the Cloudflare dashboard with its Visit button" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The Worker in the dashboard.</figcaption></figure>
+        <button class="back" type="button">Back</button><button class="next" type="button">Done, next</button>
+      </div>
+    </li>
+
+    <li class="step" data-step="finish" data-path="worker">
+      <button class="head" type="button"><span class="num">7</span><h2>Finish on your Worker's page</h2><span class="summary"></span></button>
+      <div class="body">
+        <p>Your Worker's page takes it from here, one step at a time:</p>
+        <ol>
+          <li>Log in with a Cloudflare API token: the page links to a pre-filled one.</li>
+          <li>Turn on storage: R2's checkout, then <b>Check again</b>.</li>
+          <li data-where="cloud">Deploy ComfyUI to Modal, and pick the models.</li>
+          <li data-where="pc">Add your PC, and run the agent on it.</li>
+          <li data-where="both">Add your PC and run the agent on it, then deploy ComfyUI to Modal as the fallback.</li>
+          <li>Connect Claude: add your Worker's connector URL in claude.ai.</li>
+        </ol>
+        <p class="muted js-only" hidden>Your answer, <b class="answer-text"></b>, is already set there; you can change it on that page.</p>
+        <p class="muted">Updates install themselves: the Worker checks for a new release daily and redeploys, and the agent on a PC updates itself too.</p>
+        <button class="back" type="button">Back</button>
+      </div>
+    </li>
+  </ol>
+
+  <section id="costs">
+    <h2>What it costs</h2>
     <ul>
-      <li>A <a href="https://github.com/signup">GitHub account</a>. The deploy keeps a small copy of the setup in your GitHub,
-        which is how your Worker updates itself.</li>
-      <li>A <a href="https://dash.cloudflare.com/sign-up">Cloudflare account</a> (the free plan is enough), with
-        <b>R2 storage</b> turned on <i>before</i> the deploy: in the dashboard, <b>Storage &amp; databases → R2 →
-        Overview</b>, then the checkout. It is free (10 GB), but Cloudflare asks for a card on file.</li>
-      <li>A claude.ai plan that can add custom connectors.</li>
-      <li>For the cloud: a <a href="https://modal.com/signup">Modal account</a> with a card on file (new accounts get $30 of free compute a month).
-        For your PC: an NVIDIA GPU (AMD on Linux), or an Apple silicon Mac.</li>
+      <li><b>Cloudflare:</b> the Worker is free (up to 100,000 requests a day). Its storage, R2, is free up to 10 GB stored,
+        a million writes and ten million reads a month; one person's use stays far inside those. Past 10 GB it is
+        $0.015 per GB a month, and images expire after a year. Cloudflare has no spending cap, so to hear about any charge,
+        set a budget alert: <b>Manage Account → Billing → Billable Usage → Create budget alert</b> (say $1). It emails; it doesn't stop anything.</li>
+      <li><b>Modal</b> (the cloud): billed per second, only while it generates, and new accounts get $30 of free compute a month.
+        A <b>Workspace budget</b> (<b>Settings → Usage &amp; billing</b>) is a hard cap: work stops once it is reached.</li>
+      <li><b>Your PC:</b> the electricity.</li>
     </ul>
-    <p class="tip"><b>Tip:</b> Cloudflare and Modal both let you sign up with your GitHub account (the
-      <b>GitHub</b> button on their sign-up pages). Make the GitHub account first and use it for both: one login
-      instead of three.</p>
-    <p><b>Steps:</b></p>
-    <ol>
-      <li>Click the button. Cloudflare opens in a new tab with a form: pick your GitHub account under
-        <b>Git account</b> (connecting it the first time, see below), keep the project name <code>comfy-gen</code>
-        and everything else as it is, and click <b>Deploy</b>.</li>
-      <li>Wait for the first deploy, under a minute, then open your Worker. This page shows how to find its
-        address once you have clicked the button.</li>
-      <li>Your Worker's page takes you through the rest, one step at a time: log in, choose where the images
-        are made, set that up, and connect Claude.</li>
-    </ol>
-    <details class="guide">
-      <summary>Connecting GitHub to Cloudflare (the first time only)</summary>
-      <ol>
-        <li>On Cloudflare's deploy page, open the <b>Git account</b> list and choose <b>New GitHub connection</b>.</li>
-        <li>GitHub asks you to install the Cloudflare app on your account: click <b>Install</b>.</li>
-        <li>Back on the deploy page, pick your GitHub account in the <b>Git account</b> list. The repository it
-          creates is named after the project, <code>comfy-gen</code>.</li>
-      </ol>
-      <figure><img src="guide/github-connect.png" alt="Cloudflare's deploy page with the Git account list open on New GitHub connection" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The deploy page before GitHub is connected.</figcaption></figure>
-      <figure><img src="guide/deploy-form.png" alt="The deploy form with a GitHub account picked, the project name and the Deploy button" loading="lazy" onerror="this.parentElement.remove()"><figcaption>Connected: keep the name and click Deploy.</figcaption></figure>
-    </details>
-    <a class="button" id="deploy" target="_blank" rel="noopener" href="https://deploy.workers.cloudflare.com/?url=https://github.com/lugia19/comfyui-gen-mcp/tree/main/bootstrap">
-      Deploy to Cloudflare
-    </a>
-    <p class="muted"><a href="#after" id="show-after">Already clicked it? Show how to find your Worker.</a></p>
-    <p class="muted">
-      Updates install themselves: the Worker checks for a new release daily and redeploys, and the
-      agent on your PC updates itself too.
-    </p>
-  </section>
-
-  <section id="after" hidden>
-    <h2>Next: find your Worker</h2>
-    <ol>
-      <li>In the Cloudflare tab, the build runs for under a minute. Its log is on the page.</li>
-      <li>When it finishes, the end of the log says <b>Your Worker is ready</b> with your Worker's address,
-        <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>. Open it.</li>
-      <li>Lost the tab? In the <a href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noopener">Cloudflare dashboard</a>,
-        open <b>Workers &amp; Pages</b>: the address is under <b>comfy-gen</b> in the list. Or open <b>comfy-gen</b> and
-        click <b>Visit</b> at the top right.</li>
-    </ol>
-    <figure><img src="guide/build-log.png" alt="The build log while the Worker deploys" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The build running.</figcaption></figure>
-    <figure><img src="guide/build-done.png" alt="The end of the build log with the Worker's address" loading="lazy" onerror="this.parentElement.remove()"><figcaption>Done: the address is at the end of the log.</figcaption></figure>
-    <figure><img src="guide/worker-visit.png" alt="The Worker's page in the Cloudflare dashboard with its Visit button" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The Worker in the dashboard.</figcaption></figure>
-    <p>Your Worker's page takes it from there.</p>
-  </section>
-
-  <section id="desktop">
-    <h2>Claude Desktop only</h2>
-    <p>
-      The <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/Comfy-Gen-MCP.mcpb">Claude Desktop extension</a> installs and runs ComfyUI on
-      your PC, with no accounts. Open the file to install it in Claude Desktop, then open its settings
-      page from the tray icon to pick your GPU and install ComfyUI.
-    </p>
   </section>
 
   <p class="muted">Source and issues: <a href="https://github.com/lugia19/comfyui-gen-mcp">github.com/lugia19/comfyui-gen-mcp</a></p>
 </main>
 <script>
-  // The Deploy button opens Cloudflare in a new tab; this tab shows what comes next.
-  const after = document.getElementById("after");
-  const reveal = () => { after.hidden = false; after.scrollIntoView({ behavior: "smooth", block: "start" }); };
-  document.getElementById("deploy").addEventListener("click", () => setTimeout(reveal, 300));
-  document.getElementById("show-after").addEventListener("click", (e) => { e.preventDefault(); reveal(); });
-  if (location.hash === "#after") after.hidden = false;
+  // The stepper: the answers decide which steps show, progress is remembered in this browser, and
+  // the Deploy button points at the template for the answer (bootstrap-<answer>/, whose SETUP_MODE
+  // the Worker's page starts from). Without this script, the page shows every step.
+  (function () {
+    var KEY = 'comfy-gen-setup'
+    var REPO = 'https://github.com/lugia19/comfyui-gen-mcp/tree/main/'
+    var LABELS = {
+      worker: 'claude.ai, everywhere', desktop: 'Claude Desktop only',
+      cloud: 'In the cloud (Modal)', pc: 'On my PC', both: 'Both: PC first, cloud as fallback',
+    }
+    var state = { use: null, where: null, open: 'use', done: {} }
+    try {
+      var saved = JSON.parse(localStorage.getItem(KEY) || 'null')
+      if (saved && typeof saved === 'object') state = Object.assign(state, saved)
+    } catch (e) {}
+    function save() {
+      try { localStorage.setItem(KEY, JSON.stringify(state)) } catch (e) {}
+    }
+
+    document.documentElement.classList.add('js')
+    var steps = Array.prototype.slice.call(document.querySelectorAll('.step'))
+    var byName = {}
+    steps.forEach(function (el) { byName[el.dataset.step] = el })
+
+    function visible() {
+      if (state.use === 'desktop') return ['use', 'desktop']
+      if (state.use !== 'worker') return ['use']
+      return state.where ? ['use', 'where', 'accounts', 'github', 'deploy', 'open', 'finish'] : ['use', 'where']
+    }
+
+    function render() {
+      var shown = visible()
+      if (shown.indexOf(state.open) < 0) state.open = shown[shown.length - 1]
+      steps.forEach(function (el) {
+        var name = el.dataset.step
+        var i = shown.indexOf(name)
+        el.classList.toggle('hidden', i < 0)
+        el.classList.toggle('open', name === state.open)
+        el.classList.toggle('done', Boolean(state.done[name]))
+        el.querySelector('.num').textContent = el.classList.contains('done') && name !== state.open ? '✓' : String(i + 1)
+        el.querySelector('.head').setAttribute('aria-expanded', String(name === state.open))
+        var answer = name === 'use' ? state.use : name === 'where' ? state.where : null
+        el.querySelector('.summary').textContent = answer ? LABELS[answer] : ''
+        el.querySelectorAll('.card').forEach(function (c) { c.classList.toggle('chosen', c.dataset.answer === answer) })
+      })
+      // Parts for some answers only ("cloud both").
+      document.querySelectorAll('[data-where]').forEach(function (el) {
+        el.classList.toggle('off', Boolean(state.where) && el.dataset.where.split(' ').indexOf(state.where) < 0)
+      })
+      var where = state.where || 'cloud'
+      document.getElementById('deploy').href = 'https://deploy.workers.cloudflare.com/?url=' + REPO + (state.where ? 'bootstrap-' + state.where : 'bootstrap')
+      document.querySelectorAll('.answer-code').forEach(function (el) { el.textContent = where })
+      document.querySelectorAll('.answer-text').forEach(function (el) { el.textContent = LABELS[where].toLowerCase() })
+      document.querySelectorAll('.js-only').forEach(function (el) { el.hidden = !state.where })
+      save()
+    }
+
+    function go(name) {
+      state.open = name
+      render()
+      var el = byName[name]
+      if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: 'start' })
+    }
+
+    steps.forEach(function (el) {
+      var name = el.dataset.step
+      el.querySelector('.head').addEventListener('click', function () { go(name) })
+      el.querySelectorAll('.card').forEach(function (card) {
+        card.addEventListener('click', function () {
+          var a = card.dataset.answer
+          if (name === 'use') state.use = a
+          else state.where = a
+          state.done[name] = true
+          go(visible()[visible().indexOf(name) + 1])
+        })
+      })
+      var next = el.querySelector('button.next')
+      if (next) next.addEventListener('click', function () {
+        state.done[name] = true
+        var shown = visible()
+        go(shown[shown.indexOf(name) + 1] || name)
+      })
+      var back = el.querySelector('button.back')
+      if (back) back.addEventListener('click', function () {
+        var shown = visible()
+        go(shown[Math.max(0, shown.indexOf(name) - 1)])
+      })
+    })
+    render()
+  })()
 </script>
 </body>
 </html>
