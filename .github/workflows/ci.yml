@@ -35,7 +35,8 @@ jobs:
       - run: node packages/mcpb/build.mjs
 
   launcher:
-    # The PC agent's launcher in Go: the release build and the tests, on each OS it ships for.
+    # The Go programs, the PC agent's launcher and the tray helper: the release build and the tests,
+    # on each OS they ship for (the macOS runner builds the tray helper's cgo half).
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -49,13 +50,18 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: packages/launcher/go.mod
-          cache-dependency-path: packages/launcher/go.sum
+          cache-dependency-path: |
+            packages/launcher/go.sum
+            packages/tray/go.sum
       - run: npm ci
       - run: node packages/mcpb/build.mjs
       # Copies the shim in for go:embed, and cross-compiles every release target.
       - run: node packages/launcher/build.mjs
       - run: go vet ./... && go test ./...
         working-directory: packages/launcher
+        shell: bash
+      - run: node build.mjs && go vet ./... && go test ./...
+        working-directory: packages/tray
         shell: bash
 
   web:

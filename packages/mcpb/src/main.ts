@@ -10,7 +10,7 @@ import { request as httpRequest } from "node:http";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { McpHandler, toolSpecs } from "@comfy-gen/core";
-import { loadConfig, log, logTo, machineTray, paths, type Paths, type Tray, type TrayColor, type WebFiles } from "@comfy-gen/local";
+import { loadConfig, log, logTo, machineTray, paths, type Paths, type Tray, type TrayLook, type WebFiles } from "@comfy-gen/local";
 import { PACKS } from "./server/app.ts";
 import { startServer, type RunningServer } from "./server/server.ts";
 
@@ -18,7 +18,7 @@ export type MainOptions = {
   version: string;
   waitExtension: string;
   web: WebFiles;
-  trayIcons?: Record<TrayColor, Uint8Array>; // .ico on Windows, .png elsewhere
+  tray?: TrayLook;
   paths?: Paths;
   stdin?: Readable;
   stdout?: Writable;
@@ -96,12 +96,12 @@ export async function main(opts: MainOptions): Promise<void> {
     }
     // (startServer logs "serving on port": Claude Desktop starts several copies, and each takes over
     // in turn as the one before it is ended, so a start shows a few of these within a second.)
-    if (opts.trayIcons) void startTray(owner, opts.trayIcons).then((t) => (tray = t));
+    if (opts.tray) void startTray(owner, opts.tray).then((t) => (tray = t));
     return true;
   };
 
-  const startTray = (server: RunningServer, icons: Record<TrayColor, Uint8Array>): Promise<Tray | null> =>
-    machineTray(server.app.s.machine, icons, server.app.settingsUrl);
+  const startTray = (server: RunningServer, look: TrayLook): Promise<Tray | null> =>
+    machineTray(server.app.s.machine, look, server.app.settingsUrl);
 
   let foreign = false;
   if (!(await becomeOwner())) {

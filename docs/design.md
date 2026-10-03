@@ -138,8 +138,14 @@ tag from the `github.com/<repo>/releases/latest` redirect (as the Worker's cron 
 that release's `comfy-gen.mjs` for the next start (HTTPS guards it; a length check catches a
 cut-off download, and a bundle that fails to load falls back to the older one). Two
 cached bundles are kept. The shim changes only when users reinstall the `.mcpb`, so everything else
-lives in the bundle. The tray icon is systray2's helper binary, downloaded once, pinned by SHA-256;
-where it cannot run, there is no tray and the settings URL is in the tool answers. The icon's
+lives in the bundle. The tray icon is our tray helper (`packages/tray`, Go on fyne.io/systray:
+StatusNotifierItem over D-Bus on Linux, with no GTK or libappindicator; Win32; Cocoa, native on Apple
+silicon), a release asset the bundle downloads for its own tag and checks against the SHA-256 built
+into it; Node talks to it in JSON lines (the protocol is in its `main.go`). Where it cannot run
+there is no tray, and the settings URL is in the tool answers: on Linux the helper first checks that
+the desktop shows StatusNotifierItems (plain GNOME needs the AppIndicator extension) and logs why
+not. (It was systray2's helpers until v1.8.0: Linux's needed `libappindicator3`, gone from Ubuntu
+24.04, and the Mac's was Intel-only, needing Rosetta.) The icon's
 color is the state: green running, yellow stopped or starting, red when something needs the user
 (ComfyUI failed or is not installed, a download failed). Its menu: Open settings, Open images folder (ComfyUI's
 `output/`, where every generated image stays as a PNG), the status line (greyed, not clickable), Stop ComfyUI, and in the agent Pause agent / Resume agent. There is no

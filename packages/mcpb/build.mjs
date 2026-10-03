@@ -3,10 +3,12 @@
 //                       shim downloads
 //   Comfy-Gen-MCP.mcpb  the extension: shim, manifest, icon, and this release's bundle
 //   shim.mjs            the shim alone, which the launcher embeds
-// Usage: node packages/mcpb/build.mjs [vX.Y.Z]   (default "dev"; web/dist must be built)
+// Usage: node packages/mcpb/build.mjs [vX.Y.Z]   (default "dev"; web/dist must be built, and for a
+// release the tray helpers: packages/tray/build.mjs)
 
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -17,6 +19,18 @@ const tag = process.argv[2] || "dev";
 const version = tag.replace(/^v/, "");
 const dist = join(here, "dist");
 const stage = join(dist, "mcpb");
+
+// The tray helpers this release ships (packages/tray/build.mjs), by platform: the bundle downloads
+// its own from the release and checks it against this hash. A dev build may have none (no tray).
+const TRAY_HELPERS = { windows: "comfy-gen-tray-windows.exe", linux: "comfy-gen-tray-linux", macos: "comfy-gen-tray-macos" };
+const trayDist = join(root, "packages", "tray", "dist");
+const trayHelpers = Object.fromEntries(
+  Object.entries(TRAY_HELPERS)
+    .filter(([, name]) => existsSync(join(trayDist, name)))
+    .map(([platform, name]) => [platform, { name, sha256: createHash("sha256").update(readFileSync(join(trayDist, name))).digest("hex") }]),
+);
+const missing = Object.keys(TRAY_HELPERS).filter((k) => !trayHelpers[k]);
+if (tag !== "dev" && missing.length) throw new Error(`tray helpers missing from packages/tray/dist: ${missing.join(", ")}`);
 
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".json": "application/json" };
 
@@ -49,6 +63,7 @@ const embedded = {
         const icons = Object.fromEntries(["yellow", "green", "red"].map((c) => [c, { ico: ext(`tray-${c}.ico`), png: ext(`tray-${c}.png`) }]));
         return { contents: `export default ${JSON.stringify(icons)};`, loader: "js" };
       }
+      if (args.path === "comfy-gen:tray") return { contents: `export default ${JSON.stringify(trayHelpers)};`, loader: "js" };
     });
   },
 };
@@ -82,4 +97,5 @@ writeFileSync(join(stage, "manifest.json"), JSON.stringify(manifest, null, 2) + 
 
 // The packer is a pinned devDependency (npm ci installs it): nothing is fetched at build time.
 execFileSync("npx", ["--no", "mcpb", "pack", stage, join(dist, "Comfy-Gen-MCP.mcpb")], { stdio: "inherit", shell: process.platform === "win32" });
+if (missing.length) console.log(`no tray helper for ${missing.join(", ")} in this build`);
 console.log(`built ${tag}: ${relative(root, bundleOut)} (${(statSync(bundleOut).size / 1e6).toFixed(2)} MB), ${relative(root, join(dist, "Comfy-Gen-MCP.mcpb"))}`);

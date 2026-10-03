@@ -368,8 +368,8 @@ Fixed:
 - ComfyUI checks for its parent every second, not every 5 s: on Linux, Claude Desktop ends the
   extension without a signal it can catch, so that is how its ComfyUI stops.
 
-Open: no tray on stock Ubuntu 24.04 (systray2's helper needs `libappindicator3.so.1`), to look
-into. The claude.ai calls the tester saw end in "The operation timed out." at about 60 s (the
+Open: no tray on stock Ubuntu 24.04 (systray2's helper needs `libappindicator3.so.1`): fixed by
+our own tray helper (below). The claude.ai calls the tester saw end in "The operation timed out." at about 60 s (the
 Worker answered them all, 76 to 151 s) were a transient error on claude.ai's side: retested,
 claude.ai waits well past 60 s.
 
@@ -389,6 +389,19 @@ Making a model easier to add, and LoRAs a group of models' own. Each step its ow
   `scripts/fill_pack_models.py` for sizes and hashes. `docs/adding-a-model.md` has the steps.
 
 To check live before the release: one image per tool, and a two-image edit, on a PC and on Modal.
+
+## Our own tray helper (2026-10-03)
+
+systray2's helpers were a dead end: Linux's links `libappindicator3` (gone from Ubuntu 24.04), and
+the Mac's is Intel-only (Rosetta, which Apple cuts back from macOS 28). `packages/tray` replaces
+them on all three platforms: Go on fyne.io/systray, speaking the JSON lines `tray.ts` already spoke.
+Linux and Windows cross-compile with the launchers; a `macos-latest` release job builds the Mac's
+(cgo). The bundle downloads its own release's helper, checked against the hash built into it.
+Checked here on a private D-Bus session with a stub watcher: the menu, greyed items, the separator,
+updates and clicks; without a watcher the agent logs "no tray on this desktop". Plain GNOME shows no
+tray without the AppIndicator extension (release notes).
+
+To check live: the tray on Windows and the Mac, and on a Linux desktop (KDE or Ubuntu).
 
 ## Verification
 

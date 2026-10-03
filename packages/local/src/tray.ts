@@ -1,49 +1,50 @@
-// The tray icon, through systray2's helper binary (a small Go program speaking JSON lines on stdio).
-// The binary is downloaded once from systray2's npm tarball, both pinned by SHA-256. A tray that
-// cannot start (headless Linux, no Rosetta on Apple silicon) is logged and skipped: the settings
-// page is also reachable from every "not ready" tool answer.
+// The tray icon, through our tray helper (packages/tray: a small Go program on fyne.io/systray,
+// speaking JSON lines on stdio). The bundle names this release's helper and its SHA-256; it is
+// downloaded once per release from the GitHub release. A tray that cannot start (no tray on the
+// desktop, as on plain GNOME or a server) is logged and skipped: the settings page is also
+// reachable from every "not ready" tool answer.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { fetchFile } from "./fetchfile.ts";
 import { log } from "./log.ts";
 import type { Machine } from "./machine.ts";
 import type { Paths } from "./paths.ts";
-import { openExternal, run } from "./proc.ts";
+import { openExternal } from "./proc.ts";
 
-const TARBALL = "https://registry.npmjs.org/systray2/-/systray2-2.1.4.tgz";
-const TARBALL_SHA256 = "24a176933952c4db79026dcec25c7acf48e5c1cee5d94bc6b87740060bc8ed00";
-const BINARIES: Record<string, [string, string]> = {
-  win32: ["tray_windows_release.exe", "ae61c63ece1392fc64abbfbd40de782f5b2a7b7d83e93f8b640a20395ae6e8a0"],
-  darwin: ["tray_darwin_release", "b406fe6d13d1ba66f901a07267ecfcf1b615e9c8b3410287be576706bd737791"],
-  linux: ["tray_linux_release", "f61eee19036c0af93e2bb0e5b9fff0bd413469aff5ea1261b8fcfe9e2c027c04"],
-};
+/** This platform's tray helper in the bundle's release: its download URL, file name and SHA-256. */
+export type TrayHelper = { url: string; name: string; sha256: string };
+
+/** What a program's tray looks like: the icons by state color (.ico on Windows, .png elsewhere)
+ * and the helper that shows them (null: none for this platform, or a dev build). */
+export type TrayLook = { icons: Record<TrayColor, Uint8Array>; helper: TrayHelper | null };
 
 const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
 
-/** The helper binary for this platform, downloading it the first time; null where there is none. */
-export async function trayBinary(p: Paths): Promise<string | null> {
-  const entry = BINARIES[process.platform];
-  if (!entry || (process.platform === "linux" && process.arch !== "x64")) return null;
-  const [name, digest] = entry;
+/** The helper binary, downloading it the first time for this release; null where there is none.
+ * COMFY_GEN_TRAY names a binary to use instead (dev builds, testing). */
+export async function trayBinary(p: Paths, helper: TrayHelper | null): Promise<string | null> {
+  if (process.env.COMFY_GEN_TRAY) return process.env.COMFY_GEN_TRAY;
+  if (!helper) return null;
   const dir = join(p.home, "tray");
-  const bin = join(dir, name);
-  if (existsSync(bin) && sha256(bin) === digest) return bin;
-  const tmp = join(dir, "download");
-  rmSync(tmp, { recursive: true, force: true });
-  mkdirSync(tmp, { recursive: true });
-  const tgz = join(tmp, "systray2.tgz");
-  await fetchFile(TARBALL, tgz, { sha256: TARBALL_SHA256 });
-  const { code, output } = await run("tar", ["-xzf", tgz, "-C", tmp, `package/traybin/${name}`], { timeoutMs: 60_000 });
-  const extracted = join(tmp, "package", "traybin", name);
-  if (code !== 0 || !existsSync(extracted) || sha256(extracted) !== digest) throw new Error(`Unpacking the tray helper failed: ${output.trim()}`);
-  if (process.platform !== "win32") chmodSync(extracted, 0o755);
-  rmSync(bin, { force: true });
-  renameSync(extracted, bin);
-  rmSync(tmp, { recursive: true, force: true });
+  // Named by its hash, so a newer helper never has to replace a running one (Windows refuses that).
+  const file = `${helper.sha256.slice(0, 12)}-${helper.name}`;
+  const bin = join(dir, file);
+  mkdirSync(dir, { recursive: true });
+  // Anything else there is an older helper (or systray2's, before v1.8.0); one still running
+  // (Windows) goes next time.
+  for (const name of readdirSync(dir)) {
+    if (name === file) continue;
+    try {
+      rmSync(join(dir, name), { recursive: true, force: true });
+    } catch {}
+  }
+  if (existsSync(bin) && sha256(bin) === helper.sha256) return bin;
+  await fetchFile(helper.url, bin, { sha256: helper.sha256 });
+  if (process.platform !== "win32") chmodSync(bin, 0o755);
   return bin;
 }
 
@@ -65,16 +66,16 @@ export class Tray {
   }
 
   /** Show the icon with *items*; null if the helper is unavailable or does not come up. */
-  static async start(p: Paths, icon: Uint8Array, tooltip: string, items: TrayItem[]): Promise<Tray | null> {
+  static async start(p: Paths, helper: TrayHelper | null, icon: Uint8Array, tooltip: string, items: TrayItem[]): Promise<Tray | null> {
     let bin: string | null;
     try {
-      bin = await trayBinary(p);
+      bin = await trayBinary(p, helper);
     } catch (e) {
       log.warn("No tray icon:", (e as Error).message);
       return null;
     }
     if (!bin) return null;
-    const tray = new Tray(bin, items, { icon: Buffer.from(icon).toString("base64"), title: "", tooltip, isTemplateIcon: false });
+    const tray = new Tray(bin, items, { icon: Buffer.from(icon).toString("base64"), title: "", tooltip });
     if (!(await tray.spawn())) return null;
     tray.shown = true;
     return tray;
@@ -82,8 +83,10 @@ export class Tray {
 
   /** Start the helper and send it the menu; false if it does not come up. */
   private async spawn(): Promise<boolean> {
-    const child = spawn(this.bin, [], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
+    const child = spawn(this.bin, [], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     this.child = child;
+    // Its reasons, such as "no tray on this desktop", go to the log.
+    createInterface({ input: child.stderr! }).on("line", (line) => line.trim() && log.warn("Tray helper:", line.trim()));
     // Writing to a helper that is gone fails with EPIPE, which crashed the agent while it stopped
     // (a Terminal window closed on macOS, 2026-10-02): a lost tray message is no matter.
     child.stdin?.on("error", () => {});
@@ -123,6 +126,7 @@ export class Tray {
     this.send({ ...this.menu, items: this.items.map((item, i) => this.wire(item, i)) });
     child.unref();
     (child.stdout as any)?.unref?.();
+    (child.stderr as any)?.unref?.();
     (child.stdin as any)?.unref?.();
     return true;
   }
@@ -144,7 +148,7 @@ export class Tray {
   }
 
   private wire(item: TrayItem, i: number) {
-    return { title: item.title, tooltip: item.tooltip ?? item.title, enabled: item.enabled ?? true, checked: false, __id: i + 1 };
+    return { title: item.title, tooltip: item.tooltip ?? item.title, enabled: item.enabled ?? true, __id: i + 1 };
   }
 
   private send(msg: unknown): void {
@@ -156,7 +160,7 @@ export class Tray {
     const item = this.items[index];
     if (!item || (changes.title === item.title && changes.enabled === item.enabled)) return;
     Object.assign(item, changes);
-    this.send({ type: "update-item", item: this.wire(item, index), seq_id: -1 });
+    this.send({ type: "update-item", item: this.wire(item, index) });
   }
 
   /** Change the icon (and its tooltip). */
@@ -181,7 +185,7 @@ const STATE_COLORS: Record<string, TrayColor> = {
 /** An extra tray item for one program (the agent's pause), and the note it adds to the status. */
 export type TrayExtra = { title: () => string; onClick: () => void; note: () => string | null; name?: string };
 
-/** A menu separator, in the tray helper's protocol (systray2's SysTray.separator). */
+/** A menu separator, in the tray helper's protocol. */
 const SEPARATOR: TrayItem = { title: "<SEPARATOR>", tooltip: "", enabled: true };
 
 /**
@@ -196,7 +200,7 @@ const SEPARATOR: TrayItem = { title: "<SEPARATOR>", tooltip: "", enabled: true }
  */
 export async function machineTray(
   machine: Machine,
-  icons: Record<TrayColor, Uint8Array>,
+  look: TrayLook,
   settingsUrl: string | (() => string), // a function: decided at the click (the agent's Worker)
   trouble: () => string | null = () => null,
   extra?: TrayExtra,
@@ -227,7 +231,8 @@ export async function machineTray(
     { title: "Stop ComfyUI", enabled: stoppable(), onClick: () => run("stopping", () => comfy.stop()) },
     ...(extra ? [{ title: extra.title(), onClick: () => (extra.onClick(), refresh()) }] : []),
   ];
-  const t = await Tray.start(machine.p, icons[shown], shownTip, items);
+  const { icons, helper } = look;
+  const t = await Tray.start(machine.p, helper, icons[shown], shownTip, items);
 
   function refresh(): void {
     if (!t) return;

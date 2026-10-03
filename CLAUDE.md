@@ -46,17 +46,20 @@ Measure with Workers Logs `cpuTimeMs` when a change could move it (the appendix 
   `packages/mcpb` (the Claude Desktop extension: shim, bind-or-relay entry, local server, tray;
   `node packages/mcpb/build.mjs [tag]` builds `comfy-gen.mjs`, the one bundle holding the server
   and the agent, the shim and the `.mcpb`), `packages/agent` (the PC agent: relay client and its
-  settings routes over `local`) and `packages/launcher` (Go, not a workspace: the agent's
+  settings routes over `local`), `packages/launcher` (Go, not a workspace: the agent's
   launcher; `node packages/launcher/build.mjs [tag]` after the MCPB build, `go test ./...` in its
-  folder). `web/` (Svelte settings app) stays outside, with its own lockfile; its built `web/dist`
-  is committed.
+  folder) and `packages/tray` (Go, not a workspace: the tray helper on fyne.io/systray;
+  `node packages/tray/build.mjs` before a release MCPB build, which pins the helpers' hashes; the
+  macOS one needs cgo, so only a Mac builds it). `web/` (Svelte settings app) stays outside, with
+  its own lockfile; its built `web/dist` is committed.
 - Python that remains, as a uv workspace: `packages/modal_app` (runs on Modal and in the Workers
   Build). The build step `packages/worker/deploy/deploy.{sh,py}` is stdlib Python and must stay at
   that path: published `deploy.sh` releases call it there.
 
 ## Tests
 
-- `npm run typecheck` and `npm test` (vitest) from the repository root.
+- `npm run typecheck` and `npm test` (vitest) from the repository root; `go vet ./... && go test
+  ./...` in `packages/launcher` and `packages/tray`.
 - `uv run pytest` for the Modal app and the build step (CI runs Python 3.12 and 3.14).
 - `python3 scripts/check_pack_models.py` checks pack sizes and hashes against Hugging Face.
 - Local end to end: `npx wrangler dev` in `packages/worker` (with `.dev.vars` from the example), a

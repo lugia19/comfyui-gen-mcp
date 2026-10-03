@@ -7,7 +7,7 @@
 // unpaired, either way: paired, its tray is the sign it runs); exit code
 // RESTART_EXIT_CODE asks it to start us again at once (into a newer bundle), 0 to stay stopped.
 
-import { agentInstance, setPartSuffix, listen, log, logTo, Machine, machineTray, openExternal, paths, type Paths, type TrayColor, type WebFiles } from "@comfy-gen/local";
+import { agentInstance, setPartSuffix, listen, log, logTo, Machine, machineTray, openExternal, paths, type Paths, type TrayLook, type WebFiles } from "@comfy-gen/local";
 import { AgentApp } from "./app.ts";
 import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts";
 import { agentHandler } from "./handlers.ts";
@@ -22,7 +22,7 @@ export type AgentOptions = {
   version: string;
   waitExtension: string;
   web: WebFiles;
-  trayIcons?: Record<TrayColor, Uint8Array>;
+  tray?: TrayLook;
   paths?: Paths;
   exit?: (code: number) => void;
 };
@@ -132,10 +132,10 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
 
   const trouble = () =>
     !cfg.worker_url ? "not paired with a Worker" : client && client.state !== "connected" ? "not connected to your Worker" : null;
-  const tray = opts.trayIcons
+  const tray = opts.tray
     ? // Paired and connected: the Worker's Settings page, where models and LoRAs are set; this PC's
       // own page otherwise (pairing, or the Worker unreachable).
-      await machineTray(machine, opts.trayIcons, () => (cfg.worker_url && client?.state === "connected" ? `${cfg.worker_url}/#settings` : settingsUrl), trouble, {
+      await machineTray(machine, opts.tray, () => (cfg.worker_url && client?.state === "connected" ? `${cfg.worker_url}/#settings` : settingsUrl), trouble, {
         title: () => (paused ? "Resume agent" : "Pause agent"),
         note: () => (paused ? "paused until resumed or restarted" : null),
         onClick: () => setPaused(!paused, "the tray"),
