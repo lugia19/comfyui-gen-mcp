@@ -46,9 +46,15 @@ export const TOKEN_TEMPLATE_URL =
     name: 'Comfy-Gen-MCP',
   })
 
-// Guide screenshots live on the project site, not in this app (which the local bundle also embeds).
+// The walkthroughs' screenshots live on the project site, not in this app (which the local bundle also embeds).
 export const GUIDE = 'https://lugia19.github.io/comfyui-gen-mcp/guide/'
-export const hideFigure = (e) => (e.currentTarget.parentElement.hidden = true)
+// The walkthroughs (Tour.svelte), loaded once: fixing one needs no release.
+let guides = null
+export const loadGuides = () =>
+  (guides ??= fetch(GUIDE + 'guides.json').then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText)))).catch((e) => {
+    guides = null
+    throw e
+  }))
 
 /** Short names for the agent's GPU kinds (its hello's `gpu`). */
 export const GPU_NAMES = { nvidia: 'NVIDIA', amd: 'AMD', intel: 'Intel Arc', mac: 'Apple silicon', cpu: 'CPU only' }

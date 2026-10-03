@@ -1,0 +1,46 @@
+/* The walkthroughs (tour-core.js), on the setup site and the Worker's page alike: a screenshot with
+   numbered markers, the steps so far under it, Back / Next. Uses the page's --bg, --text, --muted,
+   --border, --accent and --accent-text. */
+.tour { --tour-red: #e5191b; --tour-text: #c81e1e; margin: 10px 0 14px; outline: none; }
+@media (prefers-color-scheme: dark) { .tour { --tour-text: #ff7b72; } }
+.tour:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; }
+
+.tour-shot {
+  position: relative; display: block; container-type: inline-size;
+  /* Badge size and arrow length shrink with the image (phones), within limits. */
+  --d: 26px; --l: 22px; --d: clamp(18px, 4cqw, 26px); --l: clamp(10px, 3.5cqw, 22px);
+}
+.tour-shot img { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; }
+.tour-none { padding: 28px 16px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; font-size: 0.92rem; }
+
+.tour-box { position: absolute; outline: 3px solid var(--tour-red); outline-offset: 2px; border-radius: 4px; pointer-events: none; }
+.tour-mark { position: absolute; width: 0; height: 0; pointer-events: none; }
+.tour-mark > span {
+  position: absolute; width: var(--d); height: var(--d); margin: calc(var(--d) / -2) 0 0 calc(var(--d) / -2);
+  display: grid; place-items: center; border-radius: 50%; background: var(--tour-red); color: #fff;
+  font: 700 calc(var(--d) * 0.55) / 1 system-ui, -apple-system, 'Segoe UI', sans-serif; box-shadow: 0 0 0 2px #fff;
+}
+.tour-mark.left > span { left: calc(-1 * (var(--l) + var(--d) / 2)); }
+.tour-mark.right > span { left: calc(var(--l) + var(--d) / 2); }
+.tour-mark.up > span { top: calc(-1 * (var(--l) + var(--d) / 2)); }
+.tour-mark.down > span { top: calc(var(--l) + var(--d) / 2); }
+.tour-mark.done > span { background: #71717a; transform: scale(0.8); }
+.tour-mark.current::before { content: ''; position: absolute; background: var(--tour-red); }
+.tour-mark.left::before { left: calc(-1 * var(--l)); top: -1.5px; width: var(--l); height: 3px; }
+.tour-mark.right::before { left: 0; top: -1.5px; width: var(--l); height: 3px; }
+.tour-mark.up::before { top: calc(-1 * var(--l)); left: -1.5px; width: 3px; height: var(--l); }
+.tour-mark.down::before { top: 0; left: -1.5px; width: 3px; height: var(--l); }
+
+.tour-steps { margin: 10px 0 6px; }
+.tour-steps li.done { color: var(--muted); }
+.tour-steps li.current { color: var(--tour-text); font-weight: 600; }
+.tour-nav { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+.tour-nav button {
+  font: inherit; font-weight: 600; margin: 0; padding: 7px 16px; border-radius: 8px; cursor: pointer;
+  background: var(--accent); color: var(--accent-text); border: 1px solid var(--accent);
+}
+.tour-nav button.tour-prev { background: none; color: var(--text); border-color: var(--border); font-weight: normal; }
+.tour-nav button:disabled { opacity: 0.45; cursor: default; }
+.tour-nav .tour-count { color: var(--muted); font-size: 0.9rem; }
+.tour-nav button.tour-toggle { background: none; border: 0; padding: 0; color: var(--accent); font-weight: normal; font-size: 0.9rem; margin-left: auto; text-decoration: underline; }
+.tour-all { color: var(--muted); }

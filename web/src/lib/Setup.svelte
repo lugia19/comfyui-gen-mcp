@@ -1,11 +1,12 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { api, GUIDE, hideFigure } from './api.js'
+  import { api } from './api.js'
   import BuildLog from './BuildLog.svelte'
   import GpuList from './GpuList.svelte'
   import Models from './Models.svelte'
   import SetPassword from './SetPassword.svelte'
   import Step from './Step.svelte'
+  import Tour from './Tour.svelte'
 
   // The Worker's setup, one step at a time (design §8): log in, turn on storage (R2), then the
   // answer to "where should images be made?" (asked on the setup site, which the Deploy button
@@ -271,17 +272,14 @@
       Images and LoRAs are kept in your Worker's storage (Cloudflare R2), so any GPU can edit any image. R2 is
       free up to 10 GB, but Cloudflare wants a card on file for it, so it is turned on once, by hand.
     </p>
-    <ol>
-      <li><a href={r2Url} target="_blank" rel="noopener">Open R2 in your Cloudflare dashboard</a>.</li>
-      <li>Click <b>Add R2 subscription to my account</b>. It's $0 due, and asks for a card first if the account has none.
-        Nothing is charged while you stay inside the free amounts.</li>
-      <li>Back here, press <b>Check again</b>: your Worker redeploys (about a minute) and picks up its storage.</li>
-    </ol>
-    <details class="guide">
-      <summary>Show me how</summary>
-      <figure><img src="{GUIDE}r2-overview.png" alt="R2's overview page in the Cloudflare dashboard, before R2 is turned on" loading="lazy" onerror={hideFigure} /><figcaption>R2 before it is turned on: Add R2 subscription to my account.</figcaption></figure>
-      <figure><img src="{GUIDE}r2-checkout.png" alt="R2's subscription page, with the card fields" loading="lazy" onerror={hideFigure} /><figcaption>Adding a card, if the account has none.</figcaption></figure>
-    </details>
+    <p><a class="button" href={r2Url} target="_blank" rel="noopener">Open R2 in your Cloudflare dashboard</a></p>
+    <Tour id="r2">
+      <ol>
+        <li>Click <b>Add R2 subscription to my account</b>. It's $0 due, and asks for a card first if the account has none.</li>
+      </ol>
+    </Tour>
+    <p>Nothing is charged while you stay inside the free amounts. Back here, press <b>Check again</b>: your Worker redeploys
+      (about a minute) and picks up its storage.</p>
     <button onclick={checkStorage} disabled={storageBusy || (storageBuild && !storageChecked)}>
       {storageBusy ? 'Starting…' : storageBuild && !storageChecked ? 'Checking…' : 'Check again'}
     </button>
@@ -292,9 +290,13 @@
     {/if}
   {/if}
   <p class="muted">
-    Cloudflare already sets up a $10 budget alert, which emails if it ever costs anything (<b>Manage account → Billing →
-    Billable usage</b>); lower it if you like. It warns; it doesn't stop anything.
+    Cloudflare already sets up a $10 budget alert, which emails if it ever costs anything; lower it if you like. It warns;
+    it doesn't stop anything.
   </p>
+  <details class="guide">
+    <summary>Show me where</summary>
+    <Tour id="cf-budget"><p><b>Manage account → Billing → Billable usage → Budget alerts</b>, then the pencil.</p></Tour>
+  </details>
 </Step>
 
 <Step n={num('mode')} title="Where should images be made?" status={status(Boolean(mode))} summary={mode ? MODES[mode].summary + (info.mode_from_site ? ' (your choice on the setup site)' : '') : ''}>
@@ -389,23 +391,31 @@
         <li>Optional: on the same page's <b>Usage limit</b> tab, set the <b>Spend limit</b>, so Modal can never bill more than you choose.</li>
         <li>Then make the token as below.</li>
       </ol>
-      <figure><img src="{GUIDE}modal-signup.png" alt="Modal's sign-up page" loading="lazy" onerror={hideFigure} /><figcaption>Signing up.</figcaption></figure>
-      <figure><img src="{GUIDE}modal-billing.png" alt="Modal's billing settings, where the card goes" loading="lazy" onerror={hideFigure} /><figcaption>Where the card goes.</figcaption></figure>
     </details>
-    <ol>
-      <li><b>Add a card first:</b> Modal runs GPUs only with a card on file, even on the free $30
-        (<b>Settings → Usage &amp; billing → Manage payment details</b>). Without one the deploy fails.</li>
-      <li>In Modal, open <b>Settings → API tokens &amp; service users</b>, click <b>New Token</b>, then
-        <b>Create token</b> (the name is optional).</li>
-      <li>Modal shows the token once, inside a command: <code>modal token set --token-id ak-… --token-secret as-…</code>.
-        Copy the whole command with its copy button and paste it into <b>Modal command</b> below: the ID and secret
-        are picked out of it. They are stored only as build secrets, used to deploy ComfyUI into your Modal account.</li>
-    </ol>
-    <figure><img src="{GUIDE}modal-tokens.png" alt="Modal's API tokens settings with the New Token button" loading="lazy" onerror={hideFigure} /><figcaption>Settings → API tokens &amp; service users.</figcaption></figure>
-    <figure><img src="{GUIDE}modal-token-created.png" alt="A new Modal token, shown inside a modal token set command" loading="lazy" onerror={hideFigure} /><figcaption>The command holding the ID and secret.</figcaption></figure>
-    <p class="muted">The first deploy takes about 5 minutes (it builds the ComfyUI image); later ones about a minute.</p>
+    <p><b>Add a card first:</b> Modal runs GPUs only with a card on file, even on the free $30
+      (<b>Settings → Usage &amp; billing → Manage payment details</b>). Without one the deploy fails.</p>
+    <details class="guide">
+      <summary>Show me where</summary>
+      <Tour id="modal-billing" />
+    </details>
+    <p>Then make a token for your Worker:</p>
+    <Tour id="modal-token">
+      <ol>
+        <li>In Modal, open <b>Settings → API tokens &amp; service users</b>, click <b>New Token</b>, then
+          <b>Create token</b> (the name is optional).</li>
+        <li>Modal shows the token once, inside a command: <code>modal token set --token-id ak-… --token-secret as-…</code>.
+          Copy the whole command with its copy button and paste it into <b>Modal command</b> below.</li>
+      </ol>
+    </Tour>
+    <p class="muted">The ID and secret are picked out of the command. They are stored only as build secrets, used to deploy
+      ComfyUI into your Modal account. The first deploy takes about 5 minutes (it builds the ComfyUI image); later ones
+      about a minute.</p>
     <p class="muted">Optional: Modal's <b>Spend limit</b> (<b>Settings → Usage &amp; billing → Usage limit</b>) caps what it can bill:
       once charges pass it, with the free credits used first, all work stops. At $0 you never pay past the credits.</p>
+    <details class="guide">
+      <summary>Show me where</summary>
+      <Tour id="modal-limit" />
+    </details>
     <form onsubmit={deployModal}>
       <label for="mcmd">Modal command</label>
       <input id="mcmd" type="text" bind:value={modalCommand} oninput={splitCommand} placeholder="modal token set --token-id ak-… --token-secret as-…" autocomplete="off" />
@@ -457,22 +467,28 @@
   status={status(info.claude_seen, generatorReady)}
   summary={info.claude_seen ? 'Claude is connected' : ''}
 >
-  <ol>
-    <li>In claude.ai, open <b>Customize → Connectors</b>, then <b>+</b> → <b>Add custom connector</b>.</li>
-    <li>Name it anything (Comfy-Gen, say), paste this URL, and click <b>Continue</b>:</li>
-  </ol>
+  <p>Your connector URL:</p>
   <div class="row"><code>{showUrl ? info.connector_url : info.connector_url.replace(/(\/mcp\/).+$/, '$1••••••••')}</code></div>
   <div class="row">
     <button onclick={copyConnector}>{copied ? 'Copied' : 'Copy URL'}</button>
     <button class="secondary" onclick={() => (showUrl = !showUrl)}>{showUrl ? 'Hide' : 'Show'}</button>
     <button class="secondary" onclick={rotate}>Make a new URL</button>
   </div>
-  <ol start="3">
-    <li>Under <b>Authentication</b>, leave <b>No sign-in</b>. Its warning that anyone with the URL can use the connector is
-      expected: the URL is the secret.</li>
-    <li>Click <b>Add</b>, then <b>Connect</b>.</li>
-    <li>In a chat, turn it on under <b>+ → Connectors</b>. The first image asks to allow the tool: choose <b>Always allow</b>.</li>
-  </ol>
+  <Tour id="claude-connector">
+    <ol>
+      <li>In claude.ai, open <b>Customize → Connectors</b>, then <b>+</b> → <b>Add custom connector</b>.</li>
+      <li>Name it anything (Comfy-Gen, say), paste the URL, and click <b>Continue</b>.</li>
+      <li>Under <b>Authentication</b>, leave <b>No sign-in</b>. Its warning that anyone with the URL can use the connector is
+        expected: the URL is the secret.</li>
+      <li>Click <b>Add</b>, then <b>Connect</b>.</li>
+    </ol>
+  </Tour>
+  <p>Then, in a chat:</p>
+  <Tour id="claude-chat">
+    <ol>
+      <li>Turn it on under <b>+ → Connectors</b>. The first image asks to allow the tool: choose <b>Always allow</b>.</li>
+    </ol>
+  </Tour>
   <p class="muted">Anyone with this URL can generate images with your setup. Treat it like a password. If Claude ever says the
     tools aren't connected, open the connector in <b>Customize → Connectors</b> and click <b>Disconnect</b>, then <b>Connect</b>.</p>
   {#if !info.claude_seen}<p class="muted">This step ticks itself once Claude has connected.</p>{/if}
@@ -549,31 +565,6 @@
 {/if}
 
 <style>
-  details.guide {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 8px 12px;
-    margin: 10px 0;
-  }
-  details.guide summary {
-    cursor: pointer;
-    font-weight: 600;
-  }
-  figure {
-    margin: 10px 0 14px;
-  }
-  figure img {
-    display: block;
-    max-width: 100%;
-    height: auto;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-  }
-  figcaption {
-    color: var(--muted);
-    font-size: 13px;
-    margin-top: 4px;
-  }
   .finish {
     border-color: var(--ok);
   }

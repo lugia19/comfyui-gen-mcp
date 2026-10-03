@@ -225,3 +225,15 @@ button.link {
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* Folded help (Setup page, the GPU list). */
+details.guide {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 10px 0;
+}
+details.guide summary {
+  cursor: pointer;
+  font-weight: 600;
+}

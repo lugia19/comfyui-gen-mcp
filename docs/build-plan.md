@@ -145,12 +145,8 @@ guides instead, after the user's from-scratch test, whose screenshots they illus
   creating the token).
 
 Built 2026-09-30: the three guides are in place (`site/index.html`, the Modal step in
-`web/src/lib/Setup.svelte`), with screenshots in `site/guide/`: `github-connect`, `deploy-form`,
-`build-log`, `build-done`, `worker-visit`, `cf-token-form`, `cf-token-summary` (the login step),
-`modal-signup`, `modal-billing`, `modal-tokens`,
-`modal-token-created` (PNG, redacted). The Worker page loads its Modal images from the published
-site, so they appear once `main` has them. The GitHub app install got no screenshot: it is one
-Install click. Names checked against the real screens the same day (Cloudflare's button is
+`web/src/lib/Setup.svelte`), with screenshots in `site/guide/`; since replaced by the walkthroughs
+(below). Names checked against the real screens the same day (Cloudflare's button is
 **Deploy**, the list entry **New GitHub connection**; Modal's menus are **Usage & billing** and **API
 tokens & service users**). Modal shows a new token only inside a `modal token set` command, so the
 token ID box also accepts that whole command and splits it.
@@ -470,4 +466,14 @@ image from the PC: everything worked end to end. Fixed after it:
   `setup_mode` (`mode` already tells the agent and extension pages apart).
 
 Its screenshots (71) are the source for the walkthroughs, after blurring.
+
+## Walkthroughs (2026-10-03)
+
+The external steps are step-by-step guides: a screenshot with numbered markers, Next showing one
+step at a time (earlier ones grey, the current one red) and moving on to the next screenshot, Back
+going back. Twelve, from the dry run's screenshots: on the site, `deploy` and `open-worker`; on the
+Worker's page, `cf-token` (log in), `r2` and `cf-budget` (storage), `modal-billing`, `modal-token`
+and `modal-limit`, `claude-connector` and `claude-chat`, `agent-pair` and `agent-run` (the PC). The
+macOS views of `agent-run` are placeholders until a Mac's screenshots exist; Windows SmartScreen
+stays one line of text. Format and upkeep: `site/guide/README.md`. Account sign-ups stay plain links.
 

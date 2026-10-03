@@ -37,9 +37,6 @@
     .muted { color: var(--muted); font-size: 0.93rem; }
     details.guide { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 10px 0; }
     details.guide summary { cursor: pointer; font-weight: 600; }
-    figure { margin: 10px 0 14px; }
-    figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; }
-    figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
     .button, button.next {
       display: inline-block; background: var(--accent); color: var(--accent-text); text-decoration: none; border: 0;
       font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 8px; margin: 8px 8px 0 0; cursor: pointer;
@@ -77,6 +74,7 @@
     .card span.d { display: block; color: var(--muted); font-size: 0.92rem; margin-top: 2px; }
     .card.best { border-width: 2px; }
   </style>
+  <link rel="stylesheet" href="guide/tour.css">
 </head>
 <body>
 <main>
@@ -159,19 +157,20 @@
     <li class="step" data-step="deploy" data-path="worker">
       <button class="head" type="button"><span class="num">4</span><h2>Deploy your Worker</h2><span class="summary"></span></button>
       <div class="body">
-        <p>The first time, Cloudflare also needs access to your GitHub. It takes two rounds of the same button:</p>
-        <ol>
-          <li>Click <b>Deploy to Cloudflare</b> (below). Cloudflare opens in a new tab with a form.</li>
-          <li>Under <b>Git account</b>, click <b>New GitHub connection</b>. GitHub asks to <b>Install &amp; Authorize</b>
-            Cloudflare Workers and Pages: keep <b>All repositories</b> (the deploy creates a new repository) and click it.</li>
-          <li>Cloudflare then opens its own <b>Select a repository</b> page. Ignore it: close that tab.</li>
-          <li>Back here, click <b>Deploy to Cloudflare</b> again. Your GitHub account is in the <b>Git account</b> list now:
-            pick it, keep the project name <code>comfy-gen</code> and everything else as it is, and click <b>Deploy</b>.</li>
-        </ol>
+        <p>The first time, Cloudflare also needs access to your GitHub. It takes two rounds of the same button: click
+          <b>Deploy to Cloudflare</b> (it opens in a new tab), then follow the steps below.</p>
+        <a class="button" id="deploy" target="_blank" rel="noopener" href="https://deploy.workers.cloudflare.com/?url=https://github.com/lugia19/comfyui-gen-mcp/tree/main/bootstrap">Deploy to Cloudflare</a>
         <p class="muted js-only" hidden>The form shows <b>SETUP_MODE</b> set to <code class="answer-code">cloud</code>: your answer above.
           Leave it: your Worker's page starts from it.</p>
-        <a class="button" id="deploy" target="_blank" rel="noopener" href="https://deploy.workers.cloudflare.com/?url=https://github.com/lugia19/comfyui-gen-mcp/tree/main/bootstrap">Deploy to Cloudflare</a>
-        <figure><img src="guide/deploy-form.png" alt="The deploy form with a GitHub account picked, the project name and the Deploy button" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The form, second time round: your account picked, then Deploy.</figcaption></figure>
+        <div data-guide="deploy">
+          <ol>
+            <li>Under <b>Git account</b>, click <b>New GitHub connection</b>. GitHub asks to <b>Install &amp; Authorize</b>
+              Cloudflare Workers and Pages: keep <b>All repositories</b> (the deploy creates a new repository) and click it.</li>
+            <li>Cloudflare then opens its own <b>Select a repository</b> page. Ignore it: close that tab.</li>
+            <li>Back here, click <b>Deploy to Cloudflare</b> again. Your GitHub account is in the <b>Git account</b> list now:
+              pick it, keep the project name <code>comfy-gen</code> and everything else as it is, and click <b>Deploy</b>.</li>
+          </ol>
+        </div>
         <details class="guide">
           <summary>GitHub shows a settings page instead of Install &amp; Authorize?</summary>
           <p>Cloudflare's app is already installed on that GitHub account, from an earlier try, and that way it never reaches
@@ -187,14 +186,15 @@
     <li class="step" data-step="open" data-path="worker">
       <button class="head" type="button"><span class="num">5</span><h2>Open your Worker</h2><span class="summary"></span></button>
       <div class="body">
-        <ol>
-          <li>In the Cloudflare tab, the build runs for about a minute.</li>
-          <li>When it shows <b>Success</b>, reload the page and click <b>Visit</b> (top right). That's your Worker, at
-            <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>: bookmark it.</li>
-          <li>Lost the tab? In the <a href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noopener">Cloudflare dashboard</a>,
-            open <b>Workers &amp; Pages → comfy-gen</b> and click <b>Visit</b>.</li>
-        </ol>
-        <figure><img src="guide/worker-visit.png" alt="The Worker's page in the Cloudflare dashboard with its Visit button" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The Worker in the dashboard.</figcaption></figure>
+        <div data-guide="open-worker">
+          <ol>
+            <li>In the Cloudflare tab, the build runs for about a minute.</li>
+            <li>When it shows <b>Success</b>, reload the page and click <b>Visit</b> (top right). That's your Worker, at
+              <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>: bookmark it.</li>
+          </ol>
+        </div>
+        <p class="muted">Lost the tab? In the <a href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noopener">Cloudflare dashboard</a>,
+          open <b>Workers &amp; Pages → comfy-gen</b> and click <b>Visit</b>.</p>
         <button class="back" type="button">Back</button><button class="next" type="button">Done, next</button>
       </div>
     </li>
@@ -327,5 +327,6 @@
     render()
   })()
 </script>
+<script type="module" src="guide/tour.js"></script>
 </body>
 </html>

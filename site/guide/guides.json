@@ -1,0 +1,761 @@
+{
+ "deploy": {
+  "views": [
+   {
+    "image": "deploy-1-form.png",
+    "size": [
+     960,
+     500
+    ],
+    "alt": "Cloudflare's deploy form, with no Git account yet",
+    "steps": [
+     {
+      "html": "In Cloudflare's form, under <b>Git account</b>, click <b>New GitHub connection</b>.",
+      "box": [
+       218,
+       145,
+       202,
+       37
+      ],
+      "side": "left"
+     }
+    ]
+   },
+   {
+    "image": "deploy-2-github.png",
+    "size": [
+     680,
+     730
+    ],
+    "alt": "GitHub asking to install and authorize Cloudflare Workers and Pages",
+    "steps": [
+     {
+      "html": "GitHub asks to install Cloudflare Workers and Pages. Keep <b>All repositories</b>: the deploy creates a new repository.",
+      "box": [
+       80,
+       282,
+       150,
+       28
+      ],
+      "side": "left"
+     },
+     {
+      "html": "Click <b>Install &amp; Authorize</b>.",
+      "box": [
+       88,
+       617,
+       183,
+       34
+      ],
+      "side": "left"
+     }
+    ]
+   },
+   {
+    "image": "deploy-3-ignore.png",
+    "size": [
+     960,
+     510
+    ],
+    "alt": "Cloudflare's own Select a repository page",
+    "steps": [
+     {
+      "html": "Cloudflare then opens its own <b>Select a repository</b> page. Ignore it: close this tab.",
+      "box": [
+       218,
+       52,
+       145,
+       28
+      ],
+      "side": "left"
+     }
+    ]
+   },
+   {
+    "image": "deploy-4-ready.png",
+    "size": [
+     960,
+     500
+    ],
+    "alt": "The deploy form with a GitHub account picked, the project name, SETUP_MODE and the Deploy button",
+    "steps": [
+     {
+      "html": "Click <b>Deploy to Cloudflare</b> on this page again. Under <b>Git account</b>, pick your GitHub account: it's in the list now.",
+      "box": [
+       218,
+       140,
+       503,
+       38
+      ],
+      "side": "left"
+     },
+     {
+      "html": "Keep the project name <code>comfy-gen</code>.",
+      "box": [
+       218,
+       311,
+       503,
+       36
+      ],
+      "side": "left"
+     },
+     {
+      "html": "<b>SETUP_MODE</b> holds your answer from this page: leave it as it is.",
+      "box": [
+       218,
+       396,
+       503,
+       36
+      ],
+      "side": "left"
+     },
+     {
+      "html": "Click <b>Deploy</b>.",
+      "box": [
+       671,
+       443,
+       72,
+       34
+      ],
+      "side": "right"
+     }
+    ]
+   }
+  ]
+ },
+ "open-worker": {
+  "views": [
+   {
+    "image": "open-1-success.png",
+    "size": [
+     700,
+     300
+    ],
+    "alt": "The finished build in Cloudflare, with its green tick",
+    "steps": [
+     {
+      "html": "The build runs for about a minute. When it shows a green tick (<b>Success</b>), reload the page.",
+      "box": [
+       28,
+       48,
+       232,
+       30
+      ],
+      "side": "right"
+     }
+    ]
+   },
+   {
+    "image": "open-2-visit.png",
+    "size": [
+     1003,
+     600
+    ],
+    "alt": "The Worker's page in the Cloudflare dashboard, with its Visit button",
+    "steps": [
+     {
+      "html": "Click <b>Visit</b> (top right). That's your Worker, at <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>: bookmark it.",
+      "box": [
+       914,
+       71,
+       86,
+       31
+      ],
+      "side": "down"
+     }
+    ]
+   }
+  ]
+ },
+ "cf-token": {
+  "views": [
+   {
+    "image": "token-1-form.png",
+    "size": [
+     700,
+     1100
+    ],
+    "alt": "Cloudflare's Create Token page, filled in, with the Continue to summary button",
+    "steps": [
+     {
+      "html": "The permissions are already filled in. If your Cloudflare login also belongs to other accounts (an employer's, say), change <b>All accounts</b> to your own, so the token can't touch them.",
+      "box": [
+       216,
+       567,
+       221,
+       38
+      ],
+      "side": "down"
+     },
+     {
+      "html": "Scroll down and click <b>Continue to summary</b>.",
+      "box": [
+       502,
+       1040,
+       168,
+       38
+      ],
+      "side": "left"
+     }
+    ]
+   },
+   {
+    "image": "token-2-summary.png",
+    "size": [
+     700,
+     320
+    ],
+    "alt": "The token summary, with the Create Token button",
+    "steps": [
+     {
+      "html": "Click <b>Create Token</b>.",
+      "box": [
+       557,
+       256,
+       113,
+       38
+      ],
+      "side": "left"
+     }
+    ]
+   },
+   {
+    "image": "token-3-created.png",
+    "size": [
+     700,
+     480
+    ],
+    "alt": "The new token, shown once, with its copy button",
+    "steps": [
+     {
+      "html": "Copy the token with the button at its end, and paste it below.",
+      "box": [
+       615,
+       135,
+       28,
+       28
+      ],
+      "side": "down"
+     }
+    ]
+   }
+  ]
+ },
+ "r2": {
+  "views": [
+   {
+    "image": "r2-1-subscribe.png",
+    "size": [
+     1160,
+     470
+    ],
+    "alt": "R2's page before it is turned on, with the Add R2 subscription to my account button",
+    "steps": [
+     {
+      "html": "Click <b>Add R2 subscription to my account</b>. It's $0 due; if the account has no card, it asks for one first.",
+      "box": [
+       619,
+       27,
+       510,
+       35
+      ],
+      "side": "left"
+     }
+    ]
+   }
+  ]
+ },
+ "cf-budget": {
+  "views": [
+   {
+    "image": "budget-1-billing.png",
+    "size": [
+     480,
+     834
+    ],
+    "alt": "The Cloudflare dashboard's sidebar, with Manage account open",
+    "steps": [
+     {
+      "html": "In the Cloudflare dashboard's sidebar, open <b>Manage account</b>…",
+      "box": [
+       20,
+       405,
+       222,
+       30
+      ],
+      "side": "right"
+     },
+     {
+      "html": "…then <b>Billing</b>.",
+      "box": [
+       42,
+       477,
+       200,
+       26
+      ],
+      "side": "right"
+     }
+    ]
+   },
+   {
+    "image": "budget-2-usage.png",
+    "size": [
+     1205,
+     330
+    ],
+    "alt": "Cloudflare's billing page, on Billable usage",
+    "steps": [
+     {
+      "html": "Open <b>Billable usage</b>…",
+      "box": [
+       125,
+       10,
+       111,
+       32
+      ],
+      "side": "down"
+     },
+     {
+      "html": "…then <b>Budget alerts</b>.",
+      "box": [
+       882,
+       75,
+       128,
+       30
+      ],
+      "side": "down"
+     }
+    ]
+   },
+   {
+    "image": "budget-3-alert.png",
+    "size": [
+     520,
+     260
+    ],
+    "alt": "Cloudflare's default $10 budget alert",
+    "steps": [
+     {
+      "html": "Cloudflare made a $10 alert already. To change the amount, click the pencil. It only emails you: it never stops anything.",
+      "box": [
+       374,
+       106,
+       24,
+       24
+      ],
+      "side": "down"
+     }
+    ]
+   }
+  ]
+ },
+ "modal-billing": {
+  "views": [
+   {
+    "image": "modal-1-billing.png",
+    "size": [
+     1009,
+     400
+    ],
+    "alt": "Modal's Usage & billing settings, with Manage payment details",
+    "steps": [
+     {
+      "html": "In Modal, open <b>Settings → Usage &amp; billing</b> and click <b>Manage payment details</b> to add a card.",
+      "box": [
+       774,
+       24,
+       202,
+       34
+      ],
+      "side": "down"
+     }
+    ]
+   }
+  ]
+ },
+ "modal-limit": {
+  "views": [
+   {
+    "image": "modal-2-limit.png",
+    "size": [
+     1009,
+     600
+    ],
+    "alt": "Modal's Usage limit tab, with Edit spend limit",
+    "steps": [
+     {
+      "html": "In <b>Settings → Usage &amp; billing</b>, open the <b>Usage limit</b> tab.",
+      "box": [
+       196,
+       98,
+       90,
+       30
+      ],
+      "side": "down"
+     },
+     {
+      "html": "Click <b>Edit spend limit</b>: past the free credits, Modal stops all work at that amount. At $0 you never pay past them.",
+      "box": [
+       57,
+       553,
+       119,
+       33
+      ],
+      "side": "right"
+     }
+    ]
+   }
+  ]
+ },
+ "modal-token": {
+  "views": [
+   {
+    "image": "modal-3-tokens.png",
+    "size": [
+     1280,
+     708
+    ],
+    "alt": "Modal's API tokens settings, with the New Token button",
+    "steps": [
+     {
+      "html": "In Modal's <b>Settings</b>, open <b>API tokens &amp; service users</b>.",
+      "box": [
+       12,
+       632,
+       232,
+       34
+      ],
+      "side": "right"
+     },
+     {
+      "html": "Click <b>New Token</b>.",
+      "box": [
+       1141,
+       24,
+       91,
+       34
+      ],
+      "side": "down"
+     }
+    ]
+   },
+   {
+    "image": "modal-4-dialog.png",
+    "size": [
+     1280,
+     708
+    ],
+    "alt": "Modal's New token dialog",
+    "steps": [
+     {
+      "html": "Click <b>Create token</b>. The name is optional.",
+      "box": [
+       738,
+       446,
+       103,
+       33
+      ],
+      "side": "down"
+     }
+    ]
+   },
+   {
+    "image": "modal-5-created.png",
+    "size": [
+     1280,
+     708
+    ],
+    "alt": "The new token, inside a modal token set command",
+    "steps": [
+     {
+      "html": "Modal shows the token once, inside a command. Copy the whole command (hover it for the copy button) and paste it into <b>Modal command</b> below.",
+      "box": [
+       425,
+       321,
+       416,
+       43
+      ],
+      "side": "left"
+     }
+    ]
+   }
+  ]
+ },
+ "claude-connector": {
+  "views": [
+   {
+    "image": "claude-1-customize.png",
+    "size": [
+     1280,
+     834
+    ],
+    "alt": "claude.ai's Customize, on Connectors",
+    "steps": [
+     {
+      "html": "In claude.ai, click <b>Customize</b> in the sidebar.",
+      "box": [
+       8,
+       184,
+       120,
+       28
+      ],
+      "side": "down"
+     },
+     {
+      "html": "Open <b>Connectors</b>.",
+      "box": [
+       141,
+       629,
+       167,
+       32
+      ],
+      "side": "right"
+     }
+    ]
+   },
+   {
+    "image": "claude-2-add.png",
+    "size": [
+     1280,
+     834
+    ],
+    "alt": "The Add menu, with Add custom connector",
+    "steps": [
+     {
+      "html": "Click <b>Add</b>…",
+      "box": [
+       1041,
+       75,
+       90,
+       30
+      ],
+      "side": "up"
+     },
+     {
+      "html": "…then <b>Add custom connector</b>.",
+      "box": [
+       956,
+       113,
+       175,
+       38
+      ],
+      "side": "down"
+     }
+    ]
+   },
+   {
+    "image": "claude-3-url.png",
+    "size": [
+     1280,
+     834
+    ],
+    "alt": "The Add custom connector dialog, empty",
+    "steps": [
+     {
+      "html": "Name it anything (Comfy-Gen, say).",
+      "box": [
+       396,
+       304,
+       488,
+       32
+      ],
+      "side": "right"
+     },
+     {
+      "html": "Paste your connector URL (<b>Copy URL</b>, above).",
+      "box": [
+       396,
+       378,
+       488,
+       32
+      ],
+      "side": "right"
+     },
+     {
+      "html": "Click <b>Continue</b>.",
+      "box": [
+       799,
+       586,
+       85,
+       31
+      ],
+      "side": "right"
+     }
+    ]
+   },
+   {
+    "image": "claude-4-auth.png",
+    "size": [
+     1280,
+     834
+    ],
+    "alt": "The dialog's second page, with No sign-in picked",
+    "steps": [
+     {
+      "html": "Under <b>Authentication</b>, keep <b>No sign-in</b>. Its warning, that anyone with the URL can use the connector, is expected: the URL is the secret.",
+      "box": [
+       394,
+       401,
+       160,
+       22
+      ],
+      "side": "left"
+     },
+     {
+      "html": "Scroll down and click <b>Add</b>.",
+      "at": [
+       640,
+       822
+      ],
+      "side": "up"
+     }
+    ]
+   },
+   {
+    "image": "claude-5-connect.png",
+    "size": [
+     1280,
+     834
+    ],
+    "alt": "The new connector's page, with its Connect button",
+    "steps": [
+     {
+      "html": "Click <b>Connect</b>.",
+      "box": [
+       739,
+       522,
+       81,
+       31
+      ],
+      "side": "right"
+     }
+    ]
+   }
+  ]
+ },
+ "claude-chat": {
+  "views": [
+   {
+    "image": "chat-1-plus.png",
+    "size": [
+     610,
+     470
+    ],
+    "alt": "A new chat's + menu",
+    "steps": [
+     {
+      "html": "In a chat, click <b>+</b>…",
+      "box": [
+       73,
+       75,
+       30,
+       30
+      ],
+      "side": "left"
+     }
+    ]
+   },
+   {
+    "image": "chat-2-toggle.png",
+    "size": [
+     610,
+     470
+    ],
+    "alt": "The Connectors submenu, with the connector turned on",
+    "steps": [
+     {
+      "html": "…open <b>Connectors</b>…",
+      "box": [
+       76,
+       284,
+       236,
+       32
+      ],
+      "side": "left"
+     },
+     {
+      "html": "…and turn your connector on.",
+      "box": [
+       504,
+       243,
+       39,
+       22
+      ],
+      "side": "right"
+     },
+     {
+      "html": "Ask for an image. The first time, Claude asks to allow the tool: choose <b>Always allow</b>."
+     }
+    ]
+   }
+  ]
+ },
+ "agent-pair": {
+  "views": [
+   {
+    "image": "agent-1-pair.png",
+    "size": [
+     780,
+     135
+    ],
+    "alt": "The agent's page, with the Pairing link field and the Pair button",
+    "steps": [
+     {
+      "html": "The agent's page opens in your browser. Paste the pairing link (<b>Copy link</b>, above) into <b>Pairing link</b>.",
+      "box": [
+       65,
+       33,
+       690,
+       40
+      ],
+      "side": "left"
+     },
+     {
+      "html": "Click <b>Pair</b>.",
+      "box": [
+       65,
+       83,
+       53,
+       37
+      ],
+      "side": "right"
+     }
+    ]
+   }
+  ]
+ },
+ "agent-run": {
+  "views": [
+   {
+    "image": null,
+    "alt": "macOS's warning that it could not verify comfy-gen-agent",
+    "steps": [
+     {
+      "html": "Unzip <code>comfy-gen-agent-macos.zip</code> and open <b>comfy-gen-agent</b>. macOS says it can't verify it: click <b>Done</b>."
+     }
+    ]
+   },
+   {
+    "image": null,
+    "alt": "System Settings, Privacy & Security, with Open Anyway",
+    "steps": [
+     {
+      "html": "Open <b>System Settings → Privacy &amp; Security</b> and scroll down to <b>Security</b>."
+     },
+     {
+      "html": "Next to the note that comfy-gen-agent was blocked, click <b>Open Anyway</b>, and enter your password."
+     }
+    ]
+   },
+   {
+    "image": null,
+    "alt": "macOS asking once more",
+    "steps": [
+     {
+      "html": "macOS asks once more: click <b>Open Anyway</b>. From then on it opens normally."
+     }
+    ]
+   }
+  ]
+ }
+}

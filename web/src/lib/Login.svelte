@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte'
-  import { api, GUIDE, hideFigure, TOKEN_TEMPLATE_URL } from './api.js'
+  import { api, TOKEN_TEMPLATE_URL } from './api.js'
+  import Tour from './Tour.svelte'
 
   // The first login is a Cloudflare token (it proves the Worker is yours); it then sets a password,
   // and later logins use that. The token stays the way back in, should the password be forgotten.
@@ -66,16 +67,16 @@
       to set up the GPU side and update itself. After this you set a password for next time.
     {/if}
   </p>
-  <ol>
-    <li><a href={TOKEN_TEMPLATE_URL} target="_blank" rel="noopener">Open the pre-filled token page</a>. The permissions are already ticked.</li>
-    <li>Click <b>Continue to summary</b>, then <b>Create Token</b>, and paste it here.</li>
-  </ol>
-  <figure><img src="{GUIDE}cf-token-form.png" alt="Cloudflare's Create Token page with the permissions filled in and the Continue to summary button" loading="lazy" onerror={hideFigure} /><figcaption>The pre-filled token page: scroll down and continue.</figcaption></figure>
-  <figure><img src="{GUIDE}cf-token-summary.png" alt="The token summary with the Create Token button" loading="lazy" onerror={hideFigure} /><figcaption>Then Create Token.</figcaption></figure>
-  <p class="muted">
-    If your Cloudflare login also belongs to other accounts (an employer's, say), change "All accounts" to your own
-    under <b>Account Resources</b> first, so the token cannot touch them.
-  </p>
+  <p><a class="button" href={TOKEN_TEMPLATE_URL} target="_blank" rel="noopener">Open the pre-filled token page</a></p>
+  <Tour id="cf-token">
+    <ol>
+      <li>The permissions are already ticked. Click <b>Continue to summary</b>, then <b>Create Token</b>, and paste it here.</li>
+    </ol>
+    <p class="muted">
+      If your Cloudflare login also belongs to other accounts (an employer's, say), change "All accounts" to your own
+      under <b>Account Resources</b> first, so the token cannot touch them.
+    </p>
+  </Tour>
   <form onsubmit={submit}>
     <label for="token">API token</label>
     <input id="token" type="password" bind:value={token} placeholder="cfut_…" autocomplete="off" />
@@ -85,21 +86,3 @@
   <p class="muted">This browser stays logged in for a year.</p>
 </section>
 {/if}
-
-<style>
-  figure {
-    margin: 10px 0 14px;
-  }
-  figure img {
-    display: block;
-    max-width: 100%;
-    height: auto;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-  }
-  figcaption {
-    color: var(--muted);
-    font-size: 13px;
-    margin-top: 4px;
-  }
-</style>
