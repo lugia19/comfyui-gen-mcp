@@ -7,7 +7,7 @@
 import web from "comfy-gen:web";
 import waitExtension from "comfy-gen:wait-extension";
 import icons from "comfy-gen:icons";
-import trayHelpers from "comfy-gen:tray";
+import trayFiles from "comfy-gen:tray";
 import type { TrayColor, TrayHelper, TrayLook, WebFiles } from "@comfy-gen/local";
 import { startAgent, type Agent } from "../../agent/src/main.ts";
 import { main } from "./main.ts";
@@ -20,14 +20,14 @@ const webFiles: WebFiles = (path) => {
   const f = files.get(path);
   return f ? { type: f.type, body: new Uint8Array(Buffer.from(f.body, "base64")) } : null;
 };
-// The tray helper for this computer, from this release (the shim's releases address): Windows,
-// Linux on x64 and macOS on Apple silicon, as the launchers.
+// The tray helper for this computer, in this release's archive (the shim's releases address):
+// Windows, Linux on x64 and macOS on Apple silicon, as the launchers.
 const HELPER_PLATFORMS: Record<string, string> = { "win32-x64": "windows", "linux-x64": "linux", "darwin-arm64": "macos" };
 function trayHelper(): TrayHelper | null {
-  const entry = trayHelpers[HELPER_PLATFORMS[`${process.platform}-${process.arch}`] ?? ""];
-  if (!entry) return null;
+  const entry = trayFiles.helpers[HELPER_PLATFORMS[`${process.platform}-${process.arch}`] ?? ""];
+  if (!entry || !trayFiles.archive) return null;
   const releases = process.env.COMFY_GEN_RELEASES_URL || "https://github.com/lugia19/comfyui-gen-mcp/releases";
-  return { ...entry, url: `${releases}/download/${VERSION}/${entry.name}` };
+  return { ...entry, url: `${releases}/download/${VERSION}/${trayFiles.archive.name}`, archiveSha256: trayFiles.archive.sha256 };
 }
 const trayLook = (): TrayLook => ({
   icons: Object.fromEntries(

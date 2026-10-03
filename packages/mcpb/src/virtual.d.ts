@@ -12,7 +12,8 @@ declare module "comfy-gen:icons" {
   export default icons;
 }
 declare module "comfy-gen:tray" {
-  // The tray helpers built for this release, by platform (windows, linux, macos); none in a dev build.
-  const helpers: Record<string, { name: string; sha256: string }>;
-  export default helpers;
+  // The tray helpers' archive in this release, and each helper in it by platform (windows, linux,
+  // macos); none in a dev build.
+  const tray: { archive: { name: string; sha256: string } | null; helpers: Record<string, { name: string; sha256: string }> };
+  export default tray;
 }

@@ -396,7 +396,9 @@ systray2's helpers were a dead end: Linux's links `libappindicator3` (gone from 
 the Mac's is Intel-only (Rosetta, which Apple cuts back from macOS 28). `packages/tray` replaces
 them on all three platforms: Go on fyne.io/systray, speaking the JSON lines `tray.ts` already spoke.
 Linux and Windows cross-compile with the launchers; a `macos-latest` release job builds the Mac's
-(cgo). The bundle downloads its own release's helper, checked against the hash built into it.
+(cgo). All three go in one release asset, `comfy-gen-tray.tgz` (7 files, not 9); the bundle
+downloads its own release's archive and extracts its helper, each checked against a hash built into
+it.
 Checked here on a private D-Bus session with a stub watcher: the menu, greyed items, the separator,
 updates and clicks; without a watcher the agent logs "no tray on this desktop". Plain GNOME shows no
 tray without the AppIndicator extension (release notes).

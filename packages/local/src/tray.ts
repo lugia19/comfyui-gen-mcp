@@ -1,22 +1,23 @@
 // The tray icon, through our tray helper (packages/tray: a small Go program on fyne.io/systray,
-// speaking JSON lines on stdio). The bundle names this release's helper and its SHA-256; it is
-// downloaded once per release from the GitHub release. A tray that cannot start (no tray on the
+// speaking JSON lines on stdio). The release has all three platforms' helpers in one archive; the
+// bundle names it and the hashes, and this computer's helper is extracted from it once per release. A tray that cannot start (no tray on the
 // desktop, as on plain GNOME or a server) is logged and skipped: the settings page is also
 // reachable from every "not ready" tool answer.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { fetchFile } from "./fetchfile.ts";
 import { log } from "./log.ts";
 import type { Machine } from "./machine.ts";
 import type { Paths } from "./paths.ts";
-import { openExternal } from "./proc.ts";
+import { openExternal, run } from "./proc.ts";
 
-/** This platform's tray helper in the bundle's release: its download URL, file name and SHA-256. */
-export type TrayHelper = { url: string; name: string; sha256: string };
+/** This platform's tray helper in the bundle's release: the archive's URL and SHA-256, and the
+ * helper's file name in it and SHA-256. */
+export type TrayHelper = { url: string; archiveSha256: string; name: string; sha256: string };
 
 /** What a program's tray looks like: the icons by state color (.ico on Windows, .png elsewhere)
  * and the helper that shows them (null: none for this platform, or a dev build). */
@@ -24,7 +25,7 @@ export type TrayLook = { icons: Record<TrayColor, Uint8Array>; helper: TrayHelpe
 
 const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
 
-/** The helper binary, downloading it the first time for this release; null where there is none.
+/** The helper binary, extracting it from the release's archive the first time; null where there is none.
  * COMFY_GEN_TRAY names a binary to use instead (dev builds, testing). */
 export async function trayBinary(p: Paths, helper: TrayHelper | null): Promise<string | null> {
   if (process.env.COMFY_GEN_TRAY) return process.env.COMFY_GEN_TRAY;
@@ -43,8 +44,20 @@ export async function trayBinary(p: Paths, helper: TrayHelper | null): Promise<s
     } catch {}
   }
   if (existsSync(bin) && sha256(bin) === helper.sha256) return bin;
-  await fetchFile(helper.url, bin, { sha256: helper.sha256 });
-  if (process.platform !== "win32") chmodSync(bin, 0o755);
+  const tmp = join(dir, "download");
+  rmSync(tmp, { recursive: true, force: true });
+  mkdirSync(tmp, { recursive: true });
+  try {
+    await fetchFile(helper.url, join(tmp, "tray.tgz"), { sha256: helper.archiveSha256 });
+    // Relative paths only, in the folder (a GNU tar on Windows reads "C:" as a remote host).
+    const { code, output } = await run("tar", ["-xzf", "tray.tgz", helper.name], { cwd: tmp, timeoutMs: 60_000 });
+    const extracted = join(tmp, helper.name);
+    if (code !== 0 || !existsSync(extracted) || sha256(extracted) !== helper.sha256) throw new Error(`Unpacking the tray helper failed: ${output.trim()}`);
+    if (process.platform !== "win32") chmodSync(extracted, 0o755);
+    renameSync(extracted, bin);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
   return bin;
 }
 

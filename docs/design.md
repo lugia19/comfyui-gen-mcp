@@ -140,8 +140,9 @@ cut-off download, and a bundle that fails to load falls back to the older one). 
 cached bundles are kept. The shim changes only when users reinstall the `.mcpb`, so everything else
 lives in the bundle. The tray icon is our tray helper (`packages/tray`, Go on fyne.io/systray:
 StatusNotifierItem over D-Bus on Linux, with no GTK or libappindicator; Win32; Cocoa, native on Apple
-silicon), a release asset the bundle downloads for its own tag and checks against the SHA-256 built
-into it; Node talks to it in JSON lines (the protocol is in its `main.go`). Where it cannot run
+silicon). The release has all three in one `comfy-gen-tray.tgz`; the bundle downloads it for its
+own tag, checks it against the SHA-256 built into it, and extracts its platform's helper with `tar`
+(checked against that one's hash); Node talks to it in JSON lines (the protocol is in its `main.go`). Where it cannot run
 there is no tray, and the settings URL is in the tool answers: on Linux the helper first checks that
 the desktop shows StatusNotifierItems (plain GNOME needs the AppIndicator extension) and logs why
 not. (It was systray2's helpers until v1.8.0: Linux's needed `libappindicator3`, gone from Ubuntu

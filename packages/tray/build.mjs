@@ -1,16 +1,20 @@
-// Builds the tray helper into dist/, one file per platform, named as the release assets the bundle
-// downloads (packages/mcpb/build.mjs pins their hashes, so build these first). Needs Go; the macOS
-// one needs cgo (Cocoa), so it builds only on a Mac. Linux and Windows cross-compile anywhere.
+// Builds the tray helper into dist/, one file per platform, then packs every helper in dist/ into
+// dist/comfy-gen-tray.tgz: the one release asset, from which the bundle extracts its platform's
+// (packages/mcpb/build.mjs pins the hashes, so build these first). Needs Go; the macOS one needs cgo
+// (Cocoa), so it builds only on a Mac, and the release brings it over before packing. Linux and
+// Windows cross-compile anywhere.
 // Usage: node packages/tray/build.mjs [linux|windows|macos …]   (none: every one this computer can build)
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const asked = process.argv.slice(2);
 const dist = join(here, "dist");
+
+const ARCHIVE = "comfy-gen-tray.tgz";
 
 // platform: [GOOS, GOARCH, file, cgo]
 const TARGETS = {
@@ -36,3 +40,10 @@ for (const platform of platforms) {
   });
   console.log(`built ${name} (${(statSync(out).size / 1e6).toFixed(1)} MB)`);
 }
+
+// The archive: every helper in dist/, flat, with its mode (so the Unix ones stay executable).
+const helpers = Object.values(TARGETS).map((t) => t[2]).filter((name) => existsSync(join(dist, name)));
+for (const name of helpers) chmodSync(join(dist, name), 0o755);
+rmSync(join(dist, ARCHIVE), { force: true });
+execFileSync("tar", ["-czf", ARCHIVE, ...helpers], { cwd: dist, stdio: "inherit" });
+console.log(`packed ${ARCHIVE} (${(statSync(join(dist, ARCHIVE)).size / 1e6).toFixed(1)} MB): ${helpers.join(", ")}`);

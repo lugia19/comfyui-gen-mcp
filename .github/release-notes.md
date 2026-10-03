@@ -8,4 +8,4 @@
 
 The agent is not signed yet. Windows: **More info → Run anyway**. macOS: unzip and open it; macOS refuses it the first time, so then choose **Open Anyway** in System Settings → Privacy & Security (once). Linux: `chmod +x comfy-gen-agent-linux` first. Its tray icon shows on KDE, Ubuntu, Cinnamon, XFCE and most desktops; plain GNOME (Fedora, Debian) needs the AppIndicator extension for it.
 
-Installs update themselves; `deploy.sh`, `comfy-gen.mjs` and the `comfy-gen-tray-*` helpers are what they download.
+Installs update themselves; `deploy.sh`, `comfy-gen.mjs` and `comfy-gen-tray.tgz` (the tray icon's helpers) are what they download.

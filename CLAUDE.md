@@ -49,9 +49,9 @@ Measure with Workers Logs `cpuTimeMs` when a change could move it (the appendix 
   settings routes over `local`), `packages/launcher` (Go, not a workspace: the agent's
   launcher; `node packages/launcher/build.mjs [tag]` after the MCPB build, `go test ./...` in its
   folder) and `packages/tray` (Go, not a workspace: the tray helper on fyne.io/systray;
-  `node packages/tray/build.mjs` before a release MCPB build, which pins the helpers' hashes; the
-  macOS one needs cgo, so only a Mac builds it). `web/` (Svelte settings app) stays outside, with
-  its own lockfile; its built `web/dist` is committed.
+  `node packages/tray/build.mjs` (the helpers, packed into `comfy-gen-tray.tgz`) before a release
+  MCPB build, which pins their hashes; the macOS one needs cgo, so only a Mac builds it). `web/`
+  (Svelte settings app) stays outside, with its own lockfile; its built `web/dist` is committed.
 - Python that remains, as a uv workspace: `packages/modal_app` (runs on Modal and in the Workers
   Build). The build step `packages/worker/deploy/deploy.{sh,py}` is stdlib Python and must stay at
   that path: published `deploy.sh` releases call it there.

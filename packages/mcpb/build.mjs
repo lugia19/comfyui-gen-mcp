@@ -20,17 +20,22 @@ const version = tag.replace(/^v/, "");
 const dist = join(here, "dist");
 const stage = join(dist, "mcpb");
 
-// The tray helpers this release ships (packages/tray/build.mjs), by platform: the bundle downloads
-// its own from the release and checks it against this hash. A dev build may have none (no tray).
+// The tray helpers this release ships (packages/tray/build.mjs), in one archive: the bundle
+// downloads it from the release, checks it against the archive's hash, and extracts its platform's
+// helper, checked against that one's. A dev build may have none (no tray).
+const TRAY_ARCHIVE = "comfy-gen-tray.tgz";
 const TRAY_HELPERS = { windows: "comfy-gen-tray-windows.exe", linux: "comfy-gen-tray-linux", macos: "comfy-gen-tray-macos" };
 const trayDist = join(root, "packages", "tray", "dist");
-const trayHelpers = Object.fromEntries(
-  Object.entries(TRAY_HELPERS)
-    .filter(([, name]) => existsSync(join(trayDist, name)))
-    .map(([platform, name]) => [platform, { name, sha256: createHash("sha256").update(readFileSync(join(trayDist, name))).digest("hex") }]),
-);
-const missing = Object.keys(TRAY_HELPERS).filter((k) => !trayHelpers[k]);
-if (tag !== "dev" && missing.length) throw new Error(`tray helpers missing from packages/tray/dist: ${missing.join(", ")}`);
+const fileHash = (name) => createHash("sha256").update(readFileSync(join(trayDist, name))).digest("hex");
+const hasArchive = existsSync(join(trayDist, TRAY_ARCHIVE));
+const trayTable = {
+  archive: hasArchive ? { name: TRAY_ARCHIVE, sha256: fileHash(TRAY_ARCHIVE) } : null,
+  helpers: hasArchive
+    ? Object.fromEntries(Object.entries(TRAY_HELPERS).filter(([, name]) => existsSync(join(trayDist, name))).map(([k, name]) => [k, { name, sha256: fileHash(name) }]))
+    : {},
+};
+const missing = Object.keys(TRAY_HELPERS).filter((k) => !trayTable.helpers[k]);
+if (tag !== "dev" && missing.length) throw new Error(`tray helpers missing from packages/tray/dist (or its ${TRAY_ARCHIVE}): ${missing.join(", ")}`);
 
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".json": "application/json" };
 
@@ -63,7 +68,7 @@ const embedded = {
         const icons = Object.fromEntries(["yellow", "green", "red"].map((c) => [c, { ico: ext(`tray-${c}.ico`), png: ext(`tray-${c}.png`) }]));
         return { contents: `export default ${JSON.stringify(icons)};`, loader: "js" };
       }
-      if (args.path === "comfy-gen:tray") return { contents: `export default ${JSON.stringify(trayHelpers)};`, loader: "js" };
+      if (args.path === "comfy-gen:tray") return { contents: `export default ${JSON.stringify(trayTable)};`, loader: "js" };
     });
   },
 };
