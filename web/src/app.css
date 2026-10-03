@@ -172,6 +172,18 @@ pre {
   margin-top: 4px;
 }
 
+/* A short label beside a choice's title ("Recommended for most people"). */
+.tag {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  vertical-align: 1px;
+}
+
 nav {
   display: flex;
   gap: 6px;

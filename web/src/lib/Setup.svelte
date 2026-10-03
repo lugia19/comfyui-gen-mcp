@@ -7,35 +7,73 @@
   import SetPassword from './SetPassword.svelte'
   import Step from './Step.svelte'
 
-  // The Worker's setup, one step at a time: log in, the GPUs (PCs with the agent, Modal, or under
-  // Advanced a ComfyUI URL, in priority order), Modal's deploy and models when it is wanted, then
-  // connect Claude. Someone who only uses Claude Desktop on the PC with the GPU is pointed at the
-  // extension instead: it needs no Worker. Each step ticks itself from the Worker's state.
+  // The Worker's setup, one step at a time (design §8): log in, turn on storage (R2), then the
+  // answer to "where should images be made?" (asked on the setup site, which the Deploy button
+  // carried here as SETUP_MODE, or asked here), and only that answer's steps: the PC agent, Modal's
+  // deploy and models, or a ComfyUI by URL. Then connect Claude. Each step ticks itself from the
+  // Worker's state.
   let { info, refresh } = $props()
 
   const RELEASE = 'https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/'
-  const CHOICE_KEY = 'comfy-gen-setup-choice'
   let showAdvanced = $state(false)
 
-  // What the user means to add ('modal' or 'url'), remembered in this browser until it exists.
-  let picked = $state(null)
-  try {
-    picked = localStorage.getItem(CHOICE_KEY)
-  } catch {}
+  // The answers, as the setup site words them.
+  const MODES = {
+    cloud: { title: 'In the cloud (Modal)', summary: 'In the cloud, on Modal' },
+    pc: { title: 'On my PC', summary: 'On your PC' },
+    both: { title: 'Both', summary: 'Your PC first, the cloud when it is off' },
+    url: { title: 'A ComfyUI by URL', summary: 'A ComfyUI by URL' },
+  }
   let gpus = $derived(info.gpus ?? [])
   let modalGpu = $derived(gpus.find((g) => g.kind === 'modal'))
   let urlGpu = $derived(gpus.find((g) => g.kind === 'url'))
   let pcs = $derived(gpus.filter((g) => g.kind === 'pc'))
-  let wantModal = $derived(Boolean(modalGpu) || Boolean(info.build && info.build !== info.update_build) || picked === 'modal')
-  let wantUrl = $derived(Boolean(urlGpu) || picked === 'url')
-  // Done once there is a GPU and every PC has paired (a PC waiting to pair keeps the step open).
-  let gpusReady = $derived(gpus.length > 0 && pcs.every((g) => g.seen))
+  let mode = $derived(info.mode ?? null)
+  let storage = $derived(info.storage !== false)
+  // A step shows for the answer, and for a GPU that already exists (an answer changed later only adds).
+  let wantPc = $derived(mode === 'pc' || mode === 'both' || pcs.length > 0)
+  let wantModal = $derived(mode === 'cloud' || mode === 'both' || Boolean(modalGpu) || Boolean(info.build && info.build !== info.update_build))
+  let wantUrl = $derived(mode === 'url' || Boolean(urlGpu))
+  // Done once there is a PC and every PC has paired (a PC waiting to pair keeps the step open).
+  let pcsReady = $derived(pcs.length > 0 && pcs.every((g) => g.seen))
 
-  function choose(c) {
-    picked = c
+  let modeBusy = $state(false)
+  let modeError = $state('')
+  async function choose(m) {
+    modeBusy = true
+    modeError = ''
     try {
-      localStorage.setItem(CHOICE_KEY, c)
-    } catch {}
+      await api('POST', '/setup/mode', { mode: m })
+      await refresh()
+    } catch (e) {
+      modeError = e.message
+    } finally {
+      modeBusy = false
+    }
+  }
+
+  // Storage: R2 is turned on by hand (a checkout with a card on file), then Check again rebuilds the
+  // Worker, which binds the bucket once R2 is on (the build checks).
+  let storageBusy = $state(false)
+  let storageError = $state('')
+  let storageBuild = $state(false) // a Check again started here: show its log
+  let storageChecked = $state(false) // that build finished
+  let r2Url = $derived(info.cloudflare?.account_id
+    ? `https://dash.cloudflare.com/${info.cloudflare.account_id}/r2/overview`
+    : 'https://dash.cloudflare.com/?to=/:account/r2/overview')
+  async function checkStorage() {
+    storageBusy = true
+    storageError = ''
+    storageChecked = false
+    try {
+      await api('POST', '/setup/storage')
+      storageBuild = true
+      await refresh()
+    } catch (e) {
+      storageError = e.message
+    } finally {
+      storageBusy = false
+    }
   }
 
   let addBusy = $state(false)
@@ -119,7 +157,7 @@
   // Claude
   let showUrl = $state(false) // the connector URL holds its secret: masked, as screenshots get shared
   let copied = $state(false)
-  let generatorReady = $derived(gpus.some((g) => g.kind !== 'pc' || g.online))
+  let generatorReady = $derived(storage && gpus.some((g) => g.kind !== 'pc' || g.online))
 
   async function copyConnector() {
     await navigator.clipboard.writeText(info.connector_url)
@@ -187,15 +225,16 @@
 
   const status = (done, ready = true) => (done ? 'done' : ready ? 'current' : 'todo')
 
-  // Step numbers follow what is wanted.
+  // Step numbers follow the steps shown (Log in is 1).
   let steps = $derived.by(() => {
-    const list = []
+    const list = ['storage', 'mode']
+    if (wantPc) list.push('pc')
     if (wantModal) list.push('deploy', 'models')
     if (wantUrl) list.push('url')
-    return list
+    return [...list, 'claude']
   })
-  const num = (id) => 3 + steps.indexOf(id)
-  let claudeN = $derived(3 + steps.length)
+  const num = (id) => 2 + steps.indexOf(id)
+  let claudeN = $derived(num('claude'))
   // The bucket's img/ folder in Cloudflare's dashboard: the build names the bucket <worker>-storage
   // (deploy.py), and the account is the one the login token found.
   let imagesUrl = $derived(info.cloudflare?.account_id && info.cloudflare?.script
@@ -216,26 +255,71 @@
   </details>
 </Step>
 
-<Step n={2} title="Your GPUs" status={status(gpusReady)} summary={gpusReady ? gpus.map((g) => g.name).join(', ') : ''}>
-  <p>
-    Images are made on your GPUs, tried in this order. A PC runs a small agent that connects out to this Worker
-    (nothing to open on your network); Modal runs in the cloud and bills only while it generates. Images and LoRAs
-    are kept in this Worker's storage, so any GPU can edit any image.
-  </p>
-  <GpuList {gpus} {refresh} />
-  <div class="row">
-    <button type="button" onclick={addPc} disabled={addBusy}>{addBusy ? 'Adding…' : pcs.length ? 'Add another PC' : 'Add a PC'}</button>
-    {#if !wantModal}<button type="button" class="secondary" onclick={() => choose('modal')}>Add Modal</button>{/if}
-    {#if !wantUrl && showAdvanced}<button type="button" class="secondary" onclick={() => choose('url')}>Add a ComfyUI by URL</button>{/if}
-    {#if !wantUrl && !showAdvanced}<button type="button" class="secondary" onclick={() => (showAdvanced = true)}>Advanced</button>{/if}
-  </div>
-  {#if addError}<p class="err">{addError}</p>{/if}
-  {#if imagesUrl}
-    <p class="muted">
-      <a class="button secondary" href={imagesUrl} target="_blank" rel="noopener">Your images on Cloudflare</a>
-      Every image made, in the R2 bucket's <code>img/</code> folder; they expire after a year.
+<Step n={num('storage')} title="Turn on storage" status={status(storage)} summary={storage && info.cloudflare ? `R2 bucket ${info.cloudflare.script}-storage` : storage ? 'On' : ''}>
+  {#if storage}
+    {#if imagesUrl}
+      <p class="muted">
+        <a class="button secondary" href={imagesUrl} target="_blank" rel="noopener">Your images on Cloudflare</a>
+        Every image made, in the R2 bucket's <code>img/</code> folder; they expire after a year.
+      </p>
+    {/if}
+  {:else}
+    <p>
+      Images and LoRAs are kept in your Worker's storage (Cloudflare R2), so any GPU can edit any image. R2 is
+      free up to 10 GB, but Cloudflare wants a card on file for it, so it is turned on once, by hand.
     </p>
+    <ol>
+      <li><a href={r2Url} target="_blank" rel="noopener">Open R2 in your Cloudflare dashboard</a>.</li>
+      <li>Start it, and go through the checkout: add a card and confirm. Nothing is charged while you stay inside the free amounts.</li>
+      <li>Back here, press <b>Check again</b>: your Worker redeploys (about a minute) and picks up its storage.</li>
+    </ol>
+    <details class="guide">
+      <summary>Show me how</summary>
+      <figure><img src="{GUIDE}r2-overview.png" alt="R2's overview page in the Cloudflare dashboard, before R2 is turned on" loading="lazy" onerror={hideFigure} /><figcaption>R2 in the dashboard, before it is turned on.</figcaption></figure>
+      <figure><img src="{GUIDE}r2-checkout.png" alt="R2's checkout, with the card fields" loading="lazy" onerror={hideFigure} /><figcaption>The checkout.</figcaption></figure>
+    </details>
+    <button onclick={checkStorage} disabled={storageBusy || (storageBuild && !storageChecked)}>
+      {storageBusy ? 'Starting…' : storageBuild && !storageChecked ? 'Checking…' : 'Check again'}
+    </button>
+    {#if storageError}<p class="err">{storageError}</p>{/if}
+    {#if storageChecked}<p class="err">R2 still isn't on in this account: finish the checkout, then check again.</p>{/if}
+    {#if storageBuild}
+      {#key info.update_build}<BuildLog onfinished={async () => { await refresh(); storageChecked = true }} />{/key}
+    {/if}
   {/if}
+  <p class="muted">
+    Optional: to get an email if it ever costs anything, set a budget alert in Cloudflare (<b>Manage Account → Billing →
+    Billable Usage → Create budget alert</b>, say $1). It warns; it doesn't stop anything.
+  </p>
+</Step>
+
+<Step n={num('mode')} title="Where should images be made?" status={status(Boolean(mode))} summary={mode ? MODES[mode].summary + (info.mode_from_site ? ' (your choice on the setup site)' : '') : ''}>
+  <label class="choice">
+    <input type="radio" name="mode" checked={mode === 'cloud'} disabled={modeBusy} onchange={() => choose('cloud')} />
+    <span><b>{MODES.cloud.title}</b> <span class="tag">Recommended for most people</span><br />
+      <span class="muted">No GPU needed, and it works with your PC off. Billed per second while it generates; new Modal accounts get $30 of free compute a month.</span></span>
+  </label>
+  <label class="choice">
+    <input type="radio" name="mode" checked={mode === 'pc'} disabled={modeBusy} onchange={() => choose('pc')} />
+    <span><b>{MODES.pc.title}</b><br />
+      <span class="muted">Your own GPU (NVIDIA, AMD on Linux, or an Apple silicon Mac), nothing billed. The PC has to be on to make images.</span></span>
+  </label>
+  <label class="choice">
+    <input type="radio" name="mode" checked={mode === 'both'} disabled={modeBusy} onchange={() => choose('both')} />
+    <span><b>{MODES.both.title}</b><br />
+      <span class="muted">Your PC when it is on, the cloud when it is off.</span></span>
+  </label>
+  {#if showAdvanced || mode === 'url'}
+    <label class="choice">
+      <input type="radio" name="mode" checked={mode === 'url'} disabled={modeBusy} onchange={() => choose('url')} />
+      <span><b>{MODES.url.title}</b><br />
+        <span class="muted">A ComfyUI you already run, reachable from the internet.</span></span>
+    </label>
+  {:else}
+    <button type="button" class="link" onclick={() => (showAdvanced = true)}>Advanced: a ComfyUI by URL</button>
+  {/if}
+  {#if modeError}<p class="err">{modeError}</p>{/if}
+  {#if mode}<p class="muted">Changing this only adds steps; a GPU you no longer want is removed from the GPU list.</p>{/if}
   <details class="guide">
     <summary>Only using Claude Desktop, on the PC with the GPU?</summary>
     <p>The Claude Desktop extension does it all on that PC, with no Worker and no accounts:</p>
@@ -248,6 +332,20 @@
     <p class="muted">This Worker costs nothing idle: keep it for claude.ai and the phone app through Modal, or delete it from your Cloudflare dashboard.</p>
   </details>
 </Step>
+
+{#if wantPc}
+  <Step n={num('pc')} title="Set up your PC" status={status(pcsReady, Boolean(mode))} summary={pcsReady ? pcs.map((g) => g.name).join(', ') : ''}>
+    <p>
+      Your PC runs a small agent that connects out to this Worker: nothing to open on your network. Add the PC here,
+      then paste its pairing link into the agent's page. Images are made on the GPUs below, tried in this order.
+    </p>
+    <GpuList {gpus} {refresh} />
+    <div class="row">
+      <button type="button" onclick={addPc} disabled={addBusy}>{addBusy ? 'Adding…' : pcs.length ? 'Add another PC' : 'Add a PC'}</button>
+    </div>
+    {#if addError}<p class="err">{addError}</p>{/if}
+  </Step>
+{/if}
 
 {#if wantModal}
   <Step
@@ -282,6 +380,7 @@
         <li><a href="https://modal.com/signup" target="_blank" rel="noopener">Sign up for Modal</a> (with GitHub is simplest: the same account your Worker's copy lives in).</li>
         <li>Add a card: <b>Settings → Usage &amp; billing → Manage payment details</b>. Modal needs one on file to run
           GPUs; the $30 of free compute each month is used first.</li>
+        <li>Optional: set a <b>Workspace budget</b> on the same page, so Modal can never bill more than you choose.</li>
         <li>Then make the token as below.</li>
       </ol>
       <figure><img src="{GUIDE}modal-signup.png" alt="Modal's sign-up page" loading="lazy" onerror={hideFigure} /><figcaption>Signing up.</figcaption></figure>
@@ -299,6 +398,7 @@
     <figure><img src="{GUIDE}modal-tokens.png" alt="Modal's API tokens settings with the New Token button" loading="lazy" onerror={hideFigure} /><figcaption>Settings → API tokens &amp; service users.</figcaption></figure>
     <figure><img src="{GUIDE}modal-token-created.png" alt="A new Modal token, shown inside a modal token set command" loading="lazy" onerror={hideFigure} /><figcaption>The command holding the ID and secret.</figcaption></figure>
     <p class="muted">The first deploy takes about 5 minutes: it builds the ComfyUI image.</p>
+    <p class="muted">Optional: a <b>Workspace budget</b> in Modal (<b>Settings → Usage &amp; billing</b>) caps what it can ever bill; work stops once it is reached.</p>
     <form onsubmit={deployModal}>
       <label for="mcmd">Modal command</label>
       <input id="mcmd" type="text" bind:value={modalCommand} oninput={splitCommand} placeholder="modal token set --token-id ak-… --token-secret as-…" autocomplete="off" />
@@ -373,6 +473,14 @@
       Then ask for a change ("make it stormy"), or attach an image to edit. Styles, models and LoRAs are
       in the <b>Settings</b> tab.
     </p>
+  </section>
+{/if}
+
+{#if !wantPc && gpus.length}
+  <!-- With a PC step the list is there (its pairing links); otherwise, here: rename, pause, remove. -->
+  <section>
+    <h2>Your GPUs</h2>
+    <GpuList {gpus} {refresh} />
   </section>
 {/if}
 
