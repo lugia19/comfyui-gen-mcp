@@ -33,6 +33,10 @@
   // mode "agent": the PC agent's page, its machine and its Worker; the pack settings are on the Worker.
   let local = $derived(info?.mode === 'local' || info?.mode === 'agent')
   let agent = $derived(info?.mode === 'agent')
+  // Three pages look alike (the Worker's, the agent's, the extension's): their tabs say which.
+  $effect(() => {
+    document.title = agent ? 'Comfy-Gen agent' : info?.mode === 'local' ? 'Comfy-Gen extension' : 'Comfy-Gen Worker'
+  })
 
   // The machine pages' checklist: the agent pairs and installs; the extension only installs.
   let installed = $derived(local && info.comfyui.state !== 'not_installed')
@@ -84,7 +88,7 @@
     <Checklist items={checklist} done="Ask Claude for an image, on claude.ai or the phone app: it is made on this PC." />
     <AgentWorker {info} {refresh} />
     {#if info.worker.state === 'connected' && info.comfyui.state !== 'not_installed'}
-      <!-- Managed from the Worker's page now (Setup, Your GPUs, Manage ComfyUI); kept here for when
+      <!-- Managed from the Worker's page now (Setup, Set up your PC, Manage ComfyUI); kept here for when
            it can't be reached, and for the folder settings that stay on this PC. -->
       <details class="pc-settings">
         <summary>This PC's ComfyUI and folders</summary>

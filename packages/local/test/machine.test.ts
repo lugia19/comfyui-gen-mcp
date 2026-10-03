@@ -101,8 +101,7 @@ describe("Machine.idleFor", () => {
     try {
       const p = paths({ COMFY_GEN_HOME: dir() });
       const machine = new Machine({ paths: p, settings: () => loadConfig(p.config), saveGpu: () => {}, waitExtension: "" });
-      vi.advanceTimersByTime(60_000);
-      expect(machine.idleFor(30_000)).toBe(true);
+      expect(machine.idleFor(30_000)).toBe(true); // unused since it started: an update needn't wait
       let finish!: () => void;
       const job = machine.comfy.job(() => new Promise<void>((r) => (finish = r)));
       vi.advanceTimersByTime(60_000);

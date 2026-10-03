@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Comfy-Gen-MCP</title>
+  <title>Comfy-Gen setup</title>
   <meta name="description" content="Image generation for Claude, on your own ComfyUI: in the cloud or on your PC." />
   <style>
     :root {
@@ -156,76 +156,60 @@
       </div>
     </li>
 
-    <li class="step" data-step="github" data-path="worker">
-      <button class="head" type="button"><span class="num">4</span><h2>Connect GitHub to Cloudflare</h2><span class="summary"></span></button>
-      <div class="body">
-        <p>Cloudflare builds your Worker from that copy in your GitHub, so it needs access to it. Once:</p>
-        <a class="button" href="https://github.com/apps/cloudflare-workers-and-pages/installations/new" target="_blank" rel="noopener">Install Cloudflare's app on GitHub</a>
-        <ol>
-          <li>Pick your GitHub account.</li>
-          <li>Keep <b>All repositories</b>: the deploy creates a new repository for your Worker.</li>
-          <li>Click <b>Install</b>, and log in to Cloudflare if it asks.</li>
-        </ol>
-        <figure><img src="guide/github-install.png" alt="GitHub's page for installing Cloudflare Workers and Pages, with All repositories selected" loading="lazy" onerror="this.parentElement.remove()"><figcaption>GitHub's install page.</figcaption></figure>
-        <details class="guide">
-          <summary>Or connect from Cloudflare's deploy page instead</summary>
-          <ol>
-            <li>On the deploy page (next step), open the <b>Git account</b> list and choose <b>New GitHub connection</b>.</li>
-            <li>GitHub asks you to install the Cloudflare app on your account: click <b>Install</b>.</li>
-            <li>Back on the deploy page, pick your GitHub account in the <b>Git account</b> list.</li>
-          </ol>
-          <figure><img src="guide/github-connect.png" alt="Cloudflare's deploy page with the Git account list open on New GitHub connection" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The deploy page before GitHub is connected.</figcaption></figure>
-        </details>
-        <details class="guide">
-          <summary>Your account isn't listed, or the deploy can't create the repository?</summary>
-          <p>Open <a href="https://github.com/settings/installations" target="_blank" rel="noopener">GitHub's installed apps</a>, then
-            <b>Cloudflare Workers and Pages → Configure</b>. Under <b>Repository access</b>, choose <b>All repositories</b> and <b>Save</b>.</p>
-          <figure><img src="guide/github-installations.png" alt="The Cloudflare Workers and Pages app's settings on GitHub, with All repositories selected" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The app's repository access.</figcaption></figure>
-        </details>
-        <button class="back" type="button">Back</button><button class="next" type="button">Done, next</button>
-      </div>
-    </li>
-
     <li class="step" data-step="deploy" data-path="worker">
-      <button class="head" type="button"><span class="num">5</span><h2>Deploy your Worker</h2><span class="summary"></span></button>
+      <button class="head" type="button"><span class="num">4</span><h2>Deploy your Worker</h2><span class="summary"></span></button>
       <div class="body">
-        <p>Click the button. Cloudflare opens in a new tab with a form: pick your GitHub account under <b>Git account</b>, keep the
-          project name <code>comfy-gen</code> and everything else as it is, and click <b>Deploy</b>.</p>
+        <p>The first time, Cloudflare also needs access to your GitHub. It takes two rounds of the same button:</p>
+        <ol>
+          <li>Click <b>Deploy to Cloudflare</b> (below). Cloudflare opens in a new tab with a form.</li>
+          <li>Under <b>Git account</b>, click <b>New GitHub connection</b>. GitHub asks to <b>Install &amp; Authorize</b>
+            Cloudflare Workers and Pages: keep <b>All repositories</b> (the deploy creates a new repository) and click it.</li>
+          <li>Cloudflare then opens its own <b>Select a repository</b> page. Ignore it: close that tab.</li>
+          <li>Back here, click <b>Deploy to Cloudflare</b> again. Your GitHub account is in the <b>Git account</b> list now:
+            pick it, keep the project name <code>comfy-gen</code> and everything else as it is, and click <b>Deploy</b>.</li>
+        </ol>
         <p class="muted js-only" hidden>The form shows <b>SETUP_MODE</b> set to <code class="answer-code">cloud</code>: your answer above.
           Leave it: your Worker's page starts from it.</p>
         <a class="button" id="deploy" target="_blank" rel="noopener" href="https://deploy.workers.cloudflare.com/?url=https://github.com/lugia19/comfyui-gen-mcp/tree/main/bootstrap">Deploy to Cloudflare</a>
-        <figure><img src="guide/deploy-form.png" alt="The deploy form with a GitHub account picked, the project name and the Deploy button" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The form: keep the name and click Deploy.</figcaption></figure>
+        <figure><img src="guide/deploy-form.png" alt="The deploy form with a GitHub account picked, the project name and the Deploy button" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The form, second time round: your account picked, then Deploy.</figcaption></figure>
+        <details class="guide">
+          <summary>GitHub shows a settings page instead of Install &amp; Authorize?</summary>
+          <p>Cloudflare's app is already installed on that GitHub account, from an earlier try, and that way it never reaches
+            Cloudflare. Remove it, then start again from step 1: on GitHub, open
+            <a href="https://github.com/settings/installations" target="_blank" rel="noopener">Settings → Applications → Installed GitHub Apps</a>,
+            then <b>Cloudflare Workers and Pages → Configure</b>, and <b>Uninstall</b> at the bottom.</p>
+          <p class="muted">That also disconnects any other Cloudflare project that builds from this GitHub account, until it is connected again.</p>
+        </details>
         <button class="back" type="button">Back</button><button class="next" type="button">Done, next</button>
       </div>
     </li>
 
     <li class="step" data-step="open" data-path="worker">
-      <button class="head" type="button"><span class="num">6</span><h2>Open your Worker</h2><span class="summary"></span></button>
+      <button class="head" type="button"><span class="num">5</span><h2>Open your Worker</h2><span class="summary"></span></button>
       <div class="body">
         <ol>
-          <li>In the Cloudflare tab, the build runs for about a minute. Its log is on the page.</li>
-          <li>When it finishes, the end of the log says <b>Your Worker is ready</b> with your Worker's address,
-            <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>. Open it, and bookmark it.</li>
+          <li>In the Cloudflare tab, the build runs for about a minute.</li>
+          <li>When it shows <b>Success</b>, reload the page and click <b>Visit</b> (top right). That's your Worker, at
+            <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>: bookmark it.</li>
           <li>Lost the tab? In the <a href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noopener">Cloudflare dashboard</a>,
-            open <b>Workers &amp; Pages</b>: the address is under <b>comfy-gen</b>. Or open <b>comfy-gen</b> and click <b>Visit</b>.</li>
+            open <b>Workers &amp; Pages → comfy-gen</b> and click <b>Visit</b>.</li>
         </ol>
-        <figure><img src="guide/build-done.png" alt="The end of the build log with the Worker's address" loading="lazy" onerror="this.parentElement.remove()"><figcaption>Done: the address is at the end of the log.</figcaption></figure>
         <figure><img src="guide/worker-visit.png" alt="The Worker's page in the Cloudflare dashboard with its Visit button" loading="lazy" onerror="this.parentElement.remove()"><figcaption>The Worker in the dashboard.</figcaption></figure>
         <button class="back" type="button">Back</button><button class="next" type="button">Done, next</button>
       </div>
     </li>
 
     <li class="step" data-step="finish" data-path="worker">
-      <button class="head" type="button"><span class="num">7</span><h2>Finish on your Worker's page</h2><span class="summary"></span></button>
+      <button class="head" type="button"><span class="num">6</span><h2>Finish on your Worker's page</h2><span class="summary"></span></button>
       <div class="body">
         <p>Your Worker's page takes it from here, one step at a time:</p>
         <ol>
           <li>Log in with a Cloudflare API token: the page links to a pre-filled one.</li>
-          <li>Turn on storage: R2's checkout, then <b>Check again</b>.</li>
+          <li>Turn on storage: <b>Add R2 subscription to my account</b> in Cloudflare (it's $0), then <b>Check again</b>.</li>
           <li data-where="cloud">Deploy ComfyUI to Modal, and pick the models.</li>
           <li data-where="pc">Add your PC, and run the agent on it.</li>
           <li data-where="both">Add your PC and run the agent on it, then deploy ComfyUI to Modal as the fallback.</li>
-          <li>Connect Claude: add your Worker's connector URL in claude.ai.</li>
+          <li>Connect Claude: in claude.ai, <b>Customize → Connectors</b>, add your Worker's connector URL as a custom connector.</li>
         </ol>
         <p class="muted js-only" hidden>Your answer, <b class="answer-text"></b>, is already set there; you can change it on that page.</p>
         <p class="muted">Updates install themselves: the Worker checks for a new release daily and redeploys, and the agent on a PC updates itself too.</p>
@@ -239,10 +223,11 @@
     <ul>
       <li><b>Cloudflare:</b> the Worker is free (up to 100,000 requests a day). Its storage, R2, is free up to 10 GB stored,
         a million writes and ten million reads a month; one person's use stays far inside those. Past 10 GB it is
-        $0.015 per GB a month, and images expire after a year. Cloudflare has no spending cap, so to hear about any charge,
-        set a budget alert: <b>Manage Account → Billing → Billable Usage → Create budget alert</b> (say $1). It emails; it doesn't stop anything.</li>
+        $0.015 per GB a month, and images expire after a year. Cloudflare has no spending cap, but it sets up a $10 budget
+        alert by itself (<b>Manage account → Billing → Billable usage</b>); lower it if you like. It emails; it doesn't stop anything.</li>
       <li><b>Modal</b> (the cloud): billed per second, only while it generates, and new accounts get $30 of free compute a month.
-        A <b>Workspace budget</b> (<b>Settings → Usage &amp; billing</b>) is a hard cap: work stops once it is reached.</li>
+        Its <b>Spend limit</b> (<b>Settings → Usage &amp; billing → Usage limit</b>) is a hard cap: once charges pass it, with the
+        free credits used first, all work stops. At $0 you never pay past the credits.</li>
       <li><b>Your PC:</b> the electricity.</li>
     </ul>
   </section>
@@ -277,7 +262,7 @@
     function visible() {
       if (state.use === 'desktop') return ['use', 'desktop']
       if (state.use !== 'worker') return ['use']
-      return state.where ? ['use', 'where', 'accounts', 'github', 'deploy', 'open', 'finish'] : ['use', 'where']
+      return state.where ? ['use', 'where', 'accounts', 'deploy', 'open', 'finish'] : ['use', 'where']
     }
 
     function render() {
@@ -304,6 +289,7 @@
       document.querySelectorAll('.answer-code').forEach(function (el) { el.textContent = where })
       document.querySelectorAll('.answer-text').forEach(function (el) { el.textContent = LABELS[where].toLowerCase() })
       document.querySelectorAll('.js-only').forEach(function (el) { el.hidden = !state.where })
+      document.getElementById('costs').hidden = state.use === 'desktop' // no accounts on that path
       save()
     }
 

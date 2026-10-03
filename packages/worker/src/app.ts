@@ -509,7 +509,7 @@ export class App {
       cloudflare: s.cf_token ? { account_id: s.cf_account_id ?? null, script: s.cf_script ?? null } : null,
       gpus: await this.gpuStates(url),
       storage: Boolean(this.p.bucket),
-      mode: await this.mode(setup),
+      setup_mode: await this.mode(setup), // not "mode": the page tells the agent and the extension apart by that
       mode_from_site: !setup.mode && ["cloud", "pc", "both"].includes(this.p.env.SETUP_MODE ?? ""),
       build: setup.build ?? null,
       update_build: setup.update_build ?? null,

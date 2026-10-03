@@ -527,7 +527,7 @@ describe("setup: storage and the answer", () => {
     const cookie = await login(app);
     const mode = async () => {
       const st = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
-      return [st.mode, st.mode_from_site];
+      return [st.setup_mode, st.mode_from_site];
     };
     expect(await mode()).toEqual([null, false]);
     await withModal(app);

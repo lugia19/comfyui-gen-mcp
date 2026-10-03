@@ -77,7 +77,9 @@ export class LocalComfy {
   private starting: Promise<string> | null = null;
   private objectInfo: Set<string> | null = null;
   private busy = 0;
-  private lastUsed = Date.now();
+  // 0: not used since this program started, so an update restarts into it at once (an agent showed
+  // the old version for 11 minutes after a newer launcher started it, 2026-10-03).
+  private lastUsed = 0;
   private idleTimer: NodeJS.Timeout | null = null;
 
   private p: Paths;

@@ -447,7 +447,13 @@ published to GitHub Pages by `.github/workflows/pages.yml`) asks **how will you 
 (claude.ai, recommended; or Claude Desktop only, which leads to the extension and needs no
 Worker), then **where images are made**: the cloud (Modal, recommended for most people), my PC, or
 both (the PC first, Modal while it is off). Only that answer's steps follow: the accounts it needs,
-connecting GitHub to Cloudflare, the Deploy button, opening the Worker. Its progress is kept in the
+the Deploy button, opening the Worker. Connecting GitHub happens inside Deploy (the v1.9.0 dry run
+found that installing Cloudflare's app from GitHub's side never links the Cloudflare account): the
+deploy form's **New GitHub connection** → GitHub's **Install & Authorize** → Cloudflare lands on
+its own "Select a repository" page, which is ignored → the Deploy button again, where the account
+is now listed. An app already installed (an earlier try) dead-ends on GitHub's settings page:
+uninstall it and start over. Cloudflare's build-log viewer stops early (the API has every line),
+so the site sends people to **Visit** once the build shows Success. Its progress is kept in the
 browser; without JavaScript every step shows.
 
 **The answer reaches the Worker through the template.** The Deploy button can't carry data, and

@@ -28,7 +28,7 @@
   let modalGpu = $derived(gpus.find((g) => g.kind === 'modal'))
   let urlGpu = $derived(gpus.find((g) => g.kind === 'url'))
   let pcs = $derived(gpus.filter((g) => g.kind === 'pc'))
-  let mode = $derived(info.mode ?? null)
+  let mode = $derived(info.setup_mode ?? null)
   let storage = $derived(info.storage !== false)
   // A step shows for the answer, and for a GPU that already exists (an answer changed later only adds).
   let wantPc = $derived(mode === 'pc' || mode === 'both' || pcs.length > 0)
@@ -36,6 +36,9 @@
   let wantUrl = $derived(mode === 'url' || Boolean(urlGpu))
   // Done once there is a PC and every PC has paired (a PC waiting to pair keeps the step open).
   let pcsReady = $derived(pcs.length > 0 && pcs.every((g) => g.seen))
+  // A paused PC is set up but takes no images: said in the summary, not hidden behind Show.
+  let allPaused = $derived(pcs.length > 0 && pcs.every((g) => g.paused))
+  let pcSummary = $derived(pcs.map((g) => (g.paused ? `${g.name} (paused)` : g.name)).join(', '))
 
   let modeBusy = $state(false)
   let modeError = $state('')
@@ -270,26 +273,27 @@
     </p>
     <ol>
       <li><a href={r2Url} target="_blank" rel="noopener">Open R2 in your Cloudflare dashboard</a>.</li>
-      <li>Start it, and go through the checkout: add a card and confirm. Nothing is charged while you stay inside the free amounts.</li>
+      <li>Click <b>Add R2 subscription to my account</b>. It's $0 due, and asks for a card first if the account has none.
+        Nothing is charged while you stay inside the free amounts.</li>
       <li>Back here, press <b>Check again</b>: your Worker redeploys (about a minute) and picks up its storage.</li>
     </ol>
     <details class="guide">
       <summary>Show me how</summary>
-      <figure><img src="{GUIDE}r2-overview.png" alt="R2's overview page in the Cloudflare dashboard, before R2 is turned on" loading="lazy" onerror={hideFigure} /><figcaption>R2 in the dashboard, before it is turned on.</figcaption></figure>
-      <figure><img src="{GUIDE}r2-checkout.png" alt="R2's checkout, with the card fields" loading="lazy" onerror={hideFigure} /><figcaption>The checkout.</figcaption></figure>
+      <figure><img src="{GUIDE}r2-overview.png" alt="R2's overview page in the Cloudflare dashboard, before R2 is turned on" loading="lazy" onerror={hideFigure} /><figcaption>R2 before it is turned on: Add R2 subscription to my account.</figcaption></figure>
+      <figure><img src="{GUIDE}r2-checkout.png" alt="R2's subscription page, with the card fields" loading="lazy" onerror={hideFigure} /><figcaption>Adding a card, if the account has none.</figcaption></figure>
     </details>
     <button onclick={checkStorage} disabled={storageBusy || (storageBuild && !storageChecked)}>
       {storageBusy ? 'Starting…' : storageBuild && !storageChecked ? 'Checking…' : 'Check again'}
     </button>
     {#if storageError}<p class="err">{storageError}</p>{/if}
-    {#if storageChecked}<p class="err">R2 still isn't on in this account: finish the checkout, then check again.</p>{/if}
+    {#if storageChecked}<p class="err">R2 still isn't on in this account: add the R2 subscription, then check again.</p>{/if}
     {#if storageBuild}
-      {#key info.update_build}<BuildLog onfinished={async () => { await refresh(); storageChecked = true }} />{/key}
+      {#key info.update_build}<BuildLog takes="about a minute" onfinished={async () => { await refresh(); storageChecked = true }} />{/key}
     {/if}
   {/if}
   <p class="muted">
-    Optional: to get an email if it ever costs anything, set a budget alert in Cloudflare (<b>Manage Account → Billing →
-    Billable Usage → Create budget alert</b>, say $1). It warns; it doesn't stop anything.
+    Cloudflare already sets up a $10 budget alert, which emails if it ever costs anything (<b>Manage account → Billing →
+    Billable usage</b>); lower it if you like. It warns; it doesn't stop anything.
   </p>
 </Step>
 
@@ -334,11 +338,13 @@
 </Step>
 
 {#if wantPc}
-  <Step n={num('pc')} title="Set up your PC" status={status(pcsReady, Boolean(mode))} summary={pcsReady ? pcs.map((g) => g.name).join(', ') : ''}>
+  <Step n={num('pc')} title="Set up your PC" status={status(pcsReady, Boolean(mode))} summary={pcsReady ? pcSummary : ''}>
+    {#if pcsReady && allPaused}<p class="err">{pcs.length > 1 ? 'Every PC is' : 'This PC is'} paused: it won't take images until resumed (here or from its tray icon).</p>{/if}
     <p>
       Your PC runs a small agent that connects out to this Worker: nothing to open on your network. Add the PC here,
       then paste its pairing link into the agent's page. Images are made on the GPUs below, tried in this order.
     </p>
+    <p class="muted">Once paired, the LoRAs already on that PC are copied into the Worker's storage, so every GPU gets them.</p>
     <GpuList {gpus} {refresh} />
     <div class="row">
       <button type="button" onclick={addPc} disabled={addBusy}>{addBusy ? 'Adding…' : pcs.length ? 'Add another PC' : 'Add a PC'}</button>
@@ -380,7 +386,7 @@
         <li><a href="https://modal.com/signup" target="_blank" rel="noopener">Sign up for Modal</a> (with GitHub is simplest: the same account your Worker's copy lives in).</li>
         <li>Add a card: <b>Settings → Usage &amp; billing → Manage payment details</b>. Modal needs one on file to run
           GPUs; the $30 of free compute each month is used first.</li>
-        <li>Optional: set a <b>Workspace budget</b> on the same page, so Modal can never bill more than you choose.</li>
+        <li>Optional: on the same page's <b>Usage limit</b> tab, set the <b>Spend limit</b>, so Modal can never bill more than you choose.</li>
         <li>Then make the token as below.</li>
       </ol>
       <figure><img src="{GUIDE}modal-signup.png" alt="Modal's sign-up page" loading="lazy" onerror={hideFigure} /><figcaption>Signing up.</figcaption></figure>
@@ -397,8 +403,9 @@
     </ol>
     <figure><img src="{GUIDE}modal-tokens.png" alt="Modal's API tokens settings with the New Token button" loading="lazy" onerror={hideFigure} /><figcaption>Settings → API tokens &amp; service users.</figcaption></figure>
     <figure><img src="{GUIDE}modal-token-created.png" alt="A new Modal token, shown inside a modal token set command" loading="lazy" onerror={hideFigure} /><figcaption>The command holding the ID and secret.</figcaption></figure>
-    <p class="muted">The first deploy takes about 5 minutes: it builds the ComfyUI image.</p>
-    <p class="muted">Optional: a <b>Workspace budget</b> in Modal (<b>Settings → Usage &amp; billing</b>) caps what it can ever bill; work stops once it is reached.</p>
+    <p class="muted">The first deploy takes about 5 minutes (it builds the ComfyUI image); later ones about a minute.</p>
+    <p class="muted">Optional: Modal's <b>Spend limit</b> (<b>Settings → Usage &amp; billing → Usage limit</b>) caps what it can bill:
+      once charges pass it, with the free credits used first, all work stops. At $0 you never pay past the credits.</p>
     <form onsubmit={deployModal}>
       <label for="mcmd">Modal command</label>
       <input id="mcmd" type="text" bind:value={modalCommand} oninput={splitCommand} placeholder="modal token set --token-id ak-… --token-secret as-…" autocomplete="off" />
@@ -414,7 +421,7 @@
       {#if buildError}<p class="err">{buildError}</p>{/if}
     </form>
     {#if info.build && info.build !== info.update_build}
-      {#key info.build}<BuildLog onfinished={refresh} />{/key}
+      {#key info.build}<BuildLog takes="about 5 minutes the first time, about a minute after" onfinished={refresh} />{/key}
     {/if}
   </Step>
 
@@ -451,8 +458,8 @@
   summary={info.claude_seen ? 'Claude is connected' : ''}
 >
   <ol>
-    <li>In claude.ai, open <b>Settings → Connectors → Add custom connector</b>.</li>
-    <li>Name it anything (Comfy-Gen, say) and paste this URL:</li>
+    <li>In claude.ai, open <b>Customize → Connectors</b>, then <b>+</b> → <b>Add custom connector</b>.</li>
+    <li>Name it anything (Comfy-Gen, say), paste this URL, and click <b>Continue</b>:</li>
   </ol>
   <div class="row"><code>{showUrl ? info.connector_url : info.connector_url.replace(/(\/mcp\/).+$/, '$1••••••••')}</code></div>
   <div class="row">
@@ -460,7 +467,14 @@
     <button class="secondary" onclick={() => (showUrl = !showUrl)}>{showUrl ? 'Hide' : 'Show'}</button>
     <button class="secondary" onclick={rotate}>Make a new URL</button>
   </div>
-  <p class="muted">Anyone with this URL can generate images with your setup. Treat it like a password.</p>
+  <ol start="3">
+    <li>Under <b>Authentication</b>, leave <b>No sign-in</b>. Its warning that anyone with the URL can use the connector is
+      expected: the URL is the secret.</li>
+    <li>Click <b>Add</b>, then <b>Connect</b>.</li>
+    <li>In a chat, turn it on under <b>+ → Connectors</b>. The first image asks to allow the tool: choose <b>Always allow</b>.</li>
+  </ol>
+  <p class="muted">Anyone with this URL can generate images with your setup. Treat it like a password. If Claude ever says the
+    tools aren't connected, open the connector in <b>Customize → Connectors</b> and click <b>Disconnect</b>, then <b>Connect</b>.</p>
   {#if !info.claude_seen}<p class="muted">This step ticks itself once Claude has connected.</p>{/if}
 </Step>
 

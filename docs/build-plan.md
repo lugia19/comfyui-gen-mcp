@@ -450,3 +450,24 @@ To check live:
 ## Left for the user
 
 - Rotate the Cloudflare and Modal tokens used during development.
+
+## The v1.9.0 dry run (2026-10-03)
+
+A local Claude Code walked the whole setup on a new Cloudflare account (claude.ai, Both), to a first
+image from the PC: everything worked end to end. Fixed after it:
+- **Connecting GitHub:** the site's GitHub-side install never linked the Cloudflare account. The
+  Deploy step now does it the way that worked (design §6), with the uninstall fallback.
+- **The build log** in Cloudflare's dashboard stops early: the site says reload and **Visit**.
+- **Moved or renamed elsewhere:** claude.ai's connectors (Customize → Connectors, Add custom
+  connector, No sign-in, Connect, Always allow; Disconnect/Connect if tools go missing); Modal's
+  Workspace budget is now Usage limit → Spend limit; R2's button is **Add R2 subscription to my
+  account**; Cloudflare makes a $10 budget alert by itself.
+- **The agent** restarts into an update at once when ComfyUI hasn't been used since it started
+  (it showed the old version for 11 minutes after a newer launcher started it).
+- **Smaller:** a paused PC says so in its step; tab titles tell the three pages apart (Comfy-Gen
+  setup / Worker / agent / extension); real wait times on the build logs; a line that pairing copies
+  the PC's LoRAs into storage; no costs on the Desktop-only path; the Worker's state field is
+  `setup_mode` (`mode` already tells the agent and extension pages apart).
+
+Its screenshots (71) are the source for the walkthroughs, after blurring.
+

@@ -72,12 +72,12 @@
     <p class="muted">
       Models, styles and LoRAs are set on your Worker's page, under Settings, for all its GPUs alike. LoRAs
       uploaded there are copied to this PC from your Worker's storage. This PC's ComfyUI can be started,
-      stopped and installed from there too (Setup, Your GPUs, Manage ComfyUI).
+      stopped and installed from there too (Setup, <b>Set up your PC</b>, <b>Manage ComfyUI</b>).
     </p>
   {:else}
     <p>
-      Pair this PC with your Worker: on the Worker's Setup page, under <b>Your GPUs</b>, press <b>Add a PC</b> (<b>Add another PC</b> once one is listed)
-      (or <b>New pairing link</b> on this PC's entry). Copy the link and paste it here.
+      Pair this PC with your Worker: on the Worker's Setup page, in <b>Set up your PC</b>, press <b>Add a PC</b> (<b>Add another PC</b>
+      once one is listed, or <b>New pairing link</b> on this PC's entry). Copy the link and paste it here.
     </p>
   {/if}
   <form onsubmit={pair}>

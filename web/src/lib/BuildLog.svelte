@@ -2,7 +2,8 @@
   import { onDestroy, onMount } from 'svelte'
   import { api } from './api.js'
 
-  let { onfinished } = $props()
+  // *takes*: how long the build usually takes, as the page that started it knows.
+  let { onfinished, takes = 'a few minutes' } = $props()
 
   let lines = $state([])
   let status = $state('')
@@ -40,7 +41,7 @@
   {#if status === 'stopped'}
     {#if outcome === 'success'}<span class="ok">Finished.</span>{:else}<span class="err">Build {outcome}.</span>{/if}
   {:else}
-    Building… this takes 2 to 5 minutes.
+    Building… this takes {takes}.
   {/if}
 </p>
 <pre bind:this={pre}>{lines.join('\n') || '…'}</pre>
