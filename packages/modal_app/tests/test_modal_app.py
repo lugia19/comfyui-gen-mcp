@@ -16,7 +16,7 @@ PACKS = Path(__file__).resolve().parents[2] / "core" / "packs"
 
 def test_every_builtin_pack_passes_validation():
     # The Worker sends pack["models"] as they are; the admin endpoint must accept them.
-    files = sorted(PACKS.glob("*.json"))
+    files = sorted(f for f in PACKS.glob("*.json") if f.name != "tools.json")  # tools.json: the tool definitions
     assert len(files) >= 7
     for pack in (json.loads(f.read_text()) for f in files):
         validate_pack_name(pack["name"])

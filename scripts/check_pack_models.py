@@ -32,6 +32,8 @@ def head(url: str):
 def main() -> int:
     bad, seen = 0, {}
     for path in sorted(glob.glob(os.path.join(PACKS, "*.json"))):
+        if os.path.basename(path) == "tools.json":  # the tool definitions, not a pack
+            continue
         for m in json.load(open(path))["models"]:
             if m["url"] not in seen:
                 h = head(m["url"])
