@@ -411,6 +411,33 @@ the panel.
 
 To check live: the tray on Windows and the Mac, and on a Linux desktop (KDE or Ubuntu).
 
+## Guided setup: one stepper, storage as a step (2026-10-03)
+
+The setup site was a wall of instructions with a trap ("turn R2 on before the deploy"); the
+Worker's page started from a generic GPU list. Now (design §6):
+- **The site** asks how you'll use it (claude.ai, recommended; Claude Desktop only), then where
+  images are made (the cloud, recommended for most; my PC; both), and shows only that answer's
+  steps. Connecting GitHub to Cloudflare gets GitHub's install page as a button, with the deploy
+  page's way as the fallback. A What it costs section, with Cloudflare's budget alert and Modal's
+  Workspace budget.
+- **The answer reaches the Worker** through `bootstrap-<answer>/`: the template with
+  `SETUP_MODE`, which the build carries over. No question twice.
+- **Storage is a Worker step.** The build checks R2 and deploys without the bucket when it's off;
+  the Worker runs without storage and its page has the step, whose Check again rebuilds.
+- **The Worker's page:** Log in → Turn on storage → Where should images be made? → that answer's
+  steps → Connect Claude. Existing installs infer their answer from their GPUs.
+
+Checked here: pytest and vitest (no storage, the answer's order, Check again), the pages in
+Chromium (both, with every path, phone width and no JavaScript).
+
+To check live:
+- the test install: a branch build stays as is; with `COMFY_GEN_TEST_NO_STORAGE=1` the storage step
+  shows; Check again without it brings storage back, images and LoRAs intact
+- a fresh account: the whole flow, including how the deploy form shows `SETUP_MODE` (if hidden or
+  awkward, the fallback is pasting the Worker's address into the site, which opens it with
+  `?setup=`), the GitHub install button, and R2's checkout
+- the screenshots in `site/guide/README.md`, with highlights
+
 ## Verification
 
 - **Every change:** `npm run typecheck`, `npm test` and `uv run pytest` (CI also runs Python 3.14,

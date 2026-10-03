@@ -325,8 +325,9 @@ stored `custom_workflow` setting is dropped on read.
   under `img/<id>`. A bucket rule deletes them after a year. So no image depends on the GPU that
   made it: links open and edits work with every GPU off, and any GPU edits any image. GPUs are
   plain compute; ComfyUI's own PNGs stay on their disks (the Modal Volume, a PC) untouched. R2
-  needs a card on file on the Cloudflare account (free tier: 10 GB, free egress), set up before
-  the Deploy button. The extension (no Worker) keeps local paths.
+  needs a card on file on the Cloudflare account (free tier: 10 GB, free egress): the Worker's
+  Setup page has the step, and the Worker runs without the bucket until then (§6). The extension
+  (no Worker) keeps local paths.
 - **Image ids are random R2 keys**: 8 base62 characters (about 47 bits), e.g. `h3Kd9QxA`. The id is
   the capability, with no MAC: it names nothing on any GPU, and at 100k requests a day guessing one
   of a few thousand images takes centuries. Never paths from the model. (Before: a signed ComfyUI
@@ -441,20 +442,49 @@ and failing that the file waits in `loras-pending-delete.json` until ComfyUI sto
 
 ## 6. Setup flows
 
-The static site (`site/`, published to GitHub Pages by `.github/workflows/pages.yml`) has the
-prerequisites and the Deploy button, then hands over to the Worker's page. That page is a stepper:
-log in; choose where images are made (Modal, the PC, the PC with Modal while it is off, or, under
-Advanced, a ComfyUI URL); that path's steps; connect Claude. A fourth choice, "only from Claude
-Desktop", leads to the extension instead, which needs no Worker. Each step ticks itself from the Worker's state:
+The whole setup is one stepper led by two questions (2026-10-03). The static site (`site/`,
+published to GitHub Pages by `.github/workflows/pages.yml`) asks **how will you use it**
+(claude.ai, recommended; or Claude Desktop only, which leads to the extension and needs no
+Worker), then **where images are made**: the cloud (Modal, recommended for most people), my PC, or
+both (the PC first, Modal while it is off). Only that answer's steps follow: the accounts it needs,
+connecting GitHub to Cloudflare, the Deploy button, opening the Worker. Its progress is kept in the
+browser; without JavaScript every step shows.
+
+**The answer reaches the Worker through the template.** The Deploy button can't carry data, and
+the site never learns the Worker's address. So there is one template per answer,
+`bootstrap-cloud/`, `-pc/` and `-both/`: `bootstrap/` plus `"vars": {"SETUP_MODE": …}`. The
+deploy form shows that variable filled in; the build (`deploy.py`) carries it over from the user's
+copy; the Worker takes it as its answer. `bootstrap/` stays the answer-less template for old links.
+
+The Worker's page is the rest of the stepper: log in; **turn on storage** (below); **where should
+images be made?** (the answer: chosen on this page, stored in `setup.mode`, else `SETUP_MODE`,
+else inferred from the GPUs, so installs from before show it answered; under Advanced, a ComfyUI
+URL); that answer's steps (Set up your PC; Deploy ComfyUI to Modal and its models; or the URL);
+connect Claude. Changing the answer only adds steps. Each step ticks itself from the Worker's state:
 the generator set, the models on the Volume, the PC connected, and Claude having connected (the
 first `tools/list` on the connector URL sets `claude_seen` in the `setup` key; a new URL clears
 it). Done steps fold to one line; until Claude has connected, the page opens on Setup rather than
 Settings. The agent's and the extension's own pages carry a short checklist on top (pair, install
 ComfyUI) above their usual sections.
 
+**Storage is a step, not a prerequisite.** R2 needs a checkout with a card on file, which can't
+be automated, and a Deploy button on an account without R2 used to fail (wrangler's error 10042).
+The templates no longer declare the bucket; the build checks R2 (`wrangler r2 bucket list`) and,
+when it was never turned on, deploys without the binding. The Worker then runs without storage:
+tool calls, uploads and the LoRA routes say "storage isn't turned on yet" without touching a GPU,
+listings are empty, and its page shows the step (R2's dashboard link, the checkout, **Check
+again**, which rebuilds through the update path; the build binds the bucket once R2 is on). An R2
+error the build can't place keeps the bucket bound, so an install never loses its storage to a
+hiccup. `COMFY_GEN_TEST_NO_STORAGE=1` (a build variable) forces the no-storage path for testing.
+
+**Costs** are on the site (Cloudflare's free tiers, R2 past 10 GB at $0.015 per GB a month, and a
+budget alert, which warns but doesn't stop; Modal per second with $30 free a month, and its
+Workspace budget, a hard cap), and as optional lines in the storage and Modal steps.
+
 ### No GPU
 
-1. Static site: prerequisites (Cloudflare, GitHub, Modal with a card on file), then the Deploy button.
+1. Static site: the two questions (claude.ai, then the cloud), the accounts (Cloudflare, GitHub,
+   Modal with a card on file), connecting GitHub, then the Deploy button for `bootstrap-cloud/`.
 2. The button copies the bootstrap into the user's GitHub and deploys via Workers Builds. It asks
    for nothing.
 3. The user opens the Worker's page and logs in by pasting a **user-scoped** Cloudflare API token,
