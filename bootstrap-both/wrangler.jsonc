@@ -21,5 +21,8 @@
     { "tag": "v1", "new_sqlite_classes": ["Relay"] },
     { "tag": "v2", "new_sqlite_classes": ["State"] }
   ],
-  "triggers": { "crons": ["17 4 * * *"] }
+  "triggers": { "crons": ["17 4 * * *"] },
+  // Your answer on the setup site to "where should images be made?"; the Worker's Setup page
+  // starts from it, and can change it.
+  "vars": { "SETUP_MODE": "both" }
 }

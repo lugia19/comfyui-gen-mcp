@@ -43,9 +43,25 @@ def test_template_bindings_match_the_release():
     # The template's bindings are what the button provisions; the release's are what gets deployed.
     template = deploy.read_jsonc((ROOT / "bootstrap" / "wrangler.jsonc").read_text())
     release = deploy.read_jsonc((WORKER / "wrangler.jsonc").read_text())
-    for key in ("main", "compatibility_date", "durable_objects", "migrations", "triggers", "r2_buckets"):
+    for key in ("main", "compatibility_date", "durable_objects", "migrations", "triggers"):
         assert template[key] == release[key], key
+    # No bucket: the button would fail on an account without R2. The build adds it once R2 is on.
+    assert "r2_buckets" not in template and release["r2_buckets"]
     assert template["name"] not in ("comfy-gen-mcp", "comfy-dxt")  # CLAUDE.md hard rule
+
+
+@pytest.mark.parametrize("mode", deploy.SETUP_MODES)
+def test_each_answer_template_is_bootstrap_plus_its_setup_mode(mode):
+    # The setup site's Deploy button points at bootstrap-<answer>/: the same copy, plus the answer.
+    base, d = ROOT / "bootstrap", ROOT / f"bootstrap-{mode}"
+    assert sorted(p.name for p in d.iterdir()) == sorted(p.name for p in base.iterdir())
+    assert (d / "README.md").read_text() == (base / "README.md").read_text()
+    template = deploy.read_jsonc((d / "wrangler.jsonc").read_text())
+    assert template.pop("vars") == {"SETUP_MODE": mode}
+    assert template == deploy.read_jsonc((base / "wrangler.jsonc").read_text())
+    pkg = json.loads((d / "package.json").read_text())
+    assert "SETUP_MODE" in pkg.pop("cloudflare")["bindings"]
+    assert pkg == json.loads((base / "package.json").read_text())
 
 
 def test_every_worker_route_runs_the_worker_first():
@@ -79,6 +95,20 @@ def test_merge_takes_identity_from_the_template_and_the_rest_from_the_release():
     assert "$schema" not in cfg
 
 
+def test_merge_carries_only_a_valid_setup_mode():
+    release = {"name": "comfy-gen", "vars": {"VERSION": "dev"}}
+    assert deploy.merge(release, {"vars": {"SETUP_MODE": "pc", "OTHER": "x"}}, "v1")["vars"] == {"VERSION": "v1", "SETUP_MODE": "pc"}
+    assert "SETUP_MODE" not in deploy.merge(release, {"vars": {"SETUP_MODE": "gpu"}}, "v1")["vars"]
+    assert "SETUP_MODE" not in deploy.merge(release, {}, "v1")["vars"]
+
+
+def test_storage_probe():
+    assert deploy.storage_probe(0, "Listing buckets...") == "on"
+    assert deploy.storage_probe(1, "✘ [ERROR] A request to the Cloudflare API failed.\n  Please enable R2 through the Cloudflare Dashboard. [code: 10042]") == "off"
+    assert deploy.storage_probe(1, "Please enable R2 Subscription for your account.") == "off"
+    assert deploy.storage_probe(1, "fetch failed") == "unknown"  # keeps the bucket bound
+
+
 @pytest.fixture
 def build(tmp_path, monkeypatch):
     """A build directory laid out as deploy.sh leaves it, with subprocess and urllib stubbed."""
@@ -88,13 +118,15 @@ def build(tmp_path, monkeypatch):
     (src / "packages" / "worker").mkdir(parents=True)
     shutil.copy(WORKER / "wrangler.jsonc", src / "packages" / "worker" / "wrangler.jsonc")
 
-    b = SimpleNamespace(user=user, src=src, calls=[], posts=[], exit_code=0, wrangler_out="")
+    b = SimpleNamespace(user=user, src=src, calls=[], posts=[], exit_code=0, wrangler_out="", r2=(0, "comfy-gen-storage"))
 
     def run(cmd, cwd=None, **kw):
         b.calls.append((cmd, cwd))
         if "comfy_gen_modal.deploy" in cmd:  # the Modal app's script
             out = Path(cmd[cmd.index("--out") + 1])
             out.write_text(json.dumps({"server_url": "https://m.modal.run", "admin_url": "https://a.modal.run"}))
+        if cmd[:5] == ["npx", "wrangler", "r2", "bucket", "list"]:
+            return subprocess.CompletedProcess(cmd, b.r2[0], stdout=b.r2[1])
         return subprocess.CompletedProcess(cmd, b.exit_code, stdout=b.wrangler_out if "wrangler" in cmd else None)
 
     class Resp:
@@ -107,7 +139,7 @@ def build(tmp_path, monkeypatch):
 
     monkeypatch.setattr(deploy.subprocess, "run", run)
     monkeypatch.setattr(deploy.urllib.request, "urlopen", urlopen)
-    for var in ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "COMFY_GEN_CALLBACK", "COMFY_GEN_NONCE", "UV"):
+    for var in ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "COMFY_GEN_CALLBACK", "COMFY_GEN_NONCE", "UV", "COMFY_GEN_TEST_NO_STORAGE"):
         monkeypatch.delenv(var, raising=False)
 
     def go():
@@ -124,13 +156,14 @@ def test_button_deploy_without_setup(build):
     assert cfg["name"] == "comfy-gen" and cfg["vars"]["VERSION"] == "v1.0.0"
     assert cfg["assets"]["directory"] == "../../web/dist"
     assert cfg["r2_buckets"] == [{"binding": "STORE", "bucket_name": "comfy-gen-storage"}]
-    assert build.calls[:2] == [
+    assert build.calls[:3] == [
         (["npm", "ci", "--workspace", "packages/worker"], build.src),
+        (["npx", "wrangler", "r2", "bucket", "list"], build.src / "packages" / "worker"),
         (["npx", "wrangler", "deploy"], build.src / "packages" / "worker"),
     ]
-    rules, cwd = build.calls[2]
+    rules, cwd = build.calls[3]
     assert rules[:7] == ["npx", "wrangler", "r2", "bucket", "lifecycle", "set", "comfy-gen-storage"] and cwd == build.src / "packages" / "worker"
-    assert len(build.calls) == 3
+    assert len(build.calls) == 4
     assert build.posts == []  # no callback until the setup page starts a build
 
 
@@ -176,7 +209,7 @@ def test_setup_build_deploys_modal_and_reports(build, monkeypatch):
     url, agent, body = build.posts[0]
     assert url.endswith("/build-callback") and agent == "comfy-gen-build"
     assert body == {
-        "nonce": "n0nce", "stage": "deployed", "version": "v1.0.0", "modal_result": "ok",
+        "nonce": "n0nce", "stage": "deployed", "version": "v1.0.0", "modal_result": "ok", "storage": True,
         "modal": {"server_url": "https://m.modal.run", "admin_url": "https://a.modal.run"},
     }
 
@@ -249,3 +282,46 @@ def test_callback_retries_once_on_a_server_error(build, monkeypatch):
     monkeypatch.setattr(deploy.urllib.request, "urlopen", urlopen)
     assert build.go() == 0
     assert answers == [] and build.posts[0]["stage"] == "deployed"
+
+
+def _with_callback(monkeypatch):
+    monkeypatch.setenv("COMFY_GEN_CALLBACK", "https://comfy-gen.x.workers.dev/build-callback")
+    monkeypatch.setenv("COMFY_GEN_NONCE", "n1")
+
+
+def test_without_r2_it_deploys_without_the_bucket_and_says_so(build, monkeypatch, capsys):
+    _with_callback(monkeypatch)
+    build.r2 = (1, "✘ [ERROR] Please enable R2 through the Cloudflare Dashboard. [code: 10042]")
+    build.wrangler_out = "Deployed comfy-gen\n  https://comfy-gen.someone.workers.dev\n"
+    assert build.go() == 0
+    cfg = json.loads((build.src / "packages" / "worker" / "wrangler.jsonc").read_text())
+    assert "r2_buckets" not in cfg
+    assert not any("lifecycle" in cmd for cmd, _ in build.calls)  # no bucket to set rules on
+    assert build.posts[0][2]["storage"] is False
+    out = capsys.readouterr().out
+    assert "R2 is not turned on" in out and "turning on storage is the next step" in out
+
+
+def test_an_unknown_r2_error_keeps_the_bucket(build, monkeypatch):
+    _with_callback(monkeypatch)
+    build.r2 = (1, "fetch failed")
+    assert build.go() == 0
+    cfg = json.loads((build.src / "packages" / "worker" / "wrangler.jsonc").read_text())
+    assert cfg["r2_buckets"][0]["binding"] == "STORE"
+    assert build.posts[0][2]["storage"] is True
+
+
+def test_the_test_switch_deploys_without_storage(build, monkeypatch):
+    monkeypatch.setenv("COMFY_GEN_TEST_NO_STORAGE", "1")
+    assert build.go() == 0
+    cfg = json.loads((build.src / "packages" / "worker" / "wrangler.jsonc").read_text())
+    assert "r2_buckets" not in cfg
+    assert not any(cmd[:4] == ["npx", "wrangler", "r2", "bucket"] for cmd, _ in build.calls)
+
+
+def test_an_answer_template_carries_its_setup_mode(build):
+    shutil.rmtree(build.user)
+    shutil.copytree(ROOT / "bootstrap-pc", build.user)
+    assert build.go() == 0
+    cfg = json.loads((build.src / "packages" / "worker" / "wrangler.jsonc").read_text())
+    assert cfg["vars"]["SETUP_MODE"] == "pc" and cfg["r2_buckets"]

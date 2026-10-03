@@ -15,7 +15,7 @@ import { gpusOf, newPcId, newPcName, splitToken, DEFAULT_KEEP_WARM, type Gpu } f
 import { offlineMessage, pausedMessage, PcHooks, WorkerHooks } from "./hooks.ts";
 import * as loras from "./loras.ts";
 import * as modalAdmin from "./modal-admin.ts";
-import { bodyJson, error, json, withUserAgent, type Fetch, type Platform } from "./platform.ts";
+import { bodyJson, error, json, withUserAgent, type Bucket, type Fetch, type Platform } from "./platform.ts";
 import { serveImage } from "./images.ts";
 import { render, text } from "./render.ts";
 import { RelayTransport } from "./relay.ts";
@@ -62,6 +62,17 @@ const wantedLoras = (cfg: Config): string[] =>
 
 const hmacKey = (s: Secrets) => fromHex(s.hmac_key);
 
+/** The answers to the setup's "where should images be made?" (design §8). */
+const SETUP_MODES = ["cloud", "pc", "both", "url"] as const;
+type SetupMode = (typeof SETUP_MODES)[number];
+
+/** Storage (R2) isn't bound: R2 wasn't turned on in the account at the last build. The Setup page's
+ * storage step turns it on and rebuilds. Thrown by App.bucket, answered 409 (404 for an image). */
+export class NoStorage extends Error {}
+
+const noStorageMessage = (origin: string) =>
+  `storage isn't turned on yet. Finish the setup on your Worker's page (${origin}/): turn on storage.`;
+
 export class App {
   readonly p: Platform;
   readonly fetch: Fetch;
@@ -79,12 +90,23 @@ export class App {
     return this.p.env.VERSION || "dev";
   }
 
+  /** R2, or NoStorage while it isn't bound. */
+  private get bucket(): Bucket {
+    if (!this.p.bucket) throw new NoStorage("storage isn't turned on yet: finish the setup on this Worker's page (turn on storage).");
+    return this.p.bucket;
+  }
+
+  /** The LoRAs in R2: none while it isn't bound. */
+  private storedLoras(): Promise<Record<string, number>> {
+    return this.p.bucket ? loras.stored(this.p.bucket) : Promise.resolve({});
+  }
+
   async handle(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
     try {
       if (path.startsWith("/mcp/")) return await this.mcp(req, url, path.slice(5));
-      if (path.startsWith("/img/") && (req.method === "GET" || req.method === "HEAD")) return await serveImage(this.p.bucket, path.slice(5), req.method === "HEAD");
+      if (path.startsWith("/img/") && (req.method === "GET" || req.method === "HEAD")) return await serveImage(this.bucket, path.slice(5), req.method === "HEAD");
       if (path.startsWith("/upload/") && req.method === "POST") return await this.upload(req, path.slice(8));
       if (path === "/build-callback" && req.method === "POST") return await this.buildCallback(req);
       if (path === "/agent/sync" && req.method === "POST") return await this.agentSync(req, url);
@@ -93,6 +115,7 @@ export class App {
       if (path.startsWith("/api/")) return await this.api(req, url, path.slice(4));
     } catch (e) {
       if (e instanceof cloudflare.CloudflareError) return error(502, e.message);
+      if (e instanceof NoStorage) return error(path.startsWith("/img/") ? 404 : 409, e.message);
       throw e;
     }
     return error(404, "not found");
@@ -130,10 +153,11 @@ export class App {
     const body = await bodyJson(req);
     const pcFiles: Record<string, unknown> = body.loras && typeof body.loras === "object" ? body.loras : {};
     const plan = { push: [] as any[], pull: [] as any[], delete: [] as string[], errors: [] as string[] };
-    const inR2 = await loras.stored(this.p.bucket);
+    if (!this.p.bucket) return json(plan); // nothing to sync until storage is on
+    const inR2 = await this.storedLoras();
     const deleted: Record<string, number> = (await this.fresh.setup()).lora_deleted ?? {};
     plan.delete = Object.keys(pcFiles).filter((name) => name in deleted && !(name in inR2));
-    const uploads = new loras.LoraUploads(this.p.bucket, this.fresh, this.p.now);
+    const uploads = new loras.LoraUploads(this.bucket, this.fresh, this.p.now);
     const pull = Object.keys(inR2).filter((name) => !(name in pcFiles));
     const push = Object.keys(pcFiles).filter((name) => !(name in inR2) && !(name in deleted));
     for (const name of pull.slice(0, SYNC_MAX_FILES)) {
@@ -167,7 +191,7 @@ export class App {
       if (e instanceof refs.RefError) return error(403, e.message);
       throw e;
     }
-    return loras.serveStored(this.p.bucket, object, req);
+    return loras.serveStored(this.bucket, object, req);
   }
 
   /** The agent's pushes: the same upload protocol as the settings page, with its bearer secret. */
@@ -305,6 +329,8 @@ export class App {
 
     const call = async (name: string, args: Record<string, any>): Promise<[Content[], boolean]> => {
       if (!served.has(name)) throw new UnknownTool(name);
+      // Images and uploads live in R2: without it, nothing to do (and no GPU time spent).
+      if (!this.p.bucket) return [[text(`Error: ${noStorageMessage(url.origin)}`)], true];
       // Uploads go to R2: no GPU needed.
       if (name === "request_upload") return uploads.requestUpload(args, url.origin, key, this.p.now());
       const gpus = await this.gpus(this.store);
@@ -336,8 +362,8 @@ export class App {
         const client = this.client(target);
         const hooks =
           target.kind === "pc"
-            ? new PcHooks(client, key, this.fetch, this.store, `${url.origin}/`, this.p.relays(target.id), target, this.p.bucket, onReady)
-            : new WorkerHooks(client, key, this.fetch, this.admin(target), this.store, `${url.origin}/`, this.p.bucket, onReady);
+            ? new PcHooks(client, key, this.fetch, this.store, `${url.origin}/`, this.p.relays(target.id), target, this.bucket, onReady)
+            : new WorkerHooks(client, key, this.fetch, this.admin(target), this.store, `${url.origin}/`, this.bucket, onReady);
         const outcome = await new Brain(PACKS, cfg, client, "refs", { hooks }).call(name, args);
         tried.push(target);
         if (outcome.kind === "failed" && downloading && name !== "fetch_result") {
@@ -348,7 +374,7 @@ export class App {
           }
         }
         if (outcome.kind === "pending") outcome.token = `${target.id}:${outcome.token}`;
-        return render(outcome, client, url.origin, this.p.bucket);
+        return render(outcome, client, url.origin, this.bucket);
       }
     };
 
@@ -362,7 +388,7 @@ export class App {
 
   private async upload(req: Request, token: string): Promise<Response> {
     const s = await this.store.secrets();
-    return uploads.receive(token, new Uint8Array(await req.arrayBuffer()), this.p.bucket, hmacKey(s), this.p.now());
+    return uploads.receive(token, new Uint8Array(await req.arrayBuffer()), this.bucket, hmacKey(s), this.p.now());
   }
 
   // ── builds ────────────────────────────────────────────────────────
@@ -436,6 +462,17 @@ export class App {
     if (sub === "/models" && req.method === "GET") return this.models(url, s);
     if (sub === "/models/seed" && req.method === "POST") return this.seedPack(req, s);
     if (sub === "/setup/generator" && req.method === "POST") return this.setupGenerator(req);
+    if (sub === "/setup/mode" && req.method === "POST") {
+      const mode = (await bodyJson(req)).mode;
+      if (!SETUP_MODES.includes(mode)) return error(400, `mode: one of ${SETUP_MODES.join(", ")}`);
+      await this.fresh.updateSetup({ mode });
+      return json({ mode });
+    }
+    if (sub === "/setup/storage" && req.method === "POST") {
+      // Check again: a rebuild, which binds the bucket once R2 is on (deploy.py checks).
+      if (!s.cf_token || !s.cf_trigger) return error(400, "Log in again with a Cloudflare token: this Worker has none to start builds with.");
+      return json({ build: await updates.startUpdate(this.fetch, this.fresh, this.version) });
+    }
     if (sub === "/setup/build" && req.method === "POST") return this.startBuild(req, url, s);
     if (sub === "/setup/build" && req.method === "GET") return this.buildState(url, s);
     if (sub === "/gpus" || sub.startsWith("/gpus/")) return this.gpuApi(req, url, sub);
@@ -448,12 +485,32 @@ export class App {
     return error(404, "not found");
   }
 
+  /**
+   * The setup's answer to "where should images be made?": the one chosen on this page, else the
+   * setup site's (SETUP_MODE, from the template the Deploy button copied), else what the GPUs say
+   * (an install from before the question), else none yet.
+   */
+  private async mode(setup: Record<string, any>): Promise<SetupMode | null> {
+    if ((SETUP_MODES as readonly string[]).includes(setup.mode)) return setup.mode;
+    const site = this.p.env.SETUP_MODE ?? "";
+    if ((SETUP_MODES as readonly string[]).includes(site) && site !== "url") return site as SetupMode;
+    const kinds = new Set((await this.gpus(this.fresh)).map((g) => g.kind));
+    if (kinds.has("modal") && kinds.has("pc")) return "both";
+    if (kinds.has("modal")) return "cloud";
+    if (kinds.has("pc")) return "pc";
+    if (kinds.has("url")) return "url";
+    return null;
+  }
+
   private async state(url: URL, s: Secrets) {
     const setup = await this.fresh.setup();
     return {
       version: this.version,
       cloudflare: s.cf_token ? { account_id: s.cf_account_id ?? null, script: s.cf_script ?? null } : null,
       gpus: await this.gpuStates(url),
+      storage: Boolean(this.p.bucket),
+      mode: await this.mode(setup),
+      mode_from_site: !setup.mode && ["cloud", "pc", "both"].includes(this.p.env.SETUP_MODE ?? ""),
       build: setup.build ?? null,
       update_build: setup.update_build ?? null,
       modal_error: setup.modal_error ?? null,
@@ -633,7 +690,7 @@ export class App {
   private async saveConfig(req: Request, _s: Secrets): Promise<Response> {
     let cfg = await this.fresh.saveConfig((await bodyJson(req)).config);
     // Every stored LoRA keeps a group, also one the page's copy of the settings didn't know yet.
-    const tagged = tagLooseLoras(cfg.pack_loras, Object.keys(await loras.stored(this.p.bucket)));
+    const tagged = tagLooseLoras(cfg.pack_loras, Object.keys(await this.storedLoras()));
     if (tagged) cfg = await this.fresh.saveConfig({ ...cfg, pack_loras: tagged });
     const gpus = await this.gpus();
     const warnings: string[] = [];
@@ -670,7 +727,7 @@ export class App {
     const add = (backend: string, list: Record<string, number>) => {
       for (const [name, size] of Object.entries(list ?? {})) (out.files[name] ??= {})[backend] = size;
     };
-    add("storage", await loras.stored(this.p.bucket));
+    add("storage", await this.storedLoras());
     for (const gpu of gpus) {
       out.backends.push(gpu.id);
       if (gpu.kind === "pc") {
@@ -727,7 +784,7 @@ export class App {
    * LoRA is copied to every GPU.
    */
   private async loraUploads(req: Request, url: URL, sub: string, s: Secrets): Promise<Response> {
-    const uploads = new loras.LoraUploads(this.p.bucket, this.fresh, this.p.now);
+    const uploads = new loras.LoraUploads(this.bucket, this.fresh, this.p.now);
     const base = sub.startsWith("/loras/uploads") ? "/api/loras/uploads" : "/agent/loras/uploads";
     const m = /^\/loras\/uploads\/([\w-]+)(?:\/(\d+|finish))?$/.exec(sub);
     try {
@@ -769,7 +826,7 @@ export class App {
       const admin = this.admin(gpu);
       if (!admin) continue;
       try {
-        inR2 ??= await loras.stored(this.p.bucket);
+        inR2 ??= await this.storedLoras();
         const onModal = Object.keys(inR2).length ? await admin.loras() : {};
         for (const name of Object.keys(inR2).filter((n) => !(n in onModal)).slice(0, SYNC_MAX_FILES)) {
           await admin.fetchLora(name, await this.storeUrl(origin, hmacKey(s), loras.loraKey(name)), inR2[name]);
@@ -814,7 +871,7 @@ export class App {
   private async deleteLora(name: string, _s: Secrets): Promise<Response> {
     const from: string[] = [];
     const errors: string[] = [];
-    if (await this.p.bucket.head(loras.loraKey(name))) {
+    if (this.p.bucket && (await this.p.bucket.head(loras.loraKey(name)))) {
       await this.p.bucket.delete(loras.loraKey(name));
       from.push("storage");
     }

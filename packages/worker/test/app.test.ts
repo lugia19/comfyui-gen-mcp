@@ -488,6 +488,62 @@ describe("LoRAs", () => {
   });
 });
 
+describe("setup: storage and the answer", () => {
+  it("without R2 the Worker runs, says storage is off, and spends no GPU time", async () => {
+    const { app, net } = world({ noStorage: true });
+    await withGenerator(app);
+    const cookie = await login(app);
+    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).storage).toBe(false);
+    // Connecting Claude works; a tool call explains, before touching the GPU.
+    const [, list] = await mcp(app, "tools/list");
+    expect(list.result.tools.length).toBeGreaterThan(0);
+    const before = net.calls.length;
+    const [, r] = await mcp(app, "tools/call", { name: "generate_realistic_image", arguments: { prompt: "x" } });
+    expect(r.result.isError).toBe(true);
+    expect(r.result.content[0].text).toContain("storage isn't turned on yet");
+    expect(net.calls.slice(before).some(([, url]) => String(url).startsWith(COMFY))).toBe(false);
+    // Storage routes refuse; listings are empty rather than failing.
+    expect((await app.handle(request("GET", "/img/abcdefgh"))).status).toBe(404);
+    expect((await app.handle(request("POST", "/upload/x", "data"))).status).toBe(409);
+    const upload = await app.handle(request("POST", "/api/loras/uploads", { filename: "a.safetensors", size: 10 }, cookie));
+    expect(upload.status).toBe(409);
+    expect((await body(upload)).error).toContain("turn on storage");
+    const listing = await body(await app.handle(request("GET", "/api/loras", undefined, cookie)));
+    expect(listing.files).toEqual({});
+    expect((await app.handle(request("PUT", "/api/config", { config: await app.store.config() }, cookie))).status).toBe(200);
+  });
+
+  it("Check again rebuilds, tracked as the update build", async () => {
+    const { app, net } = world({ noStorage: true });
+    const cookie = await login(app);
+    expect(await body(await app.handle(request("POST", "/api/setup/storage", undefined, cookie)))).toEqual({ build: "build1" });
+    expect(net.buildsStarted.length).toBe(1);
+    const state = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
+    expect([state.build, state.update_build]).toEqual(["build1", "build1"]); // so the Modal step stays closed
+  });
+
+  it("the answer: chosen here, else the setup site's, else what the GPUs say", async () => {
+    const { app, env } = world();
+    const cookie = await login(app);
+    const mode = async () => {
+      const st = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
+      return [st.mode, st.mode_from_site];
+    };
+    expect(await mode()).toEqual([null, false]);
+    await withModal(app);
+    expect(await mode()).toEqual(["cloud", false]); // an install from before the question
+    await addGpu(app, { id: "pc", kind: "pc", name: "PC", secret: "s" });
+    expect(await mode()).toEqual(["both", false]);
+    env.SETUP_MODE = "pc";
+    expect(await mode()).toEqual(["pc", true]); // the template's answer wins over the GPUs
+    expect((await app.handle(request("POST", "/api/setup/mode", { mode: "gpu" }, cookie))).status).toBe(400);
+    expect(await body(await app.handle(request("POST", "/api/setup/mode", { mode: "cloud" }, cookie)))).toEqual({ mode: "cloud" });
+    expect(await mode()).toEqual(["cloud", false]); // chosen here wins over both
+    env.SETUP_MODE = "nonsense";
+    expect(await mode()).toEqual(["cloud", false]);
+  });
+});
+
 describe("custom workflows (removed)", () => {
   it("a stored custom workflow adds no tool and is forgotten on the next save", async () => {
     const { app } = world();

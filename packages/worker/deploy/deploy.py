@@ -2,15 +2,19 @@
 
 1. Deploy the Modal app when the setup page stored a Modal token (packages/modal_app).
 2. Write the release's wrangler config with the user's name (and any routes) merged in from their
-   copy of bootstrap/wrangler.jsonc, VERSION set, and the R2 bucket named after the Worker.
-3. `npm ci` for the Worker's workspace, then `wrangler deploy` from packages/worker. wrangler
-   creates the bucket if it is missing (R2 must be enabled on the account), then this sets its
-   lifecycle rules: images expire after a year, unfinished multipart uploads after a day.
+   copy of bootstrap/wrangler.jsonc (and its SETUP_MODE, the setup site's answer), VERSION set,
+   and the R2 bucket named after the Worker.
+3. `npm ci` for the Worker's workspace. Check that R2 is turned on in the account (`wrangler r2
+   bucket list`): if it is not, deploy without the bucket, and the Worker's Setup page asks for
+   it (a rebuild from there binds it). Then `wrangler deploy` from packages/worker. wrangler
+   creates the bucket if it is missing, then this sets its lifecycle rules: images expire after a
+   year, unfinished multipart uploads after a day.
 4. Report to the Worker's /build-callback when the setup page started this build.
 5. End the log with the Worker's address: after a Deploy button, this log is where the user is.
 
 Build variables, set by the setup page: MODAL_TOKEN_ID and MODAL_TOKEN_SECRET (Modal deploy),
-COMFY_GEN_CALLBACK and COMFY_GEN_NONCE (the report).
+COMFY_GEN_CALLBACK and COMFY_GEN_NONCE (the report). For testing only: COMFY_GEN_TEST_NO_STORAGE=1
+deploys as if R2 were off.
 
 Runs on the build image's python3: standard library only, and nothing newer than 3.10.
 """
@@ -34,6 +38,10 @@ USER_AGENT = "comfy-gen-build"  # Cloudflare 1010-blocks urllib's default agains
 # Keys the user's copy decides. Everything else (bindings, migrations, assets, compatibility)
 # comes from the release, so a release can change them without touching the user's repository.
 USER_KEYS = ("name", "account_id", "routes", "route", "workers_dev", "preview_urls")
+
+# The setup site's answer to "where should images be made?", from the template the Deploy button
+# copied (bootstrap-cloud/, -pc/, -both/): the Worker's Setup page starts from it.
+SETUP_MODES = ("cloud", "pc", "both")
 
 
 def read_jsonc(text: str) -> dict:
@@ -87,8 +95,33 @@ def merge(release: dict, template: dict, version: str) -> dict:
         if key in template:
             cfg[key] = template[key]
     cfg["vars"] = {**(cfg.get("vars") or {}), "VERSION": version}
+    mode = (template.get("vars") or {}).get("SETUP_MODE")
+    if mode in SETUP_MODES:
+        cfg["vars"]["SETUP_MODE"] = mode
     cfg["r2_buckets"] = [{**b, "bucket_name": bucket_name(cfg["name"])} for b in cfg.get("r2_buckets") or []]
     return cfg
+
+
+def storage_probe(code: int, output: str) -> str:
+    """What `wrangler r2 bucket list` says about R2: "on", "off" (never turned on in this account:
+    wrangler's error 10042), or "unknown" (any other failure, where the bucket stays bound as
+    before: an unknown error must never unbind an install's storage)."""
+    if code == 0:
+        return "on"
+    if "10042" in output or re.search(r"enable R2", output, re.IGNORECASE):
+        return "off"
+    return "unknown"
+
+
+def check_storage(worker: Path) -> str:
+    if os.environ.get("COMFY_GEN_TEST_NO_STORAGE") == "1":
+        return "off"
+    result = subprocess.run(["npx", "wrangler", "r2", "bucket", "list"], cwd=worker, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    state = storage_probe(result.returncode, result.stdout or "")
+    if state == "unknown":
+        tail = (result.stdout or "").strip().splitlines()[-1:] or [""]
+        print(f"storage: could not check R2 ({tail[0]}); deploying with the bucket as before", flush=True)
+    return state
 
 
 def set_lifecycle(worker: Path, bucket: str) -> None:
@@ -165,6 +198,15 @@ def main() -> int:
     print(f"== Worker {cfg['name']} {args.version}", flush=True)
 
     installed = subprocess.run(["npm", "ci", "--workspace", "packages/worker"], cwd=args.src).returncode == 0
+    storage = bool(cfg.get("r2_buckets"))
+    if installed and storage and check_storage(worker) == "off":
+        # R2 isn't turned on yet: deploy without the bucket rather than fail. The Worker's Setup page
+        # has the step, and its Check again rebuilds, which binds it once R2 is on.
+        storage = False
+        cfg.pop("r2_buckets")
+        (worker / "wrangler.jsonc").write_text(json.dumps(cfg, indent=2))
+        print("storage: R2 is not turned on in this Cloudflare account; deploying without it "
+              "(your Worker's Setup page has the step)", flush=True)
     cmd = ["npx", "wrangler", "deploy"] + (["--dry-run"] if args.dry_run else [])
     deployed, url = False, None
     if installed:
@@ -175,7 +217,7 @@ def main() -> int:
     if deployed and not args.dry_run:
         for b in cfg.get("r2_buckets") or []:
             set_lifecycle(worker, b["bucket_name"])
-    report = {"stage": "deployed" if deployed else "failed", "version": args.version, "modal_result": modal_result}
+    report = {"stage": "deployed" if deployed else "failed", "version": args.version, "modal_result": modal_result, "storage": storage}
     if modal:
         report["modal"] = modal
     if modal_result.startswith("failed"):
@@ -184,6 +226,8 @@ def main() -> int:
     if deployed and url:
         if "modal_error" in report:
             head = f"The Worker is deployed, but Modal failed: {report['modal_error']}\nFix that, then press Try again on the Worker's page:"
+        elif not storage:
+            head = "Your Worker is ready. Open it to finish the setup (turning on storage is the next step):"
         else:
             head = "Your Worker is ready. Open it to finish the setup:"
         print(f"\n{'=' * 64}\n{head}\n\n    {url}\n{'=' * 64}", flush=True)

@@ -1,0 +1,14 @@
+{
+  "name": "comfy-gen",
+  "private": true,
+  "scripts": {
+    "deploy": "curl -fsSL \"${COMFY_GEN_DEPLOY_URL:-https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/deploy.sh}\" | bash"
+  },
+  "cloudflare": {
+    "bindings": {
+      "SETUP_MODE": {
+        "description": "Your answer on the setup page to **where should images be made?** (`cloud`, `pc` or `both`). Leave it as it is: your Worker's Setup page starts from it."
+      }
+    }
+  }
+}

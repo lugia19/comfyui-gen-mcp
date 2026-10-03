@@ -253,7 +253,8 @@ export class FakeRelay implements RelayStub {
   }
 }
 
-export function world() {
+/** *noStorage*: R2 not turned on, so no bucket bound (design §8, the storage step). */
+export function world({ noStorage = false } = {}) {
   clearCache();
   const comfy = new FakeComfy();
   const storage = new FakeStorage();
@@ -265,7 +266,7 @@ export function world() {
   const pc = relay("pc");
   const bucket = new FakeBucket();
   const env: Record<string, string | undefined> = { VERSION: "v1.0.0" };
-  const app = new App({ storage, bucket, relays: relay, fetch: net.fetch, now: clock.now, env, sleep: async (s) => void (clock.t += s) });
+  const app = new App({ storage, bucket: noStorage ? null : bucket, relays: relay, fetch: net.fetch, now: clock.now, env, sleep: async (s) => void (clock.t += s) });
   return { app, storage, net, clock, comfy, pc, relay, env, bucket };
 }
 

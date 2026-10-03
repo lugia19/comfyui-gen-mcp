@@ -46,7 +46,7 @@ export interface Bucket {
 
 export type Platform = {
   storage: StateStorage;
-  bucket: Bucket; // R2: images and LoRAs
+  bucket: Bucket | null; // R2: images and LoRAs; null until R2 is turned on in the account
   relays: (id: string) => RelayStub; // a PC's Relay Durable Object, named after its GPU id
   fetch: Fetch;
   now: () => number; // seconds

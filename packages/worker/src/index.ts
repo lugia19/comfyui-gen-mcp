@@ -9,8 +9,9 @@ import { CONTROL_TIMEOUT_S, RelayCore, type RelayReply, type RelayRequest, type 
 export interface Env {
   STATE: DurableObjectNamespace<State>;
   RELAY: DurableObjectNamespace<Relay>;
-  STORE: R2Bucket;
+  STORE?: R2Bucket; // bound once R2 is turned on in the account (deploy.py checks at each build)
   VERSION?: string;
+  SETUP_MODE?: string; // the setup site's answer, from the template the Deploy button copied
   DEV_WORKER_HOST?: string;
 }
 
@@ -49,11 +50,11 @@ class StateStub implements StateStorage {
 function app(env: Env): App {
   return new App({
     storage: new StateStub(env.STATE),
-    bucket: env.STORE as unknown as Bucket,
+    bucket: env.STORE ? (env.STORE as unknown as Bucket) : null,
     relays: (id) => env.RELAY.getByName(id) as unknown as RelayStub,
     fetch: (url, init) => fetch(url, init),
     now: () => Date.now() / 1000,
-    env: { VERSION: env.VERSION, DEV_WORKER_HOST: env.DEV_WORKER_HOST },
+    env: { VERSION: env.VERSION, DEV_WORKER_HOST: env.DEV_WORKER_HOST, SETUP_MODE: env.SETUP_MODE },
   });
 }
 
