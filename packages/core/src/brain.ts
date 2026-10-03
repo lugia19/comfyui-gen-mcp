@@ -13,7 +13,7 @@ import { normalize, type Config } from "./config.ts";
 import { UnknownTool } from "./mcp.ts";
 import { groupByTool, prepare, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
-import { buildPrompt, stripLossless, type NodeField, type Workflow } from "./workflow.ts";
+import { buildPrompt, stripLossless, withImages, type Workflow } from "./workflow.ts";
 
 // A tool call answers within this, counted from its start. claude.ai gives up at 300 s (S8), but a
 // claude.ai connector used from Claude Code gave up at about 183 s (2026-10-01: a cold Modal edit
@@ -108,8 +108,7 @@ export class Brain {
     if (!prompt) return new Failed("prompt is required.");
     const aspect = stripLossless(String(args.aspect_ratio || "square"));
     const pack = prepare(rawPack, this.cfg);
-    const wf = buildPrompt(pack.workflow, prompt, pack.prompt_node_id, pack.seed_nodes, {
-      dimensionNodes: pack.dimension_nodes,
+    const wf = buildPrompt(pack.workflow, prompt, {
       aspectRatio: aspect,
       maxPixels: pack.max_pixels ?? 1_048_576,
       loraToggles: pack.lora_toggles,
@@ -139,9 +138,9 @@ export class Brain {
       if (e instanceof ComfyUIError) return new Failed(e.message);
       throw e;
     }
-    const [wf, promptNode, seedNodes] = editWorkflow(pack, images);
+    const wf = editWorkflow(pack, images);
     // LoRAs gated on their triggers here too (an edit pack in a LoRA group).
-    return this.run(pack, buildPrompt(wf, prompt, promptNode, seedNodes, { loraToggles: pack.lora_toggles }), true);
+    return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles }), true);
   }
 
   private async run(pack: Pack, wf: Workflow, ensured = false): Promise<Outcome> {
@@ -172,33 +171,26 @@ export class Brain {
 }
 
 /**
- * The edit pack's single- or two-image workflow with the images loaded and scale nodes sized.
- * Returns [workflow, promptNodeId, seedNodes]; buildPrompt injects the prompt and seeds.
+ * The edit pack's workflow for *images* (one, or two: withImages adds the second image's nodes),
+ * with the images loaded and each scale node sized; buildPrompt then injects the prompt and seeds.
  *
  * The graph's ImageScaleToTotalPixels nodes normalize to a fixed megapixel count in both
  * directions, so left alone they would crush a large image and upscale a small one. Each is set to
  * min(source pixels, pack budget): inputs within budget pass through at native size, oversized ones
  * are reined in. Output dimensions follow the first image.
  */
-export function editWorkflow(pack: Pack, images: ResolvedImage[]): [Workflow, string, NodeField[]] {
-  const sfx = images.length > 1 ? "_multi" : "";
-  const wf: Workflow = structuredClone(pack["workflow" + sfx]);
-  const imageNodes: (string | number)[] = pack["image_nodes" + sfx];
-  images.forEach(([loadValue], i) => {
-    if (i < imageNodes.length) wf[String(imageNodes[i])].inputs.image = loadValue;
-  });
-
+export function editWorkflow(pack: Pack, images: ResolvedImage[]): Workflow {
+  const [wf, nodes] = withImages(pack.workflow, Math.max(1, images.length));
   const budget: number = pack.max_pixels ?? 1_048_576;
-  const scaleNodes: (string | number)[] = pack["edit_scale_nodes" + sfx] ?? [];
-  images.forEach(([, size], i) => {
-    if (i >= scaleNodes.length) return;
-    const nodeId = String(scaleNodes[i]);
-    if (!(nodeId in wf)) return;
+  images.forEach(([loadValue, size], i) => {
+    const { load, scale } = nodes[i];
+    wf[load].inputs.image = loadValue;
+    if (!scale) return;
     const pixels = size ? size[0] * size[1] : budget;
     const target = pixels <= budget * EDIT_BUDGET_TOLERANCE ? pixels : budget;
     // ImageScaleToTotalPixels accepts 0.01 to 16.0 megapixels, where 1.0 == 1024*1024.
     const mp = roundHalfEven((target / 1_048_576) * 1e4) / 1e4;
-    wf[nodeId].inputs.megapixels = Math.min(Math.max(mp, 0.01), 16.0);
+    wf[scale].inputs.megapixels = Math.min(Math.max(mp, 0.01), 16.0);
   });
-  return [wf, String(pack["prompt_node_id" + sfx]), pack["seed_nodes" + sfx]];
+  return wf;
 }

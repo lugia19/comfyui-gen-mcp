@@ -88,11 +88,11 @@
     {"aspect": "", "max_pixels": 100, "wh": [64, 64]}
   ],
   "edit_scaling": [
-    {"pack": "flux2klein_9b_edit", "images": [["a.png [output]", [1920, 1080]]], "prompt_node": "166", "megapixels": {"163": 1.9775}, "loads": {"154": "a.png [output]"}},
-    {"pack": "flux2klein_9b_edit", "images": [["a.png [output]", null], ["comfy-gen-uploads/b.jpg", [4000, 3000]]], "prompt_node": "170", "megapixels": {"159": 4.0, "160": 4.0}, "loads": {"173": "a.png [output]", "172": "comfy-gen-uploads/b.jpg"}},
-    {"pack": "flux2klein_9b_edit", "images": [["small.png [output]", [512, 512]]], "prompt_node": "166", "megapixels": {"163": 0.25}, "loads": {"154": "small.png [output]"}},
-    {"pack": "flux2klein_edit", "images": [["a.png [output]", [1920, 1080]]], "prompt_node": "166", "megapixels": {"163": 1.9775}, "loads": {"154": "a.png [output]"}},
-    {"pack": "flux2klein_edit", "images": [["a.png [output]", null], ["comfy-gen-uploads/b.jpg", [4000, 3000]]], "prompt_node": "170", "megapixels": {"159": 4.0, "160": 4.0}, "loads": {"173": "a.png [output]", "172": "comfy-gen-uploads/b.jpg"}},
-    {"pack": "flux2klein_edit", "images": [["small.png [output]", [512, 512]]], "prompt_node": "166", "megapixels": {"163": 0.25}, "loads": {"154": "small.png [output]"}}
+    {"pack": "flux2klein_9b_edit", "images": [["a.png [output]", [1920, 1080]]], "expect": [{"load": "a.png [output]", "megapixels": 1.9775}]},
+    {"pack": "flux2klein_9b_edit", "images": [["a.png [output]", null], ["comfy-gen-uploads/b.jpg", [4000, 3000]]], "expect": [{"load": "a.png [output]", "megapixels": 4.0}, {"load": "comfy-gen-uploads/b.jpg", "megapixels": 4.0}]},
+    {"pack": "flux2klein_9b_edit", "images": [["small.png [output]", [512, 512]]], "expect": [{"load": "small.png [output]", "megapixels": 0.25}]},
+    {"pack": "flux2klein_edit", "images": [["a.png [output]", [1920, 1080]]], "expect": [{"load": "a.png [output]", "megapixels": 1.9775}]},
+    {"pack": "flux2klein_edit", "images": [["a.png [output]", null], ["comfy-gen-uploads/b.jpg", [4000, 3000]]], "expect": [{"load": "a.png [output]", "megapixels": 4.0}, {"load": "comfy-gen-uploads/b.jpg", "megapixels": 4.0}]},
+    {"pack": "flux2klein_edit", "images": [["small.png [output]", [512, 512]]], "expect": [{"load": "small.png [output]", "megapixels": 0.25}]}
   ]
 }

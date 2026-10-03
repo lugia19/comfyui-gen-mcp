@@ -1,5 +1,14 @@
-// Workflow building: prompt injection, seeds, dimensions, LoRA splicing, custom workflows.
+// Workflow building: prompt injection, seeds, dimensions, LoRA splicing, an edit's extra images.
 // Pure functions over ComfyUI API-format workflow objects. No I/O, so it runs anywhere.
+//
+// A pack's workflow marks the nodes we fill in by their title (_meta.title, which ComfyUI's API
+// export keeps and its runtime ignores), set by renaming the node in ComfyUI before exporting:
+//   cg:prompt        the prompt's text encoder: its `text`
+//   cg:seed          each node with a seed: its `seed` or `noise_seed`
+//   cg:size          a node with `width` and `height` (an empty latent)
+//   cg:width/height  number nodes: their `value`
+//   cg:model         the model loader LoRAs attach to (output 0)
+//   cg:image…        an edit's nodes for its first image (see withImages)
 //
 // Node order: JS objects list integer-like keys ("3", "19") first, ascending, whatever order the
 // JSON had. ComfyUI node ids are such keys, so "the first KSampler" is the one with the lowest id.
@@ -28,13 +37,23 @@ const WH_RE = /^\s*(\d+)\s*[xX]\s*(\d+)\s*$/;
 // has both, so it is only stripped now, in case an old habit or script still adds it.
 const LOSSLESS_SUFFIX = ":lossless";
 
-// Loaders whose output carries MODEL, and at which index. LoRAs go on the model path only.
-export const MODEL_LOADERS: Record<string, number> = {
-  UNETLoader: 0,
-  UnetLoaderGGUF: 0,
-  CheckpointLoaderSimple: 0,
-  CheckpointLoader: 0,
-};
+export const TITLES = {
+  prompt: "cg:prompt",
+  seed: "cg:seed",
+  size: "cg:size",
+  width: "cg:width",
+  height: "cg:height",
+  model: "cg:model",
+  image: "cg:image",
+  imageScale: "cg:image scale",
+  imageChain: "cg:image chain",
+} as const;
+const IMAGE_GROUP = "cg:image"; // every node whose title starts so is part of one image's chain
+
+/** The ids of the nodes titled *title*, in the workflow's key order. */
+export function nodesTitled(workflow: Workflow, title: string): string[] {
+  return Object.keys(workflow).filter((id) => workflow[id]._meta?.title === title);
+}
 
 /** Without a trailing ":lossless" (case-insensitive). Only a trailing match, so drive colons survive. */
 export function stripLossless(value: string): string {
@@ -60,39 +79,36 @@ export function calcDimensions(aspect: string, maxPixels: number): [number, numb
 }
 
 export type BuildOptions = {
-  dimensionNodes?: { width?: NodeField[]; height?: NodeField[] } | null;
   aspectRatio?: string;
   maxPixels?: number;
   loraToggles?: LoraToggle[] | null;
   rng?: Rng;
 };
 
-/** Copy a workflow, inject the prompt, randomize seeds, set dimensions, gate LoRAs on their triggers
- * (one whose trigger is not in the prompt is taken out of the chain: ComfyUI checks every loader's
- * file, so a LoRA left in at strength 0 fails the call when its file is missing). */
-export function buildPrompt(
-  workflow: Workflow,
-  promptText: string,
-  promptNodeId: string | number,
-  seedNodes: NodeField[],
-  opts: BuildOptions = {},
-): Workflow {
+/** Copy a workflow, inject the prompt, randomize seeds, set dimensions (where it has size nodes: an
+ * edit's follow its first image), gate LoRAs on their triggers (one whose trigger is not in the
+ * prompt is taken out of the chain: ComfyUI checks every loader's file, so a LoRA left in at
+ * strength 0 fails the call when its file is missing). Nodes are found by title (TITLES). */
+export function buildPrompt(workflow: Workflow, promptText: string, opts: BuildOptions = {}): Workflow {
   const rng = opts.rng ?? randomSeed;
   const wf: Workflow = structuredClone(workflow);
-  wf[String(promptNodeId)].inputs.text = promptText;
+  const [promptNode] = nodesTitled(wf, TITLES.prompt);
+  if (!promptNode) throw new Error(`the workflow has no node titled ${TITLES.prompt}`);
+  wf[promptNode].inputs.text = promptText;
 
-  for (const sn of seedNodes) {
-    const nid = String(sn.node_id);
-    if (nid in wf) wf[nid].inputs[sn.field] = rng();
+  for (const id of nodesTitled(wf, TITLES.seed)) {
+    const field = "noise_seed" in wf[id].inputs ? "noise_seed" : "seed";
+    wf[id].inputs[field] = rng();
   }
 
-  if (opts.dimensionNodes) {
+  const sizeNodes = nodesTitled(wf, TITLES.size);
+  const widthNodes = nodesTitled(wf, TITLES.width);
+  const heightNodes = nodesTitled(wf, TITLES.height);
+  if (sizeNodes.length || widthNodes.length || heightNodes.length) {
     const [w, h] = calcDimensions(opts.aspectRatio ?? "square", opts.maxPixels ?? 1_048_576);
-    for (const [axis, value] of [["width", w], ["height", h]] as const) {
-      for (const patch of opts.dimensionNodes[axis] ?? []) {
-        if (String(patch.node_id) in wf) wf[String(patch.node_id)].inputs[patch.field] = value;
-      }
-    }
+    for (const id of sizeNodes) Object.assign(wf[id].inputs, { width: w, height: h });
+    for (const id of widthNodes) wf[id].inputs.value = w;
+    for (const id of heightNodes) wf[id].inputs.value = h;
   }
 
   if (opts.loraToggles?.length) {
@@ -113,15 +129,8 @@ export function buildPrompt(
   return wf;
 }
 
-function findLoaderSource(workflow: Workflow, loaders: Record<string, number>): [string, number] | null {
-  for (const [nodeId, node] of Object.entries(workflow)) {
-    const idx = loaders[node.class_type];
-    if (idx !== undefined) return [nodeId, idx];
-  }
-  return null;
-}
-
-function nextNodeId(workflow: Workflow): number {
+/** The next free integer node id (ids like "169:100", from ComfyUI's subgraphs, are not counted). */
+export function nextNodeId(workflow: Workflow): number {
   let highest = 0;
   for (const key of Object.keys(workflow)) {
     if (/^\s*[+-]?\d+\s*$/.test(key)) highest = Math.max(highest, parseInt(key, 10));
@@ -130,7 +139,7 @@ function nextNodeId(workflow: Workflow): number {
 }
 
 /** Every [nodeId, inputKey] whose input link is exactly *source*. */
-function consumersOf(workflow: Workflow, source: [string, number]): [string, string][] {
+export function consumersOf(workflow: Workflow, source: [string, number]): [string, string][] {
   const matches: [string, string][] = [];
   for (const [nodeId, node] of Object.entries(workflow)) {
     for (const [key, val] of Object.entries(node.inputs ?? {})) {
@@ -145,20 +154,15 @@ function consumersOf(workflow: Workflow, source: [string, number]): [string, str
 export type Lora = { name: string; strength?: number; trigger?: string };
 
 /**
- * Splice a chain of LoraLoaderModelOnly nodes after the model loader, in place, and rewire every
- * downstream MODEL consumer to the end of the chain. Returns toggles for the trigger-gated LoRAs.
- * *target* overrides detection: {"model": [id, idx]}. Throws if there is no model loader.
+ * Splice a chain of LoraLoaderModelOnly nodes after the model loader (titled cg:model), in place,
+ * and rewire every downstream MODEL consumer to the end of the chain. Returns toggles for the
+ * trigger-gated LoRAs. Throws if there is no cg:model node.
  */
-export function injectLoras(workflow: Workflow, loras: Lora[], target?: { model?: [string, number] } | null): LoraToggle[] {
+export function injectLoras(workflow: Workflow, loras: Lora[]): LoraToggle[] {
   if (!loras.length) return [];
-  const modelSrc = target?.model ?? findLoaderSource(workflow, MODEL_LOADERS);
-  if (!modelSrc) {
-    throw new Error(
-      "Could not locate a model loader to attach LoRAs to. " +
-        `Known loaders: ${JSON.stringify(Object.keys(MODEL_LOADERS).sort())}. ` +
-        "Set a 'lora_target' override in the pack JSON if this workflow is non-standard.",
-    );
-  }
+  const [loader] = nodesTitled(workflow, TITLES.model);
+  if (!loader) throw new Error(`no node titled ${TITLES.model} to attach LoRAs to`);
+  const modelSrc: [string, number] = [loader, 0];
   const modelConsumers = consumersOf(workflow, modelSrc); // before splicing, so new nodes aren't rewired
 
   let nextId = nextNodeId(workflow);
@@ -178,4 +182,47 @@ export function injectLoras(workflow: Workflow, loras: Lora[], target?: { model?
   }
   for (const [nodeId, key] of modelConsumers) workflow[nodeId].inputs[key] = modelHead;
   return toggles;
+}
+
+/**
+ * *workflow* (an edit's, built for one image) with *count* images: [workflow, per image its
+ * LoadImage and scale node ids]. The first image's nodes are the ones titled cg:image… (load,
+ * scale, encode, the reference nodes); each further image copies them:
+ * - links between copied nodes go to the copies, links to anything else stay;
+ * - a copied cg:image chain node (a reference latent) takes its outside input (the conditioning)
+ *   from the previous image's matching node, and what consumed that one consumes the copy, so the
+ *   images chain in order;
+ * - nodes outside the group (the output size, from the first image) stay as they are.
+ */
+export function withImages(workflow: Workflow, count: number): [Workflow, { load: string; scale: string | null }[]] {
+  const wf: Workflow = structuredClone(workflow);
+  const group = Object.keys(workflow).filter((id) => workflow[id]._meta?.title?.startsWith(IMAGE_GROUP));
+  const titled = (ids: Record<string, string>, title: string) => group.find((id) => workflow[id]._meta?.title === title && ids[id]) ?? null;
+  const identity = Object.fromEntries(group.map((id) => [id, id]));
+  const load = titled(identity, TITLES.image);
+  if (!load) throw new Error(`the workflow has no node titled ${TITLES.image}`);
+  const images = [{ load, scale: titled(identity, TITLES.imageScale) }];
+  const copies = new Set(group);
+  let prev = identity;
+  for (let k = 1; k < count; k++) {
+    let next = nextNodeId(wf);
+    const ids = Object.fromEntries(group.map((id) => [id, String(next++)]));
+    const chain = group.filter((id) => workflow[id]._meta?.title === TITLES.imageChain);
+    // What consumed the previous image's chain nodes (outside every image's copies), to move over.
+    const moving = chain.map((id) => [id, consumersOf(wf, [prev[id], 0]).filter(([c]) => !copies.has(c))] as const);
+    for (const id of group) {
+      const node = structuredClone(workflow[id]);
+      for (const [key, val] of Object.entries(node.inputs)) {
+        if (!Array.isArray(val) || val.length !== 2 || typeof val[0] !== "string" || !(val[0] in workflow)) continue;
+        if (val[0] in ids) node.inputs[key] = [ids[val[0]], val[1]];
+        else if (chain.includes(id)) node.inputs[key] = [prev[id], 0];
+      }
+      wf[ids[id]] = node;
+      copies.add(ids[id]);
+    }
+    for (const [id, consumers] of moving) for (const [c, key] of consumers) wf[c].inputs[key] = [ids[id], 0];
+    images.push({ load: ids[load], scale: images[0].scale && ids[images[0].scale] });
+    prev = ids;
+  }
+  return [wf, images];
 }

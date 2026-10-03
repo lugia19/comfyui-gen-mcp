@@ -58,17 +58,17 @@
         "negative": ["12", 0], "latent_image": ["28", 0]
       },
       "class_type": "KSampler",
-      "_meta": { "title": "KSampler" }
+      "_meta": { "title": "cg:seed" }
     },
     "28": {
       "inputs": { "width": 1536, "height": 1536, "batch_size": 1 },
       "class_type": "EmptyLatentImage",
-      "_meta": { "title": "Empty Latent Image" }
+      "_meta": { "title": "cg:size" }
     },
     "44": {
       "inputs": { "unet_name": "anima-turbo-v1.0.safetensors", "weight_dtype": "default" },
       "class_type": "UNETLoader",
-      "_meta": { "title": "Load Diffusion Model" }
+      "_meta": { "title": "cg:model" }
     },
     "45": {
       "inputs": { "clip_name": "qwen_3_06b_base.safetensors", "type": "stable_diffusion", "device": "default" },
@@ -78,19 +78,13 @@
     "55": {
       "inputs": { "text": "", "clip": ["45", 0] },
       "class_type": "CLIPTextEncode",
-      "_meta": { "title": "CLIP Text Encode (Prompt)" }
+      "_meta": { "title": "cg:prompt" }
     },
     "57": {
       "inputs": { "filename_prefix": "comfy-gen", "images": ["8", 0] },
       "class_type": "SaveImage",
       "_meta": { "title": "Save Image" }
     }
-  },
-  "prompt_node_id": "55",
-  "seed_nodes": [{"node_id": "19", "field": "seed"}],
-  "dimension_nodes": {
-    "width": [{"node_id": "28", "field": "width"}],
-    "height": [{"node_id": "28", "field": "height"}]
   },
   "max_pixels": 2359296
 }

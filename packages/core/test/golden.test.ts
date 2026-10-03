@@ -37,13 +37,17 @@ describe("golden: sizing maths", () => {
     for (const d of g.dimensions) expect([d.aspect, d.max_pixels, calcDimensions(d.aspect, d.max_pixels)]).toEqual([d.aspect, d.max_pixels, d.wh]);
   });
 
-  it("edit scaling: loaded images and megapixels per scale node", () => {
+  it("edit scaling: each image, in order, loaded and its scale node's megapixels", () => {
+    // Per image, not per node id: the two-image graph is built in code (2026-10-03), and the ids
+    // were never a stored format. The values are the ones pinned before.
     for (const e of g.edit_scaling) {
       const pack = prepare(PACKS.find((x) => x.name === e.pack)!, normalize({}));
-      const [wf, promptNode] = editWorkflow(pack, e.images);
-      expect(promptNode).toBe(e.prompt_node);
-      for (const [node, mp] of Object.entries(e.megapixels)) expect(wf[node].inputs.megapixels).toBe(mp);
-      for (const [node, value] of Object.entries(e.loads)) expect(wf[node].inputs.image).toBe(value);
+      const wf = editWorkflow(pack, e.images);
+      const got = Object.keys(wf).filter((id) => wf[id].class_type === "LoadImage").map((id) => {
+        const scale = Object.values<any>(wf).find((n) => n.class_type === "ImageScaleToTotalPixels" && n.inputs.image[0] === id);
+        return { load: wf[id].inputs.image, megapixels: scale.inputs.megapixels };
+      });
+      expect(got).toEqual(e.expect);
     }
   });
 });

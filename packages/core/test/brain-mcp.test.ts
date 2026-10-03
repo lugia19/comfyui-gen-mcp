@@ -137,14 +137,17 @@ describe("brain", () => {
     const b = brain();
     const edit = BUILTIN.find((p) => p.tool_name === "edit_image" && p.is_default)!;
     expect(await b.call("edit_image", { prompt: "make it night", image_path: "small.png" })).toBeInstanceOf(Done);
-    const wf = comfy.prompts[0];
-    expect(wf[String(edit.image_nodes[0])].inputs.image).toBe("small.png [output]");
-    expect(wf[String(edit.edit_scale_nodes[0])].inputs.megapixels).toBe(roundHalfEven(((512 * 512) / 1_048_576) * 1e4) / 1e4);
+    // Each loaded image, in order, with its scale node's megapixels.
+    const loaded = (wf: Record<string, any>) =>
+      Object.keys(wf).filter((id) => wf[id].class_type === "LoadImage").map((id) => {
+        const scale = Object.values<any>(wf).find((n) => n.class_type === "ImageScaleToTotalPixels" && n.inputs.image[0] === id);
+        return [wf[id].inputs.image, scale.inputs.megapixels];
+      });
+    expect(loaded(comfy.prompts[0])).toEqual([["small.png [output]", roundHalfEven(((512 * 512) / 1_048_576) * 1e4) / 1e4]]);
 
     await b.call("edit_image", { prompt: "combine", image_path: "big.png", second_image_path: "small.png" });
-    const wf2 = comfy.prompts[1];
-    expect(edit.image_nodes_multi.map((n: string) => wf2[String(n)].inputs.image)).toEqual(["big.png [output]", "small.png [output]"]);
-    expect(wf2[String(edit.edit_scale_nodes_multi[0])].inputs.megapixels).toBe(roundHalfEven((edit.max_pixels / 1_048_576) * 1e4) / 1e4);
+    const budget = roundHalfEven((edit.max_pixels / 1_048_576) * 1e4) / 1e4;
+    expect(loaded(comfy.prompts[1])).toEqual([["big.png [output]", budget], ["small.png [output]", 0.25]]);
     expect(hooks.ensured).toEqual([edit.name, edit.name]);
   });
 

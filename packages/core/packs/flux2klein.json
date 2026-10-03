@@ -77,17 +77,17 @@
     "101": {
       "inputs": { "value": 1024 },
       "class_type": "PrimitiveInt",
-      "_meta": { "title": "Width" }
+      "_meta": { "title": "cg:width" }
     },
     "102": {
       "inputs": { "value": 1024 },
       "class_type": "PrimitiveInt",
-      "_meta": { "title": "Height" }
+      "_meta": { "title": "cg:height" }
     },
     "103": {
       "inputs": { "noise_seed": 0 },
       "class_type": "RandomNoise",
-      "_meta": { "title": "RandomNoise" }
+      "_meta": { "title": "cg:seed" }
     },
     "105": {
       "inputs": { "clip_name": "Qwen3-4B-Q5_K_M.gguf", "type": "flux2" },
@@ -102,7 +102,7 @@
     "107": {
       "inputs": { "text": "", "clip": ["105", 0] },
       "class_type": "CLIPTextEncode",
-      "_meta": { "title": "CLIP Text Encode (Positive Prompt)" }
+      "_meta": { "title": "cg:prompt" }
     },
     "108": {
       "inputs": { "filename_prefix": "comfy-gen", "images": ["98", 0] },
@@ -112,14 +112,8 @@
     "110": {
       "inputs": { "unet_name": "flux-2-klein-4b-Q8_0.gguf" },
       "class_type": "UnetLoaderGGUF",
-      "_meta": { "title": "Unet Loader (GGUF)" }
+      "_meta": { "title": "cg:model" }
     }
-  },
-  "prompt_node_id": "107",
-  "seed_nodes": [{"node_id": "103", "field": "noise_seed"}],
-  "dimension_nodes": {
-    "width": [{"node_id": "101", "field": "value"}],
-    "height": [{"node_id": "102", "field": "value"}]
   },
   "max_pixels": 1048576,
   "max_pixels_limit": 4194304,

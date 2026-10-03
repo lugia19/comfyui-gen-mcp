@@ -55,7 +55,7 @@
       },
       "class_type": "KSampler",
       "_meta": {
-        "title": "KSampler"
+        "title": "cg:seed"
       }
     },
     "6": {
@@ -68,7 +68,7 @@
       },
       "class_type": "CLIPTextEncode",
       "_meta": {
-        "title": "CLIP Text Encode (Positive Prompt)"
+        "title": "cg:prompt"
       }
     },
     "7": {
@@ -108,7 +108,7 @@
       },
       "class_type": "EmptySD3LatentImage",
       "_meta": {
-        "title": "EmptySD3LatentImage"
+        "title": "cg:size"
       }
     },
     "17": {
@@ -139,7 +139,7 @@
       },
       "class_type": "UnetLoaderGGUF",
       "_meta": {
-        "title": "Unet Loader (GGUF)"
+        "title": "cg:model"
       }
     },
     "30": {
@@ -152,27 +152,6 @@
         "title": "CLIPLoader (GGUF)"
       }
     }
-  },
-  "prompt_node_id": "6",
-  "seed_nodes": [
-    {
-      "node_id": "3",
-      "field": "seed"
-    }
-  ],
-  "dimension_nodes": {
-    "width": [
-      {
-        "node_id": "13",
-        "field": "width"
-      }
-    ],
-    "height": [
-      {
-        "node_id": "13",
-        "field": "height"
-      }
-    ]
   },
   "max_pixels": 1048576,
   "max_pixels_limit": 4194304,

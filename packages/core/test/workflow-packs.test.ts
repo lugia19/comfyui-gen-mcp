@@ -5,13 +5,13 @@ import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize, tagLoras } from "../src/config.ts";
 import { builtinPacks, DEFAULT_LORA_GROUP, family, groupByTool, packLoras, prepare, select, supportsLoras, TOOLS, validate } from "../src/packs.ts";
 import { describe as describeTool } from "../src/tools.ts";
-import { buildPrompt, calcDimensions, injectLoras, stripLossless, type Workflow } from "../src/workflow.ts";
+import { buildPrompt, calcDimensions, injectLoras, stripLossless, withImages, type Workflow } from "../src/workflow.ts";
 
 const smallWorkflow = (): Workflow => ({
-  "1": { class_type: "UNETLoader", inputs: { unet_name: "m.safetensors" } },
-  "2": { class_type: "KSampler", inputs: { seed: 0, model: ["1", 0], positive: ["3", 0] } },
-  "3": { class_type: "CLIPTextEncode", inputs: { text: "" }, _meta: { title: "Positive" } },
-  "4": { class_type: "EmptyLatentImage", inputs: { width: 512, height: 512 } },
+  "1": { class_type: "UNETLoader", inputs: { unet_name: "m.safetensors" }, _meta: { title: "cg:model" } },
+  "2": { class_type: "KSampler", inputs: { seed: 0, model: ["1", 0], positive: ["3", 0] }, _meta: { title: "cg:seed" } },
+  "3": { class_type: "CLIPTextEncode", inputs: { text: "" }, _meta: { title: "cg:prompt" } },
+  "4": { class_type: "EmptyLatentImage", inputs: { width: 512, height: 512 }, _meta: { title: "cg:size" } },
   "5": { class_type: "ModelSamplingAuraFlow", inputs: { model: ["1", 0] } },
 });
 
@@ -33,18 +33,50 @@ describe("workflow", () => {
     expect(calcDimensions("nonsense", 1_048_576)).toEqual([1024, 1024]);
   });
 
-  it("buildPrompt sets text, seeds and dimensions on a copy", () => {
+  it("buildPrompt sets text, seeds and dimensions on a copy, finding the nodes by title", () => {
     const wf = smallWorkflow();
-    const out = buildPrompt(wf, "a cat", "3", [{ node_id: "2", field: "seed" }], {
-      dimensionNodes: { width: [{ node_id: "4", field: "width" }], height: [{ node_id: "4", field: "height" }] },
-      aspectRatio: "landscape",
-      maxPixels: 1_048_576,
-    });
+    const out = buildPrompt(wf, "a cat", { aspectRatio: "landscape", maxPixels: 1_048_576 });
     expect(out["3"].inputs.text).toBe("a cat");
     expect(out["2"].inputs.seed).not.toBe(0);
     expect(Number.isSafeInteger(out["2"].inputs.seed)).toBe(true);
     expect([out["4"].inputs.width, out["4"].inputs.height]).toEqual(calcDimensions("landscape", 1_048_576));
     expect(wf["3"].inputs.text).toBe(""); // the source is untouched
+    // Width and height as number nodes (Flux), a noise_seed (RandomNoise).
+    const flux: Workflow = {
+      "1": { class_type: "CLIPTextEncode", inputs: { text: "" }, _meta: { title: "cg:prompt" } },
+      "2": { class_type: "RandomNoise", inputs: { noise_seed: 0 }, _meta: { title: "cg:seed" } },
+      "3": { class_type: "PrimitiveInt", inputs: { value: 1 }, _meta: { title: "cg:width" } },
+      "4": { class_type: "PrimitiveInt", inputs: { value: 1 }, _meta: { title: "cg:height" } },
+    };
+    const f = buildPrompt(flux, "x", { aspectRatio: "tall", maxPixels: 1_048_576 });
+    expect([f["3"].inputs.value, f["4"].inputs.value]).toEqual(calcDimensions("tall", 1_048_576));
+    expect(f["2"].inputs.noise_seed).not.toBe(0);
+    expect("seed" in f["2"].inputs).toBe(false);
+    expect(() => buildPrompt({ "1": flux["2"] }, "x")).toThrow(/cg:prompt/);
+  });
+
+  it("withImages chains a second image after the first, which keeps setting the size", () => {
+    const wf: Workflow = {
+      "1": { class_type: "CLIPTextEncode", inputs: { text: "" }, _meta: { title: "cg:prompt" } },
+      "2": { class_type: "LoadImage", inputs: { image: "" }, _meta: { title: "cg:image" } },
+      "3": { class_type: "ImageScaleToTotalPixels", inputs: { image: ["2", 0], megapixels: 1 }, _meta: { title: "cg:image scale" } },
+      "4": { class_type: "VAEEncode", inputs: { pixels: ["3", 0], vae: ["9", 0] }, _meta: { title: "cg:image encode" } },
+      "5": { class_type: "ReferenceLatent", inputs: { conditioning: ["1", 0], latent: ["4", 0] }, _meta: { title: "cg:image chain" } },
+      "6": { class_type: "GetImageSize", inputs: { image: ["3", 0] } },
+      "7": { class_type: "CFGGuider", inputs: { positive: ["5", 0] } },
+      "9": { class_type: "VAELoader", inputs: {} },
+    };
+    const [one, first] = withImages(wf, 1);
+    expect(one).toEqual(wf);
+    expect(first).toEqual([{ load: "2", scale: "3" }]);
+    const [two, images] = withImages(wf, 2);
+    expect(images).toEqual([{ load: "2", scale: "3" }, { load: "10", scale: "11" }]);
+    expect(two["11"].inputs.image).toEqual(["10", 0]); // the copy's own chain
+    expect(two["12"].inputs).toEqual({ pixels: ["11", 0], vae: ["9", 0] }); // shared nodes stay shared
+    expect(two["13"].inputs).toEqual({ conditioning: ["5", 0], latent: ["12", 0] }); // after the first image
+    expect(two["7"].inputs.positive).toEqual(["13", 0]); // the guider takes the end of the chain
+    expect(two["6"].inputs.image).toEqual(["3", 0]); // the size still follows the first image
+    expect(wf["7"].inputs.positive).toEqual(["5", 0]); // the source is untouched
   });
 
   it("injectLoras chains and rewires every model consumer", () => {
@@ -62,19 +94,19 @@ describe("workflow", () => {
   it("LoRA toggles follow the prompt: one not called for is taken out of the chain", () => {
     const wf = smallWorkflow();
     const toggles = injectLoras(wf, [{ name: "a.safetensors" }, { name: "b.safetensors", trigger: "@B", strength: 0.7 }, { name: "c.safetensors", trigger: "@c" }]);
-    const on = buildPrompt(wf, "art by @b", "3", [], { loraToggles: toggles });
+    const on = buildPrompt(wf, "art by @b", { loraToggles: toggles });
     expect(on["7"].inputs.strength_model).toBe(0.7);
     expect("8" in on).toBe(false); // @c is not in the prompt: its file need not exist
     expect(on["2"].inputs.model).toEqual(["7", 0]);
-    const off = buildPrompt(wf, "no trigger", "3", [], { loraToggles: toggles });
+    const off = buildPrompt(wf, "no trigger", { loraToggles: toggles });
     expect(["7", "8"].some((id) => id in off)).toBe(false);
     expect(off["2"].inputs.model).toEqual(["6", 0]); // straight from the always-on LoRA
     expect(off["5"].inputs.model).toEqual(["6", 0]);
     expect(wf["8"]).toBeDefined(); // the pack's workflow is untouched
   });
 
-  it("injectLoras without a loader throws", () => {
-    expect(() => injectLoras({ "1": { class_type: "KSampler", inputs: {} } }, [{ name: "a" }])).toThrow();
+  it("injectLoras without a cg:model node throws", () => {
+    expect(() => injectLoras({ "1": { class_type: "UNETLoader", inputs: {} } }, [{ name: "a" }])).toThrow(/cg:model/);
   });
 });
 
@@ -91,6 +123,19 @@ describe("packs and config", () => {
     const names = new Set(builtin.map((p) => p.name));
     for (const n of ["anima", "anima_turbo", "flux2klein", "flux2klein_edit", "z_image_turbo"]) expect(names.has(n)).toBe(true);
     for (const p of builtin) expect(JSON.stringify(p.workflow)).not.toContain("comfy-dxt");
+  });
+
+  it("validate wants the titled nodes: one prompt, a seed, a model loader for LoRAs", () => {
+    const anima = builtinPacks().find((p) => p.name === "anima")!;
+    const retitled = (from: string, to: string) => {
+      const wf = structuredClone(anima.workflow);
+      for (const n of Object.values<any>(wf)) if (n._meta?.title === from) n._meta.title = to;
+      return { ...anima, workflow: wf };
+    };
+    expect(() => validate(retitled("cg:prompt", "Prompt"))).toThrow(/cg:prompt/);
+    expect(() => validate(retitled("cg:seed", "KSampler"))).toThrow(/cg:seed/);
+    expect(() => validate(retitled("cg:model", "Loader"))).toThrow(/cg:model/);
+    expect(() => validate({ ...retitled("cg:model", "Loader"), lora_group: undefined })).not.toThrow();
   });
 
   it("validate names missing fields", () => {

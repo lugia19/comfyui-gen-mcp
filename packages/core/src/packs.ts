@@ -8,7 +8,7 @@
 import { PACK_FILES, TOOL_FILE } from "../packs/index.ts";
 import { isPlainObject } from "./bytes.ts";
 import { tagLoras, type Config, type LoraEntry } from "./config.ts";
-import { injectLoras } from "./workflow.ts";
+import { injectLoras, nodesTitled, TITLES } from "./workflow.ts";
 
 export type Pack = Record<string, any> & {
   name: string;
@@ -22,12 +22,11 @@ export type Pack = Record<string, any> & {
    * Anima Turbo share "anima"); none: no LoRAs. */
   lora_group?: string;
   models: { url: string; subfolder: string; filename: string; size_bytes?: number; sha256?: string }[];
+  /** ComfyUI API format; the nodes we fill in are found by title (workflow.ts TITLES). */
   workflow: Record<string, any>;
-  prompt_node_id: string;
-  seed_nodes: { node_id: string; field: string }[];
 };
 
-export const REQUIRED_FIELDS = ["name", "display_name", "tool_name", "models", "workflow", "prompt_node_id", "seed_nodes"];
+export const REQUIRED_FIELDS = ["name", "display_name", "tool_name", "models", "workflow"];
 
 export type Tool = { title: string; description?: string; default_guide?: string };
 
@@ -55,6 +54,12 @@ export function validate(pack: unknown, source = "pack"): Pack {
   if (pack.lora_group !== undefined && !(String(pack.lora_group) in LORA_GROUPS)) {
     throw new Error(`${source}: unknown LoRA group ${pack.lora_group} (packs/tools.json)`);
   }
+  // The nodes we fill in, by title: one prompt, at least one seed; a model loader for LoRAs.
+  const wf = isPlainObject(pack.workflow) ? (pack.workflow as Record<string, any>) : {};
+  const count = (title: string) => nodesTitled(wf, title).length;
+  if (count(TITLES.prompt) !== 1) throw new Error(`${source}: needs one node titled ${TITLES.prompt}`);
+  if (!count(TITLES.seed)) throw new Error(`${source}: needs a node titled ${TITLES.seed}`);
+  if (pack.lora_group !== undefined && count(TITLES.model) !== 1) throw new Error(`${source}: a pack with LoRAs needs one node titled ${TITLES.model}`);
   return pack as Pack;
 }
 
@@ -120,7 +125,7 @@ export function prepare(pack: Pack, cfg: Config): Pack {
   const ls = packLoras(out, cfg);
   if (ls.length) {
     try {
-      out.lora_toggles = injectLoras(out.workflow, ls, out.lora_target);
+      out.lora_toggles = injectLoras(out.workflow, ls);
     } catch (e) {
       console.error(`Pack '${out.name}': LoRA injection failed (${(e as Error).message}), serving it unmodified`);
     }
