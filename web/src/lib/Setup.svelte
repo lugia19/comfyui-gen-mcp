@@ -295,6 +295,11 @@
 
 <Step n={num('mode')} title="Where should images be made?" status={status(Boolean(mode))} summary={mode ? MODES[mode].summary + (info.mode_from_site ? ' (your choice on the setup site)' : '') : ''}>
   <label class="choice">
+    <input type="radio" name="mode" checked={mode === 'both'} disabled={modeBusy} onchange={() => choose('both')} />
+    <span><b>{MODES.both.title}</b> <span class="tag green">Recommended if you have a powerful GPU</span><br />
+      <span class="muted">Your PC when it is on (NVIDIA, AMD on Linux, or an Apple silicon Mac), the cloud when it is off.</span></span>
+  </label>
+  <label class="choice">
     <input type="radio" name="mode" checked={mode === 'cloud'} disabled={modeBusy} onchange={() => choose('cloud')} />
     <span><b>{MODES.cloud.title}</b> <span class="tag">Recommended for most people</span><br />
       <span class="muted">No GPU needed, and it works with your PC off. Billed per second while it generates; new Modal accounts get $30 of free compute a month.</span></span>
@@ -303,11 +308,6 @@
     <input type="radio" name="mode" checked={mode === 'pc'} disabled={modeBusy} onchange={() => choose('pc')} />
     <span><b>{MODES.pc.title}</b><br />
       <span class="muted">Your own GPU (NVIDIA, AMD on Linux, or an Apple silicon Mac), nothing billed. The PC has to be on to make images.</span></span>
-  </label>
-  <label class="choice">
-    <input type="radio" name="mode" checked={mode === 'both'} disabled={modeBusy} onchange={() => choose('both')} />
-    <span><b>{MODES.both.title}</b><br />
-      <span class="muted">Your PC when it is on, the cloud when it is off.</span></span>
   </label>
   {#if showAdvanced || mode === 'url'}
     <label class="choice">

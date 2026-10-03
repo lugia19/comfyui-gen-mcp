@@ -184,6 +184,11 @@ pre {
   vertical-align: 1px;
 }
 
+.tag.green {
+  background: var(--ok);
+  color: var(--bg);
+}
+
 nav {
   display: flex;
   gap: 6px;

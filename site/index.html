@@ -46,6 +46,7 @@
     }
     button.back { font: inherit; background: none; border: 1px solid var(--border); color: var(--text); padding: 9px 16px; border-radius: 8px; margin: 8px 8px 0 0; cursor: pointer; }
     .tag { display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--accent); color: var(--accent-text); vertical-align: 2px; }
+    .tag.green { background: var(--ok); color: var(--bg); }
 
     /* The steps. Without JavaScript every step shows, open, as one long page. */
     .steps { list-style: none; padding: 0; margin: 0; }
@@ -120,6 +121,10 @@
       <button class="head" type="button"><span class="num">2</span><h2>Where should images be made?</h2><span class="summary"></span></button>
       <div class="body">
         <div class="cards">
+          <button class="card best" type="button" data-answer="both">
+            <b>Both</b> <span class="tag green">Recommended if you have a powerful GPU</span>
+            <span class="d">Your PC when it is on (NVIDIA, AMD on Linux, or an Apple silicon Mac), the cloud when it is off.</span>
+          </button>
           <button class="card best" type="button" data-answer="cloud">
             <b>In the cloud (Modal)</b> <span class="tag">Recommended for most people</span>
             <span class="d">No GPU needed, and it works with your PC off. Billed per second while it generates; new Modal accounts get $30 of free compute a month.</span>
@@ -127,10 +132,6 @@
           <button class="card" type="button" data-answer="pc">
             <b>On my PC</b>
             <span class="d">Your own GPU: NVIDIA (AMD on Linux) or an Apple silicon Mac. Nothing billed, but the PC has to be on to make images.</span>
-          </button>
-          <button class="card" type="button" data-answer="both">
-            <b>Both</b>
-            <span class="d">Your PC when it is on, the cloud when it is off.</span>
           </button>
         </div>
       </div>
