@@ -207,15 +207,22 @@ plain data. Transports:
 
 ### Brain
 
-Packs (JSON: workflow, prompt node, seed and dimension nodes, model URLs, a prompting guide) are
-resolved per tool, prompts injected, seeds randomized, dimensions computed, LoRAs spliced. The
+Packs (JSON: a workflow, its model files, a prompting guide) are resolved per tool, prompts
+injected, seeds randomized, dimensions computed, LoRAs spliced. The workflow marks the nodes we
+fill in by their title (`_meta.title`, set by renaming the node in ComfyUI before exporting):
+`cg:prompt`, `cg:seed`, `cg:size` or `cg:width`/`cg:height`, `cg:model` (where LoRAs attach), and
+an edit's first-image nodes `cg:image`, `cg:image scale`, `cg:image encode`, `cg:image chain`;
+`withImages` (`workflow.ts`) builds a second image by copying those, chaining its reference
+latents after the first image's (2026-10-03: titles replaced the node-id fields, and the generated
+two-image graph the shipped `workflow_multi`, the same graph). `docs/adding-a-model.md` has the
+steps. The
 tools themselves are defined once, in `packs/tools.json`: each one's settings-page title, the line
 that routes between them (illustration or photo), and a default prompting guide; a tool's
 description is that line, the selected pack's `prompt_guide` (else the default), then the part all
 generation tools share (aspect ratios, "may not appear inline"). Packs of one `family` (Anima and
-Anima Turbo) share their settings, stored under the family's name; `loras: true` marks the packs
-that take LoRAs (2026-10-02: these replaced per-pack tool descriptions, `config_key` and the
-artist-list test for LoRA support). This is
+Anima Turbo) share their settings, stored under the family's name; a `lora_group` marks the packs
+that take LoRAs, and which (2026-10-02/03: these replaced per-pack tool descriptions, `config_key`
+and the artist-list test for LoRA support). This is
 the old `workflow.py`, `model_pack.py` and `tool_specs.py`, ported to TypeScript with Web-platform APIs
 only, plus the MCP handler.
 
@@ -367,10 +374,18 @@ in our folder first, then in the others; deleting one from a shared folder only 
 "Your own ComfyUI" the page lists nothing and LoRAs are added by name (its folders are the user's,
 and uploads would land where it doesn't look).
 
-LoRAs (Anima family only, as in the old extension: `supportsLoras` in `packs.ts`) are uploaded from
-the settings page and configured per pack family: file, strength, trigger (it applies only when the
-prompt contains the trigger; no trigger means always), hidden (the trigger is not listed in the tool
-description). A LoRA whose trigger is not in the prompt is taken out of the workflow, not set to
+LoRAs are uploaded from the settings page, and each belongs to one **LoRA group**: the models it
+was trained for (`lora_group` on a pack; Anima and Anima Turbo share `anima`, the only group so
+far; `packs/tools.json` names the groups, and the first is the default). `pack_loras` is keyed by
+group, and each entry is file, enabled, strength, trigger (it applies only when the prompt
+contains the trigger; no trigger means always), hidden (the trigger is not listed in the tool
+description); a switched-off LoRA is not loaded, advertised or warned about. With several groups,
+the settings page shows a tab per group, an upload goes into the open tab's group, and a LoRA can
+be moved to another. A stored LoRA in no group (from before groups, or pushed from a PC) joins the
+default group switched off (`tagLoras`): the Worker on listing, saving and an upload's finish (which
+names its group), the extension at start and likewise, and the page on its working copy so a save
+doesn't undo it (2026-10-03; before, being in a family's list meant both "for these models" and
+"on"). A LoRA whose trigger is not in the prompt is taken out of the workflow, not set to
 strength 0: ComfyUI checks every loader's file, so a missing file would fail calls that never asked
 for it (seen 2026-10-01). Deleting a LoRA also takes it out of every pack's settings. On Windows a
 file ComfyUI has open can't be deleted (a LoRA it used stays open): the LoRA leaves the list at

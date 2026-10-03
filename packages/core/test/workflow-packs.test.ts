@@ -119,6 +119,16 @@ describe("packs and config", () => {
     expect(PACK_FILES.map(([f]) => f)).toEqual(files);
   });
 
+  it("every model file a workflow names is in its pack's models, to be downloaded", () => {
+    for (const pack of builtin) {
+      const listed = new Set(pack.models.map((m) => m.filename));
+      const named = Object.values<any>(pack.workflow).flatMap((n) =>
+        Object.values(n.inputs).filter((v): v is string => typeof v === "string" && /\.(safetensors|gguf|pt|pth|ckpt|bin)$/i.test(v)));
+      expect(named.length).toBeGreaterThan(0);
+      for (const file of named) expect(listed.has(file), `${pack.name}: ${file} is not in its models`).toBe(true);
+    }
+  });
+
   it("builtin packs load", () => {
     const names = new Set(builtin.map((p) => p.name));
     for (const n of ["anima", "anima_turbo", "flux2klein", "flux2klein_edit", "z_image_turbo"]) expect(names.has(n)).toBe(true);

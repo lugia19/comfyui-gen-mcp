@@ -367,6 +367,23 @@ into. The claude.ai calls the tester saw end in "The operation timed out." at ab
 Worker answered them all, 76 to 151 s) were a transient error on claude.ai's side: retested,
 claude.ai waits well past 60 s.
 
+## Pack cleanup and LoRA groups (2026-10-02/03)
+
+Making a model easier to add, and LoRAs a group of models' own. Each step its own commit:
+- **Tools described once** (`packs/tools.json`: title, routing line, default guide) and a short
+  `prompt_guide` per pack; `family` replaces `config_key`.
+- **LoRA groups:** a LoRA belongs to one group (`lora_group` on packs; Anima's is `anima`, the
+  stored key), with an on/off flag; one without a group joins the default switched off; the
+  settings page has a tab per group, uploads into the open tab, and Move to. Checked in Chromium
+  with a throwaway second group.
+- **Nodes by title** (`cg:prompt`, `cg:seed`, `cg:size`, `cg:width`/`cg:height`, `cg:model`,
+  `cg:image…`) in place of node-id fields; the two-image edit built in code (`withImages`) in
+  place of `workflow_multi`. Every rendered workflow is the same graph as before (21 scenarios).
+- **Models stay explicit**: a test that every file a workflow names is listed, and
+  `scripts/fill_pack_models.py` for sizes and hashes. `docs/adding-a-model.md` has the steps.
+
+To check live before the release: one image per tool, and a two-image edit, on a PC and on Modal.
+
 ## Verification
 
 - **Every change:** `npm run typecheck`, `npm test` and `uv run pytest` (CI also runs Python 3.14,
