@@ -498,6 +498,7 @@ back Pending. The idea: busy GPUs hand new calls on, from the PC to Modal, then 
 - **Output names:** two ComfyUIs writing one output folder overwrite each other's
   `comfy-gen_000NN_` files. The Worker sets the save node's `filename_prefix` per call
   (`comfy-gen/<call id>`; nodes are found by title); images go to R2 at once, so unique is enough.
-- **Limits:** each queue check is a subrequest, and a Modal call already budgets 44 of the free
-  plan's 50: 2 or 3 apps, not many. Spilling to a cold app pays only when the line is longer than a
-  cold start (about 44 s plus the model load).
+- **Limits:** a PC's queue check is a relay (Durable Object) call, outside the free plan's 50
+  external subrequests. A Modal app's check is one of them. A warm Modal call spends about 6–8 of
+  its 44 (`REQUEST_BUDGET`), so a few checks fit. What binds is the 150 s per-call budget. Spilling
+  to a cold app pays only when the line is longer than a cold start (about 44 s plus the model load).
