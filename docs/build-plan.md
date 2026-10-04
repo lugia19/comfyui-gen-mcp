@@ -500,5 +500,7 @@ back Pending. The idea: busy GPUs hand new calls on, from the PC to Modal, then 
   (`comfy-gen/<call id>`; nodes are found by title); images go to R2 at once, so unique is enough.
 - **Limits:** a PC's queue check is a relay (Durable Object) call, outside the free plan's 50
   external subrequests. A Modal app's check is one of them. A warm Modal call spends about 6–8 of
-  its 44 (`REQUEST_BUDGET`), so a few checks fit. What binds is the 150 s per-call budget. Spilling
-  to a cold app pays only when the line is longer than a cold start (about 44 s plus the model load).
+  its 44 (`REQUEST_BUDGET`), so a few checks fit. Time isn't a limit either: past 150 s a call
+  returns Pending and `fetch_result` picks it up, with a fresh budget. Spilling is about getting the
+  image sooner. Spilling to a cold app pays only when the line is longer than a cold start (about
+  44 s plus the model load).
