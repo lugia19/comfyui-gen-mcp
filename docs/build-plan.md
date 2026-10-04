@@ -477,3 +477,27 @@ and `modal-limit`, `claude-connector` and `claude-chat`, `agent-pair` and `agent
 macOS views of `agent-run` are placeholders until a Mac's screenshots exist; Windows SmartScreen
 stays one line of text. Format and upkeep: `site/guide/README.md`. Account sign-ups stay plain links.
 
+
+## Later: spill-over between GPUs (parked 2026-10-04)
+
+Today a call goes to the first GPU that is online, not paused and has the model ready (`App.pick`);
+how busy it is never counts. A second call waits in that ComfyUI's queue and, past 150 s, comes
+back Pending. The idea: busy GPUs hand new calls on, from the PC to Modal, then to more Modal.
+
+- **Spill-over:** per GPU, "pass new images on when more than N are waiting" (default off). `pick`
+  reads the candidate's `GET /queue` (`queue_running` + `queue_pending`): through the relay for a
+  PC. A cold Modal server answers 503 at once, which counts as an empty queue: the call goes there.
+- **More Modal as separate Modal apps,** each `max_containers=1` and each one more GPU entry with
+  its own URL, routed as above. One container per app keeps every request of a job on the
+  container that runs it (the 2026-09-29 failure, design appendix "Redeploying under load"). The
+  apps share the `comfy-gen-data` Volume, so models are stored once; an update deploys each.
+- **Keep-warm:** app 0 keeps the user's time. The overflow apps exist only for going over, so they
+  default to a much shorter one (1 minute, the shortest `POST /idle` takes now): a spill bills little
+  more than its own job. GPU entries already have their own `keep_warm_minutes`. The Spend limit
+  caps them all.
+- **Output names:** two ComfyUIs writing one output folder overwrite each other's
+  `comfy-gen_000NN_` files. The Worker sets the save node's `filename_prefix` per call
+  (`comfy-gen/<call id>`; nodes are found by title); images go to R2 at once, so unique is enough.
+- **Limits:** each queue check is a subrequest, and a Modal call already budgets 44 of the free
+  plan's 50: 2 or 3 apps, not many. Spilling to a cold app pays only when the line is longer than a
+  cold start (about 44 s plus the model load).
