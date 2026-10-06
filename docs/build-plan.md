@@ -504,3 +504,26 @@ back Pending. The idea: busy GPUs hand new calls on, from the PC to Modal, then 
   returns Pending and `fetch_result` picks it up, with a fresh budget. Spilling is about getting the
   image sooner. Spilling to a cold app pays only when the line is longer than a cold start (about
   44 s plus the model load).
+
+## Later: encrypt new images in R2 (jotted 2026-10-06)
+
+A setting that stores new images encrypted, so they aren't kept in R2 in a readable form
+(automated scanning and the like). Not secrecy from the account's owner: the key sits in the same
+account.
+
+- **Where:** every image read and write is in `packages/worker/src/images.ts` (`putImage`,
+  `getImage`, `serveImage`).
+- **Key:** one random AES-256 key, made the first time the setting is turned on and kept in the
+  State DO under a new key (a compatibility surface). Never rotated or deleted: losing it loses the
+  encrypted images.
+- **Write:** with the setting on, `putImage` encrypts with AES-GCM through `crypto.subtle` (native,
+  no JS loop over image bytes) and stores `application/octet-stream`, with `customMetadata` holding
+  a version mark, the IV and the real content type.
+- **Read:** `getImage` and `serveImage` decrypt when the mark is there; unmarked images read as
+  today. So the setting applies to new images only, and turning it off keeps old ones readable.
+  `/img/<id>` buffers instead of streaming (fine at a few hundred KB). `/img` answers are already
+  `Cache-Control: private`, so Cloudflare's cache keeps no decrypted copy.
+- **Scope:** images only (outputs and edit uploads under `img/`). LoRAs stay plain: Modal and the
+  agent download them from R2 through signed URLs. ComfyUI's own output and input folders, on
+  Modal's Volume and on the PC, are outside it.
+- **Check:** CPU per call from Workers Logs (`cpuTimeMs`) with the setting on.
