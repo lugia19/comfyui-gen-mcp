@@ -7,6 +7,9 @@ import { log } from "@comfy-gen/local";
 
 export const AGENT_USER_AGENT = "comfy-gen-agent"; // Cloudflare refuses some default user agents
 const PING_MS = 20_000; // answered by the Durable Object's auto-response, without waking it
+// Nothing from the Worker for this long: the connection is dead even if the socket says open (a
+// network outage leaves it so for many minutes). Drop it and reconnect.
+const SILENCE_MS = 60_000;
 const LASTED_MS = 60_000; // a connection this long resets the backoff
 const BACKOFF_MS = [0, 1000, 2000, 5000, 10_000, 30_000, 60_000];
 const REFUSED_RETRY_MS = 5 * 60_000; // not paired (401): retry rarely; a new link reconnects at once
@@ -67,6 +70,7 @@ export class RelayClient {
     this.ws = ws;
     let opened = 0;
     let down = false;
+    let heard = 0; // when the Worker last sent anything (a pong, at least every PING_MS)
     const asm = new relay.Assembler();
     const connectTimer = setTimeout(() => {
       if (!opened) {
@@ -107,18 +111,32 @@ export class RelayClient {
 
     ws.addEventListener("open", () => {
       clearTimeout(connectTimer);
-      opened = Date.now();
+      opened = heard = Date.now();
       this.state = "connected";
       this.connectedSince = opened;
       this.lastError = null;
       log.info(`Connected to ${this.opts.workerUrl}`);
       this.send(relay.encodeMessage({ kind: "hello", info: this.opts.hello() }));
       if (this.ping) clearInterval(this.ping);
-      this.ping = setInterval(() => ws.readyState === 1 && ws.send("ping"), PING_MS);
+      this.ping = setInterval(() => {
+        if (ws.readyState !== 1) return;
+        if (Date.now() - heard > SILENCE_MS) {
+          log.warn(`No answer from the Worker for ${SILENCE_MS / 1000} s; reconnecting`);
+          try {
+            ws.close(4002, "no pongs");
+          } catch {
+            // closing anyway
+          }
+          onDown(1006); // a dead connection may never deliver its close event
+          return;
+        }
+        ws.send("ping");
+      }, PING_MS);
       this.ping.unref?.();
       this.opts.onOpen?.();
     });
     ws.addEventListener("message", (ev: MessageEvent) => {
+      heard = Date.now();
       if (ev.data === "pong") return;
       let msg: relay.RelayMessage | null;
       try {

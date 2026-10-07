@@ -27,6 +27,29 @@ export interface Socket {
 export const WAIT_FOR_AGENT_MS = 10_000;
 export const HTTP_TIMEOUT_S = 120; // a held wait is 50 s
 export const CONTROL_TIMEOUT_S = 30;
+// The agent pings every 20 s; three missed and its socket counts as dead. A dropped network leaves
+// the socket open with nobody behind it: requests sent there would wait out their timeout.
+export const PING_GRACE_MS = 60_000;
+
+/** One of the Relay's sockets, as liveSocket sees it. */
+export type SocketInfo<W> = { ws: W; open: boolean; since: number; lastPing: number | null };
+
+/**
+ * The socket to relay on: the newest open one that still pings. The list's order means nothing,
+ * and it keeps sockets this side closed (replaced by a new connection) until their other end
+ * answers the close, which a vanished agent never does. *stale*: open sockets that stopped
+ * pinging, for the caller to close.
+ */
+export function liveSocket<W>(sockets: SocketInfo<W>[], now: number): { live: W | null; stale: W[] } {
+  let live: SocketInfo<W> | null = null;
+  const stale: W[] = [];
+  for (const s of sockets) {
+    if (!s.open) continue;
+    if (now - Math.max(s.since, s.lastPing ?? 0) > PING_GRACE_MS) stale.push(s.ws);
+    else if (!live || s.since > live.since) live = s;
+  }
+  return { live: live?.ws ?? null, stale };
+}
 
 type Pending = { socket: Socket; resolve: (r: RelayReply) => void; timer: ReturnType<typeof setTimeout> };
 
@@ -89,23 +112,30 @@ export class RelayCore {
     }
   }
 
+  /** Sends once more on a fresh socket if the send fails (a socket closing under it). */
   async send(header: relay.HttpMessage | relay.ControlMessage, body: Uint8Array | undefined, timeoutS: number): Promise<RelayReply> {
-    const socket = await this.waitForSocket();
-    if (!socket) return { status: 503, body: utf8("Your PC is not connected."), offline: true };
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(header.id);
-        resolve({ status: 504, body: utf8(`Your PC did not answer within ${timeoutS} s.`) });
-      }, timeoutS * 1000);
-      this.pending.set(header.id, { socket, resolve, timer });
+    let failure = "";
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const socket = await this.waitForSocket();
+      if (!socket) return { status: 503, body: utf8("Your PC is not connected."), offline: true };
+      const reply = new Promise<RelayReply>((resolve) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(header.id);
+          resolve({ status: 504, body: utf8(`Your PC did not answer within ${timeoutS} s.`) });
+        }, timeoutS * 1000);
+        this.pending.set(header.id, { socket, resolve, timer });
+      });
       try {
         for (const frame of relay.encodeMessage(header, body)) socket.send(frame);
+        return await reply;
       } catch (e) {
+        const p = this.pending.get(header.id);
+        if (p) clearTimeout(p.timer);
         this.pending.delete(header.id);
-        clearTimeout(timer);
-        resolve({ status: 503, body: utf8(`Could not reach your PC: ${(e as Error).message}`) });
+        failure = (e as Error).message;
       }
-    });
+    }
+    return { status: 503, body: utf8(`Could not reach your PC: ${failure}`) };
   }
 
   http(req: RelayRequest, timeoutS = HTTP_TIMEOUT_S): Promise<RelayReply> {

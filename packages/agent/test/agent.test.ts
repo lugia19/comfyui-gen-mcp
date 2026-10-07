@@ -127,6 +127,29 @@ describe("RelayClient", () => {
     client.stop();
   });
 
+  it("drops a connection the Worker stopped answering, and reconnects (a network outage)", async () => {
+    vi.useFakeTimers();
+    const client = new RelayClient({
+      workerUrl: "https://w.example", secret: "s", handle: async () => [200, ""], hello: () => ({}),
+      WebSocketImpl: FakeWS as any, fetchImpl: (async () => new Response(null, { status: 426 })) as any,
+    });
+    client.start();
+    const ws = FakeWS.last;
+    ws.open();
+    const n = FakeWS.all.length;
+    // Answered pings keep it up.
+    for (let i = 0; i < 6; i++) {
+      await vi.advanceTimersByTimeAsync(20_000);
+      ws.deliver(["pong"]);
+    }
+    expect([client.state, FakeWS.all.length]).toEqual(["connected", n]);
+    // Then silence: the socket still says open, but nothing comes back.
+    await vi.advanceTimersByTimeAsync(81_000); // the check after 60 s of silence, then the reconnect
+    expect(FakeWS.all.length).toBe(n + 1); // a new connection
+    expect(FakeWS.last).not.toBe(ws);
+    client.stop();
+  });
+
   it("retries a handshake that fails with an error event alone (Node's WebSocket on a non-101)", async () => {
     vi.useFakeTimers();
     const client = new RelayClient({

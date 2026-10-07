@@ -638,6 +638,16 @@ connection replaces the old (close 4000: "another agent connected"); unpairing o
 link closes it with 4001. After either, or a 401, the agent retries only every 5 minutes, and at
 once when it is given a new link.
 
+Which socket the `Relay` sends on (`liveSocket`, fixed 2026-10-07): the newest open one that still
+pings. `getWebSockets()` has no order, and a socket closed this side stays listed until the other
+end answers the close, which an agent that vanished in a network outage never does; picking "the
+last one" sent on that dead socket ("Can't call WebSocket send() after close()") for every call,
+across agent restarts. An open socket with no ping for 60 s (three missed; the runtime records the
+last one auto-answered) is closed as gone, so the PC reads offline and calls go to the next GPU;
+requests waiting on a closed socket fail at once. A send that throws is tried once more on a fresh
+socket. The agent, for its part, drops a connection that has sent it nothing for 60 s and reconnects:
+a network outage can leave its socket looking open for many minutes.
+
 The protocol (`core/relay.ts`, shared by both ends): a message is a JSON header in a text frame,
 followed by its body in binary frames of at most 1 MiB, the header saying how many. Each side sends
 a header and its chunks in one synchronous run, so messages never interleave.
@@ -684,7 +694,8 @@ saved, and both places say so: a restart takes requests again, so a forgotten pa
 every image to Modal for days.
 
 The agent (`packages/agent`) reconnects at once after a drop, then backs off (1 s to 60 s),
-resetting after a connection that lasted a minute; it pings every 20 s, answered by the runtime.
+resetting after a connection that lasted a minute; it pings every 20 s, answered by the runtime,
+and reconnects when 60 s pass with no answer.
 Its settings page (loopback only) is the MCPB's machine setup plus the pairing section; pack
 settings stay on the Worker, whose settings page lists each GPU's LoRAs and model status
 (`/api/loras`, `/api/models`).

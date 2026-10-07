@@ -4,7 +4,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { App } from "./app.ts";
 import type { Bucket, StateStorage } from "./platform.ts";
-import { CONTROL_TIMEOUT_S, RelayCore, type RelayReply, type RelayRequest, type RelayStatus, type RelayStub } from "./relay.ts";
+import { CONTROL_TIMEOUT_S, liveSocket, RelayCore, type RelayReply, type RelayRequest, type RelayStatus, type RelayStub } from "./relay.ts";
 
 export interface Env {
   STATE: DurableObjectNamespace<State>;
@@ -106,14 +106,32 @@ export class Relay extends DurableObject<Env> {
     this.core = new RelayCore(() => this.current() as unknown as { send(d: string | Uint8Array): void } | null);
   }
 
+  /** The agent's socket, if it is connected (relay.ts liveSocket); sockets that stopped pinging are closed. */
   private current(): WebSocket | null {
-    const all = this.ctx.getWebSockets();
-    return all.length ? all[all.length - 1] : null;
+    const sockets = this.ctx.getWebSockets().map((ws) => ({
+      ws,
+      open: ws.readyState === WebSocket.OPEN,
+      since: (ws.deserializeAttachment() as Attachment | null)?.since ?? 0,
+      lastPing: this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? null,
+    }));
+    const { live, stale } = liveSocket(sockets, Date.now());
+    for (const ws of stale) this.retire(ws, 1011, "no pings");
+    return live;
+  }
+
+  /** Closes a socket this side; requests waiting on it fail now rather than at their timeout. */
+  private retire(ws: WebSocket, code: number, reason: string): void {
+    try {
+      ws.close(code, reason);
+    } catch {
+      // already closing
+    }
+    this.core.onClose(ws as unknown as { send(d: string | Uint8Array): void });
   }
 
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("expected a WebSocket", { status: 426 });
-    for (const old of this.ctx.getWebSockets()) old.close(4000, "replaced by a new connection");
+    for (const old of this.ctx.getWebSockets()) if (old.readyState === WebSocket.OPEN) this.retire(old, 4000, "replaced by a new connection");
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ since: Date.now(), info: null } satisfies Attachment);

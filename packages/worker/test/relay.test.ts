@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fromUtf8, relay, utf8 } from "@comfy-gen/core";
-import { RelayCore, RelayTransport } from "../src/relay.ts";
+import { liveSocket, PING_GRACE_MS, RelayCore, RelayTransport } from "../src/relay.ts";
 
 /** A socket whose other end is an agent answering http requests with *answer*. */
 function agentSocket(core: () => RelayCore, answer: (h: any, body: Uint8Array) => [number, Uint8Array | string] | null) {
@@ -33,6 +33,16 @@ describe("RelayCore", () => {
     expect(v.body.length).toBe(relay.CHUNK + 10);
   });
 
+  it("sends once more on a fresh socket when the send throws (a socket closed under it)", async () => {
+    let core!: RelayCore;
+    const closed = { send() { throw new Error("Can't call WebSocket send() after close()."); } };
+    const { socket } = agentSocket(() => core, () => [200, "ok"]);
+    let picks = 0;
+    core = new RelayCore(() => (picks++ === 0 ? closed : socket)); // the second pick finds the new one
+    const r = await core.control("status");
+    expect([r.status, fromUtf8(r.body), picks]).toEqual([200, "ok", 2]);
+  });
+
   it("waits a while for an agent to connect, then says it is offline", async () => {
     let socket: any = null;
     let slept = 0;
@@ -63,6 +73,25 @@ describe("RelayCore", () => {
     expect(core.onFrame(JSON.stringify({ kind: "hello", info: { gpu: "amd" } }))).toEqual({ gpu: "amd" });
     expect(core.onFrame("garbage")).toBeNull();
     expect(core.onFrame(JSON.stringify({ kind: "reply", id: "nobody", status: 200 }))).toBeNull();
+  });
+});
+
+describe("liveSocket", () => {
+  const now = 1_000_000;
+  const sock = (ws: string, since: number, open = true, lastPing: number | null = null) => ({ ws, open, since, lastPing });
+
+  it("picks the newest open socket, whatever the list order, and skips ones closed this side", () => {
+    // The 2026-10-07 failure: the old socket, closed when the new one came, still listed after it.
+    expect(liveSocket([sock("new", now - 5000), sock("old", now - 90_000, false)], now).live).toBe("new");
+    expect(liveSocket([sock("old", now - 9000, true, now - 1000), sock("new", now - 5000)], now).live).toBe("new");
+    expect(liveSocket([sock("old", now - 9000, false)], now)).toEqual({ live: null, stale: [] });
+  });
+
+  it("counts a socket that stopped pinging as gone, and returns it to close", () => {
+    const silent = sock("silent", now - 10 * 60_000, true, now - PING_GRACE_MS - 1);
+    expect(liveSocket([silent], now)).toEqual({ live: null, stale: ["silent"] });
+    expect(liveSocket([sock("pinging", now - 10 * 60_000, true, now - 15_000)], now).live).toBe("pinging");
+    expect(liveSocket([sock("fresh", now - 30_000)], now).live).toBe("fresh"); // no ping yet, just connected
   });
 });
 
