@@ -491,6 +491,19 @@ back Pending. The idea: busy GPUs hand new calls on, from the PC to Modal, then 
   its own URL, routed as above. One container per app keeps every request of a job on the
   container that runs it (the 2026-09-29 failure, design appendix "Redeploying under load"). The
   apps share the `comfy-gen-data` Volume, so models are stored once; an update deploys each.
+- **Sticky sessions (Modal, seen 2026-10-07), the better route for more Modal:** the Worker starts
+  a session per job (`POST <server>/_modal/sessions/start` with the proxy token returns a session
+  token), sends every request of that job with `Modal-Authorization: Bearer <token>`, which keeps
+  them on one container, then ends it (`/_modal/sessions/terminate`). On an `@app.server` with
+  `@modal.sessioned()`, `max_concurrency` / `target_concurrency` count sessions, so one job per
+  session spreads jobs over containers up to `max_containers`, and a session start waits up to
+  5 min for capacity instead of a 503. Shape: app 0 unchanged (one container, the user's
+  keep-warm), plus one sessioned overflow app (N containers, a short keep-warm; keep-warm is per
+  app). To check first: `modal.sessioned` in our pinned Modal (1.5.5); the session start's auth
+  (the docs show `Authorization: Bearer`, we use `Modal-Key`/`Modal-Secret`); ending sessions
+  reliably (a container stays up while it hosts one; `idle_timeout` 600 s by default); a Pending
+  result's `fetch_result` carrying the session token; sessions across a redeploy (undocumented);
+  non-session traffic is rejected. The per-call `filename_prefix` is still needed.
 - **Keep-warm:** app 0 keeps the user's time. The overflow apps exist only for going over, so they
   default to a much shorter one (1 minute, the shortest `POST /idle` takes now): a spill bills little
   more than its own job. GPU entries already have their own `keep_warm_minutes`. The Spend limit
