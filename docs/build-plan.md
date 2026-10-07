@@ -497,9 +497,11 @@ back Pending. The idea: busy GPUs hand new calls on, from the PC to Modal, then 
   them on one container, then ends it (`/_modal/sessions/terminate`). On an `@app.server` with
   `@modal.sessioned()`, `max_concurrency` / `target_concurrency` count sessions, so one job per
   session spreads jobs over containers up to `max_containers`, and a session start waits up to
-  5 min for capacity instead of a 503. Shape: app 0 unchanged (one container, the user's
-  keep-warm), plus one sessioned overflow app (N containers, a short keep-warm; keep-warm is per
-  app). To check first: `modal.sessioned` in our pinned Modal (1.5.5); the session start's auth
+  5 min for capacity instead of a 503. Shape (decided 2026-10-07): app 0 itself becomes the
+  sessioned app, with up to N containers; no second app. The extra containers idle for the same
+  keep-warm as the first (keep-warm is per app), which is cheap: two extra L4s after a burst cost
+  about $0.10–0.15 at the default 5 minutes. This replaces the separate apps and their short
+  keep-warm above. To check first: `modal.sessioned` in our pinned Modal (1.5.5); the session start's auth
   (the docs show `Authorization: Bearer`, we use `Modal-Key`/`Modal-Secret`); ending sessions
   reliably (a container stays up while it hosts one; `idle_timeout` 600 s by default); a Pending
   result's `fetch_result` carrying the session token; sessions across a redeploy (undocumented);
