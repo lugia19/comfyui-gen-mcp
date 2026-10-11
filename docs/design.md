@@ -482,7 +482,7 @@ step is through. On the site that means a question answered, every account ticke
 walkthrough walked to its end, remembered once done; on the Worker's page it is the step's real
 state (storage on, the PC paired, Modal deployed, Claude connected), with "Waiting for …" under a
 disabled Next. The models step lets you go on while they download. Optional walkthroughs (the
-budget alert, Modal's spend limit, the Mac's Gatekeeper) open over the window and gate nothing. The
+budget alert, Modal's spend limit) open over the window and gate nothing. The
 login page sits beside the token walkthrough the same way. Without JavaScript the site is still
 the long page with every step open; a walkthrough that can't load falls back to its plain steps
 and holds nothing.

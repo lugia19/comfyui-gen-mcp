@@ -492,7 +492,8 @@ and the Worker's test worlds, plus no JavaScript and a missing screenshot.
 Round 2, from the run-through: inputs appear only once the walkthrough reaches the step that
 gives them (Modal's command, the connector URL, the login token); the PC step in order (add, then
 download and pair, then the list); **Go to settings** on the last step; the build log's closing
-banner dropped. Checked on the test worlds at 1440×900, dark, including pairing a PC through a
+banner dropped. The Mac's Gatekeeper steps are a note beside Windows' and Linux's, not a
+walkthrough (`agent-run` and its placeholders removed). Checked on the test worlds at 1440×900, dark, including pairing a PC through a
 test hook and a blocked guides fetch.
 
 ## Later: spill-over between GPUs (parked 2026-10-04)

@@ -101,7 +101,6 @@
   // download and pairing link until it has.
   let pairing = $derived(pcs.find((g) => !g.seen))
   let linkCopied = $state(false)
-  let mac = $state(false) // the Mac walkthrough, over the page
   async function copyLink() {
     await navigator.clipboard.writeText(pairing.link)
     linkCopied = true
@@ -439,8 +438,9 @@
         <a href="{RELEASE}comfy-gen-agent-linux">Linux</a>.
       </p>
       <p class="muted">
-        It isn't signed yet: on Windows choose <b>More info → Run anyway</b>; on Linux, <code>chmod +x</code> it first.
-        macOS refuses it the first time: <button type="button" class="link" onclick={() => (mac = true)}>on a Mac? Show me how</button>
+        It isn't signed yet: on Windows choose <b>More info → Run anyway</b>; on Linux, <code>chmod +x</code> it first. On a
+        Mac, unzip it and open it; macOS refuses it the first time (click <b>Done</b>), so open <b>System Settings → Privacy
+        &amp; Security</b>, click <b>Open Anyway</b> next to comfy-gen-agent, and <b>Open Anyway</b> again when it asks.
       </p>
       <Tour ids={['agent-pair']} mode="wizard" bind:at={pairAt}>
         <ol>
@@ -600,11 +600,6 @@
 </Wizard>
 {/if}
 
-{#if mac}
-  <Tour ids={['agent-run']} title="Opening the agent on a Mac" mode="overlay" onclose={() => (mac = false)}>
-    <p>Unzip it and open it. When macOS refuses it, choose <b>Open Anyway</b> in System Settings → Privacy &amp; Security.</p>
-  </Tour>
-{/if}
 {#if pop}
   <Tour ids={pop[0]} title={pop[1]} mode="overlay" onclose={() => (pop = null)}>
     <p>This walkthrough couldn't be loaded.</p>

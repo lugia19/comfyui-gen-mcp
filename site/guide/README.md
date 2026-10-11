@@ -16,9 +16,8 @@ holds the logic, `tour.css` the look. Fixing a guide needs no release: the Worke
   A step without either is text only.
 - `size` is the image's width and height. `html` allows `<b>`, `<i>` and `<code>`; anything else
   shows as text.
-- `"image": null` is a placeholder ("Screenshot coming"): the macOS views of `agent-run`, until a
-  Mac's screenshots exist. To fill one in, add the PNG here and give the view its `image`, `size`
-  and each step's `box` or `at` and `side`.
+- `"image": null` is a placeholder ("Screenshot coming"); no guide uses one now. To fill one in, add
+  the PNG here and give the view its `image`, `size` and each step's `box` or `at` and `side`.
 - Each guide's element keeps its plain steps inside, shown without JavaScript, when `guides.json`
   doesn't load, or when a screenshot is missing.
 - In the setup wizards (`wizard.css`) a walkthrough's screenshot is pinned to the left of the
