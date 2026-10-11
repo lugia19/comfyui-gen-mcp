@@ -539,25 +539,16 @@ back Pending. The idea: busy GPUs hand new calls on, from the PC to Modal, then 
   image sooner. Spilling to a cold app pays only when the line is longer than a cold start (about
   44 s plus the model load).
 
-## Later: encrypt new images in R2 (jotted 2026-10-06)
+## Encrypted images in R2 (2026-10-11)
 
-A setting that stores new images encrypted, so they aren't kept in R2 in a readable form
-(automated scanning and the like). Not secrecy from the account's owner: the key sits in the same
-account.
+A setting, **Encrypt new images in R2** (Settings, off by default), from the note jotted
+2026-10-06: new outputs and uploads are stored AES-256-GCM sealed, with the key in the Worker's
+state, so they aren't readable in the bucket or to automated scanning (design §4). All of it is in
+`images.ts` (`Images`: put, get, serve), which `render`, `uploads.receive` and the hooks now take in
+place of the bucket; `POST /api/images/encryption`, and `encrypt_images` in the state. Measured
+first on a throwaway Worker (`comfy-gen-encprobe`, deleted after; billed `cpuTimeMs`, ten
+operations per request): encrypt 0.4 ms for 400 KB and 1.1 ms per MB, decrypt the same; the key
+import nothing measurable. Tests: sealed round trip through generate, `/img`, HEAD and edit;
+uploads; off again; a fixed sealed object (the format); a changed or moved file; a stale isolate;
+no storage. Checked in Chromium on a test world.
 
-- **Where:** every image read and write is in `packages/worker/src/images.ts` (`putImage`,
-  `getImage`, `serveImage`).
-- **Key:** one random AES-256 key, made the first time the setting is turned on and kept in the
-  State DO under a new key (a compatibility surface). Never rotated or deleted: losing it loses the
-  encrypted images.
-- **Write:** with the setting on, `putImage` encrypts with AES-GCM through `crypto.subtle` (native,
-  no JS loop over image bytes) and stores `application/octet-stream`, with `customMetadata` holding
-  a version mark, the IV and the real content type.
-- **Read:** `getImage` and `serveImage` decrypt when the mark is there; unmarked images read as
-  today. So the setting applies to new images only, and turning it off keeps old ones readable.
-  `/img/<id>` buffers instead of streaming (fine at a few hundred KB). `/img` answers are already
-  `Cache-Control: private`, so Cloudflare's cache keeps no decrypted copy.
-- **Scope:** images only (outputs and edit uploads under `img/`). LoRAs stay plain: Modal and the
-  agent download them from R2 through signed URLs. ComfyUI's own output and input folders, on
-  Modal's Volume and on the PC, are outside it.
-- **Check:** CPU per call from Workers Logs (`cpuTimeMs`) with the setting on.

@@ -18,6 +18,7 @@ export interface StoredObject {
   size: number;
   httpEtag: string;
   httpMetadata?: { contentType?: string };
+  customMetadata?: Record<string, string>; // an encrypted image's mark (images.ts)
   range?: { offset?: number; length?: number };
   body: ReadableStream;
   arrayBuffer(): Promise<ArrayBuffer>;
@@ -36,7 +37,7 @@ export interface Bucket {
   put(
     key: string,
     value: ReadableStream | ArrayBuffer | ArrayBufferView | null,
-    options?: { httpMetadata?: { contentType?: string } },
+    options?: { httpMetadata?: { contentType?: string }; customMetadata?: Record<string, string> },
   ): Promise<{ size: number } | null>;
   delete(keys: string | string[]): Promise<void>;
   list(options?: { prefix?: string; cursor?: string; limit?: number }): Promise<{ objects: { key: string; size: number }[]; truncated: boolean; cursor?: string }>;

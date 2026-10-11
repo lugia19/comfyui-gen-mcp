@@ -2,13 +2,12 @@
 // edits) and a link. The inline WebP is also what is stored in R2 under that id.
 
 import { ComfyUIError, imageBlock, previewImage, textBlock, type ComfyUIClient, type Content, type Outcome } from "@comfy-gen/core";
-import { putImage } from "./images.ts";
-import type { Bucket } from "./platform.ts";
+import type { Images } from "./images.ts";
 
 export const text = textBlock;
 
 /** [content blocks, isError] for an outcome. */
-export async function render(outcome: Outcome, client: ComfyUIClient, baseUrl: string, bucket: Bucket): Promise<[Content[], boolean]> {
+export async function render(outcome: Outcome, client: ComfyUIClient, baseUrl: string, images: Images): Promise<[Content[], boolean]> {
   if (outcome.kind === "pending") return [[text(outcome.text())], false];
   if (outcome.kind === "failed") return [[text(outcome.text())], true];
   const content: Content[] = [];
@@ -20,7 +19,7 @@ export async function render(outcome: Outcome, client: ComfyUIClient, baseUrl: s
       if (!(e instanceof ComfyUIError)) throw e;
       return [[text(`Error: the image was generated but could not be fetched: ${e.message}`)], true];
     }
-    const id = await putImage(bucket, bytes);
+    const id = await images.put(bytes);
     content.push(imageBlock(bytes));
     content.push(text(`image_id: ${id}\nFull resolution: ${baseUrl}/img/${id}`));
   }

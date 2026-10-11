@@ -184,6 +184,113 @@ describe("MCP", () => {
   });
 });
 
+describe("encrypted images", () => {
+  const encrypt = async (app: App, on: boolean) => {
+    const resp = await app.handle(request("POST", "/api/images/encryption", { on }, await login(app)));
+    expect([resp.status, await body(resp)]).toEqual([200, { encrypt_images: on }]);
+  };
+  const generate = async (app: App) => {
+    const [, r] = await mcp(app, "tools/call", { name: "generate_realistic_image", arguments: { prompt: "a harbor" } });
+    return r.result.content[1].text.split("image_id: ")[1].split("\n")[0] as string;
+  };
+  const has = (hay: Uint8Array, needle: Uint8Array) => Buffer.from(hay).includes(Buffer.from(needle));
+
+  it("with the setting on, new images are stored sealed; /img, HEAD and edits read them", async () => {
+    const { app, comfy, bucket } = world();
+    await withGenerator(app);
+    await encrypt(app, true);
+    expect((await body(await app.handle(request("GET", "/api/state", undefined, await login(app))))).encrypt_images).toBe(true);
+    const id = await generate(app);
+    const stored = bucket.objects.get(`img/${id}`)!;
+    expect(stored.contentType).toBe("application/octet-stream");
+    expect(stored.customMetadata).toMatchObject({ enc: "aes-gcm-1", type: "image/webp" });
+    expect(has(stored.data, comfy.viewBody.subarray(0, 12))).toBe(false); // not the WebP
+    expect(stored.data.length).toBe(comfy.viewBody.length + 16); // plus the GCM tag
+
+    const resp = await app.handle(request("GET", `/img/${id}`));
+    expect([resp.status, resp.headers.get("content-type"), resp.headers.get("content-length")]).toEqual([200, "image/webp", String(comfy.viewBody.length)]);
+    expect(new Uint8Array(await resp.arrayBuffer())).toEqual(comfy.viewBody);
+    const head = await app.handle(request("HEAD", `/img/${id}`));
+    expect([head.status, head.headers.get("content-type"), head.headers.get("content-length"), head.body]).toEqual([200, "image/webp", String(comfy.viewBody.length), null]);
+
+    const [, r] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "stormy", image: id } }, 2);
+    expect(r.result.isError).toBe(false);
+    expect(has(comfy.uploads.at(-1)!, comfy.viewBody)).toBe(true); // ComfyUI got the real bytes
+  });
+
+  it("uploads are sealed too, and edits open them", async () => {
+    const { app, comfy, bucket } = world();
+    await withGenerator(app);
+    await encrypt(app, true);
+    const [, r] = await mcp(app, "tools/call", { name: "request_upload", arguments: { filename: "cat.png" } });
+    const token = r.result.content[0].text.split("/upload/")[1].split("'")[0];
+    const { image_id } = await body(await app.handle(request("POST", `/upload/${token}`, png(64, 48))));
+    expect(bucket.objects.get(`img/${image_id}`)!.customMetadata).toMatchObject({ enc: "aes-gcm-1", type: "image/png" });
+    const [, e] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "add a hat", image: image_id } }, 2);
+    expect(e.result.isError).toBe(false);
+    expect(has(comfy.uploads.at(-1)!, png(64, 48))).toBe(true);
+  });
+
+  it("turned off, new images are plain and sealed ones still read; the key never changes", async () => {
+    const { app, comfy, bucket } = world();
+    await withGenerator(app);
+    await encrypt(app, true);
+    const key = (await app.fresh.secrets()).image_key;
+    expect(key).toMatch(/^[0-9a-f]{64}$/);
+    const sealed = await generate(app);
+    await encrypt(app, false);
+    const plain = await generate(app);
+    expect(bucket.objects.get(`img/${plain}`)).toEqual({ data: comfy.viewBody, contentType: "image/webp" });
+    expect(new Uint8Array(await (await app.handle(request("GET", `/img/${sealed}`))).arrayBuffer())).toEqual(comfy.viewBody);
+    await encrypt(app, true);
+    expect((await app.fresh.secrets()).image_key).toBe(key);
+  });
+
+  it("the stored format: a fixed sealed object opens (a compatibility surface)", async () => {
+    const { app, bucket } = world();
+    await app.store.updateSecrets({ image_key: "5a".repeat(32) }); // the setting itself is off
+    const sealed = fromHex("1fe86b232ec3becc59718fbeec776d28e924ba1d24c11477920cdcc17c45a33a49591717b2213466766c3707268539ce5ad49d36df59");
+    await bucket.put("img/h3Kd9QxA", sealed, { httpMetadata: { contentType: "application/octet-stream" }, customMetadata: { enc: "aes-gcm-1", iv: "AAECAwQFBgcICQoL", type: "image/webp" } });
+    const resp = await app.handle(request("GET", "/img/h3Kd9QxA"));
+    expect([resp.status, resp.headers.get("content-type")]).toEqual([200, "image/webp"]);
+    expect(new Uint8Array(await resp.arrayBuffer())).toEqual(fromHex("52494646100000005745425056503820636f6d66792d67656e20666978656420766563746f72"));
+  });
+
+  it("a changed file, or one moved to another id, doesn't open: an error, not garbage", async () => {
+    const { app, bucket } = world();
+    await withGenerator(app);
+    await encrypt(app, true);
+    const id = await generate(app);
+    const o = bucket.objects.get(`img/${id}`)!;
+    bucket.objects.set("img/h3Kd9QxA", { ...o, data: o.data.slice() }); // the same bytes under another id
+    o.data[20] ^= 1;
+    for (const name of [id, "h3Kd9QxA"]) {
+      const resp = await app.handle(request("GET", `/img/${name}`));
+      expect([resp.status, await resp.text()]).toEqual([404, expect.stringContaining("can't be decrypted")]);
+    }
+    const [, r] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "x", image: id } }, 2);
+    expect(r.result.isError).toBe(true);
+    expect(r.result.content[0].text).toContain(`Image ${id} is stored encrypted and can't be decrypted`);
+  });
+
+  it("an isolate that cached the secrets before the key existed reads past its cache", async () => {
+    const { app, clock } = world();
+    await withGenerator(app);
+    const before = await app.fresh.secrets();
+    await encrypt(app, true);
+    const id = await generate(app);
+    cacheEntry("secrets", [clock.now(), before]); // another isolate's view, from before the key
+    const resp = await app.handle(request("GET", `/img/${id}`));
+    expect(resp.status).toBe(200);
+  });
+
+  it("needs storage", async () => {
+    const { app } = world({ noStorage: true });
+    const resp = await app.handle(request("POST", "/api/images/encryption", { on: true }, await login(app)));
+    expect(resp.status).toBe(409);
+  });
+});
+
 describe("settings API", () => {
   it("login with a token that sees this Worker", async () => {
     const { app, net } = world();

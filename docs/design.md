@@ -347,6 +347,21 @@ stored `custom_workflow` setting is dropped on read.
 - **Image URLs.** `/img/<id>` streams the stored image from R2 (no GPU involved; about 0 ms of
   CPU). Each result's text block carries the image id and this URL for the user. No
   `resource_link`.
+- **Encrypted images (2026-10-11), a setting, off by default.** With **Encrypt new images in R2** on
+  (Settings), a new image (output or upload) is stored sealed, so it isn't readable in the bucket
+  or to automated scanning. Not secrecy from the account's owner: the key sits in the same
+  account. AES-256-GCM through `crypto.subtle` with the Worker's image key (`secrets.image_key`,
+  made the first time the setting is turned on, never rotated or deleted: losing it loses those
+  images), a random 12-byte IV, and the R2 key `img/<id>` as associated data, so a sealed file
+  only opens under its own id. Stored as `application/octet-stream` with R2 `customMetadata`
+  `{enc: "aes-gcm-1", iv: <base64>, type: <the image's type>}`. Reads open any object with the
+  mark, whatever the setting; unmarked objects read as before, so turning it off keeps sealed
+  images readable and new ones plain. `/img/<id>` buffers a sealed image to decrypt it (HEAD
+  answers from the metadata); an isolate that cached the secrets before the key existed reads
+  them again. A file that fails to open (changed, or moved to another id) answers 404 or a tool
+  error, never garbage. Scope `img/` only: LoRAs stay plain (Modal and the agent fetch them by
+  signed URL). Cost, measured on a probe Worker: about 1 ms of CPU per MB each way (0.4 ms for a
+  400 KB WebP), so +0.4 ms per generation, +0.8 per edit, and an upload 1 ms per MB.
 - **Edits** read the image from R2 and upload it into the answering ComfyUI's inputs as
   `upload-<id>.<ext>`, so editing the same image twice reuses one file; its size comes from the
   bytes. A URL is downloaded and uploaded the same way.
@@ -593,6 +608,7 @@ result, pick the GPU and install ComfyUI (or keep the old extension's). No accou
 | LoRA upload session id | Worker state (`lora_uploads`), the settings page or the agent | Names one R2 multipart upload; the settings page's cookie or the agent's pairing secret is still required (24 h) |
 | Storage link | Modal, the agent | `/store/<token>`: reads one stored object, the token signed with the HMAC key (6 h) |
 | Image id | Chats | 8 random base62 characters: the image in R2, read by `/img/<id>` and `edit_image` (a year) |
+| Image key | Worker state (`image_key`) | AES-256 key for images stored encrypted (§4); made once, never changed |
 
 **Login.** There is no setup password: the first login is a Cloudflare token. A fresh install's URL is not secret: the Worker name is the
 template's `comfy-gen` for nearly everyone, and each account's workers.dev subdomain is public in

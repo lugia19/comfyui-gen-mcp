@@ -100,6 +100,24 @@
     }
   }
 
+  // Images in R2, the Worker's only: new ones stored encrypted (design §4). Saved on click.
+  let encrypt = $state(Boolean(fixed.info.encrypt_images))
+  let encryptBusy = $state(false)
+  let encryptError = $state('')
+  async function setEncrypt(on) {
+    encryptBusy = true
+    encryptError = ''
+    try {
+      encrypt = (await api('POST', '/images/encryption', { on })).encrypt_images
+      await refresh()
+    } catch (e) {
+      encrypt = !on
+      encryptError = e.message
+    } finally {
+      encryptBusy = false
+    }
+  }
+
   async function save() {
     saving = true
     message = ''
@@ -203,3 +221,24 @@
 {#if machine || gpus.some((g) => g.kind !== 'url')}
   <section>{#key saves}<Models local={machine} />{/key}</section>
 {/if}
+
+{#if !machine && fixed.info.storage}
+  <section>
+    <h2>Images in storage</h2>
+    <label class="check">
+      <input type="checkbox" checked={encrypt} disabled={encryptBusy} onchange={(e) => setEncrypt(e.currentTarget.checked)} />
+      Encrypt new images in R2
+    </label>
+    <p class="muted">
+      New images are stored encrypted, so they aren't readable in your R2 bucket, by you or by automated scanning. The key
+      stays in this Worker, so anyone who controls your Cloudflare account could still decrypt them. Images stored before
+      are left as they are; turning this off keeps the encrypted ones readable here.
+    </p>
+    {#if encryptError}<p class="err">{encryptError}</p>{/if}
+  </section>
+{/if}
+
+<style>
+  .check { display: flex; gap: 8px; align-items: center; font-weight: normal; }
+  .check input { width: auto; margin: 0; }
+</style>

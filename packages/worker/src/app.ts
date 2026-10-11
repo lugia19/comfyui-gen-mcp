@@ -6,7 +6,7 @@
 
 import {
   Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, SETTINGS_SCHEMA, UnknownTool,
-  builtinPacks, downloadSize, fromHex, fromUtf8, groupByTool, packMetadata, refs, relay, select, sniffMime, tokenUrlsafe, safeEqual,
+  builtinPacks, downloadSize, fromHex, fromUtf8, groupByTool, packMetadata, refs, relay, select, sniffMime, tokenHex, tokenUrlsafe, safeEqual,
   withoutLora, LORA_GROUPS, loraGroupMetadata, tagLoras, tagLooseLoras, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
@@ -16,7 +16,7 @@ import { offlineMessage, pausedMessage, PcHooks, WorkerHooks } from "./hooks.ts"
 import * as loras from "./loras.ts";
 import * as modalAdmin from "./modal-admin.ts";
 import { bodyJson, error, json, withUserAgent, type Bucket, type Fetch, type Platform } from "./platform.ts";
-import { serveImage } from "./images.ts";
+import { Images } from "./images.ts";
 import { render, text } from "./render.ts";
 import { RelayTransport } from "./relay.ts";
 import { Store, type Secrets } from "./store.ts";
@@ -96,6 +96,11 @@ export class App {
     return this.p.bucket;
   }
 
+  /** The images in R2 (encrypted or not, images.ts); NoStorage while it isn't bound. */
+  private get images(): Images {
+    return new Images(this.bucket, this.store, this.fresh);
+  }
+
   /** The LoRAs in R2: none while it isn't bound. */
   private storedLoras(): Promise<Record<string, number>> {
     return this.p.bucket ? loras.stored(this.p.bucket) : Promise.resolve({});
@@ -106,7 +111,7 @@ export class App {
     const path = url.pathname;
     try {
       if (path.startsWith("/mcp/")) return await this.mcp(req, url, path.slice(5));
-      if (path.startsWith("/img/") && (req.method === "GET" || req.method === "HEAD")) return await serveImage(this.bucket, path.slice(5), req.method === "HEAD");
+      if (path.startsWith("/img/") && (req.method === "GET" || req.method === "HEAD")) return await this.images.serve(path.slice(5), req.method === "HEAD");
       if (path.startsWith("/upload/") && req.method === "POST") return await this.upload(req, path.slice(8));
       if (path === "/build-callback" && req.method === "POST") return await this.buildCallback(req);
       if (path === "/agent/sync" && req.method === "POST") return await this.agentSync(req, url);
@@ -360,10 +365,11 @@ export class App {
           if (target.kind === "pc") await this.setReady(target, packName, ready);
         };
         const client = this.client(target);
+        const images = this.images;
         const hooks =
           target.kind === "pc"
-            ? new PcHooks(client, key, this.fetch, this.store, `${url.origin}/`, this.p.relays(target.id), target, this.bucket, onReady)
-            : new WorkerHooks(client, key, this.fetch, this.admin(target), this.store, `${url.origin}/`, this.bucket, onReady);
+            ? new PcHooks(client, key, this.fetch, this.store, `${url.origin}/`, this.p.relays(target.id), target, images, onReady)
+            : new WorkerHooks(client, key, this.fetch, this.admin(target), this.store, `${url.origin}/`, images, onReady);
         const outcome = await new Brain(PACKS, cfg, client, "refs", { hooks }).call(name, args);
         tried.push(target);
         if (outcome.kind === "failed" && downloading && name !== "fetch_result") {
@@ -374,7 +380,7 @@ export class App {
           }
         }
         if (outcome.kind === "pending") outcome.token = `${target.id}:${outcome.token}`;
-        return render(outcome, client, url.origin, this.bucket);
+        return render(outcome, client, url.origin, images);
       }
     };
 
@@ -388,7 +394,7 @@ export class App {
 
   private async upload(req: Request, token: string): Promise<Response> {
     const s = await this.store.secrets();
-    return uploads.receive(token, new Uint8Array(await req.arrayBuffer()), this.bucket, hmacKey(s), this.p.now());
+    return uploads.receive(token, new Uint8Array(await req.arrayBuffer()), this.images, hmacKey(s), this.p.now());
   }
 
   // ── builds ────────────────────────────────────────────────────────
@@ -476,6 +482,14 @@ export class App {
     if (sub === "/setup/build" && req.method === "POST") return this.startBuild(req, url, s);
     if (sub === "/setup/build" && req.method === "GET") return this.buildState(url, s);
     if (sub === "/gpus" || sub.startsWith("/gpus/")) return this.gpuApi(req, url, sub);
+    if (sub === "/images/encryption" && req.method === "POST") {
+      // New images stored encrypted (images.ts). The key is made the first time and never changes:
+      // images already encrypted stay readable after the setting is turned off.
+      if (!this.p.bucket) return error(409, noStorageMessage(url.origin));
+      const on = (await bodyJson(req)).on === true;
+      await this.fresh.updateSecrets(on && !s.image_key ? { encrypt_images: true, image_key: tokenHex(32) } : { encrypt_images: on });
+      return json({ encrypt_images: on });
+    }
     if (sub === "/update") return this.update(req, s);
     if (sub === "/setup/rotate-connector" && req.method === "POST") {
       await this.fresh.updateSecrets({ mcp_secret: tokenUrlsafe(24) });
@@ -509,6 +523,7 @@ export class App {
       cloudflare: s.cf_token ? { account_id: s.cf_account_id ?? null, script: s.cf_script ?? null } : null,
       gpus: await this.gpuStates(url),
       storage: Boolean(this.p.bucket),
+      encrypt_images: Boolean(s.encrypt_images),
       setup_mode: await this.mode(setup), // not "mode": the page tells the agent and the extension apart by that
       mode_from_site: !setup.mode && ["cloud", "pc", "both"].includes(this.p.env.SETUP_MODE ?? ""),
       build: setup.build ?? null,

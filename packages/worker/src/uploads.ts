@@ -5,8 +5,8 @@
 // with an image id that edit_image takes. No GPU needs to be online for it.
 
 import { refs, sniffMime, type ComfyUIClient, type Content, type OutputImage } from "@comfy-gen/core";
-import { putImage } from "./images.ts";
-import { error, json, type Bucket } from "./platform.ts";
+import type { Images } from "./images.ts";
+import { error, json } from "./platform.ts";
 import { text } from "./render.ts";
 
 export const UPLOAD_TTL_S = 600;
@@ -81,7 +81,7 @@ export async function requestUpload(args: Record<string, any>, baseUrl: string, 
 }
 
 /** POST /upload/<token>: store the body in R2 under the token's nonce, answer with that image id. */
-export async function receive(token: string, body: Uint8Array, bucket: Bucket, key: Uint8Array, now: number): Promise<Response> {
+export async function receive(token: string, body: Uint8Array, images: Images, key: Uint8Array, now: number): Promise<Response> {
   let id: string;
   try {
     id = await refs.checkUpload(token, key, now);
@@ -93,7 +93,7 @@ export async function receive(token: string, body: Uint8Array, bucket: Bucket, k
   if (!body.length) return error(400, "empty body");
   try {
     const mime = checkImage(body);
-    await putImage(bucket, body, id);
+    await images.put(body, id);
     return json({ image_id: id, bytes: body.length, mime });
   } catch (e) {
     if (e instanceof BadImage) return error(e.status, e.message);

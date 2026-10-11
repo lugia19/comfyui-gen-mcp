@@ -9,10 +9,10 @@
 // twice reuses one file. An https URL is downloaded and uploaded the same way.
 
 import { ComfyUIError, Hooks, imageSize, refs, relay, tokenUrlsafe, type ComfyUIClient, type Pack, type ResolvedImage } from "@comfy-gen/core";
-import { getImage } from "./images.ts";
+import type { Images } from "./images.ts";
 import { ModalAdminError, packStatus, type ModalAdmin } from "./modal-admin.ts";
 import type { Gpu } from "./gpus.ts";
-import type { Bucket, Fetch } from "./platform.ts";
+import type { Fetch } from "./platform.ts";
 import type { RelayStub } from "./relay.ts";
 import type { Store } from "./store.ts";
 import { BadImage, storeInput } from "./uploads.ts";
@@ -24,7 +24,7 @@ export class WorkerHooks extends Hooks {
   private admin: ModalAdmin | null;
   private store: Store;
   private settingsUrl: string;
-  private bucket: Bucket;
+  private images: Images;
   /** Told whether this GPU has a pack's models: routing then sends the call elsewhere meanwhile. */
   protected onReady: (pack: string, ready: boolean) => Promise<void>;
 
@@ -35,11 +35,11 @@ export class WorkerHooks extends Hooks {
     admin: ModalAdmin | null,
     store: Store,
     settingsUrl: string,
-    bucket: Bucket,
+    images: Images,
     onReady: (pack: string, ready: boolean) => Promise<void> = async () => {},
   ) {
     super();
-    this.bucket = bucket;
+    this.images = images;
     this.onReady = onReady;
     this.client = client;
     this.key = key;
@@ -82,7 +82,7 @@ export class WorkerHooks extends Hooks {
       if (!(e instanceof refs.RefError)) throw e;
       throw new ComfyUIError(`${e.message} Pass an image_id from an earlier result or from request_upload, or a public https URL.`);
     }
-    const data = await getImage(this.bucket, id);
+    const data = await this.images.get(id);
     if (!data) throw new ComfyUIError(`There is no image ${id}: it was deleted after a year, or the id is mistyped.`);
     return this.input(data, id, `Image ${id}`);
   }
@@ -147,10 +147,10 @@ export class PcHooks extends WorkerHooks {
     settingsUrl: string,
     relayStub: RelayStub,
     gpu: Gpu,
-    bucket: Bucket,
+    images: Images,
     onReady: (pack: string, ready: boolean) => Promise<void> = async () => {},
   ) {
-    super(client, key, fetch, null, store, settingsUrl, bucket, onReady);
+    super(client, key, fetch, null, store, settingsUrl, images, onReady);
     this.relay = relayStub;
     this.gpu = gpu;
   }

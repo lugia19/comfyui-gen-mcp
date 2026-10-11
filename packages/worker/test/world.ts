@@ -27,15 +27,16 @@ export class FakeStorage implements StateStorage {
 /** R2 in memory: objects, ranges (as the binding reads them from request headers), multipart
  * uploads. A part's ETag is its SHA-256 here (R2's is its MD5; the Worker only passes it on). */
 export class FakeBucket implements Bucket {
-  objects = new Map<string, { data: Uint8Array; contentType?: string }>();
+  objects = new Map<string, { data: Uint8Array; contentType?: string; customMetadata?: Record<string, string> }>();
   uploads = new Map<string, { key: string; parts: Map<number, Uint8Array>; contentType?: string }>();
   ops: string[] = [];
 
   private obj(key: string, data: Uint8Array, contentType?: string, range?: { offset: number; length: number }): StoredObject {
     const slice = range ? data.subarray(range.offset, range.offset + range.length) : data;
+    const customMetadata = this.objects.get(key)?.customMetadata;
     return {
       key, size: data.length, httpEtag: `"${key}:${data.length}"`,
-      httpMetadata: { contentType }, ...(range ? { range } : {}),
+      httpMetadata: { contentType }, ...(customMetadata ? { customMetadata } : {}), ...(range ? { range } : {}),
       body: new Response(slice as BodyInit).body!,
       arrayBuffer: async () => slice.slice().buffer,
     };
@@ -57,10 +58,10 @@ export class FakeBucket implements Bucket {
     return o ? { key, size: o.data.length } : null;
   }
 
-  async put(key: string, value: ReadableStream | ArrayBuffer | ArrayBufferView | null, options?: { httpMetadata?: { contentType?: string } }) {
+  async put(key: string, value: ReadableStream | ArrayBuffer | ArrayBufferView | null, options?: { httpMetadata?: { contentType?: string }; customMetadata?: Record<string, string> }) {
     this.ops.push(`put ${key}`);
     const data = new Uint8Array(await new Response(value as BodyInit).arrayBuffer());
-    this.objects.set(key, { data, contentType: options?.httpMetadata?.contentType });
+    this.objects.set(key, { data, contentType: options?.httpMetadata?.contentType, customMetadata: options?.customMetadata });
     return { size: data.length };
   }
 
