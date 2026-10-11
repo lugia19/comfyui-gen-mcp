@@ -1,3 +1,7 @@
+<script module>
+  let lastStep = null // the step shown when the Setup tab was last left, for the page's life
+</script>
+
 <script>
   import { onDestroy, onMount } from 'svelte'
   import { api, imagesUrl as imagesUrlOf } from './api.js'
@@ -250,11 +254,17 @@
     finish: false, // where it ends: never ticked
   })
   let wizardSteps = $derived(steps.map((id) => ({ id, ...STEP[id], done: done[id], canLeave: id === 'models' ? deployed : done[id] })))
-  // Opens on the first step not done (on "You're set" when all are); an answer that drops the step
-  // shown sends it there too.
+  // Opens where it was last left on this page (the tab remounts it), else on the first step that
+  // can't be left yet: on "You're set" when none. Not "not done": the models step is passable while
+  // they download, and its list loads after this runs, so it would always open there. An answer that
+  // drops the step shown sends it on the same way.
   let current = $state(null)
   $effect(() => {
-    if (!current || !steps.includes(current)) current = (wizardSteps.find((s) => !s.done) ?? { id: 'finish' }).id
+    if (current && steps.includes(current)) return
+    current = lastStep && steps.includes(lastStep) ? lastStep : (wizardSteps.find((s) => !s.canLeave) ?? { id: 'finish' }).id
+  })
+  $effect(() => {
+    if (current) lastStep = current
   })
   let pop = $state(null) // an optional walkthrough over the page: [ids, title]
   // What a step asks you to fill in shows once its walkthrough reaches the step that gives it to you

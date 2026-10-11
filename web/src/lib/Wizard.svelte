@@ -31,9 +31,9 @@
   let at = $derived(Math.max(0, steps.findIndex((s) => s.id === current)))
   let step = $derived(steps[at])
   let nextStep = $derived(steps[at + 1])
-  // The bar opens a finished step, or the first unfinished one.
+  // The bar opens any step up to the first that can't be left yet (as Next would reach it).
   let reach = $derived.by(() => {
-    const i = steps.findIndex((s) => !s.done)
+    const i = steps.findIndex((s) => !(s.canLeave ?? s.done))
     return i < 0 ? steps.length - 1 : i
   })
   let walking = $derived((moved, tour !== null && !tour.atEnd()))
