@@ -1,0 +1,157 @@
+<script>
+  import { formatBytes } from './api.js'
+  import { LABEL, percent } from './models.svelte.js'
+
+  // Settings → Models: one card per image tool, side by side. A card picks the tool's model and its
+  // options (saved with the page's Save), and its foot shows that model's download on each GPU
+  // (*status*, a ModelStatus), which starts at once. *cfg* is the page's working copy, *saved* the
+  // last saved config, *packs* /api/state's tool groups.
+  let { cfg = $bindable(), saved, packs, status } = $props()
+
+  const MP = 1024 * 1024
+
+  function selected(group, config) {
+    const wanted = config.pack_selections[group.tool_name]
+    return group.packs.find((p) => p.name === wanted) || group.packs.find((p) => p.is_default) || group.packs[0]
+  }
+
+  function packSettings(pack) {
+    cfg.pack_settings[pack.family] ??= {}
+    return cfg.pack_settings[pack.family]
+  }
+
+  function megapixels(pack) {
+    const px = cfg.pack_settings[pack.family]?.max_pixels ?? pack.max_pixels
+    return Math.round((px / MP) * 100) / 100
+  }
+
+  function setMegapixels(pack, value) {
+    const mp = Math.min(Math.max(Number(value) || 0.5, 0.5), pack.max_pixels_limit / MP)
+    packSettings(pack).max_pixels = Math.round(mp * MP)
+  }
+</script>
+
+<div class="cards">
+  {#each packs as group (group.tool_name)}
+    {@const current = selected(group, cfg)}
+    {@const unsaved = current.name !== selected(group, saved).name}
+    {@const row = unsaved ? null : status.of(current.name)}
+    <section class="card">
+      <h2>{group.title || group.tool_name}</h2>
+      {#if group.packs.length > 1}
+        {#each group.packs as pack (pack.name)}
+          <label class="choice">
+            <input
+              type="radio"
+              name={group.tool_name}
+              value={pack.name}
+              checked={pack.name === current.name}
+              onchange={() => (cfg.pack_selections[group.tool_name] = pack.name)}
+            />
+            <span>
+              <b>{pack.display_name}</b>
+              <span class="muted">{formatBytes(pack.download_size)}</span><br />
+              <span class="muted">{pack.description}</span>
+            </span>
+          </label>
+        {/each}
+      {:else}
+        <p><b>{current.display_name}</b> <span class="muted">{formatBytes(current.download_size)}</span></p>
+        <p class="muted">{current.description}</p>
+      {/if}
+
+      {#if current.max_pixels_limit}
+        <label for="mp-{group.tool_name}">Maximum resolution (megapixels)</label>
+        <input
+          id="mp-{group.tool_name}"
+          type="number"
+          min="0.5"
+          step="0.25"
+          max={current.max_pixels_limit / MP}
+          value={megapixels(current)}
+          onchange={(e) => setMegapixels(current, e.currentTarget.value)}
+        />
+        <p class="muted">Up to {current.max_pixels_limit / MP} MP. Higher is slower.</p>
+      {/if}
+
+      {#if current.default_artist_list}
+        <label for="artists-{group.tool_name}">Artist styles</label>
+        <input
+          id="artists-{group.tool_name}"
+          type="text"
+          value={cfg.pack_settings[current.family]?.artist_list ?? ''}
+          placeholder={current.default_artist_list}
+          oninput={(e) => (packSettings(current).artist_list = e.currentTarget.value)}
+        />
+        <p class="muted">
+          Comma-separated; the first is the default. Browse styles in the
+          <a href="https://thetacursed.github.io/Anima-Style-Explorer/index.html" target="_blank" rel="noopener">Anima Style Explorer</a>.
+        </p>
+      {/if}
+
+      {#if unsaved || (row && status.backends.length)}
+      <div class="foot">
+        {#if unsaved}
+          <p class="muted">Not saved yet. Saving downloads {current.display_name} ({formatBytes(current.download_size)}) to any GPU that lacks it.</p>
+        {:else if row}
+          {#each status.backends as where (where)}
+            {@const s = row.on[where] ?? { state: 'unknown' }}
+            <div class="place">
+              <span class="where">{status.names[where] ?? 'This computer'}</span>
+              <span class:ok={s.state === 'done'} class:err={s.state === 'failed'} class:muted={s.state !== 'done' && s.state !== 'failed'}>
+                {s.state === 'done' ? '✓ ' : ''}{LABEL[s.state] || s.state}{s.state === 'downloading' ? percent(s) : ''}
+              </span>
+              {#if s.state === 'failed'}<button type="button" class="secondary small" onclick={() => status.seed(current.name, where)}>Retry</button>{/if}
+              {#if s.state === 'missing'}<button type="button" class="secondary small" onclick={() => status.seed(current.name, where)}>Download</button>{/if}
+            </div>
+            {#if s.state === 'downloading' && s.total}<progress max={s.total} value={s.done}></progress>{/if}
+            {#if s.error}<p class="err">{s.error}</p>{/if}
+          {/each}
+        {/if}
+      </div>
+      {/if}
+    </section>
+  {/each}
+</div>
+{#if status.error}<p class="err">{status.error}</p>{/if}
+<p class="muted">Models download once to each GPU (a PC's ComfyUI models folder, or your Modal Volume). A tool whose model is still downloading says so.</p>
+
+<style>
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+    align-items: start;
+  }
+  .card {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .card h2 {
+    margin-top: 4px;
+  }
+  .foot {
+    border-top: 1px solid var(--border);
+    margin-top: 14px;
+    padding-top: 8px;
+  }
+  .place {
+    display: flex;
+    align-items: center;
+    gap: 6px 12px;
+    flex-wrap: wrap;
+    margin: 4px 0;
+  }
+  .where {
+    font-weight: 600;
+    min-width: 90px;
+  }
+  .small {
+    margin: 0 0 0 auto;
+    padding: 3px 10px;
+  }
+  progress {
+    width: 100%;
+  }
+</style>

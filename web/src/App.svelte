@@ -34,10 +34,10 @@
   // mode "agent": the PC agent's page, its machine and its Worker; the pack settings are on the Worker.
   let local = $derived(info?.mode === 'local' || info?.mode === 'agent')
   let agent = $derived(info?.mode === 'agent')
-  // The Worker's Setup tab and its login are full-window wizards (wizard.css): the header stays on top
-  // and the page under it uses the whole width. --app-top is the header's height, for what sticks
-  // below it.
-  let wide = $derived(!checking && !local && (!info || (info.password_set && tab === 'setup')))
+  // The Worker's pages are full-window (wizard.css): its login and Setup are wizards, Settings has a
+  // section bar. The header stays on top and the page under it uses the whole width. --app-top is
+  // the header's height, for what sticks below it.
+  let wide = $derived(!checking && !local && (!info || info.password_set))
   let topH = $state(0)
 
   // Three pages look alike (the Worker's, the agent's, the extension's): their tabs say which.
@@ -62,13 +62,20 @@
     // The Worker's setup is finished once Claude has connected; until then it opens on Setup.
     const ready =
       info?.mode === 'agent' ? false : info?.mode === 'local' ? info.comfyui.state !== 'not_installed' : info?.claude_seen && info?.gpus?.length
-    tab = hasSettings && (ready || location.hash === '#settings') ? 'settings' : 'setup'
+    tab = hasSettings && (ready || location.hash.startsWith('#settings')) ? 'settings' : 'setup'
   }
 
-  function openSettings() {
-    tab = 'settings'
+  // #settings/<section> names the Settings section open; Setup has none.
+  let unsaved = $state(false) // Settings has changes waiting for Save
+  function show(t) {
+    if (t === tab) return
+    if (unsaved && !confirm('Leave Settings? Your unsaved changes will be lost.')) return
+    unsaved = false
+    tab = t
+    if (t === 'setup' && location.hash.startsWith('#settings')) history.replaceState(null, '', location.pathname)
     window.scrollTo(0, 0)
   }
+  const openSettings = () => show('settings')
 
   async function logout() {
     await api('POST', '/logout')
@@ -84,9 +91,9 @@
     <h1>Comfy-Gen-MCP</h1>
     {#if wide && info}
       <nav>
-        <button class:active={tab === 'setup'} onclick={() => (tab = 'setup')}>Setup</button>
+        <button class:active={tab === 'setup'} onclick={() => show('setup')}>Setup</button>
         {#if hasSettings}
-          <button class:active={tab === 'settings'} onclick={() => (tab = 'settings')}>Settings</button>
+          <button class:active={tab === 'settings'} onclick={() => show('settings')}>Settings</button>
         {/if}
       </nav>
     {/if}
@@ -122,9 +129,9 @@
   {:else}
     {#if !wide}
       <nav>
-        <button class:active={tab === 'setup'} onclick={() => (tab = 'setup')}>Setup</button>
+        <button class:active={tab === 'setup'} onclick={() => show('setup')}>Setup</button>
         {#if hasSettings}
-          <button class:active={tab === 'settings'} onclick={() => (tab = 'settings')}>Settings</button>
+          <button class:active={tab === 'settings'} onclick={() => show('settings')}>Settings</button>
         {/if}
       </nav>
     {/if}
@@ -134,7 +141,7 @@
         <LocalSetup {info} {refresh} />
       {:else}<Setup {info} {refresh} onsettings={hasSettings ? openSettings : null} />{/if}
     {:else}
-      <Settings {info} {refresh} />
+      <Settings {info} {refresh} onsetup={() => show('setup')} bind:unsaved />
     {/if}
   {/if}
 </main>

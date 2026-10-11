@@ -1,73 +1,26 @@
 <script>
-  import { onDestroy, onMount } from 'svelte'
-  import { api, formatBytes } from './api.js'
+  import { onDestroy, onMount, untrack } from 'svelte'
+  import { formatBytes } from './api.js'
+  import { LABEL, ModelStatus, percent } from './models.svelte.js'
 
-  // Download state of the selected packs, one row per pack. On the Worker a row has a mark per GPU
-  // (each PC, the Modal Volume): {gpus: [{id, name}], packs: [{…, on: {gpu id: status}}]}. On this
-  // machine (the extension, the agent) there is one place, and the answer is {packs: [{…status}]}.
-  // Saving the settings starts downloads everywhere; a missing pack can also be started here.
-  //
-  // It keeps checking while the page is open, since a tool call can start a download at any time.
-  // Each check that finds nothing new, or gets no answer, waits twice as long before the next (5 s
-  // up to 5 minutes); any change brings it back to 5 s.
+  // Download state of the selected packs, one row per pack (models.svelte.js keeps it fresh): on the
+  // Worker a mark per GPU, on this machine one. A missing pack can be started here.
   // *gpu* limits the Worker's list to one (the setup page's Modal step). *onchange* hears the rows
   // after each check.
   let { local = false, gpu = '', onchange = null } = $props()
-  let packs = $state(null) // [{name, display_name, size, on: {gpu id: status}}]
-  let backends = $state([])
-  let names = $state({}) // gpu id -> name
-  let error = $state('')
-  let timer = null
-
-  const FIRST_MS = 5000
-  const MAX_MS = 5 * 60 * 1000
-  let delay = FIRST_MS
-  let last = ''
-  let alive = true
-  const LABEL = {
-    done: 'Ready', queued: 'Queued', downloading: 'Downloading', failed: 'Failed', missing: 'Not downloaded',
-    unknown: 'Unknown', offline: 'Offline',
-  }
-  const query = gpu ? `?gpu=${gpu}` : ''
-
-  async function poll() {
-    let changed = false
-    try {
-      const got = await api('GET', `/models${query}`)
-      const seen = JSON.stringify(got)
-      changed = seen !== last
-      last = seen
-      // This machine's answer has one place: the pack's own fields are its status.
-      backends = got.gpus ? got.gpus.map((g) => g.id) : ['here']
-      names = Object.fromEntries((got.gpus ?? []).map((g) => [g.id, g.name]))
-      packs = got.gpus ? got.packs : got.packs.map((p) => ({ ...p, on: { here: p } }))
-      error = ''
-      onchange?.(packs)
-    } catch (e) {
-      error = e.message
-    }
-    delay = changed ? FIRST_MS : Math.min(delay * 2, MAX_MS)
-    if (alive) timer = setTimeout(poll, delay) // not after the page closed mid-check
-  }
-
-  async function start(pack, where) {
-    try {
-      await api('POST', '/models/seed', where === 'here' ? { pack: pack.name } : { pack: pack.name, gpu: where })
-      clearTimeout(timer)
-      delay = FIRST_MS
-      await poll()
-    } catch (e) {
-      error = e.message
-    }
-  }
-
-  const pct = (s) => (s.total ? ` ${Math.floor((100 * (s.done || 0)) / s.total)}%` : '')
-
-  onMount(poll)
-  onDestroy(() => {
-    alive = false
-    clearTimeout(timer)
+  const status = untrack(() => new ModelStatus(gpu)) // which GPU is fixed for the component's life
+  let packs = $derived(status.packs)
+  let backends = $derived(status.backends)
+  let names = $derived(status.names)
+  let error = $derived(status.error)
+  $effect(() => {
+    if (packs) onchange?.(packs)
   })
+  const start = (pack, where) => status.seed(pack.name, where)
+  const pct = percent
+
+  onMount(() => status.start())
+  onDestroy(() => status.stop())
 </script>
 
 {#if packs && packs.length}

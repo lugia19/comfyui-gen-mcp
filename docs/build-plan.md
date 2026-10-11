@@ -504,6 +504,16 @@ the version: `Update.svelte`, a button and a panel (Update now, the log, Try aga
 Checked in Chromium on a test world with a fake release and build (up to date, newer, building
 with its log, done, failed, Escape and outside clicks, Settings, a 390-wide phone).
 
+## Settings as a full-window page (2026-10-11)
+
+Settings had stayed one narrow column with Save in its middle, between settings it saved and
+settings that act at once. Now it has Setup's header and a section bar (Models, LoRAs, GPUs, Worker;
+the extension: Models, LoRAs, This computer). Models are cards side by side, each with its model's
+downloads per GPU (one shared poller, `models.svelte.js`). Save lives in a footer that appears only
+with unsaved changes and names them. The GPU list and the Worker's own settings (encryption,
+password, account) moved here from "You're set". Checked in Chromium on the test worlds (PC and
+Modal) at 1440, 1280 light and a 390-wide phone, and on the extension's page.
+
 ## Later: spill-over between GPUs (parked 2026-10-04)
 
 Today a call goes to the first GPU that is online, not paused and has the model ready (`App.pick`);

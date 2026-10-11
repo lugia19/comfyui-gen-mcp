@@ -60,3 +60,10 @@ export const loadGuides = () =>
 export const GPU_NAMES = { nvidia: 'NVIDIA', amd: 'AMD', intel: 'Intel Arc', mac: 'Apple silicon', cpu: 'CPU only' }
 export const gpuName = (id) => GPU_NAMES[id] ?? id
 export const platformName = (p) => ({ win32: 'Windows', darwin: 'macOS', linux: 'Linux' })[p] ?? p
+
+/** The R2 bucket's img/ folder in Cloudflare's dashboard, or '' if the login didn't find the account:
+ * the build names the bucket <worker>-storage (deploy.py). */
+export const imagesUrl = (info) =>
+  info.cloudflare?.account_id && info.cloudflare?.script
+    ? `https://dash.cloudflare.com/${info.cloudflare.account_id}/r2/default/buckets/${info.cloudflare.script}-storage?prefix=img%2F`
+    : ''

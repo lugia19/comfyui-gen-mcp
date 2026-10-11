@@ -445,15 +445,24 @@ and failing that the file waits in `loras-pending-delete.json` until ComfyUI sto
   one tool list, and its descriptions (styles, LoRA triggers, packs) cannot change with which
   backend is online, so separate settings needed a "keep these the same by hand" warning. What
   really differs per GPU is its files, so the one Settings page shows those per GPU:
-  - **Models:** a row per selected pack, with a mark per GPU (ready, downloading, missing with a
-    Download button). Saving starts the downloads on every GPU (`GET /api/models` returns
-    `{gpus, packs: [{…, on: {gpuId: status}}]}`; `?gpu=` for one).
+  - **Models:** a card per image tool, side by side: its model, its options, and the chosen
+    model's state on each GPU (ready, downloading, missing with a Download button). Saving starts
+    the downloads on every GPU, and a model picked but not saved says so (`GET /api/models` returns
+    `{gpus, packs: [{…, on: {gpuId: status}}]}`; `?gpu=` for one; one poll serves every card).
   - **LoRAs:** a row per file, with where it is (stored, each GPU, or copying) and its setup beside
     it (which packs, strength, trigger, hidden); upload and delete. Packs sharing a settings key
     share their LoRAs (Anima and Anima Turbo). A new trigger is the file name, with the `@` that
     Anima's artist tags use for packs whose styles are @tags. Every stored LoRA is copied to each
     GPU (§4, "LoRAs in R2").
-- The extension's page is the same, for its one computer. `#settings` opens the page directly.
+- **The page's shape (2026-10-11).** Full-window on the Worker, like Setup: a bar of sections
+  (Models, LoRAs, GPUs, Worker; on the extension Models, LoRAs, This computer), one shown at a time
+  (`#settings/<section>`). The config (models, options, LoRA choices, the extension's keep-warm) is
+  a working copy with one Save, in a footer that shows only while something differs from the last
+  save, naming what; Discard restores it, and leaving the page or the tab asks first. Everything
+  else acts at once and never shows there: uploads and deletes, downloads, the GPU list (rename,
+  order, keep-warm, pause), and the Worker section (image encryption, the password, the account).
+- The extension's page is the same, for its one computer, at its usual width. `#settings` opens
+  the page directly.
 
 ## 6. Setup flows
 

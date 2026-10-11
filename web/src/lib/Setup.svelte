@@ -1,10 +1,9 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { api } from './api.js'
+  import { api, imagesUrl as imagesUrlOf } from './api.js'
   import BuildLog from './BuildLog.svelte'
   import GpuList from './GpuList.svelte'
   import Models from './Models.svelte'
-  import SetPassword from './SetPassword.svelte'
   import Tour from './Tour.svelte'
   import Wizard from './Wizard.svelte'
 
@@ -265,11 +264,7 @@
   let pairAt = $state()
   let modalAt = $state()
   let claudeAt = $state()
-  // The bucket's img/ folder in Cloudflare's dashboard: the build names the bucket <worker>-storage
-  // (deploy.py), and the account is the one the login token found.
-  let imagesUrl = $derived(info.cloudflare?.account_id && info.cloudflare?.script
-    ? `https://dash.cloudflare.com/${info.cloudflare.account_id}/r2/default/buckets/${info.cloudflare.script}-storage?prefix=img%2F`
-    : '')
+  let imagesUrl = $derived(imagesUrlOf(info))
 </script>
 
 {#if current}
@@ -495,25 +490,12 @@
     <p>In a new chat, with the connector turned on, try:</p>
     <p><i>"Draw a lighthouse on a cliff at dusk, in watercolor."</i></p>
     <p class="muted">
-      Then ask for a change ("make it stormy"), or attach an image to edit. Styles, models and LoRAs are
-      in the <b>Settings</b> tab.
+      Then ask for a change ("make it stormy"), or attach an image to edit.
     </p>
-    {#if !wantPc && gpus.length}
-      <!-- With a PC step the list is there; otherwise, here: rename, pause, remove. -->
-      <h3>Your GPUs</h3>
-      <GpuList {gpus} {refresh} />
-    {/if}
-    <h3>Your Worker</h3>
-    {#if info.cloudflare}
-      <p class="muted">
-        Worker <code>{info.cloudflare.script}</code> in account <code>{info.cloudflare.account_id}</code>. Logging in
-        again with a new token replaces the stored one.
-      </p>
-    {/if}
-    <details class="guide">
-      <summary>Change the password</summary>
-      <SetPassword />
-    </details>
+    <p>
+      Everything else is in <b>Settings</b>: the models and their options, LoRAs, your GPUs (names, order, keep-warm),
+      image encryption and this page's password.
+    </p>
   {/if}
 </Wizard>
 {/if}
@@ -525,10 +507,6 @@
 {/if}
 
 <style>
-  .small {
-    margin-top: 0;
-    padding: 4px 12px;
-  }
   .failed {
     border: 1px solid var(--err);
     border-radius: 8px;
