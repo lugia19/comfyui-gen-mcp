@@ -12,6 +12,7 @@
   let busy = $state(false)
   let hasPassword = $state(null) // null while asking
   let useToken = $state(false)
+  let shot = $state(false) // the token walkthrough's screenshot shows: it takes the left of the window
 
   onMount(async () => {
     try {
@@ -56,7 +57,7 @@
     </p>
   </section>
 {:else}
-<section>
+<section class="login" class:wz-split={shot} style="--wz-top: var(--app-top, 0px)">
   <h2>Log in with Cloudflare</h2>
   <p>
     {#if hasPassword}
@@ -68,7 +69,7 @@
     {/if}
   </p>
   <p><a class="button" href={TOKEN_TEMPLATE_URL} target="_blank" rel="noopener">Open the pre-filled token page</a></p>
-  <Tour id="cf-token">
+  <Tour ids={['cf-token']} bind:shot>
     <ol>
       <li>The permissions are already ticked. Click <b>Continue to summary</b>, then <b>Create Token</b>, and paste it here.</li>
     </ol>
@@ -86,3 +87,13 @@
   <p class="muted">This browser stays logged in for a year.</p>
 </section>
 {/if}
+
+<style>
+  .login.wz-split {
+    background: none;
+    border: 0;
+    border-radius: 0;
+    margin: 0 0 0 auto;
+    padding: 24px 20px 40px;
+  }
+</style>

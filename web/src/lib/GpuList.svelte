@@ -8,6 +8,7 @@
   // and a ComfyUI by URL are added by their own steps. *gpus* is /api/state's list (with each one's
   // live state); *refresh* reloads it.
   let { gpus, refresh } = $props()
+  let mac = $state(false) // the Mac walkthrough, over the page
 
   const RELEASE = 'https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/'
   const KIND = { pc: 'PC', modal: 'Modal', url: 'ComfyUI by URL' }
@@ -140,23 +141,22 @@
           <a href="{RELEASE}comfy-gen-agent-macos.zip">macOS (Apple silicon)</a> or
           <a href="{RELEASE}comfy-gen-agent-linux">Linux</a>, and run it. It is not signed yet: on Windows choose
           <b>More info → Run anyway</b>; on Linux, <code>chmod +x</code> it first; on a Mac, macOS refuses it the first time:
-          <details class="guide">
-            <summary>On a Mac?</summary>
-            <Tour id="agent-run">
-              <p>Unzip it and open it. When macOS refuses it, choose <b>Open Anyway</b> in System Settings → Privacy &amp; Security.</p>
-            </Tour>
-          </details>
+          <button type="button" class="link" onclick={() => (mac = true)}>On a Mac? Show me how</button>
         </li>
         <li>Its page opens in your browser. Paste this pairing link there:</li>
       </ol>
       <div class="row"><code>{g.link}</code></div>
       <div class="row"><button type="button" onclick={() => copy(g)}>{copied === g.id ? 'Copied' : 'Copy link'}</button></div>
-      <Tour id="agent-pair" />
       <p class="muted">The link lets a PC generate for this Worker. Treat it like a password. On the agent's page, install
         ComfyUI next: it finds the models of ComfyUI installs you already have.</p>
     {/if}
   </div>
 {/each}
+{#if mac}
+  <Tour ids={['agent-run']} title="Opening the agent on a Mac" mode="overlay" onclose={() => (mac = false)}>
+    <p>Unzip it and open it. When macOS refuses it, choose <b>Open Anyway</b> in System Settings → Privacy &amp; Security.</p>
+  </Tour>
+{/if}
 {#if gpus.length > 1}
   <p class="muted">A call goes to the first GPU that is online, not paused, and has the model ready; the others take
     over when it can't. PCs pause from their tray icon too.</p>

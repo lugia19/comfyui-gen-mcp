@@ -1,7 +1,7 @@
 // The walkthroughs: tour-core.js's positions, and site/guide/guides.json against its screenshots.
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { marker, next, number, prev, safe, shown, start, total } from '../../site/guide/tour-core.js'
+import { concat, marker, next, number, prev, safe, shown, start, total } from '../../site/guide/tour-core.js'
 
 const dir = new URL('../../site/guide/', import.meta.url)
 const guides = JSON.parse(readFileSync(new URL('guides.json', dir), 'utf8'))
@@ -32,6 +32,13 @@ describe('tour positions', () => {
     expect(shown(g, { v: 0, s: 0 }).map((s) => [s.n, s.current])).toEqual([[1, true]])
     expect(shown(g, { v: 0, s: 1 }).map((s) => [s.n, s.current])).toEqual([[1, false], [2, true]])
     expect(shown(g, { v: 1, s: 0 })).toEqual([{ n: 3, html: 'three', current: true, mark: null }])
+  })
+
+  it('walks several guides as one, skipping missing ones', () => {
+    const two = concat({ a: g, b: { views: [{ image: null, steps: [{ html: 'four' }] }] } }, ['a', 'missing', 'b'])
+    expect(total(two)).toBe(4)
+    expect(number(two, { v: 2, s: 0 })).toBe(4)
+    expect(concat({ a: g }, ['missing'])).toBeNull()
   })
 
   it('anchors the badge on the box edge it sits beside, in percent', () => {

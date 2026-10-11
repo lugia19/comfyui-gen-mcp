@@ -478,6 +478,17 @@ macOS views of `agent-run` are placeholders until a Mac's screenshots exist; Win
 stays one line of text. Format and upkeep: `site/guide/README.md`. Account sign-ups stay plain links.
 
 
+## Setup as a full-window wizard (2026-10-11)
+
+The run-through found the setup site overwhelming (every step on one long page) and skippable (a
+walkthrough's own Next beside the step's "Done, next"). Both setups are now wizards: one step at a
+time filling the window, a walkthrough's screenshot pinned left and the step's text and controls
+right, one Next that walks the walkthrough and then moves on only once the step is through (design
+§8). The accounts step has a box to tick per account. A step can walk several guides as one
+(Modal's card then its token; claude.ai's connector then the chat). Optional guides open over the
+window. Checked in Chromium at 1440×900, 1280×720 and a 390-wide phone, light and dark, on the site
+and the Worker's test worlds, plus no JavaScript and a missing screenshot.
+
 ## Later: spill-over between GPUs (parked 2026-10-04)
 
 Today a call goes to the first GPU that is online, not paused and has the model ready (`App.pick`);

@@ -5,8 +5,8 @@
   import GpuList from './GpuList.svelte'
   import Models from './Models.svelte'
   import SetPassword from './SetPassword.svelte'
-  import Step from './Step.svelte'
   import Tour from './Tour.svelte'
+  import Wizard from './Wizard.svelte'
 
   // The Worker's setup, one step at a time (design §8): log in, turn on storage (R2), then the
   // answer to "where should images be made?" (asked on the setup site, which the Deploy button
@@ -49,6 +49,7 @@
     try {
       await api('POST', '/setup/mode', { mode: m })
       await refresh()
+      current = steps[steps.indexOf('mode') + 1]
     } catch (e) {
       modeError = e.message
     } finally {
@@ -227,18 +228,43 @@
   })
   onDestroy(() => clearTimeout(timer))
 
-  const status = (done, ready = true) => (done ? 'done' : ready ? 'current' : 'todo')
-
-  // Step numbers follow the steps shown (Log in is 1).
+  // The steps, for the answer given (Log in is behind us: the page needs it). Next leaves a step once
+  // it is done; the models download on while Claude is connected, so that step lets you go on.
+  const STEP = {
+    storage: { title: 'Turn on storage', short: 'Storage', waiting: 'Waiting for storage: turn R2 on, then press Check again.' },
+    mode: { title: 'Where should images be made?', short: 'Where', waiting: 'Choose an answer.' },
+    pc: { title: 'Set up your PC', short: 'PC', waiting: 'Waiting for your PC to pair.' },
+    deploy: { title: 'Deploy ComfyUI to Modal', short: 'Modal', waiting: 'Waiting for the deploy to finish.' },
+    models: { title: 'Download the models', short: 'Models', waiting: 'Waiting for the deploy.' },
+    url: { title: 'Connect your ComfyUI', short: 'ComfyUI', waiting: 'Waiting for your ComfyUI.' },
+    claude: { title: 'Connect Claude', short: 'Claude', waiting: 'Waiting for Claude to connect: ask it for an image.' },
+    finish: { title: "You're set", short: 'Done' },
+  }
   let steps = $derived.by(() => {
     const list = ['storage', 'mode']
     if (wantPc) list.push('pc')
     if (wantModal) list.push('deploy', 'models')
     if (wantUrl) list.push('url')
-    return [...list, 'claude']
+    return [...list, 'claude', 'finish']
   })
-  const num = (id) => 2 + steps.indexOf(id)
-  let claudeN = $derived(num('claude'))
+  let done = $derived({
+    storage,
+    mode: Boolean(mode),
+    pc: pcsReady,
+    deploy: deployed && !modalError,
+    models: modelsReady,
+    url: Boolean(urlGpu),
+    claude: Boolean(info.claude_seen),
+    finish: false, // where it ends: never ticked
+  })
+  let wizardSteps = $derived(steps.map((id) => ({ id, ...STEP[id], done: done[id], canLeave: id === 'models' ? deployed : done[id] })))
+  // Opens on the first step not done (on "You're set" when all are); an answer that drops the step
+  // shown sends it there too.
+  let current = $state(null)
+  $effect(() => {
+    if (!current || !steps.includes(current)) current = (wizardSteps.find((s) => !s.done) ?? { id: 'finish' }).id
+  })
+  let pop = $state(null) // an optional walkthrough over the page: [ids, title]
   // The bucket's img/ folder in Cloudflare's dashboard: the build names the bucket <worker>-storage
   // (deploy.py), and the account is the one the login token found.
   let imagesUrl = $derived(info.cloudflare?.account_id && info.cloudflare?.script
@@ -246,122 +272,149 @@
     : '')
 </script>
 
-<Step n={1} title="Log in" status="done" summary={info.cloudflare ? `Worker ${info.cloudflare.script}` : 'Logged in'}>
-  {#if info.cloudflare}
-    <p class="muted">
-      Worker <code>{info.cloudflare.script}</code> in account <code>{info.cloudflare.account_id}</code>. Logging in
-      again with a new token replaces the stored one.
-    </p>
+{#snippet updates()}
+  {#if update}
+    <section class="updates">
+      <h3>Updates</h3>
+      {#if update.dev}
+        <p class="muted">
+          This Worker runs a development build (<b>{update.current}</b>). It doesn't update itself; remove the
+          build's <code>COMFY_GEN_REF</code> variable to go back to releases.
+        </p>
+      {:else if update.newer}
+        <p>
+          This Worker runs <b>{update.current}</b>; <b>{update.latest}</b> is out.
+          <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/tag/{update.latest}" target="_blank" rel="noopener">What's new</a>
+        </p>
+        <p class="muted">
+          It updates itself within a day. Update now starts the build at once: it takes 2 to 5 minutes, and
+          {modalGpu ? 'redeploys ComfyUI on Modal too' : 'image requests keep working meanwhile'}.
+        </p>
+        {#if !update.building && !(updating && !updateFinished)}
+          <button onclick={updateNow} disabled={!update.can}>Update now</button>
+          {#if !update.can}<p class="muted">Log in again with a Cloudflare token to update from here.</p>{/if}
+        {/if}
+      {:else}
+        <p class="muted">
+          {#if update.latest}
+            This Worker runs {update.current}, the latest release. It checks for new ones every day.
+          {:else}
+            This Worker runs {update.current}. Couldn't check for a new release just now; it checks every day.
+          {/if}
+        </p>
+      {/if}
+      {#if updateError}<p class="err">{updateError}</p>{/if}
+      <!-- The log while an update builds (from here, the daily check or another tab), and after one
+           started here, so a failure stays readable. A finished build elsewhere shows nothing. -->
+      {#if update.build && (update.building || updating)}
+        {#key update.build}
+          <BuildLog
+            onfinished={async () => {
+              await refresh()
+              await loadUpdate()
+              updateFinished = true
+            }}
+          />
+        {/key}
+      {/if}
+      {#if updating && updateFinished && !update.newer}
+        <p class="ok">Updated. <a href="/" onclick={() => location.reload()}>Reload this page</a> for the new version's settings page.</p>
+      {/if}
+    </section>
   {/if}
-  <details class="guide">
-    <summary>Change the password</summary>
-    <SetPassword />
-  </details>
-</Step>
+{/snippet}
 
-<Step n={num('storage')} title="Turn on storage" status={status(storage)} summary={storage && info.cloudflare ? `R2 bucket ${info.cloudflare.script}-storage` : storage ? 'On' : ''}>
-  {#if storage}
-    {#if imagesUrl}
-      <p class="muted">
-        <a class="button secondary" href={imagesUrl} target="_blank" rel="noopener">Your images on Cloudflare</a>
-        Every image made, in the R2 bucket's <code>img/</code> folder; they expire after a year.
+{#if current}
+<Wizard steps={wizardSteps} bind:current>
+  {#if current === 'storage'}
+    {#if storage}
+      <p>Storage is on: images and LoRAs are kept in your Worker's R2 bucket, so any GPU can edit any image.</p>
+      {#if imagesUrl}
+        <p class="muted">
+          <a class="button secondary" href={imagesUrl} target="_blank" rel="noopener">Your images on Cloudflare</a>
+          Every image made, in the R2 bucket's <code>img/</code> folder; they expire after a year.
+        </p>
+      {/if}
+    {:else}
+      <p>
+        Images and LoRAs are kept in your Worker's storage (Cloudflare R2), so any GPU can edit any image. R2 is
+        free up to 10 GB, but Cloudflare wants a card on file for it, so it is turned on once, by hand.
       </p>
+      <p><a class="button" href={r2Url} target="_blank" rel="noopener">Open R2 in your Cloudflare dashboard</a></p>
+      <Tour ids={['r2']} mode="wizard">
+        <ol>
+          <li>Click <b>Add R2 subscription to my account</b>. It's $0 due, and asks for a card first if the account has none.</li>
+        </ol>
+      </Tour>
+      <p>Nothing is charged while you stay inside the free amounts. Back here, press <b>Check again</b>: your Worker redeploys
+        (about a minute) and picks up its storage.</p>
+      <button onclick={checkStorage} disabled={storageBusy || (storageBuild && !storageChecked)}>
+        {storageBusy ? 'Starting…' : storageBuild && !storageChecked ? 'Checking…' : 'Check again'}
+      </button>
+      {#if storageError}<p class="err">{storageError}</p>{/if}
+      {#if storageChecked}<p class="err">R2 still isn't on in this account: add the R2 subscription, then check again.</p>{/if}
+      {#if storageBuild}
+        {#key info.update_build}<BuildLog takes="about a minute" onfinished={async () => { await refresh(); storageChecked = true }} />{/key}
+      {/if}
     {/if}
-  {:else}
-    <p>
-      Images and LoRAs are kept in your Worker's storage (Cloudflare R2), so any GPU can edit any image. R2 is
-      free up to 10 GB, but Cloudflare wants a card on file for it, so it is turned on once, by hand.
+    <p class="muted">
+      Cloudflare already sets up a $10 budget alert, which emails if it ever costs anything; lower it if you like. It warns;
+      it doesn't stop anything.
+      <button type="button" class="link" onclick={() => (pop = [['cf-budget'], 'The budget alert'])}>Show me where</button>
     </p>
-    <p><a class="button" href={r2Url} target="_blank" rel="noopener">Open R2 in your Cloudflare dashboard</a></p>
-    <Tour id="r2">
-      <ol>
-        <li>Click <b>Add R2 subscription to my account</b>. It's $0 due, and asks for a card first if the account has none.</li>
-      </ol>
-    </Tour>
-    <p>Nothing is charged while you stay inside the free amounts. Back here, press <b>Check again</b>: your Worker redeploys
-      (about a minute) and picks up its storage.</p>
-    <button onclick={checkStorage} disabled={storageBusy || (storageBuild && !storageChecked)}>
-      {storageBusy ? 'Starting…' : storageBuild && !storageChecked ? 'Checking…' : 'Check again'}
-    </button>
-    {#if storageError}<p class="err">{storageError}</p>{/if}
-    {#if storageChecked}<p class="err">R2 still isn't on in this account: add the R2 subscription, then check again.</p>{/if}
-    {#if storageBuild}
-      {#key info.update_build}<BuildLog takes="about a minute" onfinished={async () => { await refresh(); storageChecked = true }} />{/key}
-    {/if}
-  {/if}
-  <p class="muted">
-    Cloudflare already sets up a $10 budget alert, which emails if it ever costs anything; lower it if you like. It warns;
-    it doesn't stop anything.
-  </p>
-  <details class="guide">
-    <summary>Show me where</summary>
-    <Tour id="cf-budget"><p><b>Manage account → Billing → Billable usage → Budget alerts</b>, then the pencil.</p></Tour>
-  </details>
-</Step>
-
-<Step n={num('mode')} title="Where should images be made?" status={status(Boolean(mode))} summary={mode ? MODES[mode].summary + (info.mode_from_site ? ' (your choice on the setup site)' : '') : ''}>
-  <label class="choice">
-    <input type="radio" name="mode" checked={mode === 'both'} disabled={modeBusy} onchange={() => choose('both')} />
-    <span><b>{MODES.both.title}</b> <span class="tag green">Recommended if you have a powerful GPU</span><br />
-      <span class="muted">Your PC when it is on (NVIDIA, AMD on Linux, or an Apple silicon Mac), the cloud when it is off.</span></span>
-  </label>
-  <label class="choice">
-    <input type="radio" name="mode" checked={mode === 'cloud'} disabled={modeBusy} onchange={() => choose('cloud')} />
-    <span><b>{MODES.cloud.title}</b> <span class="tag">Recommended for most people</span><br />
-      <span class="muted">No GPU needed, and it works with your PC off. Billed per second while it generates; new Modal accounts get $30 of free compute a month.</span></span>
-  </label>
-  <label class="choice">
-    <input type="radio" name="mode" checked={mode === 'pc'} disabled={modeBusy} onchange={() => choose('pc')} />
-    <span><b>{MODES.pc.title}</b><br />
-      <span class="muted">Your own GPU (NVIDIA, AMD on Linux, or an Apple silicon Mac), nothing billed. The PC has to be on to make images.</span></span>
-  </label>
-  {#if showAdvanced || mode === 'url'}
+  {:else if current === 'mode'}
     <label class="choice">
-      <input type="radio" name="mode" checked={mode === 'url'} disabled={modeBusy} onchange={() => choose('url')} />
-      <span><b>{MODES.url.title}</b><br />
-        <span class="muted">A ComfyUI you already run, reachable from the internet.</span></span>
+      <input type="radio" name="mode" checked={mode === 'both'} disabled={modeBusy} onchange={() => choose('both')} />
+      <span><b>{MODES.both.title}</b> <span class="tag green">Recommended if you have a powerful GPU</span><br />
+        <span class="muted">Your PC when it is on (NVIDIA, AMD on Linux, or an Apple silicon Mac), the cloud when it is off.</span></span>
     </label>
-  {:else}
-    <button type="button" class="link" onclick={() => (showAdvanced = true)}>Advanced: a ComfyUI by URL</button>
-  {/if}
-  {#if modeError}<p class="err">{modeError}</p>{/if}
-  {#if mode}<p class="muted">Changing this only adds steps; a GPU you no longer want is removed from the GPU list.</p>{/if}
-  <details class="guide">
-    <summary>Only using Claude Desktop, on the PC with the GPU?</summary>
-    <p>The Claude Desktop extension does it all on that PC, with no Worker and no accounts:</p>
-    <ol>
-      <li>Download <a href="{RELEASE}Comfy-Gen-MCP.mcpb">Comfy-Gen-MCP.mcpb</a> and open it: Claude Desktop installs it.</li>
-      <li>The Comfy-Gen icon appears in the tray. Open its settings page from there, choose your GPU and install ComfyUI.</li>
-      <li>Ask Claude Desktop for an image.</li>
-    </ol>
-    <p><b>Use the extension or this Worker's agent on a PC, never both:</b> each runs its own ComfyUI, and two don't fit on one GPU.</p>
-    <p class="muted">This Worker costs nothing idle: keep it for claude.ai and the phone app through Modal, or delete it from your Cloudflare dashboard.</p>
-  </details>
-</Step>
-
-{#if wantPc}
-  <Step n={num('pc')} title="Set up your PC" status={status(pcsReady, Boolean(mode))} summary={pcsReady ? pcSummary : ''}>
+    <label class="choice">
+      <input type="radio" name="mode" checked={mode === 'cloud'} disabled={modeBusy} onchange={() => choose('cloud')} />
+      <span><b>{MODES.cloud.title}</b> <span class="tag">Recommended for most people</span><br />
+        <span class="muted">No GPU needed, and it works with your PC off. Billed per second while it generates; new Modal accounts get $30 of free compute a month.</span></span>
+    </label>
+    <label class="choice">
+      <input type="radio" name="mode" checked={mode === 'pc'} disabled={modeBusy} onchange={() => choose('pc')} />
+      <span><b>{MODES.pc.title}</b><br />
+        <span class="muted">Your own GPU (NVIDIA, AMD on Linux, or an Apple silicon Mac), nothing billed. The PC has to be on to make images.</span></span>
+    </label>
+    {#if showAdvanced || mode === 'url'}
+      <label class="choice">
+        <input type="radio" name="mode" checked={mode === 'url'} disabled={modeBusy} onchange={() => choose('url')} />
+        <span><b>{MODES.url.title}</b><br />
+          <span class="muted">A ComfyUI you already run, reachable from the internet.</span></span>
+      </label>
+    {:else}
+      <button type="button" class="link" onclick={() => (showAdvanced = true)}>Advanced: a ComfyUI by URL</button>
+    {/if}
+    {#if modeError}<p class="err">{modeError}</p>{/if}
+    {#if mode}<p class="muted">{info.mode_from_site ? 'Your answer on the setup site. ' : ''}Changing this only adds steps; a GPU you no longer want is removed from the GPU list.</p>{/if}
+    <details class="guide">
+      <summary>Only using Claude Desktop, on the PC with the GPU?</summary>
+      <p>The Claude Desktop extension does it all on that PC, with no Worker and no accounts:</p>
+      <ol>
+        <li>Download <a href="{RELEASE}Comfy-Gen-MCP.mcpb">Comfy-Gen-MCP.mcpb</a> and open it: Claude Desktop installs it.</li>
+        <li>The Comfy-Gen icon appears in the tray. Open its settings page from there, choose your GPU and install ComfyUI.</li>
+        <li>Ask Claude Desktop for an image.</li>
+      </ol>
+      <p><b>Use the extension or this Worker's agent on a PC, never both:</b> each runs its own ComfyUI, and two don't fit on one GPU.</p>
+      <p class="muted">This Worker costs nothing idle: keep it for claude.ai and the phone app through Modal, or delete it from your Cloudflare dashboard.</p>
+    </details>
+  {:else if current === 'pc'}
     {#if pcsReady && allPaused}<p class="err">{pcs.length > 1 ? 'Every PC is' : 'This PC is'} paused: it won't take images until resumed (here or from its tray icon).</p>{/if}
     <p>
       Your PC runs a small agent that connects out to this Worker: nothing to open on your network. Add the PC here,
-      then paste its pairing link into the agent's page. Images are made on the GPUs below, tried in this order.
+      then paste its pairing link into the agent's page.
     </p>
-    <p class="muted">Once paired, the LoRAs already on that PC are copied into the Worker's storage, so every GPU gets them.</p>
+    <Tour ids={['agent-pair']} mode="wizard" />
     <GpuList {gpus} {refresh} />
     <div class="row">
       <button type="button" onclick={addPc} disabled={addBusy}>{addBusy ? 'Adding…' : pcs.length ? 'Add another PC' : 'Add a PC'}</button>
     </div>
     {#if addError}<p class="err">{addError}</p>{/if}
-  </Step>
-{/if}
-
-{#if wantModal}
-  <Step
-    n={num('deploy')}
-    title="Deploy ComfyUI to Modal"
-    status={status(deployed && !modalError)}
-    summary={modalError ? 'The last deploy failed' : deployed ? 'ComfyUI runs on Modal' : ''}
-  >
+    <p class="muted">Images are made on the GPUs listed, tried in this order. Once paired, the LoRAs already on that PC are
+      copied into the Worker's storage, so every GPU gets them.</p>
+  {:else if current === 'deploy'}
     <p>
       Images are generated by ComfyUI on <a href="https://modal.com" target="_blank" rel="noopener">Modal</a>, in
       your own account. New accounts get $30 of free compute a month.
@@ -382,49 +435,29 @@
         <span class="muted">with the token you gave last time</span>
       </div>
     {/if}
-    <details class="guide">
-      <summary>New to Modal? Show me how</summary>
+    <p class="muted">New to Modal? <a href="https://modal.com/signup" target="_blank" rel="noopener">Sign up</a> first (with GitHub is
+      simplest: the same account your Worker's copy lives in).</p>
+    <Tour ids={['modal-billing', 'modal-token']} mode="wizard">
       <ol>
-        <li><a href="https://modal.com/signup" target="_blank" rel="noopener">Sign up for Modal</a> (with GitHub is simplest: the same account your Worker's copy lives in).</li>
-        <li>Add a card: <b>Settings → Usage &amp; billing → Manage payment details</b>. Modal needs one on file to run
-          GPUs; the $30 of free compute each month is used first.</li>
-        <li>Optional: on the same page's <b>Usage limit</b> tab, set the <b>Spend limit</b>, so Modal can never bill more than you choose.</li>
-        <li>Then make the token as below.</li>
-      </ol>
-    </details>
-    <p><b>Add a card first:</b> Modal runs GPUs only with a card on file, even on the free $30
-      (<b>Settings → Usage &amp; billing → Manage payment details</b>). Without one the deploy fails.</p>
-    <details class="guide">
-      <summary>Show me where</summary>
-      <Tour id="modal-billing" />
-    </details>
-    <p>Then make a token for your Worker:</p>
-    <Tour id="modal-token">
-      <ol>
+        <li><b>Add a card first:</b> Modal runs GPUs only with a card on file, even on the free $30
+          (<b>Settings → Usage &amp; billing → Manage payment details</b>). Without one the deploy fails.</li>
         <li>In Modal, open <b>Settings → API tokens &amp; service users</b>, click <b>New Token</b>, then
           <b>Create token</b> (the name is optional).</li>
         <li>Modal shows the token once, inside a command: <code>modal token set --token-id ak-… --token-secret as-…</code>.
           Copy the whole command with its copy button and paste it into <b>Modal command</b> below.</li>
       </ol>
     </Tour>
-    <p class="muted">The ID and secret are picked out of the command. They are stored only as build secrets, used to deploy
-      ComfyUI into your Modal account. The first deploy takes about 5 minutes (it builds the ComfyUI image); later ones
-      about a minute.</p>
-    <p class="muted">Optional: Modal's <b>Spend limit</b> (<b>Settings → Usage &amp; billing → Usage limit</b>) caps what it can bill:
-      once charges pass it, with the free credits used first, all work stops. At $0 you never pay past the credits.</p>
-    <details class="guide">
-      <summary>Show me where</summary>
-      <Tour id="modal-limit" />
-    </details>
     <form onsubmit={deployModal}>
       <label for="mcmd">Modal command</label>
       <input id="mcmd" type="text" bind:value={modalCommand} oninput={splitCommand} placeholder="modal token set --token-id ak-… --token-secret as-…" autocomplete="off" />
       {#if fromCommand}<p class="muted">Got the ID and secret from the command.</p>{/if}
-      <p class="muted">Or enter them yourself:</p>
-      <label for="mid">Token ID</label>
-      <input id="mid" type="text" bind:value={modalId} placeholder="ak-…" autocomplete="off" />
-      <label for="msec">Token secret</label>
-      <input id="msec" type="password" bind:value={modalSecret} placeholder="as-…" autocomplete="off" />
+      <details class="guide">
+        <summary>Or enter them yourself</summary>
+        <label for="mid">Token ID</label>
+        <input id="mid" type="text" bind:value={modalId} placeholder="ak-…" autocomplete="off" />
+        <label for="msec">Token secret</label>
+        <input id="msec" type="password" bind:value={modalSecret} placeholder="as-…" autocomplete="off" />
+      </details>
       <button type="submit" disabled={buildBusy || !modalId.trim() || !modalSecret.trim()}>
         {buildBusy ? 'Starting…' : deployed ? 'Deploy again' : 'Deploy to Modal'}
       </button>
@@ -433,24 +466,20 @@
     {#if info.build && info.build !== info.update_build}
       {#key info.build}<BuildLog takes="about 5 minutes the first time, about a minute after" onfinished={refresh} />{/key}
     {/if}
-  </Step>
-
-  <Step
-    n={num('models')}
-    title="Download the models"
-    status={status(modelsReady, deployed)}
-    summary={modelsReady ? 'On your Modal Volume' : ''}
-  >
+    <p class="muted">The ID and secret are stored only as build secrets, used to deploy ComfyUI into your Modal account. The
+      first deploy takes about 5 minutes (it builds the ComfyUI image); later ones about a minute.</p>
+    <p class="muted">Optional: Modal's <b>Spend limit</b> caps what it can bill: once charges pass it, with the free credits used
+      first, all work stops. At $0 you never pay past the credits.
+      <button type="button" class="link" onclick={() => (pop = [['modal-limit'], "Modal's spend limit"])}>Show me where</button></p>
+  {:else if current === 'models'}
     {#if deployed}
       <p>The models download straight into your Modal account (about 20 GB for the default choices, a few minutes).
         You can go on to the next step meanwhile.</p>
       <Models gpu="modal" onchange={(p) => (packs = p)} />
+    {:else}
+      <p class="muted">This comes after the deploy to Modal.</p>
     {/if}
-  </Step>
-{/if}
-
-{#if wantUrl}
-  <Step n={num('url')} title="Connect your ComfyUI" status={status(Boolean(urlGpu))} summary={urlGpu ? urlGpu.base_url : ''}>
+  {:else if current === 'url'}
     <form onsubmit={saveDirect}>
       <label for="url">ComfyUI URL</label>
       <input id="url" type="url" bind:value={directUrl} placeholder="https://comfy.example.com" />
@@ -458,115 +487,65 @@
       <button type="submit" disabled={directBusy || !directUrl.trim()}>{directBusy ? 'Checking…' : 'Use this ComfyUI'}</button>
       {#if directError}<p class="err">{directError}</p>{/if}
     </form>
-  </Step>
-{/if}
-
-<Step
-  n={claudeN}
-  title="Connect Claude"
-  status={status(info.claude_seen, generatorReady)}
-  summary={info.claude_seen ? 'Claude is connected' : ''}
->
-  <p>Your connector URL:</p>
-  <div class="row"><code>{showUrl ? info.connector_url : info.connector_url.replace(/(\/mcp\/).+$/, '$1••••••••')}</code></div>
-  <div class="row">
-    <button onclick={copyConnector}>{copied ? 'Copied' : 'Copy URL'}</button>
-    <button class="secondary" onclick={() => (showUrl = !showUrl)}>{showUrl ? 'Hide' : 'Show'}</button>
-    <button class="secondary" onclick={rotate}>Make a new URL</button>
-  </div>
-  <Tour id="claude-connector">
-    <ol>
-      <li>In claude.ai, open <b>Customize → Connectors</b>, then <b>+</b> → <b>Add custom connector</b>.</li>
-      <li>Name it anything (Comfy-Gen, say), paste the URL, and click <b>Continue</b>.</li>
-      <li>Under <b>Authentication</b>, leave <b>No sign-in</b>. Its warning that anyone with the URL can use the connector is
-        expected: the URL is the secret.</li>
-      <li>Click <b>Add</b>, then <b>Connect</b>.</li>
-    </ol>
-  </Tour>
-  <p>Then, in a chat:</p>
-  <Tour id="claude-chat">
-    <ol>
-      <li>Turn it on under <b>+ → Connectors</b>. The first image asks to allow the tool: choose <b>Always allow</b>.</li>
-    </ol>
-  </Tour>
-  <p class="muted">Anyone with this URL can generate images with your setup. Treat it like a password. If Claude ever says the
-    tools aren't connected, open the connector in <b>Customize → Connectors</b> and click <b>Disconnect</b>, then <b>Connect</b>.</p>
-  {#if !info.claude_seen}<p class="muted">This step ticks itself once Claude has connected.</p>{/if}
-</Step>
-
-{#if info.claude_seen}
-  <section class="finish">
-    <h2>You're set</h2>
+  {:else if current === 'claude'}
+    <p>Your connector URL:</p>
+    <div class="row"><code>{showUrl ? info.connector_url : info.connector_url.replace(/(\/mcp\/).+$/, '$1••••••••')}</code></div>
+    <div class="row">
+      <button onclick={copyConnector}>{copied ? 'Copied' : 'Copy URL'}</button>
+      <button class="secondary" onclick={() => (showUrl = !showUrl)}>{showUrl ? 'Hide' : 'Show'}</button>
+      <button class="secondary" onclick={rotate}>Make a new URL</button>
+    </div>
+    <Tour ids={['claude-connector', 'claude-chat']} mode="wizard">
+      <ol>
+        <li>In claude.ai, open <b>Customize → Connectors</b>, then <b>+</b> → <b>Add custom connector</b>.</li>
+        <li>Name it anything (Comfy-Gen, say), paste the URL, and click <b>Continue</b>.</li>
+        <li>Under <b>Authentication</b>, leave <b>No sign-in</b>. Its warning that anyone with the URL can use the connector is
+          expected: the URL is the secret.</li>
+        <li>Click <b>Add</b>, then <b>Connect</b>.</li>
+        <li>In a chat, turn it on under <b>+ → Connectors</b>. The first image asks to allow the tool: choose <b>Always allow</b>.</li>
+      </ol>
+    </Tour>
+    <p class="muted">Anyone with this URL can generate images with your setup. Treat it like a password. If Claude ever says the
+      tools aren't connected, open the connector in <b>Customize → Connectors</b> and click <b>Disconnect</b>, then <b>Connect</b>.</p>
+    {#if !generatorReady}<p class="muted">Finish the steps before this one first: Claude needs a GPU to generate on.</p>{/if}
+  {:else if current === 'finish'}
     <p>In a new chat, with the connector turned on, try:</p>
     <p><i>"Draw a lighthouse on a cliff at dusk, in watercolor."</i></p>
     <p class="muted">
       Then ask for a change ("make it stormy"), or attach an image to edit. Styles, models and LoRAs are
       in the <b>Settings</b> tab.
     </p>
-  </section>
+    {#if !wantPc && gpus.length}
+      <!-- With a PC step the list is there (its pairing links); otherwise, here: rename, pause, remove. -->
+      <h3>Your GPUs</h3>
+      <GpuList {gpus} {refresh} />
+    {/if}
+    {@render updates()}
+    <h3>Your Worker</h3>
+    {#if info.cloudflare}
+      <p class="muted">
+        Worker <code>{info.cloudflare.script}</code> in account <code>{info.cloudflare.account_id}</code>. Logging in
+        again with a new token replaces the stored one.
+      </p>
+    {/if}
+    <details class="guide">
+      <summary>Change the password</summary>
+      <SetPassword />
+    </details>
+  {/if}
+  {#if current !== 'finish' && update && (update.newer || updating)}{@render updates()}{/if}
+</Wizard>
 {/if}
 
-{#if !wantPc && gpus.length}
-  <!-- With a PC step the list is there (its pairing links); otherwise, here: rename, pause, remove. -->
-  <section>
-    <h2>Your GPUs</h2>
-    <GpuList {gpus} {refresh} />
-  </section>
-{/if}
-
-{#if update}
-  <section>
-    <h2>Updates</h2>
-    {#if update.dev}
-      <p class="muted">
-        This Worker runs a development build (<b>{update.current}</b>). It doesn't update itself; remove the
-        build's <code>COMFY_GEN_REF</code> variable to go back to releases.
-      </p>
-    {:else if update.newer}
-      <p>
-        This Worker runs <b>{update.current}</b>; <b>{update.latest}</b> is out.
-        <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/tag/{update.latest}" target="_blank" rel="noopener">What's new</a>
-      </p>
-      <p class="muted">
-        It updates itself within a day. Update now starts the build at once: it takes 2 to 5 minutes, and
-        {modalGpu ? 'redeploys ComfyUI on Modal too' : 'image requests keep working meanwhile'}.
-      </p>
-      {#if !update.building && !(updating && !updateFinished)}
-        <button onclick={updateNow} disabled={!update.can}>Update now</button>
-        {#if !update.can}<p class="muted">Log in again with a Cloudflare token to update from here.</p>{/if}
-      {/if}
-    {:else}
-      <p class="muted">
-        {#if update.latest}
-          This Worker runs {update.current}, the latest release. It checks for new ones every day.
-        {:else}
-          This Worker runs {update.current}. Couldn't check for a new release just now; it checks every day.
-        {/if}
-      </p>
-    {/if}
-    {#if updateError}<p class="err">{updateError}</p>{/if}
-    <!-- The log while an update builds (from here, the daily check or another tab), and after one
-         started here, so a failure stays readable. A finished build elsewhere shows nothing. -->
-    {#if update.build && (update.building || updating)}
-      {#key update.build}
-        <BuildLog
-          onfinished={async () => {
-            await refresh()
-            await loadUpdate()
-            updateFinished = true
-          }}
-        />
-      {/key}
-    {/if}
-    {#if updating && updateFinished && !update.newer}
-      <p class="ok">Updated. <a href="/" onclick={() => location.reload()}>Reload this page</a> for the new version's settings page.</p>
-    {/if}
-  </section>
+{#if pop}
+  <Tour ids={pop[0]} title={pop[1]} mode="overlay" onclose={() => (pop = null)}>
+    <p>This walkthrough couldn't be loaded.</p>
+  </Tour>
 {/if}
 
 <style>
-  .finish {
-    border-color: var(--ok);
+  .updates {
+    margin: 18px 0 0;
   }
   .small {
     margin-top: 0;

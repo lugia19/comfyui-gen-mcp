@@ -469,9 +469,23 @@ URL); that answer's steps (Set up your PC; Deploy ComfyUI to Modal and its model
 connect Claude. Changing the answer only adds steps. Each step ticks itself from the Worker's state:
 the generator set, the models on the Volume, the PC connected, and Claude having connected (the
 first `tools/list` on the connector URL sets `claude_seen` in the `setup` key; a new URL clears
-it). Done steps fold to one line; until Claude has connected, the page opens on Setup rather than
-Settings. The agent's and the extension's own pages carry a short checklist on top (pair, install
-ComfyUI) above their usual sections.
+it). Until Claude has connected, the page opens on Setup rather than Settings. The agent's and the
+extension's own pages carry a short checklist on top (pair, install ComfyUI) above their usual
+sections.
+
+**Both are full-window wizards (2026-10-11).** One step at a time, under a bar of the steps
+(`site/guide/wizard.css`, shared; the site's inline script, the Worker's `Wizard.svelte`). A step
+with a walkthrough pins its screenshot to the left of the window, as tall as it, and puts its
+text, controls and Back / Next in a column on the right; on a phone they stack. One Next drives
+both: through every step of the walkthrough, then on to the next step, and no further until the
+step is through. On the site that means a question answered, every account ticked, or the
+walkthrough walked to its end, remembered once done; on the Worker's page it is the step's real
+state (storage on, the PC paired, Modal deployed, Claude connected), with "Waiting for …" under a
+disabled Next. The models step lets you go on while they download. Optional walkthroughs (the
+budget alert, Modal's spend limit, the Mac's Gatekeeper) open over the window and gate nothing. The
+login page sits beside the token walkthrough the same way. Without JavaScript the site is still
+the long page with every step open; a walkthrough that can't load falls back to its plain steps
+and holds nothing.
 
 **Storage is a step, not a prerequisite.** R2 needs a checkout with a card on file, which can't
 be automated, and a Deploy button on an account without R2 used to fail (wrangler's error 10042).

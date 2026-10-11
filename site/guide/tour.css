@@ -1,17 +1,19 @@
 /* The walkthroughs (tour-core.js), on the setup site and the Worker's page alike: a screenshot with
-   numbered markers, the steps so far under it, Back / Next. Uses the page's --bg, --text, --muted,
-   --border, --accent and --accent-text. */
+   numbered markers, the steps so far, Back / Next. Uses the page's --bg, --text, --muted, --border,
+   --accent and --accent-text. In the setup wizard (wizard.css) the screenshot's stage fills the
+   left of the window and the wizard's own Back / Next drive the walkthrough. */
 .tour { --tour-red: #e5191b; --tour-text: #c81e1e; margin: 10px 0 14px; outline: none; }
-@media (prefers-color-scheme: dark) { .tour { --tour-text: #ff7b72; } }
+@media (prefers-color-scheme: dark) { .tour, .tour-pop { --tour-text: #ff7b72; } }
+.tour-pop { --tour-red: #e5191b; --tour-text: #c81e1e; }
 .tour:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; }
 
-.tour-shot {
-  position: relative; display: block; container-type: inline-size;
-  /* Badge size and arrow length shrink with the image (phones), within limits. */
-  --d: 26px; --l: 22px; --d: clamp(18px, 4cqw, 26px); --l: clamp(10px, 3.5cqw, 22px);
-}
-.tour-shot img { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; }
-.tour-none { padding: 28px 16px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; font-size: 0.92rem; }
+/* The stage centers the screenshot; the shot shrink-wraps its image, so the markers' percentages
+   are the image's. */
+.tour-stage { display: flex; justify-content: center; align-items: center; }
+.tour-shot { position: relative; display: block; width: fit-content; max-width: 100%; --d: 26px; --l: 22px; }
+.tour-shot img { display: block; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; }
+.tour-none { padding: 28px 16px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; font-size: 0.92rem; width: 100%; }
+@media (max-width: 600px) { .tour-shot { --d: 20px; --l: 12px; } }
 
 .tour-box { position: absolute; outline: 3px solid var(--tour-red); outline-offset: 2px; border-radius: 4px; pointer-events: none; }
 .tour-mark { position: absolute; width: 0; height: 0; pointer-events: none; }
@@ -31,6 +33,7 @@
 .tour-mark.up::before { top: calc(-1 * var(--l)); left: -1.5px; width: 3px; height: var(--l); }
 .tour-mark.down::before { top: 0; left: -1.5px; width: 3px; height: var(--l); }
 
+.tour-count { color: var(--muted); font-size: 0.9rem; }
 .tour-steps { margin: 10px 0 6px; }
 .tour-steps li.done { color: var(--muted); }
 .tour-steps li.current { color: var(--tour-text); font-weight: 600; }
@@ -41,6 +44,26 @@
 }
 .tour-nav button.tour-prev { background: none; color: var(--text); border-color: var(--border); font-weight: normal; }
 .tour-nav button:disabled { opacity: 0.45; cursor: default; }
-.tour-nav .tour-count { color: var(--muted); font-size: 0.9rem; }
 .tour-nav button.tour-toggle { background: none; border: 0; padding: 0; color: var(--accent); font-weight: normal; font-size: 0.9rem; margin-left: auto; text-decoration: underline; }
 .tour-all { color: var(--muted); }
+
+/* An optional walkthrough ("Show me where"), over the whole window: the screenshot left, its steps right. */
+.tour-pop {
+  position: fixed; inset: 0; z-index: 50; background: var(--bg); color: var(--text);
+  display: grid; grid-template-columns: minmax(0, 1fr) var(--wz-side, 420px);
+}
+/* div. outranks the wizard's pinned stage (wizard.css), which the overlay may sit inside. */
+div.tour-pop > .tour-stage { position: static; padding: 20px; min-height: 0; border: 0; background: none; }
+div.tour-pop > .tour-stage img { max-height: calc(100dvh - 40px); width: auto; }
+.tour-pop > .tour-side { border-left: 1px solid var(--border); padding: 20px; overflow-y: auto; }
+.tour-pop .tour-close { float: right; margin: 0; }
+.tour-pop .tour-count { display: none; } /* the count sits above the steps */
+@media (max-width: 860px) {
+  .tour-pop { display: block; overflow-y: auto; }
+  div.tour-pop > .tour-stage img { max-height: none; }
+  .tour-pop > .tour-side { border-left: 0; }
+}
+
+/* Outside the wizard the counter sits in the nav; inside, above the steps. */
+.tour .wz-count { display: none; }
+.wz-step .tour .wz-count { display: block; }

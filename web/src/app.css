@@ -237,3 +237,48 @@ details.guide summary {
   cursor: pointer;
   font-weight: 600;
 }
+
+/* The full-window pages (the Worker's Setup wizard and its login): the header stays on top, with the
+   tabs in it, and the rest uses the whole width; a plain section stays a readable column. */
+main.wide {
+  max-width: none;
+  padding: 0;
+}
+main.wide .app-top {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--bg);
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+}
+main.wide header {
+  gap: 18px;
+}
+main.wide header nav {
+  margin: 0 auto 0 0;
+}
+main.wide header .row button {
+  margin-top: 0;
+}
+main.wide > section:not(.wz-split) {
+  max-width: 760px;
+  margin: 24px auto;
+}
+@media (max-width: 600px) {
+  main.wide .app-top {
+    padding: 6px 12px;
+  }
+  main.wide header {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+  main.wide header h1 {
+    font-size: 17px;
+    white-space: nowrap;
+  }
+  main.wide header nav button,
+  main.wide header .row button {
+    padding: 4px 10px;
+  }
+}

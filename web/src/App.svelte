@@ -33,6 +33,12 @@
   // mode "agent": the PC agent's page, its machine and its Worker; the pack settings are on the Worker.
   let local = $derived(info?.mode === 'local' || info?.mode === 'agent')
   let agent = $derived(info?.mode === 'agent')
+  // The Worker's Setup tab and its login are full-window wizards (wizard.css): the header stays on top
+  // and the page under it uses the whole width. --app-top is the header's height, for what sticks
+  // below it.
+  let wide = $derived(!checking && !local && (!info || (info.password_set && tab === 'setup')))
+  let topH = $state(0)
+
   // Three pages look alike (the Worker's, the agent's, the extension's): their tabs say which.
   $effect(() => {
     document.title = agent ? 'Comfy-Gen agent' : info?.mode === 'local' ? 'Comfy-Gen extension' : 'Comfy-Gen Worker'
@@ -66,9 +72,18 @@
   onMount(loggedIn)
 </script>
 
-<main>
+<main class:wide style="--app-top: {wide ? topH : 0}px">
+  <div class="app-top" bind:offsetHeight={topH}>
   <header>
     <h1>Comfy-Gen-MCP</h1>
+    {#if wide && info}
+      <nav>
+        <button class:active={tab === 'setup'} onclick={() => (tab = 'setup')}>Setup</button>
+        {#if hasSettings}
+          <button class:active={tab === 'settings'} onclick={() => (tab = 'settings')}>Settings</button>
+        {/if}
+      </nav>
+    {/if}
     {#if info}
       <div class="row">
         <span class="muted">{info.version}</span>
@@ -76,6 +91,7 @@
       </div>
     {/if}
   </header>
+  </div>
 
   {#if checking}
     <p class="muted">Loading…</p>
@@ -98,12 +114,14 @@
       <LocalSetup {info} {refresh} />
     {/if}
   {:else}
-    <nav>
-      <button class:active={tab === 'setup'} onclick={() => (tab = 'setup')}>Setup</button>
-      {#if hasSettings}
-        <button class:active={tab === 'settings'} onclick={() => (tab = 'settings')}>Settings</button>
-      {/if}
-    </nav>
+    {#if !wide}
+      <nav>
+        <button class:active={tab === 'setup'} onclick={() => (tab = 'setup')}>Setup</button>
+        {#if hasSettings}
+          <button class:active={tab === 'settings'} onclick={() => (tab = 'settings')}>Settings</button>
+        {/if}
+      </nav>
+    {/if}
     {#if tab === 'setup'}
       {#if local}
         <Checklist items={checklist} done="Ask Claude Desktop for an image." />

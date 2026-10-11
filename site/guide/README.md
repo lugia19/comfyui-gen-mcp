@@ -21,6 +21,11 @@ holds the logic, `tour.css` the look. Fixing a guide needs no release: the Worke
   and each step's `box` or `at` and `side`.
 - Each guide's element keeps its plain steps inside, shown without JavaScript, when `guides.json`
   doesn't load, or when a screenshot is missing.
+- In the setup wizards (`wizard.css`) a walkthrough's screenshot is pinned to the left of the
+  window and the wizard's Next walks it: the site's `tour.js` puts `tour` (`next`, `prev`,
+  `atStart`, `atEnd`, `hasShot`) on the element and fires `tourchange`; the Worker's `Tour.svelte`
+  registers the same with its `Wizard`. `data-guide="a b"` (or `ids={['a', 'b']}`) walks several
+  guides as one.
 - `npm test` checks the file: every image exists at its `size`, every box fits, the text is allowed.
 
 The screenshots come from the v1.9.0 dry run, cropped and with every private detail blurred (emails,

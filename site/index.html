@@ -25,11 +25,9 @@
     main { max-width: 720px; margin: 0 auto; padding: 40px 16px 64px; }
     h1 { font-size: 2rem; margin: 0 0 4px; }
     h2 { font-size: 1.15rem; margin: 0; }
-    .lede { color: var(--muted); margin: 0 0 28px; }
+    .lede { color: var(--muted); margin: 0 0 16px; }
     .tip { border-left: 3px solid var(--border); padding-left: 10px; }
-    section, .step { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin: 0 0 12px; }
-    section { padding: 20px 22px; }
-    section h2 { margin-bottom: 12px; }
+    .step { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin: 0 0 12px; }
     a { color: var(--accent); }
     code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
     ol, ul { padding-left: 22px; margin: 8px 0; }
@@ -37,30 +35,20 @@
     .muted { color: var(--muted); font-size: 0.93rem; }
     details.guide { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 10px 0; }
     details.guide summary { cursor: pointer; font-weight: 600; }
-    .button, button.next {
+    .button {
       display: inline-block; background: var(--accent); color: var(--accent-text); text-decoration: none; border: 0;
-      font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 8px; margin: 8px 8px 0 0; cursor: pointer;
+      font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 8px; margin: 8px 8px 8px 0; cursor: pointer;
     }
-    button.back { font: inherit; background: none; border: 1px solid var(--border); color: var(--text); padding: 9px 16px; border-radius: 8px; margin: 8px 8px 0 0; cursor: pointer; }
     .tag { display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--accent); color: var(--accent-text); vertical-align: 2px; }
     .tag.green { background: var(--ok); color: var(--bg); }
 
-    /* The steps. Without JavaScript every step shows, open, as one long page. */
+    /* Without JavaScript every step shows, open, as one long page. */
     .steps { list-style: none; padding: 0; margin: 0; }
-    .step { padding: 0; }
-    .head { display: flex; gap: 12px; align-items: center; width: 100%; padding: 16px 20px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: default; }
+    .head { display: flex; gap: 12px; align-items: center; padding: 16px 20px; }
     .num { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; font-size: 0.85rem; font-weight: 700; color: var(--muted); }
-    .summary { color: var(--muted); font-size: 0.92rem; margin-left: auto; text-align: right; }
     .body { padding: 0 22px 20px; }
-    .path { display: none; }
-    .js .head { cursor: pointer; }
-    .js .step:not(.open) .body { display: none; }
-    .js .step.hidden { display: none; }
-    .js .step.open .num { border-color: var(--accent); color: var(--accent); }
-    .js .step.done:not(.open) .num { border-color: var(--ok); background: var(--ok); color: var(--card); }
-    .js [data-where].off { display: none; }
     .nojs-path { color: var(--muted); font-size: 0.9rem; margin: 18px 4px 8px; }
-    .js .nojs-path { display: none; }
+    html:not(.wizard) .wz-bar, html:not(.wizard) .wz-only { display: none; }
 
     /* The answers. */
     .cards { display: grid; gap: 10px; margin: 6px 0; }
@@ -73,18 +61,43 @@
     .card b { font-size: 1.02rem; }
     .card span.d { display: block; color: var(--muted); font-size: 0.92rem; margin-top: 2px; }
     .card.best { border-width: 2px; }
+
+    /* The wizard (wizard.css): one step at a time, filling the window. */
+    .wizard main { max-width: none; padding: 0; }
+    .wizard main > h1, .wizard .nojs-path, .wizard .nojs-only { display: none; }
+    .wizard .wz-bar { display: flex; }
+    .wizard .wz-only { display: revert; }
+    .wizard .wz-only[hidden] { display: none; }
+    .wizard .step { display: none; background: none; border: 0; border-radius: 0; margin: 0; }
+    .wizard .step.open { display: block; margin: 0 auto; }
+    .wizard .step.open.wz-split { display: flex; margin: 0 0 0 auto; }
+    .wizard .head { padding: 0; }
+    .wizard .head .num { display: none; }
+    .wizard .head h2 { font-size: 1.6rem; margin: 0 0 12px; }
+    .wizard .body { padding: 0; }
+    .wizard [data-where].off { display: none; }
+    .wizard .cards { gap: 14px; }
+    .wizard .card { padding: 18px 20px; }
+    .wizard .card b { font-size: 1.15rem; }
+    .wz-bar a.src { margin-left: auto; font-size: 0.85rem; color: var(--muted); }
   </style>
   <link rel="stylesheet" href="guide/tour.css">
+  <link rel="stylesheet" href="guide/wizard.css">
 </head>
 <body>
+<header class="wz-bar" id="wz-bar">
+  <p class="wz-name">Comfy-Gen setup</p>
+  <ol class="wz-progress" id="wz-progress"></ol>
+  <a class="src" href="https://github.com/lugia19/comfyui-gen-mcp">Source and issues</a>
+</header>
 <main>
   <h1>Comfy-Gen-MCP</h1>
-  <p class="lede">Image generation and editing for Claude, on a ComfyUI you own. A few questions, then only the steps you need.</p>
 
   <ol class="steps" id="steps">
-    <li class="step" data-step="use">
-      <button class="head" type="button"><span class="num">1</span><h2>How will you use it?</h2><span class="summary"></span></button>
+    <li class="step" data-step="use" data-short="Use">
+      <div class="head"><span class="num">1</span><h2>How will you use it?</h2></div>
       <div class="body">
+        <p class="lede">Image generation and editing for Claude, on a ComfyUI you own. A few questions, then only the steps you need.</p>
         <div class="cards">
           <button class="card best" type="button" data-answer="worker">
             <b>claude.ai, on the web and your phone</b> <span class="tag">Recommended</span>
@@ -99,8 +112,8 @@
     </li>
 
     <li class="nojs-path">If you chose Claude Desktop only:</li>
-    <li class="step" data-step="desktop" data-path="desktop">
-      <button class="head" type="button"><span class="num">2</span><h2>Install the extension</h2><span class="summary"></span></button>
+    <li class="step" data-step="desktop" data-short="Install">
+      <div class="head"><span class="num">2</span><h2>Install the extension</h2></div>
       <div class="body">
         <p>You need an NVIDIA GPU (AMD on Linux) or an Apple silicon Mac.</p>
         <ol>
@@ -109,14 +122,14 @@
             through choosing your GPU, installing ComfyUI and picking models.</li>
           <li>Ask Claude Desktop for an image.</li>
         </ol>
-        <p class="muted">Later want claude.ai too? Choose the first answer above instead. Use the extension or the Worker's PC agent
+        <p class="muted">Later want claude.ai too? Choose the first answer instead. Use the extension or the Worker's PC agent
           on a PC, never both: each runs its own ComfyUI, and two don't fit on one GPU.</p>
       </div>
     </li>
 
     <li class="nojs-path">If you chose claude.ai:</li>
-    <li class="step" data-step="where" data-path="worker">
-      <button class="head" type="button"><span class="num">2</span><h2>Where should images be made?</h2><span class="summary"></span></button>
+    <li class="step" data-step="where" data-short="Where">
+      <div class="head"><span class="num">2</span><h2>Where should images be made?</h2></div>
       <div class="body">
         <div class="cards">
           <button class="card best" type="button" data-answer="both">
@@ -135,33 +148,46 @@
       </div>
     </li>
 
-    <li class="step" data-step="accounts" data-path="worker">
-      <button class="head" type="button"><span class="num">3</span><h2>The accounts you need</h2><span class="summary"></span></button>
+    <li class="step" data-step="accounts" data-short="Accounts">
+      <div class="head"><span class="num">3</span><h2>The accounts you need</h2></div>
       <div class="body">
-        <ul>
-          <li>A <a href="https://github.com/signup" target="_blank" rel="noopener">GitHub account</a>. The deploy keeps a small copy of
-            the setup in your GitHub, which is how your Worker updates itself.</li>
-          <li>A <a href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noopener">Cloudflare account</a>: the free plan is enough.
-            Your Worker's page has you turn on its storage later (R2: free up to 10 GB, but Cloudflare wants a card on file).</li>
-          <li data-where="cloud both">A <a href="https://modal.com/signup" target="_blank" rel="noopener">Modal account</a>, with a card on file:
-            Modal runs GPUs only with one, even on the free $30 a month. Your Worker's page walks through it.</li>
-          <li data-where="pc both">A PC with an NVIDIA GPU (AMD on Linux) or an Apple silicon Mac, for the agent.</li>
-          <li>A claude.ai plan that can add custom connectors.</li>
+        <p class="wz-only">Make each one, then tick it.</p>
+        <ul class="wz-checks">
+          <li><label><input type="checkbox" data-tick="github"> <span>A <a href="https://github.com/signup" target="_blank" rel="noopener">GitHub account</a>.
+            The deploy keeps a small copy of the setup in your GitHub, which is how your Worker updates itself.</span></label></li>
+          <li><label><input type="checkbox" data-tick="cloudflare"> <span>A <a href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noopener">Cloudflare account</a>:
+            the free plan is enough. Your Worker's page has you turn on its storage later (R2: free up to 10 GB, but Cloudflare wants a card on file).</span></label></li>
+          <li data-where="cloud both"><label><input type="checkbox" data-tick="modal"> <span>A <a href="https://modal.com/signup" target="_blank" rel="noopener">Modal account</a>,
+            with a card on file: Modal runs GPUs only with one, even on the free $30 a month. Your Worker's page walks through it.</span></label></li>
+          <li data-where="pc both"><label><input type="checkbox" data-tick="pc"> <span>A PC with an NVIDIA GPU (AMD on Linux) or an Apple silicon Mac, for the agent.</span></label></li>
+          <li><label><input type="checkbox" data-tick="claude"> <span>A claude.ai plan that can add custom connectors.</span></label></li>
         </ul>
         <p class="tip"><b>Tip:</b> <span data-where="cloud both">Cloudflare and Modal both let</span><span data-where="pc">Cloudflare lets</span> you sign
           up with your GitHub account (the <b>GitHub</b> button on the sign-up page). Make the GitHub account first and use it there: fewer logins.</p>
-        <button class="back" type="button">Back</button><button class="next" type="button">Done, next</button>
+        <details class="guide" id="costs">
+          <summary>What does it cost?</summary>
+          <ul>
+            <li><b>Cloudflare:</b> the Worker is free (up to 100,000 requests a day). Its storage, R2, is free up to 10 GB stored,
+              a million writes and ten million reads a month; one person's use stays far inside those. Past 10 GB it is
+              $0.015 per GB a month, and images expire after a year. Cloudflare has no spending cap, but it sets up a $10 budget
+              alert by itself (<b>Manage account → Billing → Billable usage</b>); lower it if you like. It emails; it doesn't stop anything.</li>
+            <li data-where="cloud both"><b>Modal</b> (the cloud): billed per second, only while it generates, and new accounts get $30 of free compute a month.
+              Its <b>Spend limit</b> (<b>Settings → Usage &amp; billing → Usage limit</b>) is a hard cap: once charges pass it, with the
+              free credits used first, all work stops. At $0 you never pay past the credits.</li>
+            <li data-where="pc both"><b>Your PC:</b> the electricity.</li>
+          </ul>
+        </details>
       </div>
     </li>
 
-    <li class="step" data-step="deploy" data-path="worker">
-      <button class="head" type="button"><span class="num">4</span><h2>Deploy your Worker</h2><span class="summary"></span></button>
+    <li class="step" data-step="deploy" data-short="Deploy">
+      <div class="head"><span class="num">4</span><h2>Deploy your Worker</h2></div>
       <div class="body">
         <p>The first time, Cloudflare also needs access to your GitHub. It takes two rounds of the same button: click
-          <b>Deploy to Cloudflare</b> (it opens in a new tab), then follow the steps below.</p>
+          <b>Deploy to Cloudflare</b> (it opens in a new tab), then follow the steps.</p>
         <a class="button" id="deploy" target="_blank" rel="noopener" href="https://deploy.workers.cloudflare.com/?url=https://github.com/lugia19/comfyui-gen-mcp/tree/main/bootstrap">Deploy to Cloudflare</a>
-        <p class="muted js-only" hidden>The form shows <b>SETUP_MODE</b> set to <code class="answer-code">cloud</code>: your answer above.
-          Leave it: your Worker's page starts from it.</p>
+        <p class="muted wz-only">The form shows <b>SETUP_MODE</b> set to <code class="answer-code">cloud</code>: your answer. Leave it: your
+          Worker's page starts from it.</p>
         <div data-guide="deploy">
           <ol>
             <li>Under <b>Git account</b>, click <b>New GitHub connection</b>. GitHub asks to <b>Install &amp; Authorize</b>
@@ -174,17 +200,16 @@
         <details class="guide">
           <summary>GitHub shows a settings page instead of Install &amp; Authorize?</summary>
           <p>Cloudflare's app is already installed on that GitHub account, from an earlier try, and that way it never reaches
-            Cloudflare. Remove it, then start again from step 1: on GitHub, open
+            Cloudflare. Remove it, then start again from the first step: on GitHub, open
             <a href="https://github.com/settings/installations" target="_blank" rel="noopener">Settings → Applications → Installed GitHub Apps</a>,
             then <b>Cloudflare Workers and Pages → Configure</b>, and <b>Uninstall</b> at the bottom.</p>
           <p class="muted">That also disconnects any other Cloudflare project that builds from this GitHub account, until it is connected again.</p>
         </details>
-        <button class="back" type="button">Back</button><button class="next" type="button">Done, next</button>
       </div>
     </li>
 
-    <li class="step" data-step="open" data-path="worker">
-      <button class="head" type="button"><span class="num">5</span><h2>Open your Worker</h2><span class="summary"></span></button>
+    <li class="step" data-step="open" data-short="Open">
+      <div class="head"><span class="num">5</span><h2>Open your Worker</h2></div>
       <div class="body">
         <div data-guide="open-worker">
           <ol>
@@ -195,12 +220,11 @@
         </div>
         <p class="muted">Lost the tab? In the <a href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noopener">Cloudflare dashboard</a>,
           open <b>Workers &amp; Pages → comfy-gen</b> and click <b>Visit</b>.</p>
-        <button class="back" type="button">Back</button><button class="next" type="button">Done, next</button>
       </div>
     </li>
 
-    <li class="step" data-step="finish" data-path="worker">
-      <button class="head" type="button"><span class="num">6</span><h2>Finish on your Worker's page</h2><span class="summary"></span></button>
+    <li class="step" data-step="finish" data-short="Finish">
+      <div class="head"><span class="num">6</span><h2>Finish on your Worker's page</h2></div>
       <div class="body">
         <p>Your Worker's page takes it from here, one step at a time:</p>
         <ol>
@@ -211,33 +235,21 @@
           <li data-where="both">Add your PC and run the agent on it, then deploy ComfyUI to Modal as the fallback.</li>
           <li>Connect Claude: in claude.ai, <b>Customize → Connectors</b>, add your Worker's connector URL as a custom connector.</li>
         </ol>
-        <p class="muted js-only" hidden>Your answer, <b class="answer-text"></b>, is already set there; you can change it on that page.</p>
+        <p class="muted wz-only">Your answer, <b class="answer-text"></b>, is already set there; you can change it on that page.</p>
         <p class="muted">Updates install themselves: the Worker checks for a new release daily and redeploys, and the agent on a PC updates itself too.</p>
-        <button class="back" type="button">Back</button>
       </div>
     </li>
   </ol>
 
-  <section id="costs">
-    <h2>What it costs</h2>
-    <ul>
-      <li><b>Cloudflare:</b> the Worker is free (up to 100,000 requests a day). Its storage, R2, is free up to 10 GB stored,
-        a million writes and ten million reads a month; one person's use stays far inside those. Past 10 GB it is
-        $0.015 per GB a month, and images expire after a year. Cloudflare has no spending cap, but it sets up a $10 budget
-        alert by itself (<b>Manage account → Billing → Billable usage</b>); lower it if you like. It emails; it doesn't stop anything.</li>
-      <li><b>Modal</b> (the cloud): billed per second, only while it generates, and new accounts get $30 of free compute a month.
-        Its <b>Spend limit</b> (<b>Settings → Usage &amp; billing → Usage limit</b>) is a hard cap: once charges pass it, with the
-        free credits used first, all work stops. At $0 you never pay past the credits.</li>
-      <li><b>Your PC:</b> the electricity.</li>
-    </ul>
-  </section>
-
-  <p class="muted">Source and issues: <a href="https://github.com/lugia19/comfyui-gen-mcp">github.com/lugia19/comfyui-gen-mcp</a></p>
+  <p class="muted nojs-only">Source and issues: <a href="https://github.com/lugia19/comfyui-gen-mcp">github.com/lugia19/comfyui-gen-mcp</a></p>
 </main>
 <script>
-  // The stepper: the answers decide which steps show, progress is remembered in this browser, and
-  // the Deploy button points at the template for the answer (bootstrap-<answer>/, whose SETUP_MODE
-  // the Worker's page starts from). Without this script, the page shows every step.
+  // The setup wizard (wizard.css): one step at a time, filling the window, with a bar of the steps
+  // for the answers given. Next is the one way on: through a walkthrough's every step (tour.js), past
+  // a list only once every item is ticked; a step once finished stays finished, so going back over it
+  // gates nothing. Progress is remembered in this browser, and the Deploy button points at the
+  // template for the answer (bootstrap-<answer>/, whose SETUP_MODE the Worker's page starts from).
+  // Without this script, the page shows every step.
   (function () {
     var KEY = 'comfy-gen-setup'
     var REPO = 'https://github.com/lugia19/comfyui-gen-mcp/tree/main/'
@@ -245,84 +257,172 @@
       worker: 'claude.ai, everywhere', desktop: 'Claude Desktop only',
       cloud: 'In the cloud (Modal)', pc: 'On my PC', both: 'Both: PC first, cloud as fallback',
     }
-    var state = { use: null, where: null, open: 'use', done: {} }
+    var state = { use: null, where: null, open: 'use', done: {}, ticks: {} }
     try {
       var saved = JSON.parse(localStorage.getItem(KEY) || 'null')
       if (saved && typeof saved === 'object') state = Object.assign(state, saved)
     } catch (e) {}
+    state.ticks = state.ticks || {}
     function save() {
       try { localStorage.setItem(KEY, JSON.stringify(state)) } catch (e) {}
     }
 
-    document.documentElement.classList.add('js')
+    var root = document.documentElement
+    root.classList.add('js', 'wizard')
     var steps = Array.prototype.slice.call(document.querySelectorAll('.step'))
     var byName = {}
     steps.forEach(function (el) { byName[el.dataset.step] = el })
+    var bar = document.getElementById('wz-bar')
+    var progress = document.getElementById('wz-progress')
+
+    // The bar wraps on narrow windows: the screenshot's stage starts below it, wherever that is.
+    function measure() { root.style.setProperty('--wz-top', bar.offsetHeight + 'px') }
+    if (window.ResizeObserver) new ResizeObserver(measure).observe(bar)
+    measure()
+
+    var nav = document.createElement('div')
+    nav.className = 'wz-nav'
+    nav.innerHTML = '<button type="button" class="wz-back">Back</button><button type="button" class="wz-next">Next</button><p class="wz-why" hidden></p>'
+    var backBtn = nav.querySelector('.wz-back')
+    var nextBtn = nav.querySelector('.wz-next')
+    var why = nav.querySelector('.wz-why')
 
     function visible() {
       if (state.use === 'desktop') return ['use', 'desktop']
       if (state.use !== 'worker') return ['use']
       return state.where ? ['use', 'where', 'accounts', 'deploy', 'open', 'finish'] : ['use', 'where']
     }
+    var title = function (name) { return byName[name].querySelector('h2').textContent }
+    // The open step's walkthrough, while it shows (tour.js); none if it fell back to plain steps.
+    var tourOf = function (name) { var g = byName[name].querySelector('[data-guide]'); return g && g.tour ? g.tour : null }
+    function ticksDone() {
+      return Array.prototype.every.call(byName.accounts.querySelectorAll('[data-tick]'), function (box) {
+        return box.closest('.off') || box.checked
+      })
+    }
+
+    // What keeps Next from leaving the open step, or '' when nothing does.
+    function blocker(name) {
+      if (name === 'use' && !state.use) return 'Choose an answer.'
+      if (name === 'where' && !state.where) return 'Choose an answer.'
+      if (name === 'accounts' && !state.done.accounts && !ticksDone()) return 'Tick each account once you have it.'
+      return ''
+    }
 
     function render() {
       var shown = visible()
       if (shown.indexOf(state.open) < 0) state.open = shown[shown.length - 1]
+      var at = shown.indexOf(state.open)
       steps.forEach(function (el) {
         var name = el.dataset.step
-        var i = shown.indexOf(name)
-        el.classList.toggle('hidden', i < 0)
         el.classList.toggle('open', name === state.open)
-        el.classList.toggle('done', Boolean(state.done[name]))
-        el.querySelector('.num').textContent = el.classList.contains('done') && name !== state.open ? '✓' : String(i + 1)
-        el.querySelector('.head').setAttribute('aria-expanded', String(name === state.open))
+        el.classList.toggle('wz-step', name === state.open)
         var answer = name === 'use' ? state.use : name === 'where' ? state.where : null
-        el.querySelector('.summary').textContent = answer ? LABELS[answer] : ''
         el.querySelectorAll('.card').forEach(function (c) { c.classList.toggle('chosen', c.dataset.answer === answer) })
       })
       // Parts for some answers only ("cloud both").
       document.querySelectorAll('[data-where]').forEach(function (el) {
         el.classList.toggle('off', Boolean(state.where) && el.dataset.where.split(' ').indexOf(state.where) < 0)
       })
+      byName.accounts.querySelectorAll('[data-tick]').forEach(function (box) { box.checked = Boolean(state.ticks[box.dataset.tick]) })
       var where = state.where || 'cloud'
       document.getElementById('deploy').href = 'https://deploy.workers.cloudflare.com/?url=' + REPO + (state.where ? 'bootstrap-' + state.where : 'bootstrap')
       document.querySelectorAll('.answer-code').forEach(function (el) { el.textContent = where })
       document.querySelectorAll('.answer-text').forEach(function (el) { el.textContent = LABELS[where].toLowerCase() })
-      document.querySelectorAll('.js-only').forEach(function (el) { el.hidden = !state.where })
-      document.getElementById('costs').hidden = state.use === 'desktop' // no accounts on that path
+
+      // The bar: a finished step, and the first unfinished one, can be opened from it.
+      var reach = 0
+      while (reach < shown.length - 1 && state.done[shown[reach]]) reach++
+      progress.innerHTML = ''
+      shown.forEach(function (name, i) {
+        var li = document.createElement('li')
+        var b = document.createElement('button')
+        b.type = 'button'
+        b.className = (name === state.open ? 'current' : '') + (state.done[name] && name !== state.open ? ' done' : '')
+        b.disabled = i > Math.max(reach, at)
+        b.innerHTML = '<span class="dot">' + (state.done[name] && name !== state.open ? '✓' : i + 1) + '</span><span class="label"></span>'
+        b.querySelector('.label').textContent = byName[name].dataset.short
+        b.title = title(name)
+        b.addEventListener('click', function () { go(name) })
+        li.appendChild(b)
+        progress.appendChild(li)
+      })
+
+      // The open step, with the screenshot on the left when its walkthrough has one.
+      var el = byName[state.open]
+      var tour = tourOf(state.open)
+      el.classList.toggle('wz-split', Boolean(tour && tour.hasShot()))
+      el.appendChild(nav)
+      var last = at === shown.length - 1
+      var block = blocker(state.open)
+      backBtn.disabled = at === 0 && !(tour && !tour.atStart())
+      if (tour && !tour.atEnd()) {
+        nextBtn.hidden = false
+        nextBtn.disabled = false
+        nextBtn.textContent = 'Next'
+      } else {
+        nextBtn.hidden = last
+        nextBtn.disabled = Boolean(block)
+        nextBtn.textContent = last ? '' : 'Next: ' + title(shown[at + 1])
+      }
+      why.hidden = !block || last
+      why.textContent = block
+      nav.hidden = backBtn.disabled && nextBtn.hidden // the first question: nothing to go back to, nothing yet to go on to
       save()
     }
 
     function go(name) {
+      if (name !== state.open) window.scrollTo(0, 0)
       state.open = name
       render()
-      var el = byName[name]
-      if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: 'start' })
     }
+
+    function forward() {
+      var tour = tourOf(state.open)
+      if (tour && !tour.atEnd()) return tour.next()
+      if (blocker(state.open)) return
+      state.done[state.open] = true
+      var shown = visible()
+      var i = shown.indexOf(state.open)
+      if (i < shown.length - 1) go(shown[i + 1])
+      else render()
+    }
+
+    function backward() {
+      var tour = tourOf(state.open)
+      if (tour && !tour.atStart()) return tour.prev()
+      var shown = visible()
+      var i = shown.indexOf(state.open)
+      if (i > 0) go(shown[i - 1])
+    }
+
+    nextBtn.addEventListener('click', forward)
+    backBtn.addEventListener('click', backward)
+    document.addEventListener('keydown', function (e) {
+      if (e.altKey || e.ctrlKey || e.metaKey || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return
+      if (e.key === 'ArrowRight' && !nextBtn.disabled && !nextBtn.hidden) { e.preventDefault(); forward() }
+      else if (e.key === 'ArrowLeft' && !backBtn.disabled) { e.preventDefault(); backward() }
+    })
+    // A walkthrough came up, moved, or fell back to its plain steps.
+    document.addEventListener('tourchange', render)
 
     steps.forEach(function (el) {
       var name = el.dataset.step
-      el.querySelector('.head').addEventListener('click', function () { go(name) })
       el.querySelectorAll('.card').forEach(function (card) {
         card.addEventListener('click', function () {
           var a = card.dataset.answer
           if (name === 'use') state.use = a
           else state.where = a
           state.done[name] = true
-          go(visible()[visible().indexOf(name) + 1])
+          var shown = visible()
+          go(shown[shown.indexOf(name) + 1])
         })
       })
-      var next = el.querySelector('button.next')
-      if (next) next.addEventListener('click', function () {
-        state.done[name] = true
-        var shown = visible()
-        go(shown[shown.indexOf(name) + 1] || name)
-      })
-      var back = el.querySelector('button.back')
-      if (back) back.addEventListener('click', function () {
-        var shown = visible()
-        go(shown[Math.max(0, shown.indexOf(name) - 1)])
-      })
+    })
+    byName.accounts.addEventListener('change', function (e) {
+      if (!e.target.dataset.tick) return
+      state.ticks[e.target.dataset.tick] = e.target.checked
+      render()
     })
     render()
   })()

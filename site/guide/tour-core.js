@@ -9,6 +9,13 @@
 // A position is { v, s }: view v, step s within it.
 export const start = () => ({ v: 0, s: 0 })
 
+// Several guides walked as one (a wizard step with two, Modal's card then its token): their views
+// in order. Guides missing from guides.json are skipped; none at all gives null.
+export function concat(all, ids) {
+  const views = ids.flatMap((id) => all[id]?.views ?? [])
+  return views.length ? { views } : null
+}
+
 export function next(guide, { v, s }) {
   if (s + 1 < guide.views[v].steps.length) return { v, s: s + 1 }
   if (v + 1 < guide.views.length) return { v: v + 1, s: 0 }
