@@ -693,7 +693,7 @@ describe("updates", () => {
     env.VERSION = "v0.9.0";
     const cookie = await login(app);
     const info = await body(await app.handle(request("GET", "/api/update", undefined, cookie)));
-    expect(info).toEqual({ current: "v0.9.0", latest: "v1.0.0", dev: false, newer: true, can: true, build: null, building: false });
+    expect(info).toEqual({ current: "v0.9.0", latest: "v1.0.0", dev: false, newer: true, can: true, build: null, building: false, outcome: null });
     env.VERSION = "claude/some-branch"; // a branch build: the page says so, and offers no update
     expect(await body(await app.handle(request("GET", "/api/update", undefined, cookie)))).toMatchObject({ dev: true, newer: false });
     env.VERSION = "v0.9.0";
@@ -708,7 +708,7 @@ describe("updates", () => {
     env.VERSION = "v1.0.0"; // the build deployed it
     net.buildState = "stopped";
     const done = await body(await app.handle(request("GET", "/api/update", undefined, cookie)));
-    expect([done.newer, done.building]).toEqual([false, false]);
+    expect([done.newer, done.building, done.outcome]).toEqual([false, false, "success"]);
     expect((await app.store.setup()).update_finished).toBe("build2");
     // The next release: the button comes back (not hidden by the finished build), and the
     // finished build is not asked about again.

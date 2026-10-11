@@ -583,9 +583,13 @@ result, pick the GPU and install ComfyUI (or keep the old extension's). No accou
   downloads the release's `deploy.sh`, so the user's copy never goes stale and there is no fork
   sync. One build updates both the Worker and the Modal app. Packs, tool descriptions and workflow
   templates ship with the code: a new pack is a release.
-- **Update now:** the setup page's Updates section shows the running and the latest release, and
-  starts the same build at once (`POST /api/update`), without waiting for the daily check, then
-  shows its log.
+- **Update now:** the Worker page's header, beside the version, has the update button when a
+  newer release is out (on every tab and setup step). It opens a panel with the release, its
+  notes and **Update now**, which starts the same build at once (`POST /api/update`) without
+  waiting for the daily check; the panel then shows its log. The header follows the build
+  (`GET /api/update`: `building`, and once stopped the `outcome` Cloudflare gave): **Updating…**,
+  then **Reload for vX** or **Update failed** (the panel offers Try again and the log). The
+  version's tooltip says when it is the latest; a development build says it doesn't update.
 - **Agent:** the launcher's shim loads the latest release's bundle, checking daily while
   the agent runs, and the agent restarts into a new one when idle (§2). The launcher changes only
   with a new Node; it is downloaded again by hand.

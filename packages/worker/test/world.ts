@@ -129,6 +129,7 @@ export class FakeNet {
   scripts: Record<string, string> = { "comfy-gen": "tag1" }; // what the token can see
   buildsStarted: any[] = [];
   buildState = "running"; // what a build's status says
+  buildOutcome = "success"; // and, once stopped, how it ended
   buildStatusCalls = 0;
   buildVars: Record<string, any> = {};
   adminCalls: [string, string, any][] = [];
@@ -184,7 +185,7 @@ export class FakeNet {
     if (path.includes("/builds/builds/") && path.endsWith("/logs")) return cf({ lines: [[1, "hello"], [2, "world"]], cursor: "c2" });
     if (path.includes("/builds/builds/")) {
       this.buildStatusCalls += 1;
-      return cf({ status: this.buildState, build_outcome: this.buildState === "stopped" ? "success" : null });
+      return cf({ status: this.buildState, build_outcome: this.buildState === "stopped" ? this.buildOutcome : null });
     }
     return cf(null, false);
   }

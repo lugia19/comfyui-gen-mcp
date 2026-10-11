@@ -8,6 +8,7 @@
   import Setup from './lib/Setup.svelte'
   import Settings from './lib/Settings.svelte'
   import SetPassword from './lib/SetPassword.svelte'
+  import Update from './lib/Update.svelte'
 
   let info = $state(null) // GET /api/state, or null while logged out
   let checking = $state(true)
@@ -91,7 +92,7 @@
     {/if}
     {#if info}
       <div class="row">
-        <span class="muted">{info.version}</span>
+        {#if !local && info.password_set}<Update {info} {refresh} />{:else}<span class="muted">{info.version}</span>{/if}
         {#if !local}<button class="secondary" onclick={logout}>Log out</button>{/if}
       </div>
     {/if}

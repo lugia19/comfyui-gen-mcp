@@ -212,6 +212,7 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  position: relative; /* the update panel opens under its right edge */
 }
 
 /* A button that reads as a link, inside text. */

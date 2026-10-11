@@ -550,18 +550,22 @@ export class App {
       const setup = await this.fresh.setup();
       const build = setup.update_build ?? null;
       // In progress only while Cloudflare says so: a finished update build must not hide the button
-      // for the next release (seen in v1.3.7). Once seen stopped it is recorded, and not asked again.
+      // for the next release (seen in v1.3.7). Once seen stopped it is recorded with its outcome
+      // ("success", "failure", …; null if Cloudflare couldn't say), and not asked again.
       let building = false;
+      let outcome = setup.update_finished === build ? (setup.update_outcome ?? null) : null;
       if (build && setup.update_finished !== build && can) {
         try {
-          building = (await cloudflare.buildStatus(this.fetch, s.cf_token, s.cf_account_id, build)).status !== "stopped";
+          const st = await cloudflare.buildStatus(this.fetch, s.cf_token, s.cf_account_id, build);
+          building = st.status !== "stopped";
+          outcome = building ? null : (st.outcome ?? null);
         } catch (e) {
           if (!(e instanceof cloudflare.CloudflareError)) throw e; // unknown: show the button
         }
-        if (!building) await this.fresh.updateSetup({ update_finished: build });
+        if (!building) await this.fresh.updateSetup({ update_finished: build, update_outcome: outcome });
       }
       const dev = !updates.parseVersion(this.version); // a branch build: no updates from here
-      return json({ current: this.version, latest, dev, newer: !dev && updates.isNewer(latest, this.version), can, build, building });
+      return json({ current: this.version, latest, dev, newer: !dev && updates.isNewer(latest, this.version), can, build, building, outcome });
     }
     if (req.method !== "POST") return error(405, "GET or POST");
     if (!can) return error(400, "Log in again with a Cloudflare token: this Worker has none to start builds with.");

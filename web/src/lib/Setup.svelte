@@ -197,34 +197,6 @@
     await refresh()
   }
 
-  // Updates: the Worker checks for a release daily; Update now starts the same build at once.
-  let update = $state(null) // {current, latest, newer, can, build}
-  let updating = $state(false) // started from this page: keep its log after it finishes
-  let updateFinished = $state(false) // that build stopped (the button returns if it failed)
-  let updateError = $state('')
-
-  async function loadUpdate() {
-    try {
-      update = await api('GET', '/update')
-    } catch {
-      update = null // GitHub unreachable: say nothing
-    }
-  }
-
-  async function updateNow() {
-    updateError = ''
-    try {
-      await api('POST', '/update')
-      updating = true
-      updateFinished = false
-      await loadUpdate()
-      await refresh()
-    } catch (e) {
-      updateError = e.message
-    }
-  }
-  onMount(loadUpdate)
-
   // Waiting on something outside this page: a PC pairing, Claude adding the connector.
   let timer = null
   // Every 5 s while waiting on something; every 20 s while a PC is paired, so its status (paused,
@@ -299,58 +271,6 @@
     ? `https://dash.cloudflare.com/${info.cloudflare.account_id}/r2/default/buckets/${info.cloudflare.script}-storage?prefix=img%2F`
     : '')
 </script>
-
-{#snippet updates()}
-  {#if update}
-    <section class="updates">
-      <h3>Updates</h3>
-      {#if update.dev}
-        <p class="muted">
-          This Worker runs a development build (<b>{update.current}</b>). It doesn't update itself; remove the
-          build's <code>COMFY_GEN_REF</code> variable to go back to releases.
-        </p>
-      {:else if update.newer}
-        <p>
-          This Worker runs <b>{update.current}</b>; <b>{update.latest}</b> is out.
-          <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/tag/{update.latest}" target="_blank" rel="noopener">What's new</a>
-        </p>
-        <p class="muted">
-          It updates itself within a day. Update now starts the build at once: it takes 2 to 5 minutes, and
-          {modalGpu ? 'redeploys ComfyUI on Modal too' : 'image requests keep working meanwhile'}.
-        </p>
-        {#if !update.building && !(updating && !updateFinished)}
-          <button onclick={updateNow} disabled={!update.can}>Update now</button>
-          {#if !update.can}<p class="muted">Log in again with a Cloudflare token to update from here.</p>{/if}
-        {/if}
-      {:else}
-        <p class="muted">
-          {#if update.latest}
-            This Worker runs {update.current}, the latest release. It checks for new ones every day.
-          {:else}
-            This Worker runs {update.current}. Couldn't check for a new release just now; it checks every day.
-          {/if}
-        </p>
-      {/if}
-      {#if updateError}<p class="err">{updateError}</p>{/if}
-      <!-- The log while an update builds (from here, the daily check or another tab), and after one
-           started here, so a failure stays readable. A finished build elsewhere shows nothing. -->
-      {#if update.build && (update.building || updating)}
-        {#key update.build}
-          <BuildLog
-            onfinished={async () => {
-              await refresh()
-              await loadUpdate()
-              updateFinished = true
-            }}
-          />
-        {/key}
-      {/if}
-      {#if updating && updateFinished && !update.newer}
-        <p class="ok">Updated. <a href="/" onclick={() => location.reload()}>Reload this page</a> for the new version's settings page.</p>
-      {/if}
-    </section>
-  {/if}
-{/snippet}
 
 {#if current}
 <Wizard steps={wizardSteps} bind:current end={onsettings && { label: 'Go to settings', onclick: onsettings }}>
@@ -583,7 +503,6 @@
       <h3>Your GPUs</h3>
       <GpuList {gpus} {refresh} />
     {/if}
-    {@render updates()}
     <h3>Your Worker</h3>
     {#if info.cloudflare}
       <p class="muted">
@@ -596,7 +515,6 @@
       <SetPassword />
     </details>
   {/if}
-  {#if current !== 'finish' && update && (update.newer || updating)}{@render updates()}{/if}
 </Wizard>
 {/if}
 
@@ -607,9 +525,6 @@
 {/if}
 
 <style>
-  .updates {
-    margin: 18px 0 0;
-  }
   .small {
     margin-top: 0;
     padding: 4px 12px;

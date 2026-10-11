@@ -496,6 +496,14 @@ banner dropped. The Mac's Gatekeeper steps are a note beside Windows' and Linux'
 walkthrough (`agent-run` and its placeholders removed). Checked on the test worlds at 1440×900, dark, including pairing a PC through a
 test hook and a blocked guides fetch.
 
+## Update button in the header (2026-10-11)
+
+Updates moved from the Setup page's last step (and a banner on the others) to the header, beside
+the version: `Update.svelte`, a button and a panel (Update now, the log, Try again).
+`GET /api/update` gains `outcome`, so the header tells a finished update from a failed one.
+Checked in Chromium on a test world with a fake release and build (up to date, newer, building
+with its log, done, failed, Escape and outside clicks, Settings, a 390-wide phone).
+
 ## Later: spill-over between GPUs (parked 2026-10-04)
 
 Today a call goes to the first GPU that is online, not paused and has the model ready (`App.pick`);
