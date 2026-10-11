@@ -13,7 +13,8 @@
   // carried here as SETUP_MODE, or asked here), and only that answer's steps: the PC agent, Modal's
   // deploy and models, or a ComfyUI by URL. Then connect Claude. Each step ticks itself from the
   // Worker's state.
-  let { info, refresh } = $props()
+  // *onsettings*: opens the Settings tab, from the last step.
+  let { info, refresh, onsettings = null } = $props()
 
   const RELEASE = 'https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/'
   let showAdvanced = $state(false)
@@ -93,6 +94,27 @@
       addError = e.message
     } finally {
       addBusy = false
+    }
+  }
+
+  // The PC being paired: the first one its agent hasn't connected from yet. The step shows its
+  // download and pairing link until it has.
+  let pairing = $derived(pcs.find((g) => !g.seen))
+  let linkCopied = $state(false)
+  let mac = $state(false) // the Mac walkthrough, over the page
+  async function copyLink() {
+    await navigator.clipboard.writeText(pairing.link)
+    linkCopied = true
+    setTimeout(() => (linkCopied = false), 1500)
+  }
+  async function removePairing() {
+    if (!confirm(`Remove ${pairing.name}? Its pairing link stops working.`)) return
+    addError = ''
+    try {
+      await api('DELETE', `/gpus/${pairing.id}`)
+      await refresh()
+    } catch (e) {
+      addError = e.message
     }
   }
 
@@ -265,6 +287,13 @@
     if (!current || !steps.includes(current)) current = (wizardSteps.find((s) => !s.done) ?? { id: 'finish' }).id
   })
   let pop = $state(null) // an optional walkthrough over the page: [ids, title]
+  // What a step asks you to fill in shows once its walkthrough reaches the step that gives it to you
+  // (*at*: the step showing; null when the walkthrough can't show, so everything does). A finished
+  // step shows it at once.
+  const reached = (at, n) => at === null || (at ?? 0) >= n
+  let pairAt = $state()
+  let modalAt = $state()
+  let claudeAt = $state()
   // The bucket's img/ folder in Cloudflare's dashboard: the build names the bucket <worker>-storage
   // (deploy.py), and the account is the one the login token found.
   let imagesUrl = $derived(info.cloudflare?.account_id && info.cloudflare?.script
@@ -325,7 +354,7 @@
 {/snippet}
 
 {#if current}
-<Wizard steps={wizardSteps} bind:current>
+<Wizard steps={wizardSteps} bind:current end={onsettings && { label: 'Go to settings', onclick: onsettings }}>
   {#if current === 'storage'}
     {#if storage}
       <p>Storage is on: images and LoRAs are kept in your Worker's R2 bucket, so any GPU can edit any image.</p>
@@ -402,18 +431,47 @@
     </details>
   {:else if current === 'pc'}
     {#if pcsReady && allPaused}<p class="err">{pcs.length > 1 ? 'Every PC is' : 'This PC is'} paused: it won't take images until resumed (here or from its tray icon).</p>{/if}
-    <p>
-      Your PC runs a small agent that connects out to this Worker: nothing to open on your network. Add the PC here,
-      then paste its pairing link into the agent's page.
-    </p>
-    <Tour ids={['agent-pair']} mode="wizard" />
-    <GpuList {gpus} {refresh} />
-    <div class="row">
-      <button type="button" onclick={addPc} disabled={addBusy}>{addBusy ? 'Adding…' : pcs.length ? 'Add another PC' : 'Add a PC'}</button>
-    </div>
+    {#if pairing}
+      <p>
+        On {pcs.length > 1 ? 'the new PC' : 'the PC with the GPU'}, download the agent and run it:
+        <a href="{RELEASE}comfy-gen-agent-windows.exe">Windows</a>,
+        <a href="{RELEASE}comfy-gen-agent-macos.zip">macOS (Apple silicon)</a> or
+        <a href="{RELEASE}comfy-gen-agent-linux">Linux</a>.
+      </p>
+      <p class="muted">
+        It isn't signed yet: on Windows choose <b>More info → Run anyway</b>; on Linux, <code>chmod +x</code> it first.
+        macOS refuses it the first time: <button type="button" class="link" onclick={() => (mac = true)}>on a Mac? Show me how</button>
+      </p>
+      <Tour ids={['agent-pair']} mode="wizard" bind:at={pairAt}>
+        <ol>
+          <li>Its page opens in your browser. Paste this pairing link into <b>Pairing link</b>.</li>
+          <li>Click <b>Pair</b>.</li>
+        </ol>
+      </Tour>
+      {#if reached(pairAt, 1)}
+        <div class="row"><code>{pairing.link}</code></div>
+        <div class="row"><button type="button" onclick={copyLink}>{linkCopied ? 'Copied' : 'Copy link'}</button></div>
+        <p class="muted">The link lets a PC generate for this Worker: treat it like a password. Once paired, install
+          ComfyUI from the agent's page: it finds the models of ComfyUI installs you already have.</p>
+      {/if}
+      <p class="muted"><button type="button" class="link" onclick={removePairing}>Remove {pairing.name}</button> to back out.</p>
+    {:else if pcs.length}
+      <GpuList {gpus} {refresh} />
+      <div class="row">
+        <button type="button" class="secondary" onclick={addPc} disabled={addBusy}>{addBusy ? 'Adding…' : 'Add another PC'}</button>
+      </div>
+      <p class="muted">Images are made on the GPUs listed, tried in this order. The LoRAs already on a paired PC are
+        copied into the Worker's storage, so every GPU gets them.</p>
+    {:else}
+      <p>
+        Your PC runs a small agent that connects out to this Worker: nothing to open on your network. Add the PC, and
+        this page gives you the agent's download and its pairing link.
+      </p>
+      <div class="row">
+        <button type="button" onclick={addPc} disabled={addBusy}>{addBusy ? 'Adding…' : 'Add a PC'}</button>
+      </div>
+    {/if}
     {#if addError}<p class="err">{addError}</p>{/if}
-    <p class="muted">Images are made on the GPUs listed, tried in this order. Once paired, the LoRAs already on that PC are
-      copied into the Worker's storage, so every GPU gets them.</p>
   {:else if current === 'deploy'}
     <p>
       Images are generated by ComfyUI on <a href="https://modal.com" target="_blank" rel="noopener">Modal</a>, in
@@ -437,7 +495,7 @@
     {/if}
     <p class="muted">New to Modal? <a href="https://modal.com/signup" target="_blank" rel="noopener">Sign up</a> first (with GitHub is
       simplest: the same account your Worker's copy lives in).</p>
-    <Tour ids={['modal-billing', 'modal-token']} mode="wizard">
+    <Tour ids={['modal-billing', 'modal-token']} mode="wizard" bind:at={modalAt}>
       <ol>
         <li><b>Add a card first:</b> Modal runs GPUs only with a card on file, even on the free $30
           (<b>Settings → Usage &amp; billing → Manage payment details</b>). Without one the deploy fails.</li>
@@ -447,30 +505,32 @@
           Copy the whole command with its copy button and paste it into <b>Modal command</b> below.</li>
       </ol>
     </Tour>
-    <form onsubmit={deployModal}>
-      <label for="mcmd">Modal command</label>
-      <input id="mcmd" type="text" bind:value={modalCommand} oninput={splitCommand} placeholder="modal token set --token-id ak-… --token-secret as-…" autocomplete="off" />
-      {#if fromCommand}<p class="muted">Got the ID and secret from the command.</p>{/if}
-      <details class="guide">
-        <summary>Or enter them yourself</summary>
-        <label for="mid">Token ID</label>
-        <input id="mid" type="text" bind:value={modalId} placeholder="ak-…" autocomplete="off" />
-        <label for="msec">Token secret</label>
-        <input id="msec" type="password" bind:value={modalSecret} placeholder="as-…" autocomplete="off" />
-      </details>
-      <button type="submit" disabled={buildBusy || !modalId.trim() || !modalSecret.trim()}>
-        {buildBusy ? 'Starting…' : deployed ? 'Deploy again' : 'Deploy to Modal'}
-      </button>
-      {#if buildError}<p class="err">{buildError}</p>{/if}
-    </form>
+    {#if reached(modalAt, 5) || deployed}
+      <form onsubmit={deployModal}>
+        <label for="mcmd">Modal command</label>
+        <input id="mcmd" type="text" bind:value={modalCommand} oninput={splitCommand} placeholder="modal token set --token-id ak-… --token-secret as-…" autocomplete="off" />
+        {#if fromCommand}<p class="muted">Got the ID and secret from the command.</p>{/if}
+        <details class="guide">
+          <summary>Or enter them yourself</summary>
+          <label for="mid">Token ID</label>
+          <input id="mid" type="text" bind:value={modalId} placeholder="ak-…" autocomplete="off" />
+          <label for="msec">Token secret</label>
+          <input id="msec" type="password" bind:value={modalSecret} placeholder="as-…" autocomplete="off" />
+        </details>
+        <button type="submit" disabled={buildBusy || !modalId.trim() || !modalSecret.trim()}>
+          {buildBusy ? 'Starting…' : deployed ? 'Deploy again' : 'Deploy to Modal'}
+        </button>
+        {#if buildError}<p class="err">{buildError}</p>{/if}
+      </form>
+      <p class="muted">The ID and secret are stored only as build secrets, used to deploy ComfyUI into your Modal account. The
+        first deploy takes about 5 minutes (it builds the ComfyUI image); later ones about a minute.</p>
+      <p class="muted">Optional: Modal's <b>Spend limit</b> caps what it can bill: once charges pass it, with the free credits used
+        first, all work stops. At $0 you never pay past the credits.
+        <button type="button" class="link" onclick={() => (pop = [['modal-limit'], "Modal's spend limit"])}>Show me where</button></p>
+    {/if}
     {#if info.build && info.build !== info.update_build}
       {#key info.build}<BuildLog takes="about 5 minutes the first time, about a minute after" onfinished={refresh} />{/key}
     {/if}
-    <p class="muted">The ID and secret are stored only as build secrets, used to deploy ComfyUI into your Modal account. The
-      first deploy takes about 5 minutes (it builds the ComfyUI image); later ones about a minute.</p>
-    <p class="muted">Optional: Modal's <b>Spend limit</b> caps what it can bill: once charges pass it, with the free credits used
-      first, all work stops. At $0 you never pay past the credits.
-      <button type="button" class="link" onclick={() => (pop = [['modal-limit'], "Modal's spend limit"])}>Show me where</button></p>
   {:else if current === 'models'}
     {#if deployed}
       <p>The models download straight into your Modal account (about 20 GB for the default choices, a few minutes).
@@ -488,14 +548,8 @@
       {#if directError}<p class="err">{directError}</p>{/if}
     </form>
   {:else if current === 'claude'}
-    <p>Your connector URL:</p>
-    <div class="row"><code>{showUrl ? info.connector_url : info.connector_url.replace(/(\/mcp\/).+$/, '$1••••••••')}</code></div>
-    <div class="row">
-      <button onclick={copyConnector}>{copied ? 'Copied' : 'Copy URL'}</button>
-      <button class="secondary" onclick={() => (showUrl = !showUrl)}>{showUrl ? 'Hide' : 'Show'}</button>
-      <button class="secondary" onclick={rotate}>Make a new URL</button>
-    </div>
-    <Tour ids={['claude-connector', 'claude-chat']} mode="wizard">
+    <p>Add this Worker to claude.ai as a custom connector: the walkthrough gives you its URL when you get to pasting it.</p>
+    <Tour ids={['claude-connector', 'claude-chat']} mode="wizard" bind:at={claudeAt}>
       <ol>
         <li>In claude.ai, open <b>Customize → Connectors</b>, then <b>+</b> → <b>Add custom connector</b>.</li>
         <li>Name it anything (Comfy-Gen, say), paste the URL, and click <b>Continue</b>.</li>
@@ -505,8 +559,17 @@
         <li>In a chat, turn it on under <b>+ → Connectors</b>. The first image asks to allow the tool: choose <b>Always allow</b>.</li>
       </ol>
     </Tour>
-    <p class="muted">Anyone with this URL can generate images with your setup. Treat it like a password. If Claude ever says the
-      tools aren't connected, open the connector in <b>Customize → Connectors</b> and click <b>Disconnect</b>, then <b>Connect</b>.</p>
+    {#if reached(claudeAt, 6) || info.claude_seen}
+      <p>Your connector URL:</p>
+      <div class="row"><code>{showUrl ? info.connector_url : info.connector_url.replace(/(\/mcp\/).+$/, '$1••••••••')}</code></div>
+      <div class="row">
+        <button onclick={copyConnector}>{copied ? 'Copied' : 'Copy URL'}</button>
+        <button class="secondary" onclick={() => (showUrl = !showUrl)}>{showUrl ? 'Hide' : 'Show'}</button>
+        <button class="secondary" onclick={rotate}>Make a new URL</button>
+      </div>
+      <p class="muted">Anyone with this URL can generate images with your setup. Treat it like a password. If Claude ever says the
+        tools aren't connected, open the connector in <b>Customize → Connectors</b> and click <b>Disconnect</b>, then <b>Connect</b>.</p>
+    {/if}
     {#if !generatorReady}<p class="muted">Finish the steps before this one first: Claude needs a GPU to generate on.</p>{/if}
   {:else if current === 'finish'}
     <p>In a new chat, with the connector turned on, try:</p>
@@ -516,7 +579,7 @@
       in the <b>Settings</b> tab.
     </p>
     {#if !wantPc && gpus.length}
-      <!-- With a PC step the list is there (its pairing links); otherwise, here: rename, pause, remove. -->
+      <!-- With a PC step the list is there; otherwise, here: rename, pause, remove. -->
       <h3>Your GPUs</h3>
       <GpuList {gpus} {refresh} />
     {/if}
@@ -537,6 +600,11 @@
 </Wizard>
 {/if}
 
+{#if mac}
+  <Tour ids={['agent-run']} title="Opening the agent on a Mac" mode="overlay" onclose={() => (mac = false)}>
+    <p>Unzip it and open it. When macOS refuses it, choose <b>Open Anyway</b> in System Settings → Privacy &amp; Security.</p>
+  </Tour>
+{/if}
 {#if pop}
   <Tour ids={pop[0]} title={pop[1]} mode="overlay" onclose={() => (pop = null)}>
     <p>This walkthrough couldn't be loaded.</p>

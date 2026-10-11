@@ -13,6 +13,7 @@
   let hasPassword = $state(null) // null while asking
   let useToken = $state(false)
   let shot = $state(false) // the token walkthrough's screenshot shows: it takes the left of the window
+  let at = $state() // its step: the token field shows from step 4, where the token is copied (null: no walkthrough)
 
   onMount(async () => {
     try {
@@ -69,7 +70,7 @@
     {/if}
   </p>
   <p><a class="button" href={TOKEN_TEMPLATE_URL} target="_blank" rel="noopener">Open the pre-filled token page</a></p>
-  <Tour ids={['cf-token']} bind:shot>
+  <Tour ids={['cf-token']} bind:shot bind:at>
     <ol>
       <li>The permissions are already ticked. Click <b>Continue to summary</b>, then <b>Create Token</b>, and paste it here.</li>
     </ol>
@@ -78,12 +79,14 @@
       under <b>Account Resources</b> first, so the token cannot touch them.
     </p>
   </Tour>
-  <form onsubmit={submit}>
-    <label for="token">API token</label>
-    <input id="token" type="password" bind:value={token} placeholder="cfut_…" autocomplete="off" />
-    <button type="submit" disabled={busy || !token.trim()}>{busy ? 'Checking…' : 'Log in'}</button>
-    {#if error}<p class="err">{error}</p>{/if}
-  </form>
+  {#if at === null || at >= 4}
+    <form onsubmit={submit}>
+      <label for="token">API token</label>
+      <input id="token" type="password" bind:value={token} placeholder="cfut_…" autocomplete="off" />
+      <button type="submit" disabled={busy || !token.trim()}>{busy ? 'Checking…' : 'Log in'}</button>
+      {#if error}<p class="err">{error}</p>{/if}
+    </form>
+  {/if}
   <p class="muted">This browser stays logged in for a year.</p>
 </section>
 {/if}

@@ -562,7 +562,7 @@
       "side": "right"
      },
      {
-      "html": "Paste your connector URL (<b>Copy URL</b>, above).",
+      "html": "Paste your connector URL (<b>Copy URL</b> on your Worker's page copies it).",
       "box": [
        396,
        378,
@@ -701,7 +701,7 @@
     "alt": "The agent's page, with the Pairing link field and the Pair button",
     "steps": [
      {
-      "html": "The agent's page opens in your browser. Paste the pairing link (<b>Copy link</b>, above) into <b>Pairing link</b>.",
+      "html": "The agent's page opens in your browser. Paste the pairing link into <b>Pairing link</b> (<b>Copy link</b> on your Worker's page copies it).",
       "box": [
        65,
        33,

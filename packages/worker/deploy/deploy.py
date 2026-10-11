@@ -208,12 +208,11 @@ def main() -> int:
         print("storage: R2 is not turned on in this Cloudflare account; deploying without it "
               "(your Worker's Setup page has the step)", flush=True)
     cmd = ["npx", "wrangler", "deploy"] + (["--dry-run"] if args.dry_run else [])
-    deployed, url = False, None
+    deployed = False
     if installed:
         result = subprocess.run(cmd, cwd=worker, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         print(result.stdout or "", end="", flush=True)
         deployed = result.returncode == 0
-        url = worker_url(result.stdout or "")
     if deployed and not args.dry_run:
         for b in cfg.get("r2_buckets") or []:
             set_lifecycle(worker, b["bucket_name"])
@@ -222,22 +221,10 @@ def main() -> int:
         report["modal"] = modal
     if modal_result.startswith("failed"):
         report["modal_error"] = modal_error or f"the deploy {modal_result}; the log above says why"
+    # No closing banner: the log is read on the Worker's page (its Modal and storage steps), and the
+    # setup site walks to the Worker through Cloudflare's own Visit button.
     callback(report)
-    if deployed and url:
-        if "modal_error" in report:
-            head = f"The Worker is deployed, but Modal failed: {report['modal_error']}\nFix that, then press Try again on the Worker's page:"
-        elif not storage:
-            head = "Your Worker is ready. Open it to finish the setup (turning on storage is the next step):"
-        else:
-            head = "Your Worker is ready. Open it to finish the setup:"
-        print(f"\n{'=' * 64}\n{head}\n\n    {url}\n{'=' * 64}", flush=True)
     return 0 if deployed else 1
-
-
-def worker_url(wrangler_output: str) -> str | None:
-    """The workers.dev address wrangler deploy printed, if any."""
-    m = re.search(r"https://[\w.-]+\.workers\.dev", wrangler_output)
-    return m.group(0) if m else None
 
 
 if __name__ == "__main__":

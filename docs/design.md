@@ -487,6 +487,16 @@ login page sits beside the token walkthrough the same way. Without JavaScript th
 the long page with every step open; a walkthrough that can't load falls back to its plain steps
 and holds nothing.
 
+What a step asks you to fill in appears only once its walkthrough reaches the step that gives it
+to you (`Tour`'s bindable `at`): Modal's command field at the step that copies the command, the
+connector URL at the one that pastes it, the login's token field at the one that copies the
+token. A finished step, and a walkthrough that can't load, show everything at once. The PC step
+follows the pairing in order: with no PC, only **Add a PC**; with one waiting to pair, the agent's
+downloads, then the walkthrough with the pairing link and **Copy link** under its first step; once
+paired, the GPU list and **Add another PC**. The last step's button, where Next would be, is **Go
+to settings**. The build log ends with wrangler's own output: the page reads it, so it no longer
+closes on a "Your Worker is ready" banner.
+
 **Storage is a step, not a prerequisite.** R2 needs a checkout with a card on file, which can't
 be automated, and a Deploy button on an account without R2 used to fail (wrangler's error 10042).
 The templates no longer declare the bucket; the build checks R2 (`wrangler r2 bucket list`) and,

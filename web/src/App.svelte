@@ -64,6 +64,11 @@
     tab = hasSettings && (ready || location.hash === '#settings') ? 'settings' : 'setup'
   }
 
+  function openSettings() {
+    tab = 'settings'
+    window.scrollTo(0, 0)
+  }
+
   async function logout() {
     await api('POST', '/logout')
     info = null
@@ -126,7 +131,7 @@
       {#if local}
         <Checklist items={checklist} done="Ask Claude Desktop for an image." />
         <LocalSetup {info} {refresh} />
-      {:else}<Setup {info} {refresh} />{/if}
+      {:else}<Setup {info} {refresh} onsettings={hasSettings ? openSettings : null} />{/if}
     {:else}
       <Settings {info} {refresh} />
     {/if}

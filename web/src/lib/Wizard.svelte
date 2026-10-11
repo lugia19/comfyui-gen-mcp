@@ -7,10 +7,11 @@
   // *waiting* says what a step that can't be left yet waits for. *current* (bindable): the step
   // shown. The children render the current step's content; a walkthrough in it (Tour mode "wizard")
   // puts its screenshot on the left and is driven by Back / Next here. Next leaves a step only once
-  // it is done: its state is the proof.
-  let { steps, current = $bindable(), children } = $props()
+  // it is done: its state is the proof. *end* ({ label, onclick }, optional): the last step's button,
+  // where Next would be.
+  let { steps, current = $bindable(), end = null, children } = $props()
 
-  let tour = $state(null) // the current step's walkthrough, while it shows
+  let tour = $state.raw(null) // the current step's walkthrough, while it shows (raw: unregister compares it)
   let moved = $state(0) // bumped on every walkthrough move, so the buttons follow
   // Called from the walkthrough's effects: untracked, or reading what they write would loop.
   setContext('wizard', {
@@ -97,7 +98,7 @@
   <section class="wz-step" class:wz-split={split}>
     <h2 class="wz-title">{step.title}</h2>
     {@render children?.()}
-    {#if nextStep || at > 0}
+    {#if nextStep || at > 0 || end}
       <div class="wz-nav">
         <button type="button" class="wz-back" disabled={!canBack} onclick={backward}>Back</button>
         {#if walking}
@@ -105,6 +106,8 @@
         {:else if nextStep}
           <button type="button" class="wz-next" disabled={!leave} onclick={forward}>Next: {nextStep.title}</button>
           {#if !leave && step.waiting}<p class="wz-why">{step.waiting}</p>{/if}
+        {:else if end}
+          <button type="button" class="wz-next" onclick={end.onclick}>{end.label}</button>
         {/if}
       </div>
     {/if}

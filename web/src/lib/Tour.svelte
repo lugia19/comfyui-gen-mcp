@@ -11,7 +11,9 @@
   //   mode "split": the screenshot on the left of a .wz-split page, with its own Back / Next;
   //   mode "overlay": over the whole window, with a Close (onclose).
   // *shot* (bindable): whether a screenshot is showing, for a page that lays itself out around it.
-  let { ids, mode = 'split', title = '', onclose = () => {}, shot = $bindable(false), children } = $props()
+  // *at* (bindable): the number of the step showing; undefined while the guides load, null when the
+  // walkthrough can't show (the page then shows everything, beside the plain steps).
+  let { ids, mode = 'split', title = '', onclose = () => {}, shot = $bindable(false), at = $bindable(), children } = $props()
 
   let guide = $state(null)
   let failed = $state(false)
@@ -30,7 +32,7 @@
   onMount(() => {
     loadGuides()
       .then((g) => (guide = concat(g, Array.isArray(ids) ? ids : [ids])))
-      .catch(() => {})
+      .catch(() => (failed = true))
   })
   onDestroy(() => wizard?.unregister(api))
 
@@ -41,6 +43,7 @@
 
   $effect(() => {
     shot = live && Boolean(view?.image)
+    at = live ? number(guide, pos) : failed ? null : undefined
     // The Wizard follows the walkthrough: registered while it shows, told of every move.
     if (wizard) {
       if (live) wizard.register(api, pos)

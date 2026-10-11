@@ -188,13 +188,13 @@ def test_the_bucket_is_named_after_the_worker_and_expires_only_images(build):
     assert prefixes == {"expire-images": "img/", "abort-multipart": ""}  # LoRAs (lora/) never expire
 
 
-def test_the_log_ends_with_the_workers_address(build, capsys):
+def test_the_log_ends_with_wranglers_output(build, capsys):
     build.wrangler_out = "Uploaded comfy-gen (3.2 sec)\nDeployed comfy-gen triggers (0.4 sec)\n  https://comfy-gen.someone.workers.dev\n  schedule: 17 4 * * *\n"
     assert build.go() == 0
     out = capsys.readouterr().out
     assert "Deployed comfy-gen triggers" in out  # wrangler's own output still shows
-    assert out.rstrip().splitlines()[-2:] == ["    https://comfy-gen.someone.workers.dev", "=" * 64]
-    assert out.index("Your Worker is ready") > out.index("schedule: 17 4")
+    assert out.rstrip().endswith("storage: comfy-gen-storage, rules set")  # no banner: the Worker's page reads this log
+    assert "=" * 64 not in out
 
 
 def test_setup_build_deploys_modal_and_reports(build, monkeypatch):
@@ -256,8 +256,6 @@ def test_modal_failure_reason_reaches_the_callback_and_the_banner(build, monkeyp
     assert build.posts[0][2]["modal_error"] == "Please add a payment method to use L4 GPU functions."
     out = capsys.readouterr().out
     assert "modal: failed (exit 1): Please add a payment method" in out
-    assert "Modal failed: Please add a payment method" in out and "Try again" in out
-    assert "Your Worker is ready" not in out
 
 
 def test_callback_retries_once_on_a_server_error(build, monkeypatch):
@@ -299,7 +297,7 @@ def test_without_r2_it_deploys_without_the_bucket_and_says_so(build, monkeypatch
     assert not any("lifecycle" in cmd for cmd, _ in build.calls)  # no bucket to set rules on
     assert build.posts[0][2]["storage"] is False
     out = capsys.readouterr().out
-    assert "R2 is not turned on" in out and "turning on storage is the next step" in out
+    assert "R2 is not turned on" in out and "Setup page has the step" in out
 
 
 def test_an_unknown_r2_error_keeps_the_bucket(build, monkeypatch):
