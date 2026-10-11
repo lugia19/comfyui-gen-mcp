@@ -9,11 +9,12 @@
 //   cg:width/height  number nodes: their `value`
 //   cg:model         the model loader LoRAs attach to (output 0)
 //   cg:image…        an edit's nodes for its first image (see withImages)
+// Save nodes need no title: any node with a `filename_prefix` gets this call's own (outputName).
 //
 // Node order: JS objects list integer-like keys ("3", "19") first, ascending, whatever order the
 // JSON had. ComfyUI node ids are such keys, so "the first KSampler" is the one with the lowest id.
 
-import { isPlainObject, randomSeed, roundHalfEven } from "./bytes.ts";
+import { isPlainObject, randomSeed, roundHalfEven, tokenHex } from "./bytes.ts";
 
 export type Node = { class_type: string; inputs: Record<string, any>; _meta?: { title?: string } };
 export type Workflow = Record<string, Node>;
@@ -83,7 +84,14 @@ export type BuildOptions = {
   maxPixels?: number;
   loraToggles?: LoraToggle[] | null;
   rng?: Rng;
+  outputName?: string; // the save nodes' filename_prefix; a new one per call by default
 };
+
+/** A call's own output name, `comfy-gen/<12 hex>`: ComfyUI saves it as output/comfy-gen/<hex>_00001_.png.
+ * Two ComfyUIs sharing an output folder (Modal containers on one Volume, as during a redeploy)
+ * each count from 00001 per prefix, so a shared prefix would let one overwrite the other's image
+ * before it is read. */
+export const outputName = (): string => `comfy-gen/${tokenHex(6)}`;
 
 /** Copy a workflow, inject the prompt, randomize seeds, set dimensions (where it has size nodes: an
  * edit's follow its first image), gate LoRAs on their triggers (one whose trigger is not in the
@@ -95,6 +103,11 @@ export function buildPrompt(workflow: Workflow, promptText: string, opts: BuildO
   const [promptNode] = nodesTitled(wf, TITLES.prompt);
   if (!promptNode) throw new Error(`the workflow has no node titled ${TITLES.prompt}`);
   wf[promptNode].inputs.text = promptText;
+
+  const name = opts.outputName ?? outputName();
+  for (const node of Object.values(wf)) {
+    if (typeof node.inputs?.filename_prefix === "string") node.inputs.filename_prefix = name;
+  }
 
   for (const id of nodesTitled(wf, TITLES.seed)) {
     const field = "noise_seed" in wf[id].inputs ? "noise_seed" : "seed";

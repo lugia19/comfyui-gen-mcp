@@ -55,6 +55,18 @@ describe("workflow", () => {
     expect(() => buildPrompt({ "1": flux["2"] }, "x")).toThrow(/cg:prompt/);
   });
 
+  it("each call saves under its own name, in every pack (two ComfyUIs on one Volume can't overwrite)", () => {
+    for (const pack of builtinPacks()) {
+      const prefixes = (wf: Workflow) => Object.values(wf).filter((n) => "filename_prefix" in n.inputs).map((n) => n.inputs.filename_prefix);
+      expect(prefixes(pack.workflow).length, pack.name).toBeGreaterThan(0);
+      const [a, b] = [buildPrompt(pack.workflow, "x"), buildPrompt(pack.workflow, "x")].map(prefixes);
+      expect(a[0], pack.name).toMatch(/^comfy-gen\/[0-9a-f]{12}$/);
+      expect(a[0]).not.toBe(b[0]);
+      expect(prefixes(pack.workflow)).toEqual(["comfy-gen"]); // the pack itself is untouched
+    }
+    expect(Object.values(buildPrompt(smallWorkflow(), "x", { outputName: "comfy-gen/t" })).some((n) => "filename_prefix" in n.inputs)).toBe(false);
+  });
+
   it("withImages chains a second image after the first, which keeps setting the size", () => {
     const wf: Workflow = {
       "1": { class_type: "CLIPTextEncode", inputs: { text: "" }, _meta: { title: "cg:prompt" } },

@@ -973,7 +973,9 @@ the files it saw at start, so both write the same `comfy-gen_000NN_.png` names a
 replaces the earlier file: two redeploys under load, 26 generations after `comfy-gen_00088_`, left
 19 files on the Volume (00089 to 00107, no gaps), so 7 were overwritten. An image id could then show another image. So the limit stays: a redeploy
 (setup and update builds only) loses the jobs in flight, which the client reports as an unknown
-request, and never mixes outputs.
+request, and never mixes outputs. Since 2026-10-11 every call also saves under its own name
+(`comfy-gen/<12 hex>`, set on the save nodes by `buildPrompt`), so two ComfyUIs on one Volume can no
+longer number into the same file.
 
 **Itemizing a warm generation, 2026-09-28: about 6 ms of work, the rest is platform variance.**
 A throwaway Worker (`comfy-gen-cpuprobe`, deleted after) bundled the real `App` and ran the MCP

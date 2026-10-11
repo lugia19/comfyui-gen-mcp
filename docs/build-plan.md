@@ -514,48 +514,17 @@ with unsaved changes and names them. The GPU list and the Worker's own settings 
 password, account) moved here from "You're set". Checked in Chromium on the test worlds (PC and
 Modal) at 1440, 1280 light and a 390-wide phone, and on the extension's page.
 
-## Later: spill-over between GPUs (parked 2026-10-04)
+## Spill-over between GPUs: dropped (2026-10-11)
 
-Today a call goes to the first GPU that is online, not paused and has the model ready (`App.pick`);
-how busy it is never counts. A second call waits in that ComfyUI's queue and, past 150 s, comes
-back Pending. The idea: busy GPUs hand new calls on, from the PC to Modal, then to more Modal.
-
-- **Spill-over:** per GPU, "pass new images on when more than N are waiting" (default off). `pick`
-  reads the candidate's `GET /queue` (`queue_running` + `queue_pending`): through the relay for a
-  PC. A cold Modal server answers 503 at once, which counts as an empty queue: the call goes there.
-- **More Modal as separate Modal apps,** each `max_containers=1` and each one more GPU entry with
-  its own URL, routed as above. One container per app keeps every request of a job on the
-  container that runs it (the 2026-09-29 failure, design appendix "Redeploying under load"). The
-  apps share the `comfy-gen-data` Volume, so models are stored once; an update deploys each.
-- **Sticky sessions (Modal, seen 2026-10-07), the better route for more Modal:** the Worker starts
-  a session per job (`POST <server>/_modal/sessions/start` with the proxy token returns a session
-  token), sends every request of that job with `Modal-Authorization: Bearer <token>`, which keeps
-  them on one container, then ends it (`/_modal/sessions/terminate`). On an `@app.server` with
-  `@modal.sessioned()`, `max_concurrency` / `target_concurrency` count sessions, so one job per
-  session spreads jobs over containers up to `max_containers`, and a session start waits up to
-  5 min for capacity instead of a 503. Shape (decided 2026-10-11): two apps. App 0 unchanged (one
-  container, the user's keep-warm); one sessioned overflow app with up to N containers and a short
-  keep-warm (1 minute). Keep-warm is per app, and a single sessioned app would keep every extra
-  container warm as long as the first: about $0.10–0.15 per burst at 5 minutes, against a few
-  cents at 1. The overflow app replaces the "separate apps" above (one app, not one per
-  container). To check first: `modal.sessioned` in our pinned Modal (1.5.5); the session start's auth
-  (the docs show `Authorization: Bearer`, we use `Modal-Key`/`Modal-Secret`); ending sessions
-  reliably (a container stays up while it hosts one; `idle_timeout` 600 s by default); a Pending
-  result's `fetch_result` carrying the session token; sessions across a redeploy (undocumented);
-  non-session traffic is rejected. The per-call `filename_prefix` is still needed.
-- **Keep-warm:** app 0 keeps the user's time. The overflow apps exist only for going over, so they
-  default to a much shorter one (1 minute, the shortest `POST /idle` takes now): a spill bills little
-  more than its own job. GPU entries already have their own `keep_warm_minutes`. The Spend limit
-  caps them all.
-- **Output names:** two ComfyUIs writing one output folder overwrite each other's
-  `comfy-gen_000NN_` files. The Worker sets the save node's `filename_prefix` per call
-  (`comfy-gen/<call id>`; nodes are found by title); images go to R2 at once, so unique is enough.
-- **Limits:** a PC's queue check is a relay (Durable Object) call, outside the free plan's 50
-  external subrequests. A Modal app's check is one of them. A warm Modal call spends about 6–8 of
-  its 44 (`REQUEST_BUDGET`), so a few checks fit. Time isn't a limit either: past 150 s a call
-  returns Pending and `fetch_result` picks it up, with a fresh budget. Spilling is about getting the
-  image sooner. Spilling to a cold app pays only when the line is longer than a cold start (about
-  44 s plus the model load).
+Parked 2026-10-04: busy GPUs handing new calls on, PC to Modal to more Modal (an overflow app with
+sticky sessions or a function per job). Dropped: a backlog already waits in ComfyUI's queue and
+comes back through Pending and `fetch_result`; a cold Modal container (108 to 140 s measured) only
+beats the queue three or four jobs deep; and parallel tool calls arrive together, so a queue check
+would need a Durable Object counter. A `/batch` API for apps (Visual-Novelist's 9-image sheets)
+was weighed and dropped for the same cold-start arithmetic. Kept from it: each call saves under
+its own name, `comfy-gen/<12 hex>` (`buildPrompt` sets every save node's `filename_prefix`), so two
+ComfyUIs sharing the Volume, as during a redeploy, can't overwrite each other's outputs (design
+appendix, "Redeploying under load").
 
 ## Encrypted images in R2 (2026-10-11)
 
