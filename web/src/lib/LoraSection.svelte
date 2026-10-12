@@ -1,6 +1,7 @@
 <script>
   import { api, formatBytes } from './api.js'
   import { uploadLora } from './upload.js'
+  import Icon from './Icon.svelte'
 
   // One place for LoRAs: each file, where it is, and its setup beside it. A LoRA belongs to one
   // group, the models it was trained for (Anima and Anima Turbo share theirs); with several groups,
@@ -218,8 +219,8 @@
         <span class="place" class:ok={m.ok} class:err={m.err} class:muted={!m.ok && !m.err}>{#if place(where)}<b>{place(where)}</b>&nbsp;{/if}{m.text}</span>
       {/each}
       {#if files[name] && listed.length}
-        <button class="secondary" onclick={() => remove(name)} disabled={!!progress || deleting !== null}>
-          {deleting === name ? 'Deleting…' : 'Delete'}
+        <button type="button" class="danger small icon-btn" onclick={() => remove(name)} disabled={!!progress || deleting !== null} title="Delete {name}" aria-label="Delete {name}">
+          {#if deleting === name}Deleting…{:else}<Icon name="trash" />{/if}
         </button>
       {/if}
     </div>
@@ -268,6 +269,7 @@
   .file { border-top: 1px solid var(--border); padding: 8px 0; }
   .head { gap: 4px 14px; }
   .head button { margin-top: 0; }
+  .head .icon-btn { padding: 4px 8px; }
   .name { flex: 1; overflow-wrap: anywhere; min-width: 160px; }
   .place { white-space: nowrap; }
   .pack { margin: 4px 0 0 4px; flex-wrap: nowrap; }

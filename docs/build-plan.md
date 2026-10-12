@@ -521,6 +521,7 @@ icon); at the far end New pairing link (red outline) and Remove (a red trash ico
 keep-warm sit on their own line below; Modal and a ComfyUI by URL have just the trash at its end.
 No Pause for Modal: Enabled already keeps calls off any GPU. A new PC keeps ComfyUI warm 10
 minutes (Modal stays at 5, billed); PCs added before keep theirs.
+Each LoRA's Delete is the same red trash icon, at the far right of its row.
 
 ## A page per PC on the Worker (2026-10-12)
 
