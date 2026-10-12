@@ -1,5 +1,6 @@
 <script>
   import { api, gpuName, platformName } from './api.js'
+  import Icon from './Icon.svelte'
 
   // The Worker's GPUs, in priority order (design §2, "GPUs"): a call goes to the first that is
   // online, not paused and enabled, and has the model ready. Each PC pairs with its own link; Modal
@@ -73,6 +74,10 @@
   }
 </script>
 
+{#snippet trash(g)}
+  <button type="button" class="danger small icon-btn" disabled={busy === g.id} onclick={() => remove(g)} title="Remove {g.name}" aria-label="Remove {g.name}"><Icon name="trash" /></button>
+{/snippet}
+
 {#each gpus as g, i (g.id)}
   {@const st = describe(g)}
   <div class="gpu" class:off={!g.enabled}>
@@ -92,26 +97,31 @@
     {#if g.kind === 'pc' && g.online && g.info}
       <p class="muted">Agent {g.info.version} on {platformName(g.info.platform)}{#if g.info.gpu}, GPU: {gpuName(g.info.gpu)}{/if}</p>
     {/if}
+    <!-- Actions: pausing and the PC's page first, the disruptive ones at the far end. -->
+    {#if g.kind === 'pc'}
+    <div class="row actions">
+      {#if g.online}
+        {#if g.paused}
+          <button type="button" class="ok small" disabled={busy === g.id} onclick={() => act(g.id, () => api('POST', `/gpus/${g.id}/pause`, { paused: false }))}><Icon name="play" />Resume</button>
+        {:else}
+          <button type="button" class="warn small" disabled={busy === g.id} onclick={() => act(g.id, () => api('POST', `/gpus/${g.id}/pause`, { paused: true }))}><Icon name="pause" />Pause</button>
+        {/if}
+      {/if}
+      <!-- The PC's own Comfy-Gen page, through this Worker (design §9, "A page per PC"). -->
+      <a class="button small" href="/gpu/{g.id}" target="_blank" rel="noopener" title="Its ComfyUI, folders and models, as on the PC"><Icon name="external" />Open its page</a>
+      <span class="spacer"></span>
+      <button type="button" class="danger small" disabled={busy === g.id} onclick={() => newLink(g)} title="It disconnects until the new link is pasted into its agent"><Icon name="link" />New pairing link</button>
+      {@render trash(g)}
+    </div>
+    {/if}
     <div class="row controls">
-      <label class="check"><input type="checkbox" checked={g.enabled} onchange={(e) => patch(g, { enabled: e.currentTarget.checked })} /> Enabled</label>
+      <label class="check" title="Unticked, no images go to this GPU"><input type="checkbox" checked={g.enabled} onchange={(e) => patch(g, { enabled: e.currentTarget.checked })} /> Enabled</label>
       {#if g.kind !== 'url'}
         <label class="check">Keep warm
           <input class="minutes" type="number" min="1" max="60" value={g.keep_warm_minutes} onchange={(e) => keepWarm(g, e)} /> min
         </label>
       {/if}
-      {#if g.kind === 'pc' && g.online}
-        <button type="button" class="secondary small" disabled={busy === g.id} onclick={() => act(g.id, () => api('POST', `/gpus/${g.id}/pause`, { paused: !g.paused }))}>
-          {g.paused ? 'Resume' : 'Pause'}
-        </button>
-      {/if}
-      {#if g.kind === 'pc'}
-        <!-- The PC's own Comfy-Gen page, through this Worker (design §9, "A page per PC"). -->
-        <a class="button secondary small" href="/gpu/{g.id}" target="_blank" rel="noopener" title="Its ComfyUI, folders and models, as on the PC">Open its page</a>
-      {/if}
-      {#if g.kind === 'pc'}
-        <button type="button" class="secondary small" disabled={busy === g.id} onclick={() => newLink(g)}>New pairing link</button>
-      {/if}
-      <button type="button" class="secondary small" disabled={busy === g.id} onclick={() => remove(g)}>Remove</button>
+      {#if g.kind !== 'pc'}<span class="spacer"></span>{@render trash(g)}{/if}
     </div>
     {#if g.kind === 'modal'}
       <p class="muted hint">Keep warm: how long the GPU stays up after the last image. On Modal that time is billed.</p>
@@ -135,6 +145,9 @@
   input.name { width: 180px; margin: 0; }
   .link { background: none; border: none; padding: 0; margin: 0; color: inherit; cursor: text; }
   .spacer { flex: 1; }
+  .actions { gap: 8px; align-items: center; margin-top: 8px; }
+  .actions .button.small { margin-top: 0; padding: 4px 12px; }
+  .icon-btn { padding: 4px 8px; }
   .controls { gap: 6px 16px; align-items: center; margin-top: 6px; }
   .check { display: flex; gap: 6px; align-items: center; margin: 0; font-weight: normal; }
   .minutes { width: 64px; margin: 0; }

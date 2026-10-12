@@ -26,7 +26,8 @@ export type Gpu = {
   seen?: number | null; // first time it connected: until then the page shows the pairing steps
 };
 
-export const DEFAULT_KEEP_WARM = 5;
+export const DEFAULT_KEEP_WARM = 5; // Modal: billed while warm
+export const PC_KEEP_WARM = 10; // a PC: free to keep warm, and its model reloads slowly
 export const KIND_NAMES: Record<GpuKind, string> = { modal: "Modal", pc: "PC", url: "ComfyUI" };
 
 /** The GPU list in *secrets*, or, for a Worker from before the list (2026-10-01), the one built from

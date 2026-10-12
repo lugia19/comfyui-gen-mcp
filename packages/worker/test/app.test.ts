@@ -860,7 +860,7 @@ describe("the PC path", () => {
     expect(pc.comfy.prompts.length).toBe(1);
     expect(comfy.prompts.length).toBe(0);
     expect(pc.controlCalls[0][0]).toBe("ensure");
-    expect(pc.controlCalls[0][1]).toMatchObject({ pack: { name: expect.any(String), models: expect.any(Array) }, keep_warm_minutes: 5 });
+    expect(pc.controlCalls[0][1]).toMatchObject({ pack: { name: expect.any(String), models: expect.any(Array) }, keep_warm_minutes: 10 }); // a new PC keeps warm 10 minutes
 
     pc.connected = false;
     const [, onModal] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a dog" } }, 2);

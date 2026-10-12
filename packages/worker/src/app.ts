@@ -11,7 +11,7 @@ import {
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
-import { gpusOf, newPcId, newPcName, splitToken, DEFAULT_KEEP_WARM, type Gpu } from "./gpus.ts";
+import { gpusOf, newPcId, newPcName, splitToken, DEFAULT_KEEP_WARM, PC_KEEP_WARM, type Gpu } from "./gpus.ts";
 import { offlineMessage, pausedMessage, PcHooks, WorkerHooks } from "./hooks.ts";
 import * as loras from "./loras.ts";
 import * as modalAdmin from "./modal-admin.ts";
@@ -616,7 +616,7 @@ export class App {
     const managed = /^\/gpus\/([\w-]+)\/machine(\/.*)$/.exec(sub);
     if (managed) return this.managePc(req, gpus, managed[1], managed[2] + url.search);
     if (sub === "/gpus/pc" && req.method === "POST") {
-      const gpu: Gpu = { id: newPcId(gpus), kind: "pc", name: newPcName(gpus), enabled: true, keep_warm_minutes: DEFAULT_KEEP_WARM, secret: tokenUrlsafe(32), seen: null };
+      const gpu: Gpu = { id: newPcId(gpus), kind: "pc", name: newPcName(gpus), enabled: true, keep_warm_minutes: PC_KEEP_WARM, secret: tokenUrlsafe(32), seen: null };
       // A new PC goes after the other PCs and before Modal: a GPU of one's own is free, Modal is the
       // fallback, and a PC added later (a laptop, say) shouldn't take over from the first.
       const at = gpus.reduce((last, g, i) => (g.kind === "pc" ? i + 1 : last), 0);

@@ -438,7 +438,7 @@ and failing that the file waits in `loras-pending-delete.json` until ComfyUI sto
   (behind a Cloudflare-token login and a cookie session) and by the MCPB's local server.
 - Keep-warm is set per GPU in the GPU list (§2, "GPUs"): Modal's applies to its
   `scaledown_window` (live, through `update_autoscaler`, S5), a PC's to its agent's idle stop (idle
-  time on a PC costs nothing). The extension keeps `keep_warm_minutes` in its settings for its idle
+  time on a PC costs nothing, so a new PC starts at 10 minutes and Modal at 5). The extension keeps `keep_warm_minutes` in its settings for its idle
   stop.
 - Which GPU answers is the list's order (§2, "GPUs").
 - **One config for every backend** (decided 2026-09-30, after trying one per backend): Claude sees

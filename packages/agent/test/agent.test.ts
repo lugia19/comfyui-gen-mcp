@@ -25,7 +25,7 @@ describe("pairing link", () => {
   });
   it("keeps the config in agent.json, with defaults", () => {
     const p = paths({ COMFY_GEN_HOME: mkdtempSync(join(tmpdir(), "agent-")) });
-    expect(loadAgentConfig(p)).toMatchObject({ worker_url: "", port: 9248, keep_warm_minutes: 5 });
+    expect(loadAgentConfig(p)).toMatchObject({ worker_url: "", port: 9248, keep_warm_minutes: 10 });
     saveAgentConfig(p, { ...loadAgentConfig(p), worker_url: "https://w", secret });
     expect(loadAgentConfig(p)).toMatchObject({ worker_url: "https://w", secret });
   });

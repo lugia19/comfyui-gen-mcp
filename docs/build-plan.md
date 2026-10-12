@@ -514,6 +514,14 @@ with unsaved changes and names them. The GPU list and the Worker's own settings 
 password, account) moved here from "You're set". Checked in Chromium on the test worlds (PC and
 Modal) at 1440, 1280 light and a 390-wide phone, and on the extension's page.
 
+## GPU list buttons by what they do (2026-10-13)
+
+Each PC's row: Pause (amber) or Resume (green), then Open its page (solid, with an external-link
+icon); at the far end New pairing link (red outline) and Remove (a red trash icon). Enabled and
+keep-warm sit on their own line below; Modal and a ComfyUI by URL have just the trash at its end.
+No Pause for Modal: Enabled already keeps calls off any GPU. A new PC keeps ComfyUI warm 10
+minutes (Modal stays at 5, billed); PCs added before keep theirs.
+
 ## A page per PC on the Worker (2026-10-12)
 
 The agent's page had settings the Worker's page couldn't reach (another models folder, a ComfyUI of

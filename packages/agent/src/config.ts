@@ -31,7 +31,7 @@ export function loadAgentConfig(p: Paths): AgentConfig {
     }
   }
   const str = (k: string) => (typeof raw[k] === "string" ? raw[k].trim() : "");
-  const keepWarm = Number.isInteger(raw.keep_warm_minutes) && raw.keep_warm_minutes > 0 ? raw.keep_warm_minutes : 5;
+  const keepWarm = Number.isInteger(raw.keep_warm_minutes) && raw.keep_warm_minutes > 0 ? raw.keep_warm_minutes : 10; // until the Worker sends its own
   // A second agent on this machine takes the next ports: 9249 for instance 2.
   const defaultPort = DEFAULT_AGENT_PORT + (p.instance ? p.instance.n - 1 : 0);
   const port = Number.isInteger(raw.port) && raw.port > 0 && raw.port < 65536 ? raw.port : defaultPort;
