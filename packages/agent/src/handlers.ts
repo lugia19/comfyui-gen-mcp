@@ -10,13 +10,6 @@ import type { Reply } from "./relay-client.ts";
 
 const ok = (data: unknown): Reply => [200, JSON.stringify(data ?? null)];
 
-/**
- * What the Worker's settings page may do on this PC through the relay (design §9, "One settings
- * page"): read its state, install ComfyUI, start and stop it, list downloads. Checked here, on the
- * PC: folder paths, a ComfyUI of your own, opening folders, pairing and uploads stay on its own page.
- */
-const REMOTE_PAGE = new Set(["GET /state", "GET /setup/install", "POST /setup/install", "POST /comfyui/restart", "POST /comfyui/stop", "GET /models"]);
-
 export type HandlerOptions = {
   machine: Machine;
   /** The Worker's keep-warm setting, sent with each ensure; the agent's idle stop follows it. */
@@ -25,7 +18,7 @@ export type HandlerOptions = {
   settingsNote: string;
   /** Pause or resume taking image requests, from the Worker's page (the tray's flag). */
   setPaused?(paused: boolean): void;
-  /** One call of this PC's own settings API (/api/<path>), for the Worker's page: [status, body]. */
+  /** One call of this PC's own settings API (/api/<path>), for its page on the Worker: [status, body]. */
   page?(method: string, path: string, body?: string): Promise<[number, string]>;
   /** LoRA copies to and from Modal: start a round (not awaited), and the copies in progress. */
   sync?: { sync(): Promise<void>; jobs: Record<string, SyncJob> };
@@ -112,11 +105,14 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
           o.setPaused(args.paused === true);
           return ok({ paused: args.paused === true });
         case "machine": {
-          const call = `${String(args.method ?? "GET").toUpperCase()} ${String(args.path ?? "")}`;
+          // This PC's page on the Worker (design §9, "A page per PC"): any call of its own API but
+          // pairing, which is what makes the Worker trusted, so it is done here only.
           if (!o.page) return [400, "This agent cannot be managed from the Worker. Update it."];
-          if (!REMOTE_PAGE.has(call)) return [403, "That can only be changed on the PC itself, on its Comfy-Gen page."];
-          const [method, path] = call.split(" ");
-          return await o.page(method, path, typeof args.body === "string" ? args.body : undefined);
+          const method = String(args.method ?? "GET").toUpperCase();
+          // Checked as the page will read it: "/x/../pair" is /pair.
+          const url = new URL(String(args.path ?? ""), "http://page.invalid/");
+          if (url.pathname.replace(/\/+$/, "") === "/pair") return [403, "Pair or unpair on the PC itself."];
+          return await o.page(method, url.pathname + url.search, typeof args.body === "string" ? args.body : undefined);
         }
         case "lora_delete":
           return ok(await machine.deleteLora(String(args.name)));

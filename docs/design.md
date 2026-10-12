@@ -753,18 +753,29 @@ Its settings page (loopback only) is the MCPB's machine setup plus the pairing s
 settings stay on the Worker, whose settings page lists each GPU's LoRAs and model status
 (`/api/loras`, `/api/models`).
 
-**One settings page (2026-10-02).** A paired PC is managed from the Worker's page: under Setup, Your
-GPUs, each connected PC has Manage ComfyUI, which shows the PC's own machine section (its ComfyUI's
-state, Start and Stop, Install or Reinstall, the models found on it). Its calls go to
-`/api/gpus/<id>/machine/<path>` (logged in), which the Worker relays as a `machine` control op; the
-agent passes them to its own page's API through an allow-list it enforces itself, as the PC is
-where remote reach must stop: reading its state, install and its progress, restart and stop, its
-downloads. Folder paths, a ComfyUI of your own, opening folders, pairing and uploads stay on the
-PC's own page (rare, one-time settings, and the paths and URL would reach into the PC's network).
-An older agent answers that it can't be managed; an offline PC, that it is offline. The agent's own
-page keeps everything, folded under "This PC's ComfyUI and folders" once it is paired, connected
-and installed, and its tray's Open settings opens the Worker's Settings page while connected (this
-PC's page otherwise). The extension, which has no Worker, keeps its local page as it is.
+**A page per PC (2026-10-12; replaces "One settings page", 2026-10-02).** Each paired PC has its
+own page on the Worker, `/gpu/<id>`: the agent's own settings page, all of it, relayed. The GPU
+list (Settings, GPUs) links to it with **Open its page** (a new tab); the agent's tray opens it
+while connected (the agent asks `GET /agent/whoami`, with its bearer secret, for its id on
+connecting; with an older Worker the tray opens Settings as before). The Worker serves the app on
+that path (the `ASSETS` binding, `/gpu/*` run first) after checking the id when logged in: Modal or
+a ComfyUI by URL goes to the GPU list, an unknown id is a 404, and a logged-out visitor gets the
+login whatever the id. On that path the app (`api.js`) sends every call to
+`/api/gpus/<id>/machine/…`, which the Worker relays as a `machine` control op, path, query and a
+JSON body as text, unparsed; binary bodies (the agent page's own LoRA uploads) get 415, since LoRAs
+come in on the Worker's page and are synced. The page shows everything the agent's page has,
+folders and a ComfyUI of your own included, except pairing and the buttons that open a folder on
+the PC's screen; an offline PC shows as such, with a retry every 10 s.
+
+The 2026-10-02 allow-list (the agent let the Worker read its state, install, start and stop, and
+nothing else, "as the PC is where remote reach must stop") is gone, because it guarded nothing:
+every `ensure` carries the pack's `required_nodes`, which the agent installs from the Comfy
+Registry, so whoever controls the Worker already runs code on the PC. Pairing alone stays on the
+PC (the agent answers 403 to `/pair` from the relay, whatever the method or path spelling): it is
+what makes the Worker trusted, so it is only done there. An agent from before this still answers
+403 outside its old list; the Worker turns that answer into "update the agent on this PC". The
+agent's answer to a settings save no longer echoes its config file (the pairing secret was in it).
+The extension, which has no Worker, keeps its local page as it is.
 
 **Several agents on one machine (a developer switch).** `COMFY_GEN_AGENT_INSTANCE=2` (to 9) in the
 launcher's environment starts another agent, for testing a Worker with several PCs on one computer.
@@ -856,6 +867,7 @@ Later: the ComfyUI client and the Modal app can become shared with Visual-Noveli
 | Modal Sandboxes over gRPC | Outbound gRPC from Workers is private beta, browsers cannot reach Modal's API (no CORS, no gRPC-web), and Sandboxes would make us own lifecycle and an undocumented protocol |
 | Worker uploading over its own script | Replaced by Workers Builds, which also updates Modal |
 | An automatic upload route for images pasted into Claude Desktop (MCPB) | The sandbox trick needs a public endpoint, and the extension is on `127.0.0.1`. A clipboard route (the model asks the user to copy the image, then passes `"clipboard"`) was built and removed: too much machinery for the gain. What remains is opt-in, and costs no code: the `edit_image` description offers a file path, or an upload to Litterbox (catbox's temporary host) for one hour, only after the user agrees to the image being public for that hour; the returned URL goes to `edit_image` like any URL. It needs code execution with network access to `litterbox.catbox.moe`. Tested 2026-09-30: one POST, the URL serves the same bytes to the extension's fetch |
+| A PC's settings reachable from the Worker only through an allow-list (2026-10-02) | Guarded nothing: the Worker can already run code on the PC through each pack's `required_nodes`. Every setting is now on the PC's own page on the Worker; only pairing stays on the PC (§9, "A page per PC") |
 | comfy-cli for the local ComfyUI install | Needs git (a hard failure without it) and a second Python env just to run it, and caused the old extension's Windows bugs (spaces in `override.txt`, cp1252 crashes, a leaked `VIRTUAL_ENV`). What it abstracts, uv does: `--torch-backend auto` picks the CUDA wheels from the driver on every OS and the ROCm build by GPU architecture on Linux. The one gap, Intel Arc on Windows, is an explicit "intel" choice (`xpu`). AMD on Windows gets CPU wheels either way (comfy-cli installed DirectML but never launched with `--directml`). `local` downloads the pinned ComfyUI release, makes the venv with uv, installs node packages from the Comfy Registry API. Installs the old extension made with comfy-cli run as they are |
 
 ## 12. Phases

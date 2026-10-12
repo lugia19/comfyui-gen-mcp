@@ -6,7 +6,20 @@ export class ApiError extends Error {
   }
 }
 
-export async function api(method, path, body) {
+// A PC's own page on the Worker (/gpu/<id>, design §9 "A page per PC"): the app runs as that PC's
+// agent page, and its calls go to the PC through the Worker's relay, /api/gpus/<id>/machine/…
+// Logging in and out stay the Worker's.
+export const pcPage = /^\/gpu\/([\w-]+)\/?$/.exec(location.pathname)?.[1] ?? null
+const WORKER_ONLY = new Set(['/login', '/logout', '/password'])
+
+/** A call of this page's API: the Worker's, or on a PC's page the PC's (relayed). */
+export const api = (method, path, body) =>
+  call(method, pcPage && !WORKER_ONLY.has(path) ? `/gpus/${pcPage}/machine${path}` : path, body)
+
+/** A call of the Worker's own API, from any page. */
+export const workerApi = (method, path, body) => call(method, path, body)
+
+async function call(method, path, body) {
   const resp = await fetch(`/api${path}`, {
     method,
     credentials: 'same-origin',

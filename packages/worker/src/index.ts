@@ -13,6 +13,7 @@ export interface Env {
   VERSION?: string;
   SETUP_MODE?: string; // the setup site's answer, from the template the Deploy button copied
   DEV_WORKER_HOST?: string;
+  ASSETS?: Fetcher; // the settings app (web/dist)
 }
 
 /**
@@ -53,6 +54,7 @@ function app(env: Env): App {
     bucket: env.STORE ? (env.STORE as unknown as Bucket) : null,
     relays: (id) => env.RELAY.getByName(id) as unknown as RelayStub,
     fetch: (url, init) => fetch(url, init),
+    assets: env.ASSETS ? (req) => env.ASSETS!.fetch(req) : undefined,
     now: () => Date.now() / 1000,
     env: { VERSION: env.VERSION, DEV_WORKER_HOST: env.DEV_WORKER_HOST, SETUP_MODE: env.SETUP_MODE },
   });

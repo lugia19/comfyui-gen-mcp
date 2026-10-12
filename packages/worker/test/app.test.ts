@@ -931,23 +931,52 @@ describe("the PC path", () => {
     expect(toolText(dl)).toContain("downloading: 12%");
   });
 
-  it("relays the PC's own settings calls for the Worker's page, and says when it is offline", async () => {
+  it("relays any call of the PC's own page as it is, and says when it is offline", async () => {
     const { app, pc } = world();
     const { cookie, id } = await pair(app);
     pc.controls.machine = (args) =>
-      args.path === "/state" ? [200, { comfyui: { state: "stopped" }, method: args.method }]
-      : args.path === "/setup/install" ? [200, { state: "running", body: args.body }]
-      : [403, "That can only be changed on the PC itself, on its Comfy-Gen page."];
+      args.path === "/pair" ? [403, "Pair or unpair on the PC itself."]
+      : args.path === "/old" ? [403, "That can only be changed on the PC itself, on its Comfy-Gen page."]
+      : [200, { method: args.method, path: args.path, body: args.body ?? null }];
     const state = await app.handle(request("GET", `/api/gpus/${id}/machine/state`, undefined, cookie));
-    expect([state.status, await body(state)]).toEqual([200, { comfyui: { state: "stopped" }, method: "GET" }]);
-    expect(await body(await app.handle(request("POST", `/api/gpus/${id}/machine/setup/install`, { gpu: "nvidia" }, cookie)))).toEqual({ state: "running", body: '{"gpu":"nvidia"}' });
-    const refused = await app.handle(request("PUT", `/api/gpus/${id}/machine/config`, {}, cookie));
-    expect([refused.status, (await body(refused)).error]).toEqual([403, "Your PC: That can only be changed on the PC itself, on its Comfy-Gen page."]);
+    expect([state.status, await body(state)]).toEqual([200, { method: "GET", path: "/state", body: null }]);
+    const config = { config: { extra_models_dir: "D:/models", comfyui_url: "" } };
+    expect(await body(await app.handle(request("PUT", `/api/gpus/${id}/machine/config`, config, { ...cookie, "Content-Type": "application/json" }))))
+      .toEqual({ method: "PUT", path: "/config", body: JSON.stringify(config) }); // the body as sent, unparsed
+    expect((await body(await app.handle(request("GET", `/api/gpus/${id}/machine/setup/install?x=1`, undefined, cookie)))).path).toBe("/setup/install?x=1");
+    const pairing = await app.handle(request("POST", `/api/gpus/${id}/machine/pair`, { link: "x" }, cookie));
+    expect([pairing.status, (await body(pairing)).error]).toEqual([403, "Your PC: Pair or unpair on the PC itself."]);
+    // An agent from before its page moved here: told to update, in plain words.
+    const old = await body(await app.handle(request("PUT", `/api/gpus/${id}/machine/old`, {}, cookie)));
+    expect(old.error).toBe("Your PC: This PC's agent is too old to change that from here. Update the agent on this PC (it updates itself within a day of a release, or restart it).");
+    // Binary bodies (the page's LoRA uploads) are not relayed.
+    const chunk = await app.handle(request("POST", `/api/gpus/${id}/machine/loras/uploads/x`, new Uint8Array([1, 2]), { ...cookie, "Content-Type": "application/octet-stream" }));
+    expect(chunk.status).toBe(415);
     expect((await app.handle(request("GET", "/api/gpus/nope/machine/state", undefined, cookie))).status).toBe(404);
     expect((await app.handle(request("GET", `/api/gpus/${id}/machine/state`))).status).toBe(401); // login required
     pc.connected = false;
     const off = await app.handle(request("GET", `/api/gpus/${id}/machine/state`, undefined, cookie));
     expect([off.status, (await body(off)).error]).toEqual([503, offlineMessage([{ name: "Your PC" } as any])]);
+  });
+
+  it("/gpu/<id> is a PC's own page: the app for a PC, the GPU list for Modal, 404 for none", async () => {
+    const { app } = world();
+    const { cookie, id, secret } = await pair(app);
+    await withModal(app);
+    const page = async (path: string, headers: Record<string, string> = cookie) => {
+      const r = await app.handle(request("GET", path, undefined, headers));
+      return [r.status, r.headers.get("location"), r.status === 200 ? await r.text() : null];
+    };
+    expect(await page(`/gpu/${id}`)).toEqual([200, null, "<!doctype html><title>app</title>/"]); // the app, from its root
+    expect(await page("/gpu/modal")).toEqual([302, `https://${HOST}/#settings/gpus`, null]);
+    expect((await page("/gpu/nope"))[0]).toBe(404);
+    // Logged out: the app (its login), whatever the id, so ids aren't told apart before logging in.
+    expect((await page(`/gpu/${id}`, {}))[0]).toBe(200);
+    expect((await page("/gpu/nope", {}))[0]).toBe(200);
+    // The agent asks which PC it is, for its tray to open this page.
+    const who = await app.handle(request("GET", "/agent/whoami", undefined, { authorization: `Bearer ${secret}` }));
+    expect(await body(who)).toEqual({ id, name: "Your PC" });
+    expect((await app.handle(request("GET", "/agent/whoami", undefined, { authorization: "Bearer nope" }))).status).toBe(401);
   });
 
   it("pauses and resumes the PC from the page", async () => {

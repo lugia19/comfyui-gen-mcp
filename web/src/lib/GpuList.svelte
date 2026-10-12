@@ -1,6 +1,5 @@
 <script>
   import { api, gpuName, platformName } from './api.js'
-  import PcManage from './PcManage.svelte'
 
   // The Worker's GPUs, in priority order (design §2, "GPUs"): a call goes to the first that is
   // online, not paused and enabled, and has the model ready. Each PC pairs with its own link; Modal
@@ -12,7 +11,6 @@
   let busy = $state('') // the id an action is running for
   let error = $state('')
   let names = $state({}) // id -> the name being edited
-  let managing = $state({}) // id -> its ComfyUI section is open
 
   async function act(id, fn) {
     busy = id
@@ -106,8 +104,9 @@
           {g.paused ? 'Resume' : 'Pause'}
         </button>
       {/if}
-      {#if g.kind === 'pc' && g.online}
-        <button type="button" class="secondary small" onclick={() => (managing[g.id] = !managing[g.id])}>{managing[g.id] ? 'Hide ComfyUI' : 'Manage ComfyUI'}</button>
+      {#if g.kind === 'pc'}
+        <!-- The PC's own Comfy-Gen page, through this Worker (design §9, "A page per PC"). -->
+        <a class="button secondary small" href="/gpu/{g.id}" target="_blank" rel="noopener" title="Its ComfyUI, folders and models, as on the PC">Open its page</a>
       {/if}
       {#if g.kind === 'pc'}
         <button type="button" class="secondary small" disabled={busy === g.id} onclick={() => newLink(g)}>New pairing link</button>
@@ -119,7 +118,6 @@
     {:else if g.kind === 'pc'}
       <p class="muted hint">Keep warm: how long ComfyUI keeps the model loaded after the last image.</p>
     {/if}
-    {#if g.kind === 'pc' && g.online && managing[g.id]}<PcManage id={g.id} />{/if}
   </div>
 {/each}
 {#if gpus.length > 1}

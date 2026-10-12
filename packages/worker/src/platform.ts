@@ -50,6 +50,7 @@ export type Platform = {
   bucket: Bucket | null; // R2: images and LoRAs; null until R2 is turned on in the account
   relays: (id: string) => RelayStub; // a PC's Relay Durable Object, named after its GPU id
   fetch: Fetch;
+  assets?: (req: Request) => Promise<Response>; // the settings app's files (the ASSETS binding)
   now: () => number; // seconds
   env: Record<string, string | undefined>; // VERSION; DEV_WORKER_HOST under wrangler dev
   sleep?: (seconds: number) => Promise<void>; // tests make the ComfyUI client's waits instant

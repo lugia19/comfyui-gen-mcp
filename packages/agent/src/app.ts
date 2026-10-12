@@ -63,7 +63,9 @@ export class AgentApp {
       if (bad) return error(400, bad);
       this.s.saveConfig(next);
       const warnings = this.s.machine.comfy.state === "running" ? ["Restart ComfyUI for the change to take effect."] : [];
-      return json({ config: next, warnings });
+      // The page's settings only: this answer also reaches the Worker's page, and the pairing secret
+      // stays on the PC.
+      return json({ config: { comfyui_url: next.comfyui_url, extra_models_dir: next.extra_models_dir }, warnings });
     }
     if (sub === "/pair" && m === "POST") {
       let worker: string, secret: string;
@@ -95,6 +97,7 @@ export class AgentApp {
     return {
       mode: "agent",
       version: this.s.version,
+      platform: process.platform, // its page may be shown elsewhere (on the Worker): path examples follow the PC
       ...(await this.s.machine.state(cfg.gpu)),
       worker: {
         url: cfg.worker_url || null,

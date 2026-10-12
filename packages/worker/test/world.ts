@@ -268,7 +268,8 @@ export function world({ noStorage = false } = {}) {
   const pc = relay("pc");
   const bucket = new FakeBucket();
   const env: Record<string, string | undefined> = { VERSION: "v1.0.0" };
-  const app = new App({ storage, bucket: noStorage ? null : bucket, relays: relay, fetch: net.fetch, now: clock.now, env, sleep: async (s) => void (clock.t += s) });
+  const assets = async (req: Request) => new Response(`<!doctype html><title>app</title>${new URL(req.url).pathname}`, { headers: { "Content-Type": "text/html" } });
+  const app = new App({ storage, bucket: noStorage ? null : bucket, relays: relay, fetch: net.fetch, assets, now: clock.now, env, sleep: async (s) => void (clock.t += s) });
   return { app, storage, net, clock, comfy, pc, relay, env, bucket };
 }
 

@@ -7,6 +7,7 @@ import { ComfyUIError, fromUtf8, relay, utf8 } from "@comfy-gen/core";
 import { createHash } from "node:crypto";
 import { agentInstance, LoraRegistry, LoraUploads, paths, type Machine } from "@comfy-gen/local";
 import { loadAgentConfig, parsePairingLink, saveAgentConfig } from "../src/config.ts";
+import { AgentApp } from "../src/app.ts";
 import { agentHandler, viewFromDisk } from "../src/handlers.ts";
 import { RelayClient } from "../src/relay-client.ts";
 
@@ -248,7 +249,7 @@ describe("agent handlers", () => {
 });
 
 describe("the Worker's page managing this PC", () => {
-  it("passes on state, install and start/stop; refuses folders, its own ComfyUI, opening folders and pairing", async () => {
+  it("passes on any call of the page's API but pairing, which stays on the PC", async () => {
     const calls: string[] = [];
     const page = async (method: string, path: string, body?: string): Promise<[number, string]> => (calls.push(`${method} ${path} ${body ?? ""}`.trim()), [200, '{"ok":true}']);
     const handle = agentHandler({ machine: {} as Machine, setKeepWarm: () => {}, settingsNote: "x", page });
@@ -257,12 +258,36 @@ describe("the Worker's page managing this PC", () => {
     expect(await machine("get", "/state")).toEqual([200, '{"ok":true}']);
     expect(await machine("POST", "/setup/install", '{"gpu":"nvidia"}')).toEqual([200, '{"ok":true}']);
     expect((await machine("POST", "/comfyui/restart"))[0]).toBe(200);
-    for (const [method, path] of [["PUT", "/config"], ["POST", "/open"], ["POST", "/pair"], ["DELETE", "/pair"], ["POST", "/loras/uploads"], ["GET", "/state/../config"]]) {
-      expect((await machine(method, path))[0]).toBe(403);
+    expect((await machine("PUT", "/config", '{"config":{"extra_models_dir":"D:/models"}}'))[0]).toBe(200);
+    expect((await machine("POST", "/open", '{"which":"output"}'))[0]).toBe(200);
+    expect((await machine("GET", "/setup/install?x=1"))[0]).toBe(200);
+    for (const [method, path] of [["POST", "/pair"], ["DELETE", "/pair"], ["POST", "/pair/"], ["POST", "/pair?x=1"], ["POST", "/state/../pair"]]) {
+      expect(await machine(method, path)).toEqual([403, "Pair or unpair on the PC itself."]);
     }
-    expect(calls).toEqual(["GET /state", 'POST /setup/install {"gpu":"nvidia"}', "POST /comfyui/restart"]);
+    expect(calls).toEqual([
+      "GET /state",
+      'POST /setup/install {"gpu":"nvidia"}',
+      "POST /comfyui/restart",
+      'PUT /config {"config":{"extra_models_dir":"D:/models"}}',
+      'POST /open {"which":"output"}',
+      "GET /setup/install?x=1",
+    ]);
     const old = agentHandler({ machine: {} as Machine, setKeepWarm: () => {}, settingsNote: "x" }); // no page: an older agent
     expect((await old({ header: { kind: "control", id: "2", op: "machine", args: { method: "GET", path: "/state" } }, body: new Uint8Array() }))[0]).toBe(400);
+  });
+});
+
+describe("the page's settings", () => {
+  it("saves the folders and the own-ComfyUI URL, and answers with those only: never the pairing secret", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "models-"));
+    let cfg = { worker_url: "https://w.example", secret: "s".repeat(43), port: 9248, comfyui_url: "", extra_models_dir: "" } as any;
+    const machine = { api: async () => null, comfy: { state: "stopped" } } as unknown as Machine;
+    const app = new AgentApp({ version: "t", port: 9248, machine, config: () => cfg, saveConfig: (c) => (cfg = c), reconnect: () => {}, relay: () => null, web: {} as any });
+    const put = await app.handle(new Request("http://127.0.0.1:9248/api/config", { method: "PUT", headers: { host: "127.0.0.1:9248" }, body: JSON.stringify({ config: { extra_models_dir: dir } }) }), "127.0.0.1");
+    const answer = await put.json();
+    expect(answer).toEqual({ config: { comfyui_url: "", extra_models_dir: dir }, warnings: [] });
+    expect(JSON.stringify(answer)).not.toContain("s".repeat(43));
+    expect([cfg.extra_models_dir, cfg.secret]).toEqual([dir, "s".repeat(43)]);
   });
 });
 

@@ -107,7 +107,8 @@ button,
   font-weight: normal;
 }
 
-button.secondary {
+button.secondary,
+.button.secondary {
   background: transparent;
   color: var(--accent);
 }
@@ -282,4 +283,15 @@ main.wide > section:not(.wz-split) {
   main.wide header .row button {
     padding: 4px 10px;
   }
+}
+
+/* A PC's own page on the Worker (/gpu/<id>): the way back, above the PC's name. */
+.pc-title a {
+  font-size: 14px;
+}
+.pc-title h1 {
+  margin: 2px 0 0;
+}
+a.button {
+  text-decoration: none;
 }

@@ -21,9 +21,10 @@
   "r2_buckets": [{ "binding": "STORE", "bucket_name": "comfy-gen-storage" }],
   "assets": {
     "directory": "../../web/dist",
+    "binding": "ASSETS", // /gpu/<id> (a PC's page) is served by the Worker, which checks the id first
     "not_found_handling": "single-page-application",
     // Everything else is the settings app, served without running (or billing) the Worker.
-    "run_worker_first": ["/mcp/*", "/api/*", "/img/*", "/upload/*", "/build-callback", "/agent", "/agent/*", "/store/*"]
+    "run_worker_first": ["/mcp/*", "/api/*", "/img/*", "/upload/*", "/build-callback", "/agent", "/agent/*", "/store/*", "/gpu/*"]
   },
   // Daily update check.
   "triggers": { "crons": ["17 4 * * *"] }

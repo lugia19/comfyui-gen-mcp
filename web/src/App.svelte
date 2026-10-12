@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { api, ApiError } from './lib/api.js'
+  import { api, ApiError, pcPage, workerApi } from './lib/api.js'
   import Login from './lib/Login.svelte'
   import AgentWorker from './lib/AgentWorker.svelte'
   import Checklist from './lib/Checklist.svelte'
@@ -18,16 +18,33 @@
   // there is something to set up. #settings opens it directly.
   let hasSettings = $derived(Boolean(info) && info.mode !== 'agent' && (info.mode === 'local' || Boolean(info.gpus?.length)))
 
+  // A PC's own page on the Worker (/gpu/<id>): the agent's page, relayed. Its name comes from the
+  // Worker's GPU list; *pcTrouble* is why the PC can't be reached (offline, say), with a retry.
+  let pcName = $state(pcPage)
+  let pcTrouble = $state('')
+
   async function refresh() {
     try {
+      if (pcPage) {
+        const worker = await workerApi('GET', '/state') // logged in? and the PC's name
+        pcName = worker.gpus?.find((g) => g.id === pcPage)?.name ?? pcPage
+      }
       info = await api('GET', '/state')
+      pcTrouble = ''
     } catch (e) {
-      if (!(e instanceof ApiError && e.status === 401)) throw e
-      info = null
+      if (e instanceof ApiError && e.status === 401) info = null
+      else if (pcPage && e instanceof ApiError) pcTrouble = e.message
+      else throw e
     } finally {
       checking = false
     }
   }
+  // While the PC can't be reached, look again every 10 s.
+  $effect(() => {
+    if (!pcTrouble) return
+    const t = setInterval(() => refresh().catch(() => {}), 10_000)
+    return () => clearInterval(t)
+  })
 
   // The Worker's pages sit behind a login; the Claude Desktop extension's (mode "local") answer
   // only on this computer, so they have none.
@@ -42,7 +59,7 @@
 
   // Three pages look alike (the Worker's, the agent's, the extension's): their tabs say which.
   $effect(() => {
-    document.title = agent ? 'Comfy-Gen agent' : info?.mode === 'local' ? 'Comfy-Gen extension' : 'Comfy-Gen Worker'
+    document.title = pcPage ? `${pcName}: Comfy-Gen` : agent ? 'Comfy-Gen agent' : info?.mode === 'local' ? 'Comfy-Gen extension' : 'Comfy-Gen Worker'
   })
 
   // The machine pages' checklist: the agent pairs and installs; the extension only installs.
@@ -50,7 +67,7 @@
   let checklist = $derived(
     !local ? []
     : [
-        ...(agent
+        ...(agent && !pcPage
           ? [{ title: 'Pair with your Worker', done: info.worker.state === 'connected', hint: !info.worker.paired ? "Paste the pairing link from your Worker's page below." : info.worker.state === 'refused' ? 'The Worker refused this link: paste a new one below.' : 'Waiting for the Worker to accept the connection.' }]
           : []),
         { title: 'Install ComfyUI', done: installed, hint: 'Choose your GPU below and click Install. It takes a few minutes.' },
@@ -88,7 +105,14 @@
 <main class:wide style="--app-top: {wide ? topH : 0}px">
   <div class="app-top" bind:offsetHeight={topH}>
   <header>
-    <h1>Comfy-Gen-MCP</h1>
+    {#if pcPage && (info || pcTrouble)}
+      <div class="pc-title">
+        <a href="/#settings/gpus">‹ Your Worker</a>
+        <h1>{pcName}</h1>
+      </div>
+    {:else}
+      <h1>Comfy-Gen-MCP</h1>
+    {/if}
     {#if wide && info}
       <nav>
         <button class:active={tab === 'setup'} onclick={() => show('setup')}>Setup</button>
@@ -107,12 +131,24 @@
   </div>
 
   {#if checking}
-    <p class="muted">Loading…</p>
+    <p class="muted">{pcPage ? `Asking ${pcName}…` : 'Loading…'}</p>
+  {:else if pcPage && pcTrouble && !info}
+    <section>
+      <h2>{pcName} can't be reached</h2>
+      <p>{pcTrouble}</p>
+      <p class="muted">This page tries again every 10 seconds.</p>
+      <button onclick={() => refresh().catch(() => {})}>Try again</button>
+    </section>
   {:else if !info}
     <Login onlogin={loggedIn} />
   {:else if !local && !info.password_set}
     <!-- Required once, right after the first (token) login. -->
     <section><SetPassword required ondone={loggedIn} /></section>
+  {:else if agent && pcPage}
+    <!-- The PC's page through the Worker: its machine settings, unfolded; pairing stays on the PC. -->
+    {#if pcTrouble}<p class="err">{pcTrouble}</p>{/if}
+    <Checklist items={checklist} done="Ask Claude for an image, on claude.ai or the phone app: it is made on this PC." />
+    <LocalSetup {info} {refresh} />
   {:else if agent}
     <Checklist items={checklist} done="Ask Claude for an image, on claude.ai or the phone app: it is made on this PC." />
     <AgentWorker {info} {refresh} />

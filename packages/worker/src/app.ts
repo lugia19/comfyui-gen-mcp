@@ -70,6 +70,9 @@ type SetupMode = (typeof SETUP_MODES)[number];
  * storage step turns it on and rebuilds. Thrown by App.bucket, answered 409 (404 for an image). */
 export class NoStorage extends Error {}
 
+// What agents from before the per-PC page answer a call outside their short allow-list.
+const OLD_AGENT_REFUSAL = "That can only be changed on the PC itself, on its Comfy-Gen page.";
+
 const noStorageMessage = (origin: string) =>
   `storage isn't turned on yet. Finish the setup on your Worker's page (${origin}/): turn on storage.`;
 
@@ -115,6 +118,8 @@ export class App {
       if (path.startsWith("/upload/") && req.method === "POST") return await this.upload(req, path.slice(8));
       if (path === "/build-callback" && req.method === "POST") return await this.buildCallback(req);
       if (path === "/agent/sync" && req.method === "POST") return await this.agentSync(req, url);
+      if (path === "/agent/whoami" && req.method === "GET") return await this.agentWhoami(req);
+      if (path.startsWith("/gpu/") && (req.method === "GET" || req.method === "HEAD")) return await this.gpuPage(req, url, path.slice(5));
       if (path.startsWith("/agent/loras/uploads")) return await this.agentUpload(req, url, path.slice("/agent".length));
       if (path.startsWith("/store/") && req.method === "GET") return await this.storeLink(req, path.slice(7));
       if (path.startsWith("/api/")) return await this.api(req, url, path.slice(4));
@@ -134,6 +139,29 @@ export class App {
     if (pc instanceof Response) return pc;
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return error(426, "expected a WebSocket");
     return pc.id;
+  }
+
+  /** The agent asks which PC it is here, for its tray to open its page (/gpu/<id>). */
+  private async agentWhoami(req: Request): Promise<Response> {
+    const pc = await this.agentPc(req);
+    return pc instanceof Response ? pc : json({ id: pc.id, name: pc.name });
+  }
+
+  /**
+   * GET /gpu/<id>: a PC's own settings page, relayed (design §9, "A page per PC"): the settings app,
+   * which on this path talks to the PC through /api/gpus/<id>/machine. Logged out, the app (its
+   * login) whatever the id. Logged in: Modal or a ComfyUI by URL has no page of its own (to the
+   * GPU list); an unknown id is a 404.
+   */
+  private async gpuPage(req: Request, url: URL, id: string): Promise<Response> {
+    const s = await this.store.secrets();
+    if (await auth.sessionOk(auth.readCookie(req.headers.get("cookie")), s.cookie_key, this.p.now())) {
+      const gpu = (await this.gpus()).find((g) => g.id === id);
+      if (!gpu) return new Response("There is no such GPU on this Worker.", { status: 404 });
+      if (gpu.kind !== "pc") return Response.redirect(`${url.origin}/#settings/gpus`, 302);
+    }
+    if (!this.p.assets) return error(404, "not found");
+    return this.p.assets(new Request(new URL("/", url), { method: req.method }));
   }
 
   /** The PC whose pairing secret the request carries, or a 401. */
@@ -585,8 +613,8 @@ export class App {
    */
   private async gpuApi(req: Request, url: URL, sub: string): Promise<Response> {
     const gpus = await this.gpus();
-    const managed = /^\/gpus\/([\w-]+)\/machine(\/[\w/-]+)$/.exec(sub);
-    if (managed) return this.managePc(req, gpus, managed[1], managed[2]);
+    const managed = /^\/gpus\/([\w-]+)\/machine(\/.*)$/.exec(sub);
+    if (managed) return this.managePc(req, gpus, managed[1], managed[2] + url.search);
     if (sub === "/gpus/pc" && req.method === "POST") {
       const gpu: Gpu = { id: newPcId(gpus), kind: "pc", name: newPcName(gpus), enabled: true, keep_warm_minutes: DEFAULT_KEEP_WARM, secret: tokenUrlsafe(32), seen: null };
       // A new PC goes after the other PCs and before Modal: a GPU of one's own is free, Modal is the
@@ -861,16 +889,20 @@ export class App {
   }
 
   /**
-   * The PC's own settings page, managed from here (design §9, "One settings page"): one call of its
-   * API, relayed. The agent decides what is allowed (state, install, start and stop, downloads); a
-   * restart waits for ComfyUI to come up, so it gets ComfyUI's start-up time.
+   * A PC's own settings page on this Worker (design §9, "A page per PC"): one call of its API,
+   * relayed as it is (path, query, a JSON body as text; no parsing here). The agent refuses only
+   * pairing. Binary bodies (the page's LoRA uploads) are not relayed: LoRAs come in on this
+   * Worker's page and are synced. A restart waits for ComfyUI to come up, a stop for it to go.
    */
   private async managePc(req: Request, gpus: Gpu[], id: string, path: string): Promise<Response> {
     const gpu = gpus.find((g) => g.id === id && g.kind === "pc");
     if (!gpu) return error(404, "no such PC");
+    const type = req.headers.get("content-type") ?? "";
+    if (req.body && type && !/^(application\/json|text\/)/.test(type)) return error(415, "Only JSON goes to the PC from here.");
     if (!(await this.status(gpu)).online) return error(503, offlineMessage([gpu]));
-    const body = req.method === "GET" ? undefined : await req.text();
-    const timeoutS = path === "/comfyui/restart" ? 300 : 30;
+    const body = req.method === "GET" || req.method === "HEAD" ? undefined : await req.text();
+    const call = path.split("?")[0];
+    const timeoutS = req.method === "POST" && call === "/comfyui/restart" ? 300 : req.method === "POST" && call === "/comfyui/stop" ? 60 : 30;
     const r = await this.p.relays(gpu.id).control("machine", { method: req.method, path, body }, timeoutS);
     if (r.offline) return error(503, offlineMessage([gpu]));
     if (r.status === 200) return new Response(r.body as unknown as BodyInit, { headers: { "Content-Type": "application/json" } });
@@ -882,6 +914,9 @@ export class App {
     } catch {
       // plain text
     }
+    // An agent from before its page moved here allows only a few calls (state, install, start and
+    // stop), and says so in these words.
+    if (r.status === 403 && message === OLD_AGENT_REFUSAL) message = "This PC's agent is too old to change that from here. Update the agent on this PC (it updates itself within a day of a release, or restart it).";
     return error(r.status, `${gpu.name}: ${message}`);
   }
 

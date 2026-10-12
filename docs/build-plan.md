@@ -514,6 +514,18 @@ with unsaved changes and names them. The GPU list and the Worker's own settings 
 password, account) moved here from "You're set". Checked in Chromium on the test worlds (PC and
 Modal) at 1440, 1280 light and a 390-wide phone, and on the extension's page.
 
+## A page per PC on the Worker (2026-10-12)
+
+The agent's page had settings the Worker's page couldn't reach (another models folder, a ComfyUI of
+your own), kept local by an allow-list that guarded nothing (`required_nodes` already run code on
+the PC). Now each PC has its own page on the Worker, `/gpu/<id>`: the agent's page relayed, all of
+it but pairing (design §9, "A page per PC"). The inline "Manage ComfyUI" panel (`PcManage.svelte`)
+is gone; the GPU list links to the page, and the tray opens it (`/agent/whoami`). Checked end to
+end with `wrangler dev` and the agent bundle from this branch, paired: the link, a models folder set
+from the page (the agent's `agent.json` changed, the folder listed among the models found), a URL
+GPU redirected, an unknown id 404, the agent stopped (the offline page) and started (back by
+itself); in Chromium, dark, light and a 390-wide phone.
+
 ## Spill-over between GPUs: dropped (2026-10-11)
 
 Parked 2026-10-04: busy GPUs handing new calls on, PC to Modal to more Modal (an overflow app with

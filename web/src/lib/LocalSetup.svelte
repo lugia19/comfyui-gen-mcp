@@ -1,13 +1,14 @@
 <script>
   import { onDestroy, onMount, untrack } from 'svelte'
-  import { api } from './api.js'
+  import { api, pcPage } from './api.js'
   import Models from './Models.svelte'
 
   // The Claude Desktop extension's setup: install ComfyUI for this machine's GPU, see and control it,
-  // and point it at other model folders or at a ComfyUI of your own. The agent's page too, and, with
-  // *remote*, a PC managed from the Worker's page: its calls go to *base* (/gpus/<id>/machine, relayed
-  // to the PC), and what the PC keeps to itself (folders, your own ComfyUI) isn't shown.
-  let { info, refresh, base = '', remote = false } = $props()
+  // and point it at other model folders or at a ComfyUI of your own. The agent's page too, here or as
+  // the PC's page on the Worker (*remote*: api.js relays the calls), where only opening a folder on
+  // the PC's screen isn't offered.
+  let { info, refresh } = $props()
+  const remote = pcPage !== null
 
   const GPU_LABELS = {
     nvidia: 'NVIDIA (CUDA)',
@@ -29,9 +30,9 @@
   let comfy = $derived(info.comfyui)
   // A Mac's GPU shares its memory: below 16 GB, images swap and take tens of minutes (macOS test, 2026-10-02).
   let lowMemory = $derived((comfy.gpu || info.detected_gpu) === 'mac' && info.memory_gb > 0 && info.memory_gb < 16)
-  // The folder example in this computer's style (the page runs on it: the Worker's hides the field).
-  const examplePath = /Mac/.test(navigator.userAgent) ? '/Users/you/ComfyUI/models'
-    : /Linux/.test(navigator.userAgent) ? '/home/you/ComfyUI/models' : 'D:\\ComfyUI\\models'
+  // The folder example in the machine's style: the PC's (an agent says which), else the browser's.
+  const platform = untrack(() => info.platform) ?? (/Mac/.test(navigator.userAgent) ? 'darwin' : /Linux/.test(navigator.userAgent) ? 'linux' : 'win32')
+  const examplePath = platform === 'darwin' ? '/Users/you/ComfyUI/models' : platform === 'linux' ? '/home/you/ComfyUI/models' : 'D:\\ComfyUI\\models'
   // The agent's page keeps the rarely needed parts (reinstalling, other model folders, a ComfyUI of
   // your own) folded under Advanced: its everyday settings live on the Worker's page.
   const agent = untrack(() => info.mode === 'agent')
@@ -70,7 +71,7 @@
   let saved = $state('')
 
   async function pollInstall() {
-    install = await api('GET', base + '/setup/install')
+    install = await api('GET', '/setup/install')
     if (install.state === 'running') {
       timer = setTimeout(pollInstall, 1500)
     } else {
@@ -83,7 +84,7 @@
     if (again && !confirm('Reinstall ComfyUI? Models, outputs and settings are kept; custom nodes are reinstalled as needed.')) return
     error = ''
     try {
-      install = await api('POST', base + '/setup/install', { gpu })
+      install = await api('POST', '/setup/install', { gpu })
       pollInstall()
     } catch (e) {
       error = e.message
@@ -94,7 +95,7 @@
     busy = name
     error = ''
     try {
-      await api('POST', `${base}/comfyui/${name}`)
+      await api('POST', `/comfyui/${name}`)
     } catch (e) {
       error = e.message
     } finally {
@@ -184,20 +185,13 @@
   {@render installSection()}
 {/if}
 
-{#if comfy.state !== 'not_installed' && comfy.state !== 'external' && !remote}
+{#if comfy.state !== 'not_installed' && comfy.state !== 'external'}
   <section hidden={!packCount}><Models local onchange={(p) => (packCount = p.length)} /></section>
-{/if}
-
-{#if remote && comfy.state !== 'external' && comfy.state !== 'not_installed' && install.state === 'idle'}
-  <details class="advanced">
-    <summary>Advanced</summary>
-    {@render installSection()}
-  </details>
 {/if}
 
 {#if comfy.state !== 'not_installed' && comfy.state !== 'external'}
   <section>
-    <h2>Models found on this computer</h2>
+    <h2>Models found on this {remote ? 'PC' : 'computer'}</h2>
     {#if info.model_sources.length}
       <p class="muted">ComfyUI uses these as they are; only what is in none of them is downloaded.</p>
       {#each info.model_sources as src, i (i)}
@@ -210,21 +204,31 @@
     {:else}
       <p class="muted">
         No other ComfyUI found. If you have one somewhere unusual, set its models folder as
-        "Another models folder"{remote ? " on the PC's own Comfy-Gen page" : ' below'}.
+        "Another models folder" below.
       </p>
     {/if}
   </section>
 {/if}
 
-{#if !remote}
 <section>
   <h2>Folders</h2>
-  <div class="row">
-    <button class="secondary" onclick={() => open('models')}>Models</button>
-    {#if comfy.dir}<button class="secondary" onclick={() => open('output')}>Generated images</button>{/if}
-    <button class="secondary" onclick={() => open('logs')}>Logs</button>
-  </div>
-  {#if agent}
+  {#if !remote}
+    <div class="row">
+      <button class="secondary" onclick={() => open('models')}>Models</button>
+      {#if comfy.dir}<button class="secondary" onclick={() => open('output')}>Generated images</button>{/if}
+      <button class="secondary" onclick={() => open('logs')}>Logs</button>
+    </div>
+  {/if}
+  {#if agent && remote}
+    <!-- The PC's page on the Worker: no folders to open here, so its folder settings show at once. -->
+    {@render folderForm()}
+    {#if comfy.state !== 'external' && comfy.state !== 'not_installed' && install.state === 'idle'}
+      <details class="advanced">
+        <summary>Advanced</summary>
+        {@render installSection()}
+      </details>
+    {/if}
+  {:else if agent}
     <details class="advanced">
       <summary>Advanced</summary>
       {#if comfy.state !== 'external' && comfy.state !== 'not_installed' && install.state === 'idle'}{@render installSection()}{/if}
@@ -234,7 +238,6 @@
     {@render folderForm()}
   {/if}
 </section>
-{/if}
 
 {#snippet folderForm()}
   <form onsubmit={saveFolders}>
