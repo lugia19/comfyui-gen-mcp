@@ -7,8 +7,26 @@ Image generation for Claude through ComfyUI, wherever the GPU is:
   so no tunnel or reverse proxy.
 - **Claude Desktop only:** an MCPB extension runs everything locally, no accounts.
 
-Setup starts at the [project page](site/index.html); downloads are on the
-[latest release](https://github.com/lugia19/comfyui-gen-mcp/releases/latest). See
-[`docs/design.md`](docs/design.md) for the design and [`docs/build-plan.md`](docs/build-plan.md)
-for what is built. The previous version lives in
-[`lugia19/comfy-gen-mcp`](https://github.com/lugia19/comfy-gen-mcp).
+## Setup
+
+**Open the setup page: <https://lugia19.github.io/comfyui-gen-mcp/>.** It asks how you'll use
+Comfy-Gen and where images should be made, then walks you through the rest with screenshots.
+
+What each path looks like:
+
+- **claude.ai, mobile, or Claude Desktop through the Worker** (cloud, your PC, or both): you need a
+  GitHub and a Cloudflare account, plus a [Modal](https://modal.com) account for cloud generation.
+  The page's **Deploy to Cloudflare** button creates your Worker; once the build finishes, open
+  `https://comfy-gen.<your-subdomain>.workers.dev` and finish setup there (models, Modal, the PC
+  agent, connecting Claude).
+- **Claude Desktop only, on your own GPU:** download
+  [`Comfy-Gen-MCP.mcpb`](https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/Comfy-Gen-MCP.mcpb)
+  and open it with Claude Desktop. The extension installs ComfyUI and the models itself.
+
+Other downloads are on the [latest release](https://github.com/lugia19/comfyui-gen-mcp/releases/latest).
+
+## Development
+
+See [`docs/design.md`](docs/design.md) for the design and [`docs/build-plan.md`](docs/build-plan.md)
+for what is built; [`CLAUDE.md`](CLAUDE.md) covers the layout and tests. The previous version lives
+in [`lugia19/comfy-gen-mcp`](https://github.com/lugia19/comfy-gen-mcp).
