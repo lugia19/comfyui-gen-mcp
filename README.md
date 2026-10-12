@@ -7,6 +7,14 @@ Image generation for Claude through ComfyUI, wherever the GPU is:
   so no tunnel or reverse proxy.
 - **Claude Desktop only:** an MCPB extension runs everything locally, no accounts.
 
+**Your prompts and images never pass through anything I run.** They go straight to accounts you
+own: your Cloudflare Worker and R2 bucket, your Modal account, or your own PC (the extension runs
+entirely on it). The setup page is a static page that sends nothing anywhere. The only other
+places Comfy-Gen contacts are GitHub (releases and update checks), Hugging Face (model files) and
+the ComfyUI registry (custom nodes), and none of those see your prompts or images. One exception,
+opt-in: to edit an image you pasted into Claude Desktop, Claude can offer to put it on Litterbox,
+a public host, for an hour, and only does so if you say yes.
+
 ## Setup
 
 **Open the setup page: <https://lugia19.github.io/comfyui-gen-mcp/>.** It asks how you'll use
