@@ -55,6 +55,19 @@ describe("workflow", () => {
     expect(() => buildPrompt({ "1": flux["2"] }, "x")).toThrow(/cg:prompt/);
   });
 
+  it("a negative replaces the cg:negative node's text; blank keeps the pack's own", () => {
+    const anima = builtinPacks().find((p) => p.name === "anima")!;
+    const own = anima.workflow["12"].inputs.text;
+    expect(anima.workflow["12"]._meta.title).toBe("cg:negative");
+    expect(buildPrompt(anima.workflow, "x", { negative: " lowres, extra fingers " })["12"].inputs.text).toBe("lowres, extra fingers");
+    expect(buildPrompt(anima.workflow, "x", { negative: "  " })["12"].inputs.text).toBe(own);
+    expect(buildPrompt(anima.workflow, "x")["12"].inputs.text).toBe(own);
+    // A pack without the node ignores it.
+    const flux = builtinPacks().find((p) => p.name === "flux2klein")!;
+    const strip = (wf: Workflow) => JSON.stringify(Object.values(wf).map((n) => n.inputs.text));
+    expect(strip(buildPrompt(flux.workflow, "x", { negative: "blurry", rng: () => 1 }))).toBe(strip(buildPrompt(flux.workflow, "x", { rng: () => 1 })));
+  });
+
   it("each call saves under its own name, in every pack (two ComfyUIs on one Volume can't overwrite)", () => {
     for (const pack of builtinPacks()) {
       const prefixes = (wf: Workflow) => Object.values(wf).filter((n) => "filename_prefix" in n.inputs).map((n) => n.inputs.filename_prefix);

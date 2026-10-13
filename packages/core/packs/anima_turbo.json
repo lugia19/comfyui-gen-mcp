@@ -43,7 +43,7 @@
         "clip": ["45", 0]
       },
       "class_type": "CLIPTextEncode",
-      "_meta": { "title": "CLIP Text Encode (Negative Prompt)" }
+      "_meta": { "title": "cg:negative" }
     },
     "15": {
       "inputs": { "vae_name": "qwen_image_vae.safetensors" },

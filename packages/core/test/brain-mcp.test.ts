@@ -98,6 +98,15 @@ describe("brain", () => {
     expect(Object.values<any>(comfy.prompts[0]).map((n) => n.inputs.text)).toContain("a lighthouse");
   });
 
+  it("a hidden negative reaches the illustrated pack, and the tool schemas don't show it", async () => {
+    const { comfy, brain } = setup();
+    await brain().call("generate_illustrated_image", { prompt: "x", negative: "lowres" });
+    expect(Object.values<any>(comfy.prompts[0]).find((n) => n._meta?.title === "cg:negative").inputs.text).toBe("lowres");
+    for (const mode of ["refs", "paths"] as const) {
+      expect(JSON.stringify(toolSpecs(BUILTIN, normalize({}), mode))).not.toContain("negative");
+    }
+  });
+
   it("a timeout returns a stateless token, and fetch_result resumes", async () => {
     const { comfy, brain } = setup();
     comfy.history = Array(3).fill("running");

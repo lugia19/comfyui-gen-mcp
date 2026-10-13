@@ -112,6 +112,7 @@ export class Brain {
       aspectRatio: aspect,
       maxPixels: pack.max_pixels ?? 1_048_576,
       loraToggles: pack.lora_toggles,
+      negative: String(args.negative ?? ""),
     });
     return this.run(pack, wf);
   }

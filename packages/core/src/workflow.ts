@@ -4,6 +4,7 @@
 // A pack's workflow marks the nodes we fill in by their title (_meta.title, which ComfyUI's API
 // export keeps and its runtime ignores), set by renaming the node in ComfyUI before exporting:
 //   cg:prompt        the prompt's text encoder: its `text`
+//   cg:negative      the negative prompt's text encoder: its `text`, when a call passes one
 //   cg:seed          each node with a seed: its `seed` or `noise_seed`
 //   cg:size          a node with `width` and `height` (an empty latent)
 //   cg:width/height  number nodes: their `value`
@@ -40,6 +41,7 @@ const LOSSLESS_SUFFIX = ":lossless";
 
 export const TITLES = {
   prompt: "cg:prompt",
+  negative: "cg:negative",
   seed: "cg:seed",
   size: "cg:size",
   width: "cg:width",
@@ -85,6 +87,7 @@ export type BuildOptions = {
   loraToggles?: LoraToggle[] | null;
   rng?: Rng;
   outputName?: string; // the save nodes' filename_prefix; a new one per call by default
+  negative?: string; // replaces the cg:negative node's text when not blank (a hidden argument, like "WxH")
 };
 
 /** A call's own output name, `comfy-gen/<12 hex>`: ComfyUI saves it as output/comfy-gen/<hex>_00001_.png.
@@ -103,6 +106,8 @@ export function buildPrompt(workflow: Workflow, promptText: string, opts: BuildO
   const [promptNode] = nodesTitled(wf, TITLES.prompt);
   if (!promptNode) throw new Error(`the workflow has no node titled ${TITLES.prompt}`);
   wf[promptNode].inputs.text = promptText;
+  const negative = opts.negative?.trim();
+  if (negative) for (const id of nodesTitled(wf, TITLES.negative)) wf[id].inputs.text = negative;
 
   const name = opts.outputName ?? outputName();
   for (const node of Object.values(wf)) {
