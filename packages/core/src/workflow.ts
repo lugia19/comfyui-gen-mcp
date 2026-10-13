@@ -34,6 +34,8 @@ export const ASPECT_RATIOS: Record<string, [number, number]> = {
 // "1024x768"-style aspect override; deliberately absent from the tool schemas and descriptions.
 // It's for scripted callers, not the model.
 const WH_RE = /^\s*(\d+)\s*[xX]\s*(\d+)\s*$/;
+// A "WxH" with both sides at least this is a size; smaller ("16x9") is only a shape.
+const MIN_EXACT_SIDE = 256;
 
 // A ":lossless" suffix once asked for a PNG (results were JPEG, which has no transparency). WebP
 // has both, so it is only stripped now, in case an old habit or script still adds it.
@@ -65,14 +67,20 @@ export function stripLossless(value: string): string {
 }
 
 /**
- * Width and height for an aspect ratio name (or "WxH") within a pixel budget. "WxH" sets the shape,
- * not the size. Unknown values fall back to square. Rounds to multiples of 64 (latent alignment).
+ * Width and height for an aspect ratio name (or "WxH") within a pixel budget. A named ratio fills
+ * the budget. "WxH" is that size when it fits the budget (sides of MIN_EXACT_SIDE or more), and
+ * otherwise sets only the shape. Unknown values fall back to square. Rounds to multiples of 64
+ * (latent alignment).
  */
 export function calcDimensions(aspect: string, maxPixels: number): [number, number] {
   let ratio = ASPECT_RATIOS[aspect];
   if (!ratio) {
     const m = WH_RE.exec(aspect || "");
     ratio = m && +m[1] > 0 && +m[2] > 0 ? [+m[1], +m[2]] : [1, 1];
+    if (m && ratio[0] >= MIN_EXACT_SIDE && ratio[1] >= MIN_EXACT_SIDE) {
+      const [w, h] = ratio.map((n) => roundHalfEven(n / 64) * 64);
+      if (w * h <= maxPixels) return [w, h];
+    }
   }
   const [wr, hr] = ratio;
   const scale = Math.sqrt(maxPixels / (wr * hr));

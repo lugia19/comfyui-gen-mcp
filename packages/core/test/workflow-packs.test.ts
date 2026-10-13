@@ -29,7 +29,15 @@ describe("workflow", () => {
     expect(calcDimensions("square", 1_048_576)).toEqual([1024, 1024]);
     const [w, h] = calcDimensions("portrait", 1_048_576);
     expect(w % 64 === 0 && h % 64 === 0 && h > w).toBe(true);
+    // "WxH": that size when it fits the budget, rounded to multiples of 64.
+    const ANIMA = 2_359_296;
+    expect(calcDimensions("832x1216", ANIMA)).toEqual([832, 1216]);
+    expect(calcDimensions("1344x768", ANIMA)).toEqual([1344, 768]);
+    expect(calcDimensions("830x1210", ANIMA)).toEqual([832, 1216]);
+    // Over the budget, or too small to be a size, it is only the shape.
     expect(calcDimensions("1600x900", 1_048_576)).toEqual(calcDimensions("wide", 1_048_576));
+    expect(calcDimensions("16x9", 1_048_576)).toEqual(calcDimensions("wide", 1_048_576));
+    expect(calcDimensions("3x4", ANIMA)).toEqual(calcDimensions("portrait", ANIMA));
     expect(calcDimensions("nonsense", 1_048_576)).toEqual([1024, 1024]);
   });
 
