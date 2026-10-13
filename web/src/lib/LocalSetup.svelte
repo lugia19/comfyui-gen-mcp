@@ -2,6 +2,7 @@
   import { onDestroy, onMount, untrack } from 'svelte'
   import { api, pcPage } from './api.js'
   import Models from './Models.svelte'
+  import { Copy, masked, Task } from './task.svelte.js'
 
   // The Claude Desktop extension's setup: install ComfyUI for this machine's GPU, see and control it,
   // and point it at other model folders or at a ComfyUI of your own. The agent's page too, here or as
@@ -38,33 +39,19 @@
   const agent = untrack(() => info.mode === 'agent')
   // The connector URL holds its secret: shown masked, as screenshots get shared.
   let showUrl = $state(false)
-  let copied = $state(false)
-  const masked = (u) => (u || '').replace(/(\/mcp\/).+$/, '$1••••••••')
-  async function copyUrl() {
-    await navigator.clipboard.writeText(info.connector_url)
-    copied = true
-    setTimeout(() => (copied = false), 1500)
-  }
+  const urlCopy = new Copy()
   let packCount = $state(0) // the agent has none of its own: its packs are the Worker's
   // Form fields start from the page's first state; later refreshes don't overwrite what is typed.
   let gpu = $state(untrack(() => info.comfyui.gpu || info.detected_gpu))
   let install = $state(untrack(() => info.install))
-  let busy = $state('')
+  const task = new Task() // busy: 'restart' or 'stop' while ComfyUI starts or stops
+  let acting = $derived(task.busy === 'restart' || task.busy === 'stop')
   // A start or stop call returns only once it is done, so while one runs the label says so.
-  let shown = $derived(busy === 'restart' ? 'starting' : busy === 'stop' ? 'stopping' : comfy.state)
-  let error = $state('')
+  let shown = $derived(task.busy === 'restart' ? 'starting' : task.busy === 'stop' ? 'stopping' : comfy.state)
   let timer = null
 
   let network = $state(untrack(() => info.config.mcp_network === true))
-  async function saveNetwork(on) {
-    error = ''
-    try {
-      await api('PUT', '/config', { config: { mcp_network: on } })
-      network = on
-    } catch (e) {
-      error = e.message
-    }
-  }
+  const saveNetwork = (on) => task.run(async () => (await api('PUT', '/config', { config: { mcp_network: on } }), (network = on)))
 
   let comfyUrl = $state(untrack(() => info.config.comfyui_url || ''))
   let extraDir = $state(untrack(() => info.config.extra_models_dir || ''))
@@ -82,42 +69,25 @@
   async function startInstall() {
     const again = comfy.state !== 'not_installed'
     if (again && !confirm('Reinstall ComfyUI? Models, outputs and settings are kept; custom nodes are reinstalled as needed.')) return
-    error = ''
-    try {
-      install = await api('POST', '/setup/install', { gpu })
-      pollInstall()
-    } catch (e) {
-      error = e.message
-    }
+    if (await task.run(async () => (install = await api('POST', '/setup/install', { gpu })))) pollInstall()
   }
 
   async function action(name) {
-    busy = name
-    error = ''
-    try {
-      await api('POST', `/comfyui/${name}`)
-    } catch (e) {
-      error = e.message
-    } finally {
-      busy = ''
-      await refresh()
-    }
+    await task.run(() => api('POST', `/comfyui/${name}`), name)
+    await refresh()
   }
 
-  async function saveFolders(e) {
+  function saveFolders(e) {
     e.preventDefault()
-    error = ''
     saved = ''
-    try {
+    task.run(async () => {
       const r = await api('PUT', '/config', { config: { comfyui_url: comfyUrl.trim(), extra_models_dir: extraDir.trim() } })
       saved = ['Saved.', ...(r.warnings || [])].join(' ')
       await refresh()
-    } catch (err) {
-      error = err.message
-    }
+    })
   }
 
-  const open = (which) => api('POST', '/open', { which }).catch((e) => (error = e.message))
+  const open = (which) => task.run(() => api('POST', '/open', { which }))
 
   onMount(() => install.state === 'running' && pollInstall())
   onDestroy(() => clearTimeout(timer))
@@ -129,7 +99,7 @@
     <b class:ok={shown === 'running' || shown === 'external'} class:err={shown === 'failed'}>
       {STATE_LABELS[shown] || shown}
     </b>
-    {#if comfy.url && shown !== 'stopped' && !busy}<span class="muted">at <code>{comfy.url}</code></span>{/if}
+    {#if comfy.url && shown !== 'stopped' && !acting}<span class="muted">at <code>{comfy.url}</code></span>{/if}
   </p>
   {#if comfy.dir}
     <p class="muted">
@@ -146,11 +116,11 @@
   {/if}
   {#if comfy.state !== 'not_installed' && comfy.state !== 'external'}
     <div class="row">
-      <button class:secondary={comfy.state === 'running'} onclick={() => action('restart')} disabled={!!busy || install.state === 'running'}>
-        {comfy.state === 'running' ? (busy === 'restart' ? 'Restarting…' : 'Restart') : busy === 'restart' ? 'Starting…' : 'Start'}
+      <button class:secondary={comfy.state === 'running'} onclick={() => action('restart')} disabled={acting || install.state === 'running'}>
+        {comfy.state === 'running' ? (task.busy === 'restart' ? 'Restarting…' : 'Restart') : task.busy === 'restart' ? 'Starting…' : 'Start'}
       </button>
       {#if comfy.state === 'running'}
-        <button class="secondary" onclick={() => action('stop')} disabled={!!busy}>{busy === 'stop' ? 'Stopping…' : 'Stop'}</button>
+        <button class="secondary" onclick={() => action('stop')} disabled={acting}>{task.busy === 'stop' ? 'Stopping…' : 'Stop'}</button>
       {/if}
     </div>
     <p class="muted">It stops by itself after the keep-warm time without images, to free the GPU.</p>
@@ -269,7 +239,7 @@
   <p class="muted">
     Other MCP clients on this computer can use <code>{showUrl ? info.connector_url : masked(info.connector_url)}</code>
     <button type="button" class="link" onclick={() => (showUrl = !showUrl)}>{showUrl ? 'Hide' : 'Show'}</button>
-    <button type="button" class="link" onclick={copyUrl}>{copied ? 'Copied' : 'Copy'}</button>. For claude.ai and your
+    <button type="button" class="link" onclick={() => urlCopy.copy(info.connector_url)}>{urlCopy.done ? 'Copied' : 'Copy'}</button>. For claude.ai and your
     phone, use a Worker install instead.
   </p>
   <details class="advanced">
@@ -289,14 +259,12 @@
 </section>
 {/if}
 
-{#if error}<p class="err">{error}</p>{/if}
+{#if task.error}<p class="err">{task.error}</p>{/if}
 
 <style>
   .source { margin: 8px 0; display: flex; flex-direction: column; gap: 2px; }
   .advanced { margin-top: 12px; }
   .advanced summary { cursor: pointer; color: var(--accent); }
   .warn { border-left: 3px solid var(--err); padding-left: 10px; }
-  .check { display: flex; gap: 8px; align-items: center; font-weight: normal; }
-  .check input { width: auto; margin: 0; }
   button.link { background: none; border: 0; padding: 0; margin: 0 0 0 6px; color: var(--accent); }
 </style>

@@ -10,6 +10,7 @@
   import Models from './Models.svelte'
   import Tour from './Tour.svelte'
   import Wizard from './Wizard.svelte'
+  import { Copy, masked, Task } from './task.svelte.js'
 
   // The Worker's setup, one step at a time (design §8): log in, turn on storage (R2), then the
   // answer to "where should images be made?" (asked on the setup site, which the Deploy button
@@ -44,86 +45,46 @@
   // A paused PC is set up but takes no images.
   let allPaused = $derived(pcs.length > 0 && pcs.every((g) => g.paused))
 
-  let modeBusy = $state(false)
-  let modeError = $state('')
-  async function choose(m) {
-    modeBusy = true
-    modeError = ''
-    try {
+  const modeTask = new Task()
+  const choose = (m) =>
+    modeTask.run(async () => {
       await api('POST', '/setup/mode', { mode: m })
       await refresh()
       current = steps[steps.indexOf('mode') + 1]
-    } catch (e) {
-      modeError = e.message
-    } finally {
-      modeBusy = false
-    }
-  }
+    })
 
   // Storage: R2 is turned on by hand (a checkout with a card on file), then Check again rebuilds the
   // Worker, which binds the bucket once R2 is on (the build checks).
-  let storageBusy = $state(false)
-  let storageError = $state('')
+  const storageTask = new Task()
   let storageBuild = $state(false) // a Check again started here: show its log
   let storageChecked = $state(false) // that build finished
   let r2Url = $derived(info.cloudflare?.account_id
     ? `https://dash.cloudflare.com/${info.cloudflare.account_id}/r2/overview`
     : 'https://dash.cloudflare.com/?to=/:account/r2/overview')
-  async function checkStorage() {
-    storageBusy = true
-    storageError = ''
+  function checkStorage() {
     storageChecked = false
-    try {
+    storageTask.run(async () => {
       await api('POST', '/setup/storage')
       storageBuild = true
       await refresh()
-    } catch (e) {
-      storageError = e.message
-    } finally {
-      storageBusy = false
-    }
+    })
   }
 
-  let addBusy = $state(false)
-  let addError = $state('')
-  async function addPc() {
-    addBusy = true
-    addError = ''
-    try {
-      await api('POST', '/gpus/pc')
-      await refresh()
-    } catch (e) {
-      addError = e.message
-    } finally {
-      addBusy = false
-    }
-  }
+  const addTask = new Task()
+  const addPc = () => addTask.run(async () => (await api('POST', '/gpus/pc'), await refresh()))
 
   // The PC being paired: the first one its agent hasn't connected from yet. The step shows its
   // download and pairing link until it has.
   let pairing = $derived(pcs.find((g) => !g.seen))
-  let linkCopied = $state(false)
-  async function copyLink() {
-    await navigator.clipboard.writeText(pairing.link)
-    linkCopied = true
-    setTimeout(() => (linkCopied = false), 1500)
-  }
-  async function removePairing() {
-    if (!confirm(`Remove ${pairing.name}? Its pairing link stops working.`)) return
-    addError = ''
-    try {
-      await api('DELETE', `/gpus/${pairing.id}`)
-      await refresh()
-    } catch (e) {
-      addError = e.message
-    }
+  const linkCopy = new Copy()
+  function removePairing() {
+    if (confirm(`Remove ${pairing.name}? Its pairing link stops working.`)) addTask.run(async () => (await api('DELETE', `/gpus/${pairing.id}`), await refresh()))
   }
 
   // Modal
   let modalId = $state('')
   let modalSecret = $state('')
-  let buildBusy = $state(false)
-  let buildError = $state('')
+  const buildTask = new Task()
   let packs = $state(null)
   let deployed = $derived(Boolean(modalGpu))
   let modelsReady = $derived(deployed && packs !== null && packs.every((p) => p.on.modal?.state === 'done'))
@@ -145,53 +106,30 @@
   let modalError = $derived(info.modal_error || '')
   let needsCard = $derived(/payment method|billing|card/i.test(modalError))
 
-  async function deployModal(e) {
+  function deployModal(e) {
     e?.preventDefault()
-    buildBusy = true
-    buildError = ''
-    try {
+    buildTask.run(async () => {
       // Try again sends no token: the build keeps the one stored with the last deploy.
       await api('POST', '/setup/build', e ? { modal_token_id: modalId.trim(), modal_token_secret: modalSecret.trim() } : {})
       modalSecret = ''
       modalCommand = ''
       fromCommand = false
       await refresh()
-    } catch (err) {
-      buildError = err.message
-    } finally {
-      buildBusy = false
-    }
+    })
   }
 
   // A ComfyUI URL
   let directUrl = $state('')
-  let directBusy = $state(false)
-  let directError = $state('')
-
-  async function saveDirect(e) {
+  const directTask = new Task()
+  function saveDirect(e) {
     e.preventDefault()
-    directBusy = true
-    directError = ''
-    try {
-      await api('POST', '/setup/generator', { base_url: directUrl.trim() })
-      await refresh()
-    } catch (err) {
-      directError = err.message
-    } finally {
-      directBusy = false
-    }
+    directTask.run(async () => (await api('POST', '/setup/generator', { base_url: directUrl.trim() }), await refresh()))
   }
 
   // Claude
   let showUrl = $state(false) // the connector URL holds its secret: masked, as screenshots get shared
-  let copied = $state(false)
+  const connectorCopy = new Copy()
   let generatorReady = $derived(storage && gpus.some((g) => g.kind !== 'pc' || g.online))
-
-  async function copyConnector() {
-    await navigator.clipboard.writeText(info.connector_url)
-    copied = true
-    setTimeout(() => (copied = false), 1500)
-  }
 
   async function rotate() {
     if (!confirm('Make a new connector URL? The old one stops working, so you will need to add the new one in claude.ai.')) return
@@ -300,10 +238,10 @@
       </Tour>
       <p>Nothing is charged while you stay inside the free amounts. Back here, press <b>Check again</b>: your Worker redeploys
         (about a minute) and picks up its storage.</p>
-      <button onclick={checkStorage} disabled={storageBusy || (storageBuild && !storageChecked)}>
-        {storageBusy ? 'Starting…' : storageBuild && !storageChecked ? 'Checking…' : 'Check again'}
+      <button onclick={checkStorage} disabled={storageTask.busy || (storageBuild && !storageChecked)}>
+        {storageTask.busy ? 'Starting…' : storageBuild && !storageChecked ? 'Checking…' : 'Check again'}
       </button>
-      {#if storageError}<p class="err">{storageError}</p>{/if}
+      {#if storageTask.error}<p class="err">{storageTask.error}</p>{/if}
       {#if storageChecked}<p class="err">R2 still isn't on in this account: add the R2 subscription, then check again.</p>{/if}
       {#if storageBuild}
         {#key info.update_build}<BuildLog takes="about a minute" onfinished={async () => { await refresh(); storageChecked = true }} />{/key}
@@ -316,30 +254,30 @@
     </p>
   {:else if current === 'mode'}
     <label class="choice">
-      <input type="radio" name="mode" checked={mode === 'both'} disabled={modeBusy} onchange={() => choose('both')} />
+      <input type="radio" name="mode" checked={mode === 'both'} disabled={modeTask.busy} onchange={() => choose('both')} />
       <span><b>{MODES.both.title}</b> <span class="tag green">Recommended if you have a powerful GPU</span><br />
         <span class="muted">Your PC when it is on (NVIDIA, AMD on Linux, or an Apple silicon Mac), the cloud when it is off.</span></span>
     </label>
     <label class="choice">
-      <input type="radio" name="mode" checked={mode === 'cloud'} disabled={modeBusy} onchange={() => choose('cloud')} />
+      <input type="radio" name="mode" checked={mode === 'cloud'} disabled={modeTask.busy} onchange={() => choose('cloud')} />
       <span><b>{MODES.cloud.title}</b> <span class="tag">Recommended for most people</span><br />
         <span class="muted">No GPU needed, and it works with your PC off. Billed per second while it generates; new Modal accounts get $30 of free compute a month.</span></span>
     </label>
     <label class="choice">
-      <input type="radio" name="mode" checked={mode === 'pc'} disabled={modeBusy} onchange={() => choose('pc')} />
+      <input type="radio" name="mode" checked={mode === 'pc'} disabled={modeTask.busy} onchange={() => choose('pc')} />
       <span><b>{MODES.pc.title}</b><br />
         <span class="muted">Your own GPU (NVIDIA, AMD on Linux, or an Apple silicon Mac), nothing billed. The PC has to be on to make images.</span></span>
     </label>
     {#if showAdvanced || mode === 'url'}
       <label class="choice">
-        <input type="radio" name="mode" checked={mode === 'url'} disabled={modeBusy} onchange={() => choose('url')} />
+        <input type="radio" name="mode" checked={mode === 'url'} disabled={modeTask.busy} onchange={() => choose('url')} />
         <span><b>{MODES.url.title}</b><br />
           <span class="muted">A ComfyUI you already run, reachable from the internet.</span></span>
       </label>
     {:else}
       <button type="button" class="link" onclick={() => (showAdvanced = true)}>Advanced: a ComfyUI by URL</button>
     {/if}
-    {#if modeError}<p class="err">{modeError}</p>{/if}
+    {#if modeTask.error}<p class="err">{modeTask.error}</p>{/if}
     {#if mode}<p class="muted">{info.mode_from_site ? 'Your answer on the setup site. ' : ''}Changing this only adds steps; a GPU you no longer want is removed from the GPU list.</p>{/if}
     <details class="guide">
       <summary>Only using Claude Desktop, on the PC with the GPU?</summary>
@@ -374,7 +312,7 @@
       </Tour>
       {#if reached(pairAt, 1)}
         <div class="row"><code>{pairing.link}</code></div>
-        <div class="row"><button type="button" onclick={copyLink}>{linkCopied ? 'Copied' : 'Copy link'}</button></div>
+        <div class="row"><button type="button" onclick={() => linkCopy.copy(pairing.link)}>{linkCopy.done ? 'Copied' : 'Copy link'}</button></div>
         <p class="muted">The link lets a PC generate for this Worker: treat it like a password. Once paired, install
           ComfyUI from the agent's page: it finds the models of ComfyUI installs you already have.</p>
       {/if}
@@ -382,7 +320,7 @@
     {:else if pcs.length}
       <GpuList {gpus} {refresh} />
       <div class="row">
-        <button type="button" class="secondary" onclick={addPc} disabled={addBusy}>{addBusy ? 'Adding…' : 'Add another PC'}</button>
+        <button type="button" class="secondary" onclick={addPc} disabled={addTask.busy}>{addTask.busy ? 'Adding…' : 'Add another PC'}</button>
       </div>
       <p class="muted">Images are made on the GPUs listed, tried in this order. The LoRAs already on a paired PC are
         copied into the Worker's storage, so every GPU gets them.</p>
@@ -392,10 +330,10 @@
         this page gives you the agent's download and its pairing link.
       </p>
       <div class="row">
-        <button type="button" onclick={addPc} disabled={addBusy}>{addBusy ? 'Adding…' : 'Add a PC'}</button>
+        <button type="button" onclick={addPc} disabled={addTask.busy}>{addTask.busy ? 'Adding…' : 'Add a PC'}</button>
       </div>
     {/if}
-    {#if addError}<p class="err">{addError}</p>{/if}
+    {#if addTask.error}<p class="err">{addTask.error}</p>{/if}
   {:else if current === 'deploy'}
     <p>
       Images are generated by ComfyUI on <a href="https://modal.com" target="_blank" rel="noopener">Modal</a>, in
@@ -413,7 +351,7 @@
         {:else}
           <p>If the token is the problem, make a new one below and deploy with it. Otherwise fix it in Modal and try again.</p>
         {/if}
-        <button onclick={() => deployModal()} disabled={buildBusy}>{buildBusy ? 'Starting…' : 'Try again'}</button>
+        <button onclick={() => deployModal()} disabled={buildTask.busy}>{buildTask.busy ? 'Starting…' : 'Try again'}</button>
         <span class="muted">with the token you gave last time</span>
       </div>
     {/if}
@@ -441,10 +379,10 @@
           <label for="msec">Token secret</label>
           <input id="msec" type="password" bind:value={modalSecret} placeholder="as-…" autocomplete="off" />
         </details>
-        <button type="submit" disabled={buildBusy || !modalId.trim() || !modalSecret.trim()}>
-          {buildBusy ? 'Starting…' : deployed ? 'Deploy again' : 'Deploy to Modal'}
+        <button type="submit" disabled={buildTask.busy || !modalId.trim() || !modalSecret.trim()}>
+          {buildTask.busy ? 'Starting…' : deployed ? 'Deploy again' : 'Deploy to Modal'}
         </button>
-        {#if buildError}<p class="err">{buildError}</p>{/if}
+        {#if buildTask.error}<p class="err">{buildTask.error}</p>{/if}
       </form>
       <p class="muted">The ID and secret are stored only as build secrets, used to deploy ComfyUI into your Modal account. The
         first deploy takes about 5 minutes (it builds the ComfyUI image); later ones about a minute.</p>
@@ -468,8 +406,8 @@
       <label for="url">ComfyUI URL</label>
       <input id="url" type="url" bind:value={directUrl} placeholder="https://comfy.example.com" />
       <p class="muted">It must be reachable from the internet. The Worker checks <code>/system_stats</code> before saving.</p>
-      <button type="submit" disabled={directBusy || !directUrl.trim()}>{directBusy ? 'Checking…' : 'Use this ComfyUI'}</button>
-      {#if directError}<p class="err">{directError}</p>{/if}
+      <button type="submit" disabled={directTask.busy || !directUrl.trim()}>{directTask.busy ? 'Checking…' : 'Use this ComfyUI'}</button>
+      {#if directTask.error}<p class="err">{directTask.error}</p>{/if}
     </form>
   {:else if current === 'claude'}
     <p>Add this Worker to claude.ai as a custom connector: the walkthrough gives you its URL when you get to pasting it.</p>
@@ -485,9 +423,9 @@
     </Tour>
     {#if reached(claudeAt, 6) || info.claude_seen}
       <p>Your connector URL:</p>
-      <div class="row"><code>{showUrl ? info.connector_url : info.connector_url.replace(/(\/mcp\/).+$/, '$1••••••••')}</code></div>
+      <div class="row"><code>{showUrl ? info.connector_url : masked(info.connector_url)}</code></div>
       <div class="row">
-        <button onclick={copyConnector}>{copied ? 'Copied' : 'Copy URL'}</button>
+        <button onclick={() => connectorCopy.copy(info.connector_url)}>{connectorCopy.done ? 'Copied' : 'Copy URL'}</button>
         <button class="secondary" onclick={() => (showUrl = !showUrl)}>{showUrl ? 'Hide' : 'Show'}</button>
         <button class="secondary" onclick={rotate}>Make a new URL</button>
       </div>

@@ -1,6 +1,7 @@
 <script>
   import { api, gpuName, platformName } from './api.js'
   import Icon from './Icon.svelte'
+  import { Task } from './task.svelte.js'
 
   // The Worker's GPUs, in priority order (design §2, "GPUs"): a call goes to the first that is
   // online, not paused and enabled, and has the model ready. Each PC pairs with its own link; Modal
@@ -9,22 +10,10 @@
   let { gpus, refresh } = $props()
 
   const KIND = { pc: 'PC', modal: 'Modal', url: 'ComfyUI by URL' }
-  let busy = $state('') // the id an action is running for
-  let error = $state('')
+  const task = new Task() // busy: the id of the GPU an action is running for
   let names = $state({}) // id -> the name being edited
 
-  async function act(id, fn) {
-    busy = id
-    error = ''
-    try {
-      await fn()
-      await refresh()
-    } catch (e) {
-      error = e.message
-    } finally {
-      busy = ''
-    }
-  }
+  const act = (id, fn) => task.run(async () => (await fn(), await refresh()), id)
 
   const patch = (g, changes) => act(g.id, () => api('PATCH', `/gpus/${g.id}`, changes))
 
@@ -75,7 +64,7 @@
 </script>
 
 {#snippet trash(g)}
-  <button type="button" class="danger small icon-btn" disabled={busy === g.id} onclick={() => remove(g)} title="Remove {g.name}" aria-label="Remove {g.name}"><Icon name="trash" /></button>
+  <button type="button" class="danger small icon-btn" disabled={task.busy === g.id} onclick={() => remove(g)} title="Remove {g.name}" aria-label="Remove {g.name}"><Icon name="trash" /></button>
 {/snippet}
 
 {#each gpus as g, i (g.id)}
@@ -91,8 +80,8 @@
       <span class="muted">{KIND[g.kind]}</span>
       <span class={st.cls}>{st.text}</span>
       <span class="spacer"></span>
-      <button type="button" class="secondary small" disabled={i === 0 || busy !== ''} onclick={() => move(i, -1)} aria-label="Move up">↑</button>
-      <button type="button" class="secondary small" disabled={i === gpus.length - 1 || busy !== ''} onclick={() => move(i, 1)} aria-label="Move down">↓</button>
+      <button type="button" class="secondary small" disabled={i === 0 || task.busy} onclick={() => move(i, -1)} aria-label="Move up">↑</button>
+      <button type="button" class="secondary small" disabled={i === gpus.length - 1 || task.busy} onclick={() => move(i, 1)} aria-label="Move down">↓</button>
     </div>
     {#if g.kind === 'pc' && g.online && g.info}
       <p class="muted">Agent {g.info.version} on {platformName(g.info.platform)}{#if g.info.gpu}, GPU: {gpuName(g.info.gpu)}{/if}</p>
@@ -102,15 +91,15 @@
     <div class="row actions">
       {#if g.online}
         {#if g.paused}
-          <button type="button" class="ok small" disabled={busy === g.id} onclick={() => act(g.id, () => api('POST', `/gpus/${g.id}/pause`, { paused: false }))}><Icon name="play" />Resume</button>
+          <button type="button" class="ok small" disabled={task.busy === g.id} onclick={() => act(g.id, () => api('POST', `/gpus/${g.id}/pause`, { paused: false }))}><Icon name="play" />Resume</button>
         {:else}
-          <button type="button" class="warn small" disabled={busy === g.id} onclick={() => act(g.id, () => api('POST', `/gpus/${g.id}/pause`, { paused: true }))}><Icon name="pause" />Pause</button>
+          <button type="button" class="warn small" disabled={task.busy === g.id} onclick={() => act(g.id, () => api('POST', `/gpus/${g.id}/pause`, { paused: true }))}><Icon name="pause" />Pause</button>
         {/if}
       {/if}
       <!-- The PC's own Comfy-Gen page, through this Worker (design §9, "A page per PC"). -->
       <a class="button small" href="/gpu/{g.id}" target="_blank" rel="noopener" title="Its ComfyUI, folders and models, as on the PC"><Icon name="external" />Open its page</a>
       <span class="spacer"></span>
-      <button type="button" class="danger small" disabled={busy === g.id} onclick={() => newLink(g)} title="It disconnects until the new link is pasted into its agent"><Icon name="link" />New pairing link</button>
+      <button type="button" class="danger small" disabled={task.busy === g.id} onclick={() => newLink(g)} title="It disconnects until the new link is pasted into its agent"><Icon name="link" />New pairing link</button>
       {@render trash(g)}
     </div>
     {/if}
@@ -134,7 +123,7 @@
   <p class="muted">A call goes to the first GPU that is online, not paused, and has the model ready; the others take
     over when it can't. PCs pause from their tray icon too.</p>
 {/if}
-{#if error}<p class="err">{error}</p>{/if}
+{#if task.error}<p class="err">{task.error}</p>{/if}
 
 <style>
   .gpu { border-top: 1px solid var(--border); padding: 10px 0; }
@@ -146,11 +135,8 @@
   .link { background: none; border: none; padding: 0; margin: 0; color: inherit; cursor: text; }
   .spacer { flex: 1; }
   .actions { gap: 8px; align-items: center; margin-top: 8px; }
-  .actions .button.small { margin-top: 0; padding: 4px 12px; }
   .icon-btn { padding: 4px 8px; }
   .controls { gap: 6px 16px; align-items: center; margin-top: 6px; }
-  .check { display: flex; gap: 6px; align-items: center; margin: 0; font-weight: normal; }
   .minutes { width: 64px; margin: 0; }
-  .small { margin-top: 0; padding: 4px 12px; }
   .hint { margin: 4px 0 0; font-size: 13px; }
 </style>

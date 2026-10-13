@@ -1,7 +1,8 @@
 <script>
   import { onDestroy, onMount, untrack } from 'svelte'
   import { formatBytes } from './api.js'
-  import { LABEL, ModelStatus, percent } from './models.svelte.js'
+  import ModelState from './ModelState.svelte'
+  import { ModelStatus } from './models.svelte.js'
 
   // Download state of the selected packs, one row per pack (models.svelte.js keeps it fresh): on the
   // Worker a mark per GPU, on this machine one. A missing pack can be started here.
@@ -16,8 +17,6 @@
   $effect(() => {
     if (packs) onchange?.(packs)
   })
-  const start = (pack, where) => status.seed(pack.name, where)
-  const pct = percent
 
   onMount(() => status.start())
   onDestroy(() => status.stop())
@@ -34,12 +33,10 @@
       <div class="row places">
         {#each backends as where (where)}
           {@const s = pack.on[where] ?? { state: 'unknown' }}
-          <span class="place" class:ok={s.state === 'done'} class:err={s.state === 'failed'}>
+          <span class="place">
             {#if names[where] && backends.length > 1}<b>{names[where]}</b>{/if}
-            {s.state === 'done' ? '✓' : ''} {LABEL[s.state] || s.state}{s.state === 'downloading' ? pct(s) : ''}
+            <ModelState {s} {status} pack={pack.name} {where} />
           </span>
-          {#if s.state === 'failed'}<button class="secondary" onclick={() => start(pack, where)}>Retry</button>{/if}
-          {#if s.state === 'missing'}<button class="secondary" onclick={() => start(pack, where)}>Download</button>{/if}
         {/each}
       </div>
       {#if backends.length === 1 && pack.on[backends[0]].state === 'downloading' && pack.on[backends[0]].total}
@@ -62,6 +59,5 @@
   .model { margin: 8px 0; }
   .places { gap: 6px 14px; }
   .place { white-space: nowrap; }
-  .places button { margin-top: 0; }
   progress { width: 100%; }
 </style>

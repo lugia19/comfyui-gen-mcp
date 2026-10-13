@@ -1,6 +1,7 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
   import { api } from './api.js'
+  import { Task } from './task.svelte.js'
 
   // The agent's link to a Worker: paste the pairing link from the Worker's settings page, see the
   // connection, unpair.
@@ -8,8 +9,7 @@
 
   let worker = $derived(info.worker)
   let link = $state('')
-  let busy = $state(false)
-  let error = $state('')
+  const pairing = new Task()
   let timer = null
 
   const LABEL = {
@@ -19,19 +19,13 @@
     unpaired: 'Not paired',
   }
 
-  async function pair(e) {
+  function pair(e) {
     e.preventDefault()
-    busy = true
-    error = ''
-    try {
+    pairing.run(async () => {
       await api('POST', '/pair', { link: link.trim() })
       link = ''
       await refresh()
-    } catch (err) {
-      error = err.message
-    } finally {
-      busy = false
-    }
+    })
   }
 
   async function unpair() {
@@ -83,8 +77,8 @@
   <form onsubmit={pair}>
     <label for="link">{worker.paired ? 'Pair again with a new link' : 'Pairing link'}</label>
     <input id="link" type="text" bind:value={link} placeholder="https://…workers.dev/agent#…" autocomplete="off" />
-    <button type="submit" disabled={busy || !link.trim()}>{busy ? 'Pairing…' : 'Pair'}</button>
+    <button type="submit" disabled={pairing.busy || !link.trim()}>{pairing.busy ? 'Pairing…' : 'Pair'}</button>
     {#if worker.paired}<button type="button" class="secondary" onclick={unpair}>Unpair</button>{/if}
   </form>
-  {#if error}<p class="err">{error}</p>{/if}
+  {#if pairing.error}<p class="err">{pairing.error}</p>{/if}
 </section>

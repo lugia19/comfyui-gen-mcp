@@ -143,6 +143,23 @@ button:has(> .icon),
   gap: 6px;
 }
 
+/* A row's small action button, and a checkbox with its label on one line. */
+button.small,
+.button.small {
+  margin-top: 0;
+  padding: 4px 12px;
+}
+label.check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  font-weight: normal;
+}
+label.check input {
+  width: auto;
+  margin: 0;
+}
 button:disabled {
   opacity: 0.55;
   cursor: default;

@@ -2,6 +2,7 @@
   import { onDestroy, onMount, untrack } from 'svelte'
   import { api } from './api.js'
   import BuildLog from './BuildLog.svelte'
+  import { Task } from './task.svelte.js'
 
   // The Worker's version in the header, with its update button beside it (design §7): the Worker
   // checks for a release daily and updates itself; the button starts the same build now. A panel
@@ -14,8 +15,7 @@
   let update = $state(null) // GET /api/update: {current, latest, dev, newer, can, build, building, outcome}
   let seen = $state(false) // this page saw an update build run: its end is shown here
   let open = $state(false)
-  let error = $state('')
-  let starting = $state(false)
+  const starting = new Task()
   let wrap
 
   async function load() {
@@ -28,20 +28,13 @@
     }
   }
 
-  async function start() {
-    error = ''
-    starting = true
-    try {
+  const start = () =>
+    starting.run(async () => {
       await api('POST', '/update')
       seen = true
       await load()
       await refresh()
-    } catch (e) {
-      error = e.message
-    } finally {
-      starting = false
-    }
-  }
+    })
 
   // done: this Worker now runs another version than this page was loaded from (the build finished
   // here, or the daily one did while it was open). failed: the last update build didn't succeed.
@@ -119,9 +112,9 @@
           image requests keep working meanwhile.
         </p>
         {#if !update.can}<p class="muted">Log in again with a Cloudflare token to update from here.</p>{/if}
-        {#if error}<p class="err">{error}</p>{/if}
+        {#if starting.error}<p class="err">{starting.error}</p>{/if}
         <div class="row">
-          <button type="button" onclick={start} disabled={!update.can || starting}>{starting ? 'Starting…' : phase === 'failed' ? 'Try again' : 'Update now'}</button>
+          <button type="button" onclick={start} disabled={!update.can || starting.busy}>{starting.busy ? 'Starting…' : phase === 'failed' ? 'Try again' : 'Update now'}</button>
           <button type="button" class="secondary" onclick={() => (open = false)}>Cancel</button>
         </div>
         {#if phase === 'failed' && update.build === info.build}
@@ -140,11 +133,6 @@
     display: inline-flex;
     align-items: center;
     gap: 10px;
-  }
-  .small {
-    margin: 0;
-    padding: 4px 12px;
-    font-size: 14px;
   }
   .danger {
     background: none;

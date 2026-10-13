@@ -1,6 +1,6 @@
 // Test fixtures: the Worker's App over fake storage, a fake network and a controllable clock.
 
-import { utf8 } from "@comfy-gen/core";
+import { md5, utf8 } from "@comfy-gen/core";
 import { FakeComfy, png } from "../../core/test/fake-comfy.ts";
 import { App } from "../src/app.ts";
 import type { RelayReply, RelayRequest, RelayStatus, RelayStub } from "../src/relay.ts";
@@ -90,7 +90,7 @@ export class FakeBucket implements Bucket {
         if (!up || up.key !== key) throw new Error("NoSuchUpload");
         const data = new Uint8Array(await new Response(value as BodyInit).arrayBuffer());
         up.parts.set(n, data);
-        return { partNumber: n, etag: await sha256Hex(data) };
+        return { partNumber: n, etag: md5(data) }; // R2 answers a part with its MD5, which the uploader checks
       },
       complete: async (parts) => {
         if (!up || up.key !== key) throw new Error("NoSuchUpload");

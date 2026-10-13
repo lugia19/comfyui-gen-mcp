@@ -102,6 +102,16 @@
   onMount(loggedIn)
 </script>
 
+<!-- The Setup / Settings tabs: in the header on a wide window, above the page on a narrow one. -->
+{#snippet tabs()}
+  <nav>
+    <button class:active={tab === 'setup'} onclick={() => show('setup')}>Setup</button>
+    {#if hasSettings}
+      <button class:active={tab === 'settings'} onclick={() => show('settings')}>Settings</button>
+    {/if}
+  </nav>
+{/snippet}
+
 <main class:wide style="--app-top: {wide ? topH : 0}px">
   <div class="app-top" bind:offsetHeight={topH}>
   <header>
@@ -114,12 +124,7 @@
       <h1>Comfy-Gen-MCP</h1>
     {/if}
     {#if wide && info}
-      <nav>
-        <button class:active={tab === 'setup'} onclick={() => show('setup')}>Setup</button>
-        {#if hasSettings}
-          <button class:active={tab === 'settings'} onclick={() => show('settings')}>Settings</button>
-        {/if}
-      </nav>
+      {@render tabs()}
     {/if}
     {#if info}
       <div class="row">
@@ -164,12 +169,7 @@
     {/if}
   {:else}
     {#if !wide}
-      <nav>
-        <button class:active={tab === 'setup'} onclick={() => show('setup')}>Setup</button>
-        {#if hasSettings}
-          <button class:active={tab === 'settings'} onclick={() => show('settings')}>Settings</button>
-        {/if}
-      </nav>
+      {@render tabs()}
     {/if}
     {#if tab === 'setup'}
       {#if local}

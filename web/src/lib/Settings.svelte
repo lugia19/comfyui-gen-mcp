@@ -7,6 +7,8 @@
   import { ModelStatus } from './models.svelte.js'
   import SettingsModels from './SettingsModels.svelte'
   import SettingsWorker from './SettingsWorker.svelte'
+  import { Task } from './task.svelte.js'
+  import { tagLoras } from '../../../packages/core/src/config.ts'
 
   // The settings (design §5): the extension's, for this computer, or the Worker's, for every GPU it
   // has. One config: Claude sees one set of tools. In sections, one at a time under a bar:
@@ -34,9 +36,8 @@
   $effect(() => {
     unsaved = dirty
   })
-  let saving = $state(false)
+  const saving = new Task()
   let message = $state('') // after a save, for a while
-  let error = $state('')
   let warnings = $state([])
 
   // The extension's own settings (keep-warm); a Worker's GPUs each have theirs under GPUs.
@@ -112,28 +113,24 @@
     else if (alive && anyPc) loraTimer = setTimeout(() => loadLoras(), 20_000)
   }
 
-  // As the server does: a stored LoRA in no group joins the first, switched off. Done on the working
-  // copy and the saved one alike, so it neither reads as an unsaved change nor, saved, takes a LoRA
-  // out of the group the server put it in.
+  // As the server does (core tagLoras): a stored LoRA in no group joins the first, switched off. Done
+  // on the working copy and the saved one alike, so it neither reads as an unsaved change nor, saved,
+  // takes a LoRA out of the group the server put it in.
   function tagLoose(config) {
     const into = loraGroups[0]?.id
     if (!into) return
-    const grouped = new Set(Object.values(config.pack_loras).flat().map((e) => e.name))
-    for (const [name, where] of Object.entries(loraListing.files ?? {})) {
-      if (grouped.has(name) || !('storage' in where || 'machine' in where)) continue
-      ;(config.pack_loras[into] ??= []).push({ name, strength: 1, trigger: '', hidden: false, enabled: false })
-    }
+    const stored = Object.entries(loraListing.files ?? {}).filter(([, where]) => 'storage' in where || 'machine' in where)
+    const tagged = tagLoras(config.pack_loras, stored.map(([name]) => name), into)
+    if (tagged) config.pack_loras = tagged
   }
 
   // The chosen models' downloads, for the cards: one poll for all of them.
   const models = new ModelStatus()
 
   let messageTimer = null
-  async function save() {
-    saving = true
+  function save() {
     message = ''
-    error = ''
-    try {
+    saving.run(async () => {
       const got = await api('PUT', '/config', { config: cfg })
       saved = clone(got.config)
       cfg = clone(got.config)
@@ -146,16 +143,12 @@
       await refresh()
       await loadLoras(true) // saving copies LoRAs from storage to every GPU
       models.start() // and downloads: check now
-    } catch (e) {
-      error = e.message
-    } finally {
-      saving = false
-    }
+    })
   }
 
   function discard() {
     cfg = clone(saved)
-    error = ''
+    saving.error = ''
   }
 
   // Leaving with unsaved changes asks first.
@@ -220,18 +213,18 @@
     {/if}
   </div>
 
-  {#if dirty || saving || message || error}
+  {#if dirty || saving.busy || message || saving.error}
     <footer class="st-foot">
       {#if dirty}
         <p><b>Unsaved changes:</b> <span class="muted">{changes.join(', ')}</span></p>
       {:else if message}
         <p class="ok">{message}</p>
       {/if}
-      {#if error}<p class="err">{error}</p>{/if}
-      {#if dirty || saving}
+      {#if saving.error}<p class="err">{saving.error}</p>{/if}
+      {#if dirty || saving.busy}
         <span class="buttons">
-          <button type="button" class="secondary" onclick={discard} disabled={saving}>Discard</button>
-          <button type="button" onclick={save} disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
+          <button type="button" class="secondary" onclick={discard} disabled={saving.busy}>Discard</button>
+          <button type="button" onclick={save} disabled={saving.busy}>{saving.busy ? 'Saving…' : 'Save settings'}</button>
         </span>
       {/if}
     </footer>

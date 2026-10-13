@@ -2,26 +2,20 @@
   import { untrack } from 'svelte'
   import { api, imagesUrl } from './api.js'
   import SetPassword from './SetPassword.svelte'
+  import { Task } from './task.svelte.js'
 
   // Settings → Worker: this Worker's own settings, each acting at once (not the page's Save).
   let { info, refresh } = $props()
 
   // New images stored encrypted in R2 (design §4).
   let encrypt = $state(untrack(() => Boolean(info.encrypt_images))) // then this page's own
-  let busy = $state(false)
-  let error = $state('')
+  const saving = new Task()
   async function setEncrypt(on) {
-    busy = true
-    error = ''
-    try {
+    const ok = await saving.run(async () => {
       encrypt = (await api('POST', '/images/encryption', { on })).encrypt_images
       await refresh()
-    } catch (e) {
-      encrypt = !on
-      error = e.message
-    } finally {
-      busy = false
-    }
+    })
+    if (!ok) encrypt = !on
   }
   let images = $derived(imagesUrl(info))
 </script>
@@ -31,7 +25,7 @@
     <h2>Images in storage</h2>
     {#if info.storage}
       <label class="check">
-        <input type="checkbox" checked={encrypt} disabled={busy} onchange={(e) => setEncrypt(e.currentTarget.checked)} />
+        <input type="checkbox" checked={encrypt} disabled={saving.busy} onchange={(e) => setEncrypt(e.currentTarget.checked)} />
         Encrypt new images in R2
       </label>
       <p class="muted">
@@ -39,7 +33,7 @@
         stays in this Worker, so anyone who controls your Cloudflare account could still decrypt them. Images stored before
         are left as they are; turning this off keeps the encrypted ones readable here.
       </p>
-      {#if error}<p class="err">{error}</p>{/if}
+      {#if saving.error}<p class="err">{saving.error}</p>{/if}
       {#if images}
         <p class="muted">
           <a href={images} target="_blank" rel="noopener">Your images on Cloudflare</a>: every image made, in the R2 bucket's
@@ -73,16 +67,6 @@
     align-items: start;
   }
   .cols section {
-    margin: 0;
-  }
-  .check {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    font-weight: normal;
-  }
-  .check input {
-    width: auto;
     margin: 0;
   }
 </style>

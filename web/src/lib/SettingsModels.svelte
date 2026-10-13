@@ -1,6 +1,6 @@
 <script>
   import { formatBytes } from './api.js'
-  import { LABEL, percent } from './models.svelte.js'
+  import ModelState from './ModelState.svelte'
 
   // Settings → Models: one card per image tool, side by side. A card picks the tool's model and its
   // options (saved with the page's Save), and its foot shows that model's download on each GPU
@@ -98,11 +98,7 @@
             {@const s = row.on[where] ?? { state: 'unknown' }}
             <div class="place">
               <span class="where">{status.names[where] ?? 'This computer'}</span>
-              <span class:ok={s.state === 'done'} class:err={s.state === 'failed'} class:muted={s.state !== 'done' && s.state !== 'failed'}>
-                {s.state === 'done' ? '✓ ' : ''}{LABEL[s.state] || s.state}{s.state === 'downloading' ? percent(s) : ''}
-              </span>
-              {#if s.state === 'failed'}<button type="button" class="secondary small" onclick={() => status.seed(current.name, where)}>Retry</button>{/if}
-              {#if s.state === 'missing'}<button type="button" class="secondary small" onclick={() => status.seed(current.name, where)}>Download</button>{/if}
+              <ModelState {s} {status} pack={current.name} {where} />
             </div>
             {#if s.state === 'downloading' && s.total}<progress max={s.total} value={s.done}></progress>{/if}
             {#if s.error}<p class="err">{s.error}</p>{/if}
@@ -147,9 +143,8 @@
     font-weight: 600;
     min-width: 90px;
   }
-  .small {
-    margin: 0 0 0 auto;
-    padding: 3px 10px;
+  .place :global(button) {
+    margin-left: auto;
   }
   progress {
     width: 100%;
