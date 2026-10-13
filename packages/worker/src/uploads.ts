@@ -4,10 +4,9 @@
 // snippet, which posts the attached file to /upload/<token>; the Worker stores it in R2 and answers
 // with an image id that edit_image takes. No GPU needs to be online for it.
 
-import { refs, sniffMime, type ComfyUIClient, type Content, type OutputImage } from "@comfy-gen/core";
+import { failResult, refs, sniffMime, textBlock as text, type Content } from "@comfy-gen/core";
 import type { Images } from "./images.ts";
 import { error, json } from "./platform.ts";
-import { text } from "./render.ts";
 
 export const UPLOAD_TTL_S = 600;
 export const MAX_IMAGE_BYTES = 20_000_000;
@@ -29,13 +28,6 @@ export function checkImage(data: Uint8Array): string {
     throw new BadImage(413, `too large (${Math.floor(data.length / 1e6)} MB; the limit is ${MAX_IMAGE_BYTES / 1e6} MB)`);
   }
   return mime;
-}
-
-/** Put image bytes in a ComfyUI's input folder, named after *nonce* (the same nonce, the same file):
- * the stored image. Throws BadImage as checkImage does. */
-export async function storeInput(client: ComfyUIClient, data: Uint8Array, nonce: string): Promise<OutputImage> {
-  const mime = checkImage(data);
-  return client.upload(data, refs.uploadFilename(nonce, mime), mime, refs.UPLOAD_SUBFOLDER);
 }
 
 /** A Python string literal (repr-style), for the snippet. */
@@ -62,9 +54,9 @@ print(urllib.request.urlopen(req, timeout=120).read().decode())
 }
 
 /** The request_upload tool: a fresh link and the snippet to use it. */
-export async function requestUpload(args: Record<string, any>, baseUrl: string, key: Uint8Array, now: number): Promise<[Content[], boolean]> {
+export async function requestUpload(args: Record<string, any>, baseUrl: string, key: Uint8Array, now: number): Promise<[Content[], boolean, Record<string, any>?]> {
   const filename = String(args.filename || "").trim();
-  if (!filename) return [[text("Error: filename is required.")], true];
+  if (!filename) return failResult("filename is required.");
   const token = await refs.mintUpload(key, now, UPLOAD_TTL_S);
   const code = snippet(filename, `${baseUrl}/upload/${token}`);
   return [

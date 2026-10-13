@@ -74,20 +74,23 @@ export type Fetch = (url: string, init?: RequestInit) => Promise<globalThis.Resp
 /** HTTP(S) to a ComfyUI base URL with fixed extra headers. Network failures read as 503, so a host
  * that isn't listening yet looks the same as one that is booting. */
 export class FetchTransport implements Transport {
-  readonly baseUrl: string;
+  private baseUrl: () => string | null;
   private fetchFn: Fetch;
   private headers: Record<string, string>;
 
-  constructor(fetchFn: Fetch, baseUrl: string, headers: Record<string, string> = {}) {
+  /** *baseUrl*: a URL, or a function giving the one in use now (null: ComfyUI is not running). */
+  constructor(fetchFn: Fetch, baseUrl: string | (() => string | null), headers: Record<string, string> = {}) {
     this.fetchFn = fetchFn;
-    this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.baseUrl = typeof baseUrl === "string" ? () => baseUrl : baseUrl;
     this.headers = headers;
   }
 
   async request(method: string, path: string, opts: RequestOptions = {}): Promise<Response> {
+    const base = this.baseUrl()?.replace(/\/+$/, "");
+    if (!base) return new Response(503, utf8("ComfyUI is not running"));
     const query = opts.params ? "?" + new URLSearchParams(opts.params).toString() : "";
     try {
-      const resp = await this.fetchFn(this.baseUrl + path + query, {
+      const resp = await this.fetchFn(base + path + query, {
         method,
         headers: { ...this.headers, ...opts.headers },
         body: opts.body as BodyInit | undefined,

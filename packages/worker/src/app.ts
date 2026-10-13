@@ -5,7 +5,7 @@
 // isolate cache. Each fetch to ComfyUI costs CPU, so the client backs off its polls.
 
 import {
-  Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, SETTINGS_SCHEMA, UnknownTool,
+  Brain, ComfyUIClient, failResult, renderOutcome, ComfyUIError, FetchTransport, McpHandler, SETTINGS_SCHEMA, UnknownTool,
   builtinPacks, downloadSize, fromHex, fromUtf8, groupByTool, packLoras, packMetadata, refs, relay, select, sniffMime, tokenHex, tokenUrlsafe, safeEqual,
   withoutLora, LORA_GROUPS, loraGroupMetadata, tagLoras, tagLooseLoras, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
@@ -17,7 +17,6 @@ import * as loras from "./loras.ts";
 import * as modalAdmin from "./modal-admin.ts";
 import { bodyJson, error, json, withUserAgent, type Bucket, type Fetch, type Platform } from "./platform.ts";
 import { Images } from "./images.ts";
-import { fail, render } from "./render.ts";
 import { RelayTransport } from "./relay.ts";
 import { Store, type Secrets } from "./store.ts";
 import * as updates from "./updates.ts";
@@ -371,11 +370,11 @@ export class App {
     const call = async (name: string, args: Record<string, any>): Promise<[Content[], boolean, Record<string, any>?]> => {
       if (!served.has(name)) throw new UnknownTool(name);
       // Images and uploads live in R2: without it, nothing to do (and no GPU time spent).
-      if (!this.p.bucket) return fail(noStorageMessage(url.origin));
+      if (!this.p.bucket) return failResult(noStorageMessage(url.origin));
       // Uploads go to R2: no GPU needed.
       if (name === "request_upload") return uploads.requestUpload(args, url.origin, key, this.p.now());
       const gpus = await this.gpus(this.store);
-      if (!gpus.length) return fail(`no GPU is set up yet. Finish setup at ${url.origin}/`);
+      if (!gpus.length) return failResult(`no GPU is set up yet. Finish setup at ${url.origin}/`);
       const pack = selectedPacks(cfg).find((p) => p.tool_name === name) ?? null;
       let gpu: Gpu | string;
       if (name === "fetch_result") {
@@ -391,7 +390,7 @@ export class App {
       } else {
         gpu = await this.pick(gpus, pack);
       }
-      if (typeof gpu === "string") return fail(gpu);
+      if (typeof gpu === "string") return failResult(gpu);
       const tried: Gpu[] = [];
       for (;;) {
         const target: Gpu = gpu;
@@ -416,7 +415,12 @@ export class App {
           }
         }
         if (outcome.kind === "pending") outcome.token = `${target.id}:${outcome.token}`;
-        return render(outcome, client, url.origin, images);
+        // Each image is stored in R2 under its id; Claude gets the id and its link.
+        return renderOutcome(outcome, client, async (bytes) => {
+          const id = await images.put(bytes);
+          const link = `${url.origin}/img/${id}`;
+          return { text: `image_id: ${id}\nFull resolution: ${link}`, meta: { image_id: id, url: link } };
+        });
       }
     };
 

@@ -7,7 +7,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ComfyUIError, Hooks, imageSize, refs, sniffMime, type ComfyUIClient, type Pack, type ResolvedImage } from "@comfy-gen/core";
+import { ComfyUIError, Hooks, imageSize, sniffMime, uploadInput, type ComfyUIClient, type Pack, type ResolvedImage } from "@comfy-gen/core";
 import { USER_AGENT, type Machine } from "@comfy-gen/local";
 
 export const MAX_IMAGE_BYTES = 50_000_000;
@@ -78,17 +78,11 @@ export class LocalHooks extends Hooks {
       throw new ComfyUIError(`Could not download ${url}: ${(e as Error).message}`);
     }
     if (!resp.ok) throw new ComfyUIError(`Could not download ${url} (HTTP ${resp.status}).`);
-    const data = new Uint8Array(await resp.arrayBuffer());
-    if (data.length > MAX_IMAGE_BYTES) throw new ComfyUIError(`${url} is too large (the limit is ${MAX_IMAGE_BYTES / 1e6} MB).`);
-    return this.upload(data, url);
+    return this.upload(new Uint8Array(await resp.arrayBuffer()), url);
   }
 
-  private async upload(data: Uint8Array, source: string): Promise<ResolvedImage> {
-    const mime = sniffMime(data);
-    if (!mime) throw new ComfyUIError(`${source} is not a PNG, JPEG, WebP or GIF image.`);
-    // Named by content: the same image edited again reuses its copy instead of adding another.
-    const name = refs.uploadFilename(createHash("sha256").update(data).digest("hex").slice(0, 16), mime);
-    const image = await this.client.upload(data, name, mime, refs.UPLOAD_SUBFOLDER);
-    return [image.loadValue(), imageSize(data)];
+  /** Named by content: the same image edited again reuses its copy instead of adding another. */
+  private upload(data: Uint8Array, source: string): Promise<ResolvedImage> {
+    return uploadInput(this.client, data, createHash("sha256").update(data).digest("hex").slice(0, 16), source, MAX_IMAGE_BYTES);
   }
 }

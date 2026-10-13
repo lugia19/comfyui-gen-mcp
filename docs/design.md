@@ -252,14 +252,15 @@ results stay as they are:
     more, rounded to multiples of 64), and otherwise only the shape.
   - `negative` replaces the text of the pack's `cg:negative` node (Anima's). Packs without one
     ignore it.
-- **`_meta["comfy-gen/result"]`** on every Worker result, beside the unchanged content blocks:
+- **`_meta["comfy-gen/result"]`** on every tool result, beside the unchanged content blocks:
   - `{status: "done", images: [{image_id, url, width, height}]}`
   - `{status: "pending", request_token}`
   - `{status: "error", message, retryable}`
 
   `retryable` means the same call should work later with no one doing anything (a cold start, a
   model downloading, a GPU restarted mid-image). Offline, paused, unset-up and bad arguments are
-  not. A tool that crashed has `isError` and no such value. The MCPB doesn't add it. It was
+  not. A tool that crashed has `isError` and no such value. Both frontends build it the same way
+  (core `renderOutcome`); the MCPB's done images carry `saved_path` in place of `image_id`/`url`. It was
   `structuredContent` in v1.12.0, but Claude Code gives that to the model in place of the text
   blocks (seen 2026-10-13), which changed what Claude read. Clients don't show `_meta`.
 - **`GET /mcp/<secret>/loras`**, behind the same secret: `{loras: [{name, trigger, strength,

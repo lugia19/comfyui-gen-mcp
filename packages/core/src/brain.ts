@@ -10,9 +10,11 @@
 import { roundHalfEven } from "./bytes.ts";
 import { ComfyUIClient, ComfyUIError, type OutputImage } from "./comfyui.ts";
 import { normalize, type Config } from "./config.ts";
+import { imageSize, sniffMime } from "./images.ts";
 import { UnknownTool } from "./mcp.ts";
 import { groupByTool, prepare, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
+import * as refs from "./refs.ts";
 import { buildPrompt, withImages, type Workflow } from "./workflow.ts";
 
 // A tool call answers within this, counted from its start. claude.ai gives up at 300 s (S8), but a
@@ -73,6 +75,18 @@ export class Hooks {
   async resolveImage(_arg: string): Promise<ResolvedImage> {
     throw new ComfyUIError("Editing images is not available here.");
   }
+}
+
+/** Image bytes into a ComfyUI's input folder, for an edit (the hooks' resolveImage): [what
+ * LoadImage takes, the size]. Named after *key*: the same key reuses the same file. *what* names
+ * the image in errors. Throws ComfyUIError for anything but a PNG, JPEG, WebP or GIF of at most
+ * *maxBytes*. */
+export async function uploadInput(client: ComfyUIClient, data: Uint8Array, key: string, what: string, maxBytes: number): Promise<ResolvedImage> {
+  const mime = sniffMime(data);
+  if (!mime) throw new ComfyUIError(`${what} is not a PNG, JPEG, WebP or GIF image.`);
+  if (data.length > maxBytes) throw new ComfyUIError(`${what} is too large (${Math.floor(data.length / 1e6)} MB; the limit is ${maxBytes / 1e6} MB).`);
+  const image = await client.upload(data, refs.uploadFilename(key, mime), mime, refs.UPLOAD_SUBFOLDER);
+  return [image.loadValue(), imageSize(data)];
 }
 
 export type BrainOptions = { hooks?: Hooks; waitS?: number };

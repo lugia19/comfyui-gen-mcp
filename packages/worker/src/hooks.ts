@@ -8,14 +8,14 @@
 // the answering ComfyUI's inputs, under a name derived from the id, so editing the same image
 // twice reuses one file. An https URL is downloaded and uploaded the same way.
 
-import { ComfyUIError, Hooks, imageSize, refs, relay, tokenUrlsafe, type ComfyUIClient, type Pack, type ResolvedImage } from "@comfy-gen/core";
+import { ComfyUIError, Hooks, refs, relay, tokenUrlsafe, uploadInput, type ComfyUIClient, type Pack, type ResolvedImage } from "@comfy-gen/core";
 import type { Images } from "./images.ts";
 import { ModalAdminError, packStatus, type ModalAdmin } from "./modal-admin.ts";
 import type { Gpu } from "./gpus.ts";
 import type { Fetch } from "./platform.ts";
 import type { RelayStub } from "./relay.ts";
 import type { Store } from "./store.ts";
-import { BadImage, storeInput } from "./uploads.ts";
+import { MAX_IMAGE_BYTES } from "./uploads.ts";
 
 const RETRY = { retryable: true };
 // The agent's (local machine.ts) and the Worker's own words for a model download that is under way.
@@ -88,18 +88,7 @@ export class WorkerHooks extends Hooks {
     }
     const data = await this.images.get(id);
     if (!data) throw new ComfyUIError(`There is no image ${id}: it was deleted after a year, or the id is mistyped.`);
-    return this.input(data, id, `Image ${id}`);
-  }
-
-  /** Bytes into this ComfyUI's inputs: [what LoadImage takes, the size]. */
-  private async input(data: Uint8Array, nonce: string, what: string): Promise<ResolvedImage> {
-    try {
-      const uploaded = await storeInput(this.client, data, nonce);
-      return [uploaded.loadValue(), imageSize(data)];
-    } catch (e) {
-      if (e instanceof BadImage) throw new ComfyUIError(`${what}: ${e.message}.`);
-      throw e;
-    }
+    return uploadInput(this.client, data, id, `Image ${id}`, MAX_IMAGE_BYTES);
   }
 
   private async fromUrl(url: string): Promise<ResolvedImage> {
@@ -110,7 +99,7 @@ export class WorkerHooks extends Hooks {
       throw new ComfyUIError(`Could not download ${url}: ${e}`);
     }
     if (resp.status !== 200) throw new ComfyUIError(`Could not download ${url} (HTTP ${resp.status}). The URL must be public.`);
-    return this.input(new Uint8Array(await resp.arrayBuffer()), tokenUrlsafe(9), url);
+    return uploadInput(this.client, new Uint8Array(await resp.arrayBuffer()), tokenUrlsafe(9), url, MAX_IMAGE_BYTES);
   }
 }
 

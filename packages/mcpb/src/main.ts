@@ -9,7 +9,7 @@
 import { request as httpRequest } from "node:http";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { McpHandler, toolSpecs } from "@comfy-gen/core";
+import { failResult, McpHandler, toolSpecs } from "@comfy-gen/core";
 import { loadConfig, log, logTo, machineTray, paths, type Paths, type Tray, type TrayLook, type WebFiles } from "@comfy-gen/local";
 import { PACKS } from "./server/app.ts";
 import { startServer, type RunningServer } from "./server/server.ts";
@@ -119,7 +119,7 @@ export async function main(opts: MainOptions): Promise<void> {
         // error on initialize would only show as a failed extension, the reason buried in logs.
         if (foreign) {
           const message = FOREIGN_OWNER(cfg.mcp_port);
-          const handler = new McpHandler("Comfy-Gen-MCP", opts.version, toolSpecs(PACKS, cfg, "paths"), async () => [[{ type: "text", text: `Error: ${message}` }], true]);
+          const handler = new McpHandler("Comfy-Gen-MCP", opts.version, toolSpecs(PACKS, cfg, "paths"), async () => failResult(message));
           return handler.handle(line);
         }
       }

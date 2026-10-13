@@ -6,10 +6,10 @@
 
 import { join } from "node:path";
 import {
-  Brain, ComfyUIClient, ComfyUIError, McpHandler, Response as CoreResponse, SETTINGS_SCHEMA, UnknownTool,
-  builtinPacks, downloadSize, inlineImage, packMetadata, safeEqual, select, groupByTool, textBlock, utf8,
+  Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, SETTINGS_SCHEMA, UnknownTool,
+  builtinPacks, downloadSize, failResult, packMetadata, renderOutcome, safeEqual, select, groupByTool,
   LORA_GROUPS, loraGroupMetadata, tagLoras, tagLooseLoras,
-  type Config, type Content, type Outcome, type OutputImage, type Pack, type RequestOptions, type Transport,
+  type Config, type OutputImage, type Pack, type Rendered,
 } from "@comfy-gen/core";
 import {
   bodyJson, checkMachineSettings, error, fromThisMachine, json, log, webFile,
@@ -37,25 +37,6 @@ export type Services = {
   download(packs: Pack[]): void;
   web: WebFiles;
 };
-
-/** ComfyUI over fetch at whatever URL the managed or configured ComfyUI has now. */
-export class ComfyTransport implements Transport {
-  private url: () => string | null;
-  constructor(url: () => string | null) {
-    this.url = url;
-  }
-  async request(method: string, path: string, opts: RequestOptions = {}): Promise<CoreResponse> {
-    const base = this.url();
-    if (!base) return new CoreResponse(503, utf8("ComfyUI is not running"));
-    const query = opts.params ? "?" + new URLSearchParams(opts.params).toString() : "";
-    try {
-      const resp = await fetch(base + path + query, { method, headers: opts.headers, body: opts.body as unknown as BodyInit | undefined });
-      return new CoreResponse(resp.status, new Uint8Array(await resp.arrayBuffer()));
-    } catch (e) {
-      return new CoreResponse(503, utf8(String(e)));
-    }
-  }
-}
 
 export function selectedPacks(cfg: Config): Pack[] {
   return select(GROUPS, cfg.pack_selections);
@@ -116,50 +97,37 @@ export class LocalApp {
   mcpHandler(cfg: LocalConfig): McpHandler {
     const { machine } = this.s;
     const comfy = machine.comfy;
-    const client = () => new ComfyUIClient(new ComfyTransport(() => comfy.url));
+    const client = () => new ComfyUIClient(new FetchTransport(fetch, () => comfy.url));
     const brain = (c: ComfyUIClient) => new Brain(PACKS, cfg, c, "paths", { hooks: new LocalHooks(machine, c, this.settingsUrl) });
     const specs = brain(client()).specs;
     const served = new Set(specs.map((spec) => spec.name));
 
-    const call = async (name: string, args: Record<string, any>): Promise<[Content[], boolean]> => {
+    const call = async (name: string, args: Record<string, any>): Promise<Rendered> => {
       if (!served.has(name)) throw new UnknownTool(name);
       return comfy.job(async () => {
         const c = client();
         try {
           if (name === "fetch_result") await comfy.ensureRunning();
         } catch (e) {
-          if (e instanceof ComfyUIError) return [[textBlock(`Error: ${e.message}`)], true];
+          if (e instanceof ComfyUIError) return failResult(e.message, e.retryable);
           throw e;
         }
-        return this.render(await brain(c).call(name, args), c);
+        return renderOutcome(await brain(c).call(name, args), c, async (_bytes, image) => {
+          const path = this.savedPath(image);
+          return { text: `saved_path: ${path}`, meta: { saved_path: path } };
+        });
       });
     };
     return new McpHandler("Comfy-Gen-MCP", this.s.version, specs, call, instructions(this.settingsUrl));
-  }
-
-  private async render(outcome: Outcome, client: ComfyUIClient): Promise<[Content[], boolean]> {
-    if (outcome.kind === "pending") return [[textBlock(outcome.text())], false];
-    if (outcome.kind === "failed") return [[textBlock(outcome.text())], true];
-    const content: Content[] = [];
-    for (const image of outcome.images) {
-      try {
-        content.push(await inlineImage(client, image));
-      } catch (e) {
-        if (!(e instanceof ComfyUIError)) throw e;
-        return [[textBlock(`Error: the image was generated but could not be fetched: ${e.message}`)], true];
-      }
-      content.push(textBlock(this.savedPath(image)));
-    }
-    return [content, false];
   }
 
   /** Where the result is on disk; for a ComfyUI we don't manage, the name it knows it by. */
   private savedPath(image: OutputImage): string {
     const comfy = this.s.machine.comfy;
     if (comfy.install && comfy.state !== "external") {
-      return `saved_path: ${join(comfy.install.dir, image.type, ...image.subfolder.split("/").filter(Boolean), image.filename)}`;
+      return join(comfy.install.dir, image.type, ...image.subfolder.split("/").filter(Boolean), image.filename);
     }
-    return `saved_path: ${image.loadValue()}`;
+    return image.loadValue();
   }
 
   // ── settings API (the MCPB's part) ────────────────────────────────

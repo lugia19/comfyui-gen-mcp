@@ -6,7 +6,8 @@ import { McpHandler, PROTOCOL_VERSIONS, RESULT_META, UnknownTool, type ToolCall 
 import { builtinPacks, type Pack } from "../src/packs.ts";
 import { toolSpecs } from "../src/tools.ts";
 import { normalize } from "../src/config.ts";
-import { FakeComfy, fastClient } from "./fake-comfy.ts";
+import { FakeComfy, fastClient, png } from "./fake-comfy.ts";
+import { failResult, renderOutcome } from "../src/results.ts";
 
 const BUILTIN = builtinPacks();
 const names = (specs: { name: string }[]) => specs.map((s) => s.name);
@@ -174,6 +175,20 @@ describe("brain", () => {
     expect(out).toBeInstanceOf(Pending);
     expect((out as Pending).token).toBe("p1");
     expect(client.requestsMade).toBeLessThanOrEqual(8);
+  });
+});
+
+describe("tool results (every frontend)", () => {
+  it("images with the frontend's text and fields, then pending and failed", async () => {
+    const { comfy, client, brain } = setup();
+    comfy.viewBody = png(64, 48);
+    const after = async (bytes: Uint8Array) => ({ text: `saved: ${bytes.length}`, meta: { id: "a" } });
+    const [content, isError, meta] = await renderOutcome(await brain().call("generate_realistic_image", { prompt: "x" }), client, after);
+    expect([content.map((c) => c.type), content[1].text, isError]).toEqual([["image", "text"], `saved: ${comfy.viewBody.length}`, false]);
+    expect(meta).toEqual({ status: "done", images: [{ id: "a", width: 64, height: 48 }] });
+    expect((await renderOutcome(new Pending("gpu:p1", "queued"), client, after))[2]).toEqual({ status: "pending", request_token: "gpu:p1" });
+    expect(await renderOutcome(new Failed(STILL_STARTING, true), client, after)).toEqual(failResult(STILL_STARTING, true));
+    expect(failResult("no")).toEqual([[{ type: "text", text: "Error: no" }], true, { status: "error", message: "no", retryable: false }]);
   });
 });
 
