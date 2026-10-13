@@ -37,10 +37,6 @@ const WH_RE = /^\s*(\d+)\s*[xX]\s*(\d+)\s*$/;
 // A "WxH" with both sides at least this is a size; smaller ("16x9") is only a shape.
 const MIN_EXACT_SIDE = 256;
 
-// A ":lossless" suffix once asked for a PNG (results were JPEG, which has no transparency). WebP
-// has both, so it is only stripped now, in case an old habit or script still adds it.
-const LOSSLESS_SUFFIX = ":lossless";
-
 export const TITLES = {
   prompt: "cg:prompt",
   negative: "cg:negative",
@@ -58,12 +54,6 @@ const IMAGE_GROUP = "cg:image"; // every node whose title starts so is part of o
 /** The ids of the nodes titled *title*, in the workflow's key order. */
 export function nodesTitled(workflow: Workflow, title: string): string[] {
   return Object.keys(workflow).filter((id) => workflow[id]._meta?.title === title);
-}
-
-/** Without a trailing ":lossless" (case-insensitive). Only a trailing match, so drive colons survive. */
-export function stripLossless(value: string): string {
-  const s = (value || "").trim();
-  return s.toLowerCase().endsWith(LOSSLESS_SUFFIX) ? s.slice(0, -LOSSLESS_SUFFIX.length).trim() : value;
 }
 
 /**

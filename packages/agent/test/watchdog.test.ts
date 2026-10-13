@@ -4,10 +4,9 @@ import { bindWhenFree, launcherPid, processAlive, watchParent } from "../src/wat
 
 describe("ending with the launcher", () => {
   it("knows its launcher only when started by one", () => {
-    expect(launcherPid({}, 4321)).toBeNull(); // development, the extension
-    expect(launcherPid({ COMFY_GEN_OPEN_SETTINGS: "0" }, 4321)).toBe(4321); // a launcher from before the pid variable
-    expect(launcherPid({ COMFY_GEN_OPEN_SETTINGS: "1", COMFY_GEN_LAUNCHER_PID: "77" }, 4321)).toBe(77);
-    expect(launcherPid({ COMFY_GEN_OPEN_SETTINGS: "0" }, 1)).toBeNull(); // orphaned already: init
+    expect(launcherPid({})).toBeNull(); // development, the extension
+    expect(launcherPid({ COMFY_GEN_LAUNCHER_PID: "77" })).toBe(77);
+    expect(launcherPid({ COMFY_GEN_LAUNCHER_PID: "1" })).toBeNull(); // orphaned already: init
   });
 
   it("calls back once, when the parent is gone", () => {

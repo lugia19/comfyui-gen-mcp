@@ -1,12 +1,10 @@
 // The agent ends with its launcher. On Windows, ending the launcher (Task Manager, or a script)
 // leaves its child running, so Node, the tray and ComfyUI would carry on with nothing to restart
-// or stop them. The launcher sets COMFY_GEN_LAUNCHER_PID; launchers from before that are the
-// parent process, which is the same thing.
+// or stop them. The launcher sets COMFY_GEN_LAUNCHER_PID.
 
 /** The launcher's pid, or null when not started by one (development, the extension). */
-export function launcherPid(env: NodeJS.ProcessEnv = process.env, ppid = process.ppid): number | null {
-  if (env.COMFY_GEN_OPEN_SETTINGS === undefined) return null; // every launcher sets it
-  const pid = Number(env.COMFY_GEN_LAUNCHER_PID) || ppid;
+export function launcherPid(env: NodeJS.ProcessEnv = process.env): number | null {
+  const pid = Number(env.COMFY_GEN_LAUNCHER_PID);
   return pid > 1 ? pid : null;
 }
 

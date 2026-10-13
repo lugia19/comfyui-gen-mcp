@@ -111,13 +111,12 @@ describe("brain", () => {
   it("a timeout returns a stateless token, and fetch_result resumes", async () => {
     const { comfy, brain } = setup();
     comfy.history = Array(3).fill("running");
-    // A ":lossless" from before results were WebP is ignored, on the aspect ratio and on the token.
-    const out = await brain({ waitS: 0 }).call("generate_illustrated_image", { prompt: "x", aspect_ratio: "portrait:lossless" });
+    const out = await brain({ waitS: 0 }).call("generate_illustrated_image", { prompt: "x", aspect_ratio: "portrait" });
     expect(out).toBeInstanceOf(Pending);
     expect((out as Pending).token).toBe("p1");
     expect((out as Pending).text()).toContain("fetch_result");
     comfy.history = [];
-    const again = await brain().call("fetch_result", { request_token: "p1:lossless" });
+    const again = await brain().call("fetch_result", { request_token: "p1" });
     expect(again).toBeInstanceOf(Done);
   });
 

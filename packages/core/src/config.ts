@@ -53,16 +53,11 @@ export const SETTINGS_SCHEMA = [
   },
 ];
 
-// Settings of removed features, dropped on read so the next save forgets them: custom_workflow
-// (custom workflows, removed 2026-09-30), pc_keep_warm_minutes (keep-warm per GPU, 2026-10-01).
-const REMOVED = new Set(["custom_workflow", "pc_keep_warm_minutes"]);
-
 /** Fill in defaults and drop wrongly typed known values. Unknown keys are kept. Never throws. */
 export function normalize(raw: unknown): Config {
   const cfg = structuredClone(DEFAULTS);
   if (!isPlainObject(raw)) return cfg;
   for (const [key, val] of Object.entries(raw)) {
-    if (REMOVED.has(key)) continue;
     if (!(key in DEFAULTS)) {
       cfg[key] = structuredClone(val); // a newer version's or a frontend's key: keep it
     } else if (key === "keep_warm_minutes") {
@@ -76,12 +71,10 @@ export function normalize(raw: unknown): Config {
   return cfg;
 }
 
-/** A strength from hand-edited or older configs: missing or blank means 1, a boolean on/off, a
- * numeric string its number; anything else 1. */
+/** A strength: a number, or a numeric string (the MCPB's config.json is hand-editable); anything
+ * else, missing or blank means 1. */
 function strengthOf(value: unknown): number {
-  if (value === undefined || (typeof value === "string" && !value.trim())) return 1;
-  if (typeof value === "boolean") return value ? 1 : 0;
-  const n = Number(value);
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : 1;
   return Number.isFinite(n) ? n : 1;
 }
 
@@ -116,14 +109,13 @@ function loraGroups(val: Record<string, unknown>): Record<string, LoraEntry[]> {
   );
 }
 
-/** A group's LoRA list, cleaned: a bare string is a file name; entries without a name are dropped;
- * strength is clamped to ±LORA_STRENGTH_MAX; an entry is on unless it says enabled: false (entries
- * from before the flag were on by being listed). Everything downstream reads this shape. */
+/** A group's LoRA list, cleaned: entries without a name are dropped; strength is clamped to
+ * ±LORA_STRENGTH_MAX; an entry is on unless it says enabled: false. Everything downstream reads
+ * this shape. */
 function loraEntries(list: unknown): LoraEntry[] {
   if (!Array.isArray(list)) return [];
   const out: LoraEntry[] = [];
-  for (const raw of list) {
-    const e = typeof raw === "string" ? { name: raw } : raw;
+  for (const e of list) {
     if (!isPlainObject(e) || typeof e.name !== "string" || !e.name.trim()) continue;
     out.push({
       name: e.name.trim(),

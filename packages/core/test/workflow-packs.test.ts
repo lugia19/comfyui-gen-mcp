@@ -5,7 +5,7 @@ import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize, tagLoras } from "../src/config.ts";
 import { builtinPacks, DEFAULT_LORA_GROUP, family, groupByTool, packLoras, prepare, select, supportsLoras, TOOLS, validate } from "../src/packs.ts";
 import { describe as describeTool } from "../src/tools.ts";
-import { buildPrompt, calcDimensions, injectLoras, stripLossless, withImages, type Workflow } from "../src/workflow.ts";
+import { buildPrompt, calcDimensions, injectLoras, withImages, type Workflow } from "../src/workflow.ts";
 
 const smallWorkflow = (): Workflow => ({
   "1": { class_type: "UNETLoader", inputs: { unet_name: "m.safetensors" }, _meta: { title: "cg:model" } },
@@ -16,15 +16,6 @@ const smallWorkflow = (): Workflow => ({
 });
 
 describe("workflow", () => {
-  it.each([
-    ["portrait", "portrait"],
-    ["portrait:lossless", "portrait"],
-    ["C:/x.png:LOSSLESS", "C:/x.png"],
-    ["C:/x.png", "C:/x.png"],
-  ])("stripLossless(%s)", (value, rest) => {
-    expect(stripLossless(value)).toBe(rest);
-  });
-
   it("calcDimensions: named and custom", () => {
     expect(calcDimensions("square", 1_048_576)).toEqual([1024, 1024]);
     const [w, h] = calcDimensions("portrait", 1_048_576);
@@ -221,33 +212,29 @@ describe("packs and config", () => {
     const out = normalize(raw);
     out.pack_settings.anima.artist_list = "changed";
     expect(raw.pack_settings.anima.artist_list).toBe("@a"); // a deep copy
-    // A removed feature's setting is dropped, so the next save forgets it.
-    expect("custom_workflow" in normalize({ custom_workflow: { workflow: { "1": {} } } })).toBe(false);
   });
 
   it("normalize cleans LoRA entries and caps keep-warm", () => {
     const cfg = normalize({
       keep_warm_minutes: 500,
-      pc_keep_warm_minutes: 45,
       pack_loras: {
         anima: ["bare.safetensors", { name: " a.safetensors ", strength: 9, trigger: " @x ", hidden: 1 }, { name: "" }, 7,
-          { name: "b.safetensors", strength: "0.5" }],
+          { name: "b.safetensors", strength: "0.5" }, { name: "c.safetensors", strength: "" }],
         other: "junk",
       },
     });
     expect(cfg.keep_warm_minutes).toBe(60);
     expect(normalize({ keep_warm_minutes: "x" }).keep_warm_minutes).toBe(DEFAULT_KEEP_WARM_MINUTES);
-    expect("pc_keep_warm_minutes" in cfg).toBe(false); // keep-warm is per GPU on a Worker now
     expect(cfg.pack_loras).toEqual({
       anima: [
-        { name: "bare.safetensors", strength: 1, trigger: "", hidden: false, enabled: true },
         { name: "a.safetensors", strength: 5, trigger: "@x", hidden: false, enabled: true },
-        { name: "b.safetensors", strength: 0.5, trigger: "", hidden: false, enabled: true },
+        { name: "b.safetensors", strength: 0.5, trigger: "", hidden: false, enabled: true }, // config.json is hand-editable
+        { name: "c.safetensors", strength: 1, trigger: "", hidden: false, enabled: true },
       ],
       other: [],
     });
     // A LoRA is in one group, and on or off there; a name already in an earlier group is dropped.
-    const two = normalize({ pack_loras: { anima: [{ name: "x.safetensors", enabled: false }], klein: ["x.safetensors", "y.safetensors"] } });
+    const two = normalize({ pack_loras: { anima: [{ name: "x.safetensors", enabled: false }], klein: [{ name: "x.safetensors" }, { name: "y.safetensors" }] } });
     expect(two.pack_loras.anima).toEqual([{ name: "x.safetensors", strength: 1, trigger: "", hidden: false, enabled: false }]);
     expect(two.pack_loras.klein.map((e: any) => e.name)).toEqual(["y.safetensors"]);
   });

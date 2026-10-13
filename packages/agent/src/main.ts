@@ -86,7 +86,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     },
   });
   // This PC's id on the Worker, for the tray to open its page there (/gpu/<id>); asked once per
-  // pairing, on connecting. An older Worker has no /agent/whoami: the tray opens its Settings then.
+  // pairing, on connecting. Until it answers, the tray opens the Worker's Settings.
   let gpuId: string | null = null;
   const whoami = async () => {
     if (gpuId || !cfg.worker_url || !cfg.secret) return;
@@ -152,7 +152,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
   const trouble = () =>
     !cfg.worker_url ? "not paired with a Worker" : client && client.state !== "connected" ? "not connected to your Worker" : null;
   const tray = opts.tray
-    ? // Paired and connected: this PC's page on the Worker (its Settings with an older Worker); this
+    ? // Paired and connected: this PC's page on the Worker (its Settings until whoami answered); this
       // PC's own page otherwise (pairing, or the Worker unreachable).
       await machineTray(machine, opts.tray, () => (cfg.worker_url && client?.state === "connected" ? (gpuId ? `${cfg.worker_url}/gpu/${gpuId}` : `${cfg.worker_url}/#settings`) : settingsUrl), trouble, {
         title: () => (paused ? "Resume agent" : "Pause agent"),

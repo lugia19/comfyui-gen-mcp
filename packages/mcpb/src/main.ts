@@ -47,8 +47,7 @@ function relay(port: number, path: string, body: string): Promise<Reply> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Whether the port's owner is one of ours: /alive answers {version, pid}. The old extension's
- * server (Python) may still hold the port for a few minutes after an upgrade. */
+/** Whether the port's owner is one of ours: /alive answers {version, pid}. */
 async function ownerIsOurs(port: number): Promise<boolean> {
   let resp: Response;
   try {
@@ -65,8 +64,7 @@ async function ownerIsOurs(port: number): Promise<boolean> {
 }
 
 const FOREIGN_OWNER = (port: number) =>
-  `Another program holds port ${port}, probably the previous Comfy-Gen-MCP's server. Quit it from its ` +
-  `tray icon (or wait a few minutes for it to stop), then restart Claude Desktop.`;
+  `Another program holds port ${port}. Quit it, or set another mcp_port in Comfy-Gen's config.json, then restart Claude Desktop.`;
 
 export async function main(opts: MainOptions): Promise<void> {
   const p = opts.paths ?? paths();

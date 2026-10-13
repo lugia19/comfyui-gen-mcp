@@ -11,7 +11,7 @@ import {
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
-import { gpusOf, newPcId, newPcName, splitToken, DEFAULT_KEEP_WARM, PC_KEEP_WARM, type Gpu } from "./gpus.ts";
+import { newPcId, newPcName, splitToken, DEFAULT_KEEP_WARM, PC_KEEP_WARM, type Gpu } from "./gpus.ts";
 import { offlineMessage, pausedMessage, PcHooks, WorkerHooks } from "./hooks.ts";
 import * as loras from "./loras.ts";
 import * as modalAdmin from "./modal-admin.ts";
@@ -69,9 +69,6 @@ type SetupMode = (typeof SETUP_MODES)[number];
 /** Storage (R2) isn't bound: R2 wasn't turned on in the account at the last build. The Setup page's
  * storage step turns it on and rebuilds. Thrown by App.bucket, answered 409 (404 for an image). */
 export class NoStorage extends Error {}
-
-// What agents from before the per-PC page answer a call outside their short allow-list.
-const OLD_AGENT_REFUSAL = "That can only be changed on the PC itself, on its Comfy-Gen page.";
 
 const noStorageMessage = (origin: string) =>
   `storage isn't turned on yet. Finish the setup on your Worker's page (${origin}/): turn on storage.`;
@@ -242,16 +239,13 @@ export class App {
 
   // ── GPUs ──────────────────────────────────────────────────────────
 
-  /** The GPU list, converted once from a Worker's older generator and paired PC. */
+  /** The GPU list, in priority order. */
   async gpus(store: Store = this.fresh): Promise<Gpu[]> {
-    const s = await store.secrets();
-    const { gpus, converted } = gpusOf(s, await store.config());
-    if (converted && (s.generator || s.agent_secret)) await this.saveGpus(gpus);
-    return gpus;
+    return (await store.secrets()).gpus ?? [];
   }
 
   private async saveGpus(gpus: Gpu[]): Promise<void> {
-    await this.fresh.updateSecrets({ gpus, generator: null, agent_secret: null });
+    await this.fresh.updateSecrets({ gpus });
   }
 
   private async updateGpu(id: string, changes: Partial<Gpu>): Promise<Gpu | null> {
@@ -392,7 +386,7 @@ export class App {
           const st = await this.status(on);
           gpu = st.online ? on : offlineMessage([on]);
         } else {
-          gpu = await this.pick(gpus, null);
+          gpu = `there is no request ${args.request_token}: its GPU was removed, or the token is mistyped.`;
         }
       } else {
         gpu = await this.pick(gpus, pack);
@@ -543,18 +537,12 @@ export class App {
 
   /**
    * The setup's answer to "where should images be made?": the one chosen on this page, else the
-   * setup site's (SETUP_MODE, from the template the Deploy button copied), else what the GPUs say
-   * (an install from before the question), else none yet.
+   * setup site's (SETUP_MODE, from the template the Deploy button copied), else none yet.
    */
-  private async mode(setup: Record<string, any>): Promise<SetupMode | null> {
+  private mode(setup: Record<string, any>): SetupMode | null {
     if ((SETUP_MODES as readonly string[]).includes(setup.mode)) return setup.mode;
     const site = this.p.env.SETUP_MODE ?? "";
     if ((SETUP_MODES as readonly string[]).includes(site) && site !== "url") return site as SetupMode;
-    const kinds = new Set((await this.gpus(this.fresh)).map((g) => g.kind));
-    if (kinds.has("modal") && kinds.has("pc")) return "both";
-    if (kinds.has("modal")) return "cloud";
-    if (kinds.has("pc")) return "pc";
-    if (kinds.has("url")) return "url";
     return null;
   }
 
@@ -566,7 +554,7 @@ export class App {
       gpus: await this.gpuStates(url),
       storage: Boolean(this.p.bucket),
       encrypt_images: Boolean(s.encrypt_images),
-      setup_mode: await this.mode(setup), // not "mode": the page tells the agent and the extension apart by that
+      setup_mode: this.mode(setup), // not "mode": the page tells the agent and the extension apart by that
       mode_from_site: !setup.mode && ["cloud", "pc", "both"].includes(this.p.env.SETUP_MODE ?? ""),
       build: setup.build ?? null,
       update_build: setup.update_build ?? null,
@@ -929,9 +917,6 @@ export class App {
     } catch {
       // plain text
     }
-    // An agent from before its page moved here allows only a few calls (state, install, start and
-    // stop), and says so in these words.
-    if (r.status === 403 && message === OLD_AGENT_REFUSAL) message = "This PC's agent is too old to change that from here. Update the agent on this PC (it updates itself within a day of a release, or restart it).";
     return error(r.status, `${gpu.name}: ${message}`);
   }
 

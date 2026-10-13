@@ -69,12 +69,12 @@ describe("machine helpers", () => {
     expect(torchBackend("intel")).toBe("xpu");
   });
 
-  it("finds ComfyUI in a workspace or nested in it", () => {
+  it("finds ComfyUI in a workspace", () => {
     const ws = dir();
     expect(comfyDir(ws)).toBeNull();
-    mkdirSync(join(ws, "ComfyUI", "models"), { recursive: true });
-    writeFileSync(join(ws, "ComfyUI", "main.py"), "");
-    expect(comfyDir(ws)).toBe(join(ws, "ComfyUI"));
+    mkdirSync(join(ws, "models"), { recursive: true });
+    writeFileSync(join(ws, "main.py"), "");
+    expect(comfyDir(ws)).toBe(ws);
   });
 
   it("probes ports with a real bind", async () => {

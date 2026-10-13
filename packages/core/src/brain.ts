@@ -13,7 +13,7 @@ import { normalize, type Config } from "./config.ts";
 import { UnknownTool } from "./mcp.ts";
 import { groupByTool, prepare, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
-import { buildPrompt, stripLossless, withImages, type Workflow } from "./workflow.ts";
+import { buildPrompt, withImages, type Workflow } from "./workflow.ts";
 
 // A tool call answers within this, counted from its start. claude.ai gives up at 300 s (S8), but a
 // claude.ai connector used from Claude Code gave up at about 183 s (2026-10-01: a cold Modal edit
@@ -108,7 +108,7 @@ export class Brain {
   private async generate(rawPack: Pack, args: Record<string, any>): Promise<Outcome> {
     const prompt = String(args.prompt || "").trim();
     if (!prompt) return new Failed("prompt is required.");
-    const aspect = stripLossless(String(args.aspect_ratio || "square"));
+    const aspect = String(args.aspect_ratio || "square");
     const pack = prepare(rawPack, this.cfg);
     const wf = buildPrompt(pack.workflow, prompt, {
       aspectRatio: aspect,
@@ -120,7 +120,7 @@ export class Brain {
   }
 
   private async fetch(args: Record<string, any>): Promise<Outcome> {
-    const token = stripLossless(String(args.request_token || ""));
+    const token = String(args.request_token || "").trim();
     if (!token) return new Failed("request_token is required.");
     return this.wait(token);
   }
@@ -128,8 +128,8 @@ export class Brain {
   private async edit(args: Record<string, any>): Promise<Outcome> {
     const prompt = String(args.prompt || "").trim();
     // Accept either mode's argument names: models sometimes use the other spelling.
-    const first = stripLossless(String(args.image_path || args.image || "").trim());
-    const second = stripLossless(String(args.second_image_path || args.second_image || "").trim());
+    const first = String(args.image_path || args.image || "").trim();
+    const second = String(args.second_image_path || args.second_image || "").trim();
     if (!prompt || !first) return new Failed("prompt and an image are required.");
     const pack = prepare(this.selected.edit_image, this.cfg);
     const images: ResolvedImage[] = [];

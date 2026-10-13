@@ -72,7 +72,7 @@ describe("a foreign server on the port", () => {
     expect((await a.rpc("tools/list")).result.tools.length).toBeGreaterThan(0);
     const reply = await a.rpc("tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x" } });
     expect(reply.result.isError).toBe(true);
-    expect(reply.result.content[0].text).toContain("previous Comfy-Gen-MCP");
+    expect(reply.result.content[0].text).toContain("Another program holds port");
     old.close();
     a.stdin.end();
   });

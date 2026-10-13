@@ -2,7 +2,7 @@
 //
 // Three keys, read on most requests, written rarely:
 //   config   the user config (@comfy-gen/core config shape), for every backend
-//   secrets  generated keys, the Cloudflare token and discovery, the generator's URL and headers
+//   secrets  generated keys, the Cloudflare token and discovery, the GPU list (gpus.ts)
 //   setup    setup progress: the current build and its nonce, packs known to be downloaded, and
 //            deleted LoRAs (lora_deleted: {name: when}) so a PC that was offline drops its copy
 // And one written per LoRA upload:

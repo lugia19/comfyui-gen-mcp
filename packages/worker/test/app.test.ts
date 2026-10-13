@@ -676,7 +676,7 @@ describe("setup: storage and the answer", () => {
     expect([state.build, state.update_build]).toEqual(["build1", "build1"]); // so the Modal step stays closed
   });
 
-  it("the answer: chosen here, else the setup site's, else what the GPUs say", async () => {
+  it("the answer: chosen here, else the setup site's, else none", async () => {
     const { app, env } = world();
     const cookie = await login(app);
     const mode = async () => {
@@ -685,28 +685,14 @@ describe("setup: storage and the answer", () => {
     };
     expect(await mode()).toEqual([null, false]);
     await withModal(app);
-    expect(await mode()).toEqual(["cloud", false]); // an install from before the question
-    await addGpu(app, { id: "pc", kind: "pc", name: "PC", secret: "s" });
-    expect(await mode()).toEqual(["both", false]);
+    expect(await mode()).toEqual([null, false]); // the GPUs don't answer it
     env.SETUP_MODE = "pc";
-    expect(await mode()).toEqual(["pc", true]); // the template's answer wins over the GPUs
+    expect(await mode()).toEqual(["pc", true]);
     expect((await app.handle(request("POST", "/api/setup/mode", { mode: "gpu" }, cookie))).status).toBe(400);
     expect(await body(await app.handle(request("POST", "/api/setup/mode", { mode: "cloud" }, cookie)))).toEqual({ mode: "cloud" });
     expect(await mode()).toEqual(["cloud", false]); // chosen here wins over both
     env.SETUP_MODE = "nonsense";
     expect(await mode()).toEqual(["cloud", false]);
-  });
-});
-
-describe("custom workflows (removed)", () => {
-  it("a stored custom workflow adds no tool and is forgotten on the next save", async () => {
-    const { app } = world();
-    const workflow = { "1": { class_type: "EmptyImage", inputs: {} } };
-    await app.store.saveConfig({ custom_workflow: { workflow } });
-    await withGenerator(app);
-    const names = (await mcp(app, "tools/list"))[1].result.tools.map((t: any) => t.name);
-    expect(names).not.toContain("generate_custom_image");
-    expect("custom_workflow" in (await app.store.config())).toBe(false);
   });
 });
 
@@ -1005,7 +991,6 @@ describe("the PC path", () => {
     const { cookie, id } = await pair(app);
     pc.controls.machine = (args) =>
       args.path === "/pair" ? [403, "Pair or unpair on the PC itself."]
-      : args.path === "/old" ? [403, "That can only be changed on the PC itself, on its Comfy-Gen page."]
       : [200, { method: args.method, path: args.path, body: args.body ?? null }];
     const state = await app.handle(request("GET", `/api/gpus/${id}/machine/state`, undefined, cookie));
     expect([state.status, await body(state)]).toEqual([200, { method: "GET", path: "/state", body: null }]);
@@ -1015,9 +1000,6 @@ describe("the PC path", () => {
     expect((await body(await app.handle(request("GET", `/api/gpus/${id}/machine/setup/install?x=1`, undefined, cookie)))).path).toBe("/setup/install?x=1");
     const pairing = await app.handle(request("POST", `/api/gpus/${id}/machine/pair`, { link: "x" }, cookie));
     expect([pairing.status, (await body(pairing)).error]).toEqual([403, "Your PC: Pair or unpair on the PC itself."]);
-    // An agent from before its page moved here: told to update, in plain words.
-    const old = await body(await app.handle(request("PUT", `/api/gpus/${id}/machine/old`, {}, cookie)));
-    expect(old.error).toBe("Your PC: This PC's agent is too old to change that from here. Update the agent on this PC (it updates itself within a day of a release, or restart it).");
     // Binary bodies (the page's LoRA uploads) are not relayed.
     const chunk = await app.handle(request("POST", `/api/gpus/${id}/machine/loras/uploads/x`, new Uint8Array([1, 2]), { ...cookie, "Content-Type": "application/octet-stream" }));
     expect(chunk.status).toBe(415);
@@ -1062,9 +1044,7 @@ describe("the PC path", () => {
 
   it("deletes a LoRA everywhere, and nudges the agent's sync after an upload", async () => {
     const { app, pc, net } = world();
-    await app.store.updateSecrets({
-      generator: { kind: "modal", base_url: COMFY, admin_url: ADMIN, upload_url: "https://up.example/", headers: {} },
-    });
+    await withModal(app);
     const { cookie } = await pair(app);
     net.loras = { "x.safetensors": 1 };
     // The PC's ComfyUI still has the file open (Windows): off the list, the file goes when it stops.
@@ -1127,20 +1107,6 @@ describe("the GPU list", () => {
   const pairPc = async (app: App, cookie: Record<string, string>) =>
     body(await app.handle(request("POST", "/api/gpus/pc", undefined, cookie))) as Promise<{ id: string; link: string }>;
   const gen = (app: App, n: number) => mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } }, n);
-
-  it("a Worker from before the list keeps its PC and generator, the PC first, its agent still connected", async () => {
-    const { app } = world();
-    await app.store.updateSecrets({
-      agent_secret: "s".repeat(43),
-      generator: { kind: "modal", base_url: COMFY, admin_url: ADMIN, headers: { "Modal-Key": "k" }, cold_start_s: 300 },
-    });
-    const gpus = await app.gpus();
-    expect(gpus.map((g) => [g.id, g.kind, g.name])).toEqual([["pc", "pc", "Your PC"], ["modal", "modal", "Modal"]]);
-    expect(gpus[0].secret).toBe("s".repeat(43)); // the same pairing: the agent reconnects to the same Relay
-    const s = await secretsOf(app);
-    expect([s.generator, s.agent_secret, s.gpus.length]).toEqual([undefined, undefined, 2]);
-    expect(await app.agentGate(request("GET", "/agent", undefined, { upgrade: "websocket", authorization: `Bearer ${"s".repeat(43)}` }))).toBe("pc");
-  });
 
   it("calls go down the list: offline, paused or disabled GPUs are passed over; the order is the user's", async () => {
     const { app, relay, comfy } = world();

@@ -92,8 +92,7 @@ secret, or Modal's and a URL's base URL and headers (Modal also its admin URL an
 - **Adding:** a PC from the Setup page (`POST /api/gpus/pc`, which returns its pairing link; the
   first PC's id is `pc`, later ones `pc-<random>`; it goes after the other PCs and before Modal and
   the URL, so a later, smaller PC doesn't take over from the first: an 8 GB Mac did, 2026-10-02); Modal by its deploy's build callback (id
-  `modal`, added at the end); a URL from the advanced setup step (id `url`). A Worker from before
-  the list converts `generator` and `agent_secret` into it once, the PC first.
+  `modal`, added at the end); a URL from the advanced setup step (id `url`).
 - **Managing** (`/api/gpus`): `PATCH /<id>` sets name, enabled and keep-warm; `PUT /order` the
   order; `POST /<id>/pair` a new pairing link; `POST /<id>/pause` pauses a PC; `DELETE /<id>`
   removes one (a PC's agent is disconnected). `/api/state` lists them with their live state, never
@@ -338,8 +337,7 @@ A `generate_custom_image` tool ran a workflow the user pasted in (API format), o
 PC. Removed 2026-09-30: barely used, untestable beyond a few graphs (it takes any graph with any
 nodes), and it threaded through every layer (config, a prompt-node guesser, a node-inventory check
 over the relay, its own tool and settings editor, a Modal exclusion). People with their own
-workflows already run ComfyUI and can point the MCPB or the agent at it ("Your own ComfyUI"). A
-stored `custom_workflow` setting is dropped on read.
+workflows already run ComfyUI and can point the MCPB or the agent at it ("Your own ComfyUI").
 
 ## 4. Images, references, uploads, edits
 
@@ -357,8 +355,7 @@ stored `custom_workflow` setting is dropped on read.
   of a few thousand images takes centuries. Never paths from the model. (Before: a signed ComfyUI
   location plus its backend, `m7.Ab3d`; those ids are gone, as only two installs existed.)
 - **No PNGs, no `:lossless`.** Every edit goes through the model's VAE, which loses far more than
-  WebP at quality 90; the `:lossless` switch dated from JPEG results (no transparency) and is now
-  stripped and ignored.
+  WebP at quality 90; the `:lossless` switch dated from JPEG results (no transparency) and is gone.
 - **Results are inline WebP.** claude.ai does not support `resource_link` (it shows "Resource links
   are not currently supported" and the model sees only the name and URL), while inline
   `ImageContent` is shown to the user and seen by the model, WebP included (S2, S2c). Every result
@@ -511,8 +508,8 @@ deploy form shows that variable filled in; the build (`deploy.py`) carries it ov
 copy; the Worker takes it as its answer. `bootstrap/` stays the answer-less template for old links.
 
 The Worker's page is the rest of the stepper: log in; **turn on storage** (below); **where should
-images be made?** (the answer: chosen on this page, stored in `setup.mode`, else `SETUP_MODE`,
-else inferred from the GPUs, so installs from before show it answered; under Advanced, a ComfyUI
+images be made?** (the answer: chosen on this page, stored in `setup.mode`, else `SETUP_MODE`;
+under Advanced, a ComfyUI
 URL); that answer's steps (Set up your PC; Deploy ComfyUI to Modal and its models; or the URL);
 connect Claude. Changing the answer only adds steps. Each step ticks itself from the Worker's state:
 the generator set, the models on the Volume, the PC connected, and Claude having connected (the
@@ -785,7 +782,7 @@ settings stay on the Worker, whose settings page lists each GPU's LoRAs and mode
 own page on the Worker, `/gpu/<id>`: the agent's own settings page, all of it, relayed. The GPU
 list (Settings, GPUs) links to it with **Open its page** (a new tab); the agent's tray opens it
 while connected (the agent asks `GET /agent/whoami`, with its bearer secret, for its id on
-connecting; with an older Worker the tray opens Settings as before). The Worker serves the app on
+connecting). The Worker serves the app on
 that path (the `ASSETS` binding, `/gpu/*` run first) after checking the id when logged in: Modal or
 a ComfyUI by URL goes to the GPU list, an unknown id is a 404, and a logged-out visitor gets the
 login whatever the id. On that path the app (`api.js`) sends every call to
@@ -800,8 +797,7 @@ nothing else, "as the PC is where remote reach must stop") is gone, because it g
 every `ensure` carries the pack's `required_nodes`, which the agent installs from the Comfy
 Registry, so whoever controls the Worker already runs code on the PC. Pairing alone stays on the
 PC (the agent answers 403 to `/pair` from the relay, whatever the method or path spelling): it is
-what makes the Worker trusted, so it is only done there. An agent from before this still answers
-403 outside its old list; the Worker turns that answer into "update the agent on this PC". The
+what makes the Worker trusted, so it is only done there. The
 agent's answer to a settings save no longer echoes its config file (the pairing secret was in it).
 The extension, which has no Worker, keeps its local page as it is.
 
