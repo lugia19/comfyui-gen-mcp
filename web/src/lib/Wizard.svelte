@@ -3,7 +3,7 @@
   import '../../../site/guide/wizard.css'
 
   // The Worker's setup as a wizard (wizard.css, as on the setup site): a bar of the steps, then one
-  // step filling the window. *steps*: [{ id, title, short, done, canLeave?, waiting }], where
+  // step filling the window. *steps*: [{ id, title, short, done, canLeave, waiting }], where
   // *waiting* says what a step that can't be left yet waits for. *current* (bindable): the step
   // shown. The children render the current step's content; a walkthrough in it (Tour mode "wizard")
   // puts its screenshot on the left and is driven by Back / Next here. Next leaves a step only once
@@ -33,14 +33,14 @@
   let nextStep = $derived(steps[at + 1])
   // The bar opens any step up to the first that can't be left yet (as Next would reach it).
   let reach = $derived.by(() => {
-    const i = steps.findIndex((s) => !(s.canLeave ?? s.done))
+    const i = steps.findIndex((s) => !s.canLeave)
     return i < 0 ? steps.length - 1 : i
   })
   let walking = $derived((moved, tour !== null && !tour.atEnd()))
   let split = $derived((moved, tour !== null && tour.hasShot()))
   let canBack = $derived((moved, at > 0 || (tour !== null && !tour.atStart())))
   // Next leaves a step once it is done, or earlier where the step allows (*canLeave*).
-  let leave = $derived(step.canLeave ?? step.done)
+  let leave = $derived(step.canLeave)
 
   let barH = $state(0)
 

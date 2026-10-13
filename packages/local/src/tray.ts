@@ -220,7 +220,7 @@ export async function machineTray(
   extra?: TrayExtra,
 ): Promise<Tray | null> {
   const { comfy, downloads } = machine;
-  let action: string | null = null; // "starting" or "stopping" while a tray action runs
+  let action: string | null = null; // what a running tray action is doing ("stopping")
   const status = () => {
     const note = trouble() ?? (downloads.failed() ? "a model download failed" : null) ?? extra?.note() ?? null;
     const state = action ? `${action}…` : comfy.state.replace("_", " ");

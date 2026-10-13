@@ -69,6 +69,5 @@ export async function uploadLora(file, onProgress, group) {
   }
   await Promise.all(Array.from({ length: Math.min(PARALLEL, chunks) }, worker))
 
-  const done = await apiRetrying('POST', `/loras/uploads/${id}/finish`, { parts, group })
-  if (done.state === 'failed') throw new Error(done.error || 'the upload could not be finished')
+  await apiRetrying('POST', `/loras/uploads/${id}/finish`, { parts, group })
 }

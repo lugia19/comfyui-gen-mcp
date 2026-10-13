@@ -17,10 +17,10 @@ export type HandlerOptions = {
   /** Where the user sees download progress, for "downloading" answers. */
   settingsNote: string;
   /** Pause or resume taking image requests, from the Worker's page (the tray's flag). */
-  setPaused?(paused: boolean): void;
+  setPaused(paused: boolean): void;
   /** One call of this PC's own settings API (/api/<path>), for its page on the Worker: [status, body]. */
-  page?(method: string, path: string, body?: string): Promise<[number, string]>;
-  /** LoRA copies to and from Modal: start a round (not awaited), and the copies in progress. */
+  page(method: string, path: string, body?: string): Promise<[number, string]>;
+  /** LoRA sync with the Worker's R2: start a round (not awaited), and the copies in progress. */
   sync?: { sync(): Promise<void>; jobs: Record<string, SyncJob> };
 };
 
@@ -98,16 +98,12 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
         }
         case "models":
           return ok(((args.packs ?? []) as PackNeeds[]).map((p) => ({ name: p.name, ...machine.downloads.status(p.name, p.models ?? []) })));
-        case "status":
-          return ok(await machine.state());
         case "pause":
-          if (!o.setPaused) return [400, "This agent cannot be paused from the Worker. Update it."];
           o.setPaused(args.paused === true);
           return ok({ paused: args.paused === true });
         case "machine": {
           // This PC's page on the Worker (design §9, "A page per PC"): any call of its own API but
           // pairing, which is what makes the Worker trusted, so it is done here only.
-          if (!o.page) return [400, "This agent cannot be managed from the Worker. Update it."];
           const method = String(args.method ?? "GET").toUpperCase();
           // Checked as the page will read it: "/x/../pair" is /pair.
           const url = new URL(String(args.path ?? ""), "http://page.invalid/");

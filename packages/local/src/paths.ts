@@ -9,9 +9,7 @@ export type Paths = {
   config: string; // config.json
   logs: string;
   comfyui: string; // the managed ComfyUI workspace
-  cli: string; // the venv holding comfy-cli
   bin: string; // uv
-  app: string; // server bundles, one folder per release tag
   /** Another agent on this machine (agentInstance, a developer switch): its folder holds its own
    * config, logs and ComfyUI output; the ComfyUI install, models and LoRAs are shared. */
   instance?: { n: number; dir: string };
@@ -25,9 +23,7 @@ export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
     config: join(home, "config.json"),
     logs: join(home, "logs"),
     comfyui: join(home, "comfyui"),
-    cli: join(home, "cli"),
     bin: join(home, "bin"),
-    app: join(home, "app"),
   };
 }
 

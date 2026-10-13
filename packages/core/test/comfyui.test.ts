@@ -109,11 +109,6 @@ describe("ComfyUIClient", () => {
     expect(img).toEqual(new OutputImage("upload-x.png", "comfy-gen-uploads", "input"));
     expect(String.fromCharCode(...comfy.uploads[0])).toContain("\x89PNG data");
   });
-
-  it("nodeClasses", async () => {
-    const { client } = setup();
-    expect((await client.nodeClasses()).has("KSampler")).toBe(true);
-  });
 });
 
 describe("held wait (/comfy-gen/wait)", () => {

@@ -1,4 +1,4 @@
-// @comfy-gen/core: the brain shared by the Worker and (later) the MCPB and the PC agent.
+// @comfy-gen/core: the brain shared by the Worker, the MCPB and the PC agent.
 // Web-platform APIs only (fetch, crypto.subtle, TextEncoder, Uint8Array), so it runs in Workers and Node.
 
 export * from "./bytes.ts";

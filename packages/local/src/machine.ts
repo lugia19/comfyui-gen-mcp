@@ -213,7 +213,6 @@ export class Machine {
         const data = new Uint8Array(await req.arrayBuffer());
         return json(await this.uploads.chunk(up[1], Number(up[2]), data));
       }
-      if (up && !up[2] && m === "GET") return json(this.uploads.status(up[1]));
       if (!up && m === "DELETE") {
         return json(await this.deleteLora(decodeURIComponent(sub.slice("/loras/".length))));
       }

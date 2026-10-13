@@ -20,10 +20,10 @@ import { Images } from "./images.ts";
 import { fail, render } from "./render.ts";
 import { RelayTransport } from "./relay.ts";
 import { Store, type Secrets } from "./store.ts";
-
-type GpuStatus = { online: boolean; paused: boolean; since: number | null; info: Record<string, unknown> | null };
 import * as updates from "./updates.ts";
 import * as uploads from "./uploads.ts";
+
+type GpuStatus = { online: boolean; paused: boolean; since: number | null; info: Record<string, unknown> | null };
 
 export const PACKS = builtinPacks();
 const GROUPS = groupByTool(PACKS);
@@ -456,7 +456,7 @@ export class App {
       await this.saveGpus(old ? gpus.map((g) => (g === old ? gpu : g)) : [...gpus, gpu]);
       // A deploy resets keep-warm to the app's default, and a fresh install has no models yet.
       warnings = await this.applyToModal(this.admin(gpu)!, await this.fresh.config(), gpu.keep_warm_minutes);
-      warnings.push(...(await this.spreadLoras(new URL(req.url).origin)).warnings);
+      warnings.push(...(await this.spreadLoras(new URL(req.url).origin)));
       await this.fresh.updateSetup({ modal_error: null });
     } else if (typeof data.modal_error === "string" || String(data.modal_result ?? "").startsWith("failed")) {
       // The setup page shows Modal's reason (no card on file, a bad token) and offers Try again.
@@ -499,10 +499,10 @@ export class App {
       await this.fresh.updateSecrets({ password: await auth.makePassword(password) });
       return json({ ok: true });
     }
-    if (sub === "/config" && req.method === "PUT") return this.saveConfig(req, s);
+    if (sub === "/config" && req.method === "PUT") return this.saveConfig(req);
     if (sub === "/loras" || sub.startsWith("/loras/")) return this.loras(req, url, sub, s);
-    if (sub === "/models" && req.method === "GET") return this.models(url, s);
-    if (sub === "/models/seed" && req.method === "POST") return this.seedPack(req, s);
+    if (sub === "/models" && req.method === "GET") return this.models(url);
+    if (sub === "/models/seed" && req.method === "POST") return this.seedPack(req);
     if (sub === "/setup/generator" && req.method === "POST") return this.setupGenerator(req);
     if (sub === "/setup/mode" && req.method === "POST") {
       const mode = (await bodyJson(req)).mode;
@@ -737,14 +737,13 @@ export class App {
    * Saving the settings applies them to every GPU: Modal's downloads, each online PC's downloads,
    * and a LoRA copy. Warns about LoRAs not in storage.
    */
-  private async saveConfig(req: Request, _s: Secrets): Promise<Response> {
+  private async saveConfig(req: Request): Promise<Response> {
     let cfg = await this.fresh.saveConfig((await bodyJson(req)).config);
     // Every stored LoRA keeps a group, also one the page's copy of the settings didn't know yet.
     const tagged = tagLooseLoras(cfg.pack_loras, Object.keys(await this.storedLoras()));
     if (tagged) cfg = await this.fresh.saveConfig({ ...cfg, pack_loras: tagged });
     const gpus = await this.gpus();
     const warnings: string[] = [];
-    const notes: string[] = []; // informational, not a problem (none yet: an offline PC shows on the page)
     for (const gpu of gpus) {
       const admin = this.admin(gpu);
       if (admin) warnings.push(...(await this.applyToModal(admin, cfg, null)));
@@ -753,9 +752,9 @@ export class App {
     for (const pc of await this.onlinePcs(gpus)) {
       for (const pack of selectedPacks(cfg)) await this.control(pc, "download", { pack: needs(pack) });
     }
-    warnings.push(...(await this.spreadLoras(new URL(req.url).origin)).warnings);
+    warnings.push(...(await this.spreadLoras(new URL(req.url).origin)));
     if (wantedLoras(cfg).length) warnings.push(...missingLoras(cfg, await this.loraListing()));
-    return json({ config: cfg, warnings, notes });
+    return json({ config: cfg, warnings });
   }
 
   /**
@@ -818,19 +817,15 @@ export class App {
       await this.tagStored(Object.keys(listing.files).filter((n) => "storage" in listing.files[n]));
       return json(listing);
     }
-    if (sub === "/loras/sync" && req.method === "POST") {
-      // Copy what R2 has to every GPU now, not at a PC's next connection or the next save.
-      return json({ started: (await this.spreadLoras(url.origin)).pcs > 0 });
-    }
     if (sub.startsWith("/loras/uploads")) return this.loraUploads(req, url, sub, s);
-    if (sub.startsWith("/loras/") && req.method === "DELETE") return this.deleteLora(decodeURIComponent(sub.slice("/loras/".length)), s);
+    if (sub.startsWith("/loras/") && req.method === "DELETE") return this.deleteLora(decodeURIComponent(sub.slice("/loras/".length)));
     return error(404, "not found");
   }
 
   /**
    * The upload protocol (web/src/lib/upload.js, and the agent's pushes): POST {filename, size} opens
    * a session; PUT <id>/<index> streams one chunk into R2 and answers its ETag (the chunk's MD5, for
-   * the uploader to check); POST <id>/finish {parts} joins them; GET <id> reports. Once joined, the
+   * the uploader to check); POST <id>/finish {parts} joins them. Once joined, the
    * LoRA is copied to every GPU.
    */
   private async loraUploads(req: Request, url: URL, sub: string, s: Secrets): Promise<Response> {
@@ -855,7 +850,6 @@ export class App {
         return json(done);
       }
       if (m && m[2] !== undefined && m[2] !== "finish" && req.method === "PUT") return json(await uploads.chunk(m[1], Number(m[2]), req));
-      if (m && m[2] === undefined && req.method === "GET") return json(await uploads.status(m[1]));
     } catch (e) {
       if (e instanceof loras.LoraError) return error(e.status, e.message);
       throw e;
@@ -865,9 +859,9 @@ export class App {
 
   /**
    * Copy what R2 holds to every GPU (best effort): Modal fetches the LoRAs its Volume lacks from
-   * storage links; each online PC is told to sync. {pcs: how many PCs were told, warnings}.
+   * storage links; each online PC is told to sync. Returns warnings.
    */
-  private async spreadLoras(origin: string): Promise<{ pcs: number; warnings: string[] }> {
+  private async spreadLoras(origin: string): Promise<string[]> {
     const warnings: string[] = [];
     const gpus = await this.gpus();
     const s = await this.fresh.secrets();
@@ -886,9 +880,8 @@ export class App {
         warnings.push(`Could not copy LoRAs to ${gpu.name}: ${e.message}`);
       }
     }
-    const pcs = await this.onlinePcs(gpus);
-    for (const pc of pcs) await this.control(pc, "sync");
-    return { pcs: pcs.length, warnings };
+    for (const pc of await this.onlinePcs(gpus)) await this.control(pc, "sync");
+    return warnings;
   }
 
   /**
@@ -922,7 +915,7 @@ export class App {
 
   /** Delete a LoRA from R2 and every GPU that has it (one way in, one way out). A PC that is
    * offline drops its copy at its next sync: the name is kept as deleted until it is uploaded again. */
-  private async deleteLora(name: string, _s: Secrets): Promise<Response> {
+  private async deleteLora(name: string): Promise<Response> {
     const from: string[] = [];
     const errors: string[] = [];
     if (this.p.bucket && (await this.p.bucket.head(loras.loraKey(name)))) {
@@ -964,7 +957,7 @@ export class App {
    * kind}], packs: [{name, display_name, tool_name, size, on: {gpu id: status}}]}. ?gpu= limits it
    * to one. A PC's answer also tells routing which packs it has ready.
    */
-  private async models(url: URL, _s: Secrets): Promise<Response> {
+  private async models(url: URL): Promise<Response> {
     const only = url.searchParams.get("gpu");
     const packs = selectedPacks(await this.fresh.config());
     const on: Record<string, any>[] = packs.map(() => ({}));
@@ -997,7 +990,7 @@ export class App {
   }
 
   /** Start downloading a pack on one GPU: {pack, gpu: id}. */
-  private async seedPack(req: Request, _s: Secrets): Promise<Response> {
+  private async seedPack(req: Request): Promise<Response> {
     const body = await bodyJson(req);
     const pack = PACKS.find((p) => p.name === body.pack);
     if (!pack) return error(400, "no such pack");
@@ -1062,7 +1055,7 @@ export class App {
  * gets none: the agent copies it. */
 function missingLoras(
   cfg: Config,
-  listing: { backends: string[]; gpus: { id: string; name: string }[]; files: Record<string, unknown>; errors: Record<string, string>; offline: string[] },
+  listing: { backends: string[]; gpus: { id: string; name: string }[]; files: Record<string, unknown>; errors: Record<string, string> },
 ): string[] {
   // Every LoRA comes in through R2 (storage): one a model uses that R2 lacks was deleted, or is a
   // PC's own not yet copied up. GPUs missing one get it copied; that shows on the page.

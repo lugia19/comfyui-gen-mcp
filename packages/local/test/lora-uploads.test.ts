@@ -25,7 +25,6 @@ describe("LoRA uploads to this machine", () => {
       // Each chunk is answered with its MD5, for the page to compare with its own (as R2 answers).
       expect(await uploads.chunk(s.id, i, part(i))).toEqual({ index: i, etag: createHash("md5").update(part(i)).digest("hex") });
     }
-    expect(uploads.status(s.id)).toMatchObject({ state: "uploading", done: data.length });
     expect(registry.sizes()).toEqual({}); // not ours until finished
     expect(uploads.finish(s.id)).toMatchObject({ state: "done" });
     expect(uploads.finish(s.id)).toMatchObject({ state: "done" }); // a retried finish

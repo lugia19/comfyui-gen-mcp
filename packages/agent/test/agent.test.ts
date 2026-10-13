@@ -216,7 +216,7 @@ describe("agent handlers", () => {
     let syncs = 0;
     const sync = { sync: async () => void syncs++, jobs: { "b.safetensors": { to: "pc" as const, done: 1, total: 2 } } };
     let paused = false;
-    const handle = agentHandler({ machine, setKeepWarm: (m) => (keepWarm = m), settingsNote: "x", sync, setPaused: (v) => (paused = v) });
+    const handle = agentHandler({ machine, setKeepWarm: (m) => (keepWarm = m), settingsNote: "x", sync, setPaused: (v) => (paused = v), page: async () => [200, "{}"] });
     const call = async (header: any, body: Uint8Array = new Uint8Array()) => {
       const [status, out] = await handle({ header, body });
       return [status, typeof out === "string" ? out : fromUtf8(out)];
@@ -252,7 +252,7 @@ describe("the Worker's page managing this PC", () => {
   it("passes on any call of the page's API but pairing, which stays on the PC", async () => {
     const calls: string[] = [];
     const page = async (method: string, path: string, body?: string): Promise<[number, string]> => (calls.push(`${method} ${path} ${body ?? ""}`.trim()), [200, '{"ok":true}']);
-    const handle = agentHandler({ machine: {} as Machine, setKeepWarm: () => {}, settingsNote: "x", page });
+    const handle = agentHandler({ machine: {} as Machine, setKeepWarm: () => {}, settingsNote: "x", page, setPaused: () => {} });
     const machine = (method: string, path: string, body?: string) =>
       handle({ header: { kind: "control", id: "1", op: "machine", args: { method, path, body } }, body: new Uint8Array() });
     expect(await machine("get", "/state")).toEqual([200, '{"ok":true}']);
@@ -272,8 +272,6 @@ describe("the Worker's page managing this PC", () => {
       'POST /open {"which":"output"}',
       "GET /setup/install?x=1",
     ]);
-    const old = agentHandler({ machine: {} as Machine, setKeepWarm: () => {}, settingsNote: "x" }); // no page: an older agent
-    expect((await old({ header: { kind: "control", id: "2", op: "machine", args: { method: "GET", path: "/state" } }, body: new Uint8Array() }))[0]).toBe(400);
   });
 });
 
@@ -315,7 +313,7 @@ describe("images while ComfyUI is stopped", () => {
     const machine = {
       comfy: { url: null, state: "stopped", install: { dir }, dataDir: dir, job: (fn: () => Promise<unknown>) => (jobs++, fn()) },
     } as unknown as Machine;
-    const handle = agentHandler({ machine, setKeepWarm: () => {}, settingsNote: "x" });
+    const handle = agentHandler({ machine, setKeepWarm: () => {}, settingsNote: "x", setPaused: () => {}, page: async () => [200, "{}"] });
     const [status, body] = await handle({ header: { kind: "http", id: "1", method: "GET", path: "/view", params: { filename: "comfy-gen_00007_.png", type: "output" } }, body: new Uint8Array() });
     expect([status, fromUtf8(body as Uint8Array), jobs]).toEqual([200, "png!", 0]);
     const [missing] = await handle({ header: { kind: "http", id: "2", method: "GET", path: "/view", params: { filename: "nope.png" } }, body: new Uint8Array() });

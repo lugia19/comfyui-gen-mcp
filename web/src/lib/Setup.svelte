@@ -24,10 +24,10 @@
 
   // The answers, as the setup site words them.
   const MODES = {
-    cloud: { title: 'In the cloud (Modal)', summary: 'In the cloud, on Modal' },
-    pc: { title: 'On my PC', summary: 'On your PC' },
-    both: { title: 'Both', summary: 'Your PC first, the cloud when it is off' },
-    url: { title: 'A ComfyUI by URL', summary: 'A ComfyUI by URL' },
+    cloud: { title: 'In the cloud (Modal)' },
+    pc: { title: 'On my PC' },
+    both: { title: 'Both' },
+    url: { title: 'A ComfyUI by URL' },
   }
   let gpus = $derived(info.gpus ?? [])
   let modalGpu = $derived(gpus.find((g) => g.kind === 'modal'))
@@ -41,9 +41,8 @@
   let wantUrl = $derived(mode === 'url' || Boolean(urlGpu))
   // Done once there is a PC and every PC has paired (a PC waiting to pair keeps the step open).
   let pcsReady = $derived(pcs.length > 0 && pcs.every((g) => g.seen))
-  // A paused PC is set up but takes no images: said in the summary, not hidden behind Show.
+  // A paused PC is set up but takes no images.
   let allPaused = $derived(pcs.length > 0 && pcs.every((g) => g.paused))
-  let pcSummary = $derived(pcs.map((g) => (g.paused ? `${g.name} (paused)` : g.name)).join(', '))
 
   let modeBusy = $state(false)
   let modeError = $state('')

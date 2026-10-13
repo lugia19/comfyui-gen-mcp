@@ -162,8 +162,7 @@ type Session = {
   size: number;
   chunks: number;
   received: Set<number>;
-  state: "uploading" | "done" | "failed";
-  error?: string;
+  state: "uploading" | "done";
   expires: number;
 };
 
@@ -226,22 +225,9 @@ export class LoraUploads {
     if (s.state !== "uploading") return { state: s.state, name: s.filename };
     const missing = s.chunks - s.received.size;
     if (missing) throw new UploadError(`${missing} chunk(s) still missing`, 409);
-    const part = this.part(s);
-    if (statSync(part).size !== s.size) {
-      rmSync(part, { force: true });
-      s.state = "failed";
-      s.error = "the file's size does not match";
-      return { state: s.state, name: s.filename };
-    }
-    renameSync(part, join(this.dir(), s.filename));
+    renameSync(this.part(s), join(this.dir(), s.filename));
     this.registry.add(s.filename);
     s.state = "done";
     return { state: s.state, name: s.filename };
-  }
-
-  status(id: string): { filename: string; size: number; state: string; done: number; error?: string } {
-    const s = this.session(id);
-    const done = Math.min(s.size, s.received.size * LORA_CHUNK_SIZE);
-    return { filename: s.filename, size: s.size, state: s.state, done, ...(s.error ? { error: s.error } : {}) };
   }
 }

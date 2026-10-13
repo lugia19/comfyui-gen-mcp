@@ -20,7 +20,7 @@
   // else (uploads, downloads, GPUs, the Worker's settings) acts at once.
   // *onsetup* opens the Setup tab (adding a GPU is done there). *unsaved* (bindable): whether
   // something waits for Save, so the app can ask before leaving the tab.
-  let { info, refresh, onsetup = null, unsaved = $bindable(false) } = $props()
+  let { info, refresh, onsetup, unsaved = $bindable(false) } = $props()
   // Read once: the page is remounted each time its tab is opened.
   const fixed = untrack(() => ({ info }))
   const machine = fixed.info.mode === 'local'
@@ -38,7 +38,6 @@
   let message = $state('') // after a save, for a while
   let error = $state('')
   let warnings = $state([])
-  let notes = $state([]) // informational (the PC offline), shown quietly
 
   // The extension's own settings (keep-warm); a Worker's GPUs each have theirs under GPUs.
   const keepWarms = machine ? fixed.info.schema.filter((f) => f.machine) : []
@@ -139,14 +138,13 @@
       saved = clone(got.config)
       cfg = clone(got.config)
       warnings = got.warnings || []
-      notes = got.notes || []
       message = machine
         ? 'Saved. Claude Desktop picks up the changes in a new chat (restart it if a chat still shows the old tools).'
         : "Saved. Refresh the tool list in claude.ai's Customize menu to pick up the changes; Claude Code and other apps do in a new session."
       clearTimeout(messageTimer)
       messageTimer = setTimeout(() => (message = ''), 10_000)
       await refresh()
-      await loadLoras(true) // saving starts copies between the PC and Modal
+      await loadLoras(true) // saving copies LoRAs from storage to every GPU
       models.start() // and downloads: check now
     } catch (e) {
       error = e.message
@@ -187,11 +185,10 @@
   </nav>
 
   <div class="st-body">
-    {#if warnings.length || notes.length}
+    {#if warnings.length}
       <div class="notice">
         {#each warnings as w}<p class="err">{w}</p>{/each}
-        {#each notes as n}<p class="muted">{n}</p>{/each}
-        <button type="button" class="link" onclick={() => ((warnings = []), (notes = []))}>Dismiss</button>
+        <button type="button" class="link" onclick={() => (warnings = [])}>Dismiss</button>
       </div>
     {/if}
 
@@ -207,7 +204,7 @@
         <GpuList gpus={info.gpus ?? []} {refresh} />
         <p class="muted">
           To add a PC, Modal or a ComfyUI by URL, use
-          {#if onsetup}<button type="button" class="link" onclick={onsetup}>the Setup tab</button>{:else}the Setup tab{/if}.
+          <button type="button" class="link" onclick={onsetup}>the Setup tab</button>.
         </p>
       </section>
     {:else if section === 'worker'}

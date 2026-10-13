@@ -357,13 +357,6 @@ export class ComfyUIClient {
     const info = resp.json();
     return new OutputImage(info.name, info.subfolder || "", "input");
   }
-
-  /** Every node class this ComfyUI knows. /object_info is large: callers should cache it. */
-  async nodeClasses(): Promise<Set<string>> {
-    const resp = await this.request("GET", "/object_info");
-    if (resp.status !== 200) throw new ComfyUIError(`Could not read ComfyUI's node list (HTTP ${resp.status}).`);
-    return new Set(Object.keys(resp.json()));
-  }
 }
 
 const RESTARTED = "The GPU worker restarted mid-image. Please retry.";

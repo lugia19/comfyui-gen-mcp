@@ -849,7 +849,7 @@ describe("the PC path", () => {
     pc.connected = false; // saving while the PC is off: no warning, and no wait for it
     pc.controlCalls.length = 0;
     const off = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
-    expect([off.warnings, off.notes]).toEqual([[], []]); // the page shows the PC offline already
+    expect(off.warnings).toEqual([]); // the page shows the PC offline already
     expect(pc.controlCalls).toEqual([]);
   });
 
@@ -1042,21 +1042,16 @@ describe("the PC path", () => {
     expect((await app.handle(request("POST", "/api/gpus/pc/pause", { paused: true }, cookie))).status).toBe(503);
   });
 
-  it("deletes a LoRA everywhere, and nudges the agent's sync after an upload", async () => {
+  it("deletes a LoRA everywhere", async () => {
     const { app, pc, net } = world();
     await withModal(app);
     const { cookie } = await pair(app);
     net.loras = { "x.safetensors": 1 };
     // The PC's ComfyUI still has the file open (Windows): off the list, the file goes when it stops.
     pc.controls.lora_delete = (args) => (args.name === "x.safetensors" ? [200, { deleted: args.name, pending: true }] : [404, "no LoRA"]);
-    pc.controls.sync = () => [200, { started: true }];
     const del = await body(await app.handle(request("DELETE", "/api/loras/x.safetensors", undefined, cookie)));
     expect(del).toEqual({ deleted: "x.safetensors", from: ["modal", "pc"], errors: [], pending: ["Your PC"] });
     expect((await app.handle(request("DELETE", "/api/loras/nope.safetensors", undefined, cookie))).status).toBe(404);
-    expect(await body(await app.handle(request("POST", "/api/loras/sync", undefined, cookie)))).toEqual({ started: true });
-    expect(pc.controlCalls.at(-1)![0]).toBe("sync");
-    pc.connected = false;
-    expect(await body(await app.handle(request("POST", "/api/loras/sync", undefined, cookie)))).toEqual({ started: false });
   });
 
   it("shows each GPU's LoRA files and model downloads, and learns which packs a PC has", async () => {

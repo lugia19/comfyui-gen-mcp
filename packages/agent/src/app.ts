@@ -35,7 +35,6 @@ export class AgentApp {
 
   async handle(req: Request, remote: string): Promise<Response> {
     const path = new URL(req.url).pathname;
-    if (path === "/alive") return json({ version: this.s.version, pid: process.pid, agent: true });
     if (!fromThisMachine(req, remote)) return error(403, "the settings page answers only on this computer");
     if (path.startsWith("/api/")) {
       try {

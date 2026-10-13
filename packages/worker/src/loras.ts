@@ -106,11 +106,6 @@ export class LoraUploads {
     await this.store.updateLoraUploads({ [id]: null });
     return { state: "done", name: s.name, size: s.size };
   }
-
-  async status(id: string): Promise<{ state: string; name: string; size: number }> {
-    const s = await this.session(id);
-    return { state: "uploading", name: s.name, size: s.size };
-  }
 }
 
 /** GET /store/<token>: a stored object, whole or a Range of it (206), streamed. */
