@@ -17,7 +17,7 @@ import * as loras from "./loras.ts";
 import * as modalAdmin from "./modal-admin.ts";
 import { bodyJson, error, json, withUserAgent, type Bucket, type Fetch, type Platform } from "./platform.ts";
 import { Images } from "./images.ts";
-import { render, text } from "./render.ts";
+import { fail, render } from "./render.ts";
 import { RelayTransport } from "./relay.ts";
 import { Store, type Secrets } from "./store.ts";
 
@@ -360,14 +360,14 @@ export class App {
     const served = new Set(specs.map((spec) => spec.name));
     const key = hmacKey(s);
 
-    const call = async (name: string, args: Record<string, any>): Promise<[Content[], boolean]> => {
+    const call = async (name: string, args: Record<string, any>): Promise<[Content[], boolean, Record<string, any>?]> => {
       if (!served.has(name)) throw new UnknownTool(name);
       // Images and uploads live in R2: without it, nothing to do (and no GPU time spent).
-      if (!this.p.bucket) return [[text(`Error: ${noStorageMessage(url.origin)}`)], true];
+      if (!this.p.bucket) return fail(noStorageMessage(url.origin));
       // Uploads go to R2: no GPU needed.
       if (name === "request_upload") return uploads.requestUpload(args, url.origin, key, this.p.now());
       const gpus = await this.gpus(this.store);
-      if (!gpus.length) return [[text(`Error: no GPU is set up yet. Finish setup at ${url.origin}/`)], true];
+      if (!gpus.length) return fail(`no GPU is set up yet. Finish setup at ${url.origin}/`);
       const pack = selectedPacks(cfg).find((p) => p.tool_name === name) ?? null;
       let gpu: Gpu | string;
       if (name === "fetch_result") {
@@ -383,7 +383,7 @@ export class App {
       } else {
         gpu = await this.pick(gpus, pack);
       }
-      if (typeof gpu === "string") return [[text(`Error: ${gpu}`)], true];
+      if (typeof gpu === "string") return fail(gpu);
       const tried: Gpu[] = [];
       for (;;) {
         const target: Gpu = gpu;

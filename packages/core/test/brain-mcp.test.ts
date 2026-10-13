@@ -85,6 +85,7 @@ describe("one time budget per tool call", () => {
     const out = await brain.call("generate_realistic_image", { prompt: "a lighthouse" });
     expect(out).toBeInstanceOf(Failed);
     expect((out as Failed).message).toBe(STILL_STARTING);
+    expect((out as Failed).retryable).toBe(true);
     expect(client.time()).toBeLessThanOrEqual(DEFAULT_WAIT_S + 10);
   });
 });
@@ -138,6 +139,7 @@ describe("brain", () => {
     const { brain } = setup();
     const out = await brain({ hooks: new Broken() }).call("generate_realistic_image", { prompt: "x" });
     expect(out).toEqual(new Failed("Models are downloading."));
+    expect((out as Failed).retryable).toBe(false); // only when the error says so
   });
 
   it("edit, single and multi", async () => {
@@ -180,6 +182,7 @@ describe("mcp", () => {
   const TOOLS = [{ name: "echo", description: "d", inputSchema: { type: "object" } }];
   const call: ToolCall = async (name, args) => {
     if (name === "boom") throw new Error("kaput");
+    if (name === "structured") return [[{ type: "text", text: "t" }], false, { status: "done" }];
     if (name !== "echo") throw new UnknownTool(name);
     return [[{ type: "text", text: args.x ?? "" }], false];
   };
@@ -211,6 +214,9 @@ describe("mcp", () => {
     expect(r.result.tools).toEqual(TOOLS);
     [, r] = await rpc("tools/call", { name: "echo", arguments: { x: "hi" } });
     expect(r.result).toEqual({ content: [{ type: "text", text: "hi" }], isError: false });
+    // A structured value rides along when the tool gives one, and only then.
+    [, r] = await rpc("tools/call", { name: "structured" });
+    expect(r.result).toEqual({ content: [{ type: "text", text: "t" }], structuredContent: { status: "done" }, isError: false });
   });
 
   it("an unknown tool is a protocol error, a crash is a tool error", async () => {

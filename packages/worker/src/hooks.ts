@@ -17,6 +17,10 @@ import type { RelayStub } from "./relay.ts";
 import type { Store } from "./store.ts";
 import { BadImage, storeInput } from "./uploads.ts";
 
+const RETRY = { retryable: true };
+// The agent's (local machine.ts) and the Worker's own words for a model download that is under way.
+const DOWNLOADING = /is downloading|still downloading|being downloaded/i;
+
 export class WorkerHooks extends Hooks {
   private client: ComfyUIClient;
   private key: Uint8Array;
@@ -67,9 +71,9 @@ export class WorkerHooks extends Hooks {
     await this.onReady(pack.name, false);
     if (status.state === "downloading" && status.total) {
       const pct = Math.floor((100 * (status.done ?? 0)) / status.total);
-      throw new ComfyUIError(`The ${name} model is still downloading to your GPU (${pct}%). Try again in a few minutes.`);
+      throw new ComfyUIError(`The ${name} model is still downloading to your GPU (${pct}%). Try again in a few minutes.`, RETRY);
     }
-    throw new ComfyUIError(`The ${name} model is being downloaded to your GPU. Try again in a few minutes; progress is on ${this.settingsUrl}.`);
+    throw new ComfyUIError(`The ${name} model is being downloaded to your GPU. Try again in a few minutes; progress is on ${this.settingsUrl}.`, RETRY);
   }
 
   async resolveImage(arg: string): Promise<ResolvedImage> {
@@ -163,11 +167,12 @@ export class PcHooks extends WorkerHooks {
     };
     const r = await this.relay.control("ensure", args, ENSURE_TIMEOUT_S);
     if (r.offline) throw new ComfyUIError(offlineMessage([this.gpu]));
-    if (r.status === 504) throw new ComfyUIError(`ComfyUI is still starting on ${this.gpu.name}. Call the tool again in a minute.`);
+    if (r.status === 504) throw new ComfyUIError(`ComfyUI is still starting on ${this.gpu.name}. Call the tool again in a minute.`, RETRY);
     const result = relay.controlResult(r.status, r.body);
     if (!result.ok) {
       if (/download/i.test(result.message)) await this.onReady(pack.name, false);
-      throw new ComfyUIError(result.message);
+      // The agent's words: a download in progress will finish; "can't be downloaded" won't.
+      throw new ComfyUIError(result.message, { retryable: DOWNLOADING.test(result.message) });
     }
     await this.onReady(pack.name, true);
   }

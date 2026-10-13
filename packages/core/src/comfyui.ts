@@ -28,10 +28,18 @@ export const BUDGET_RESERVE = 2;
 /** A cold start still going when the tool call must answer: the model should simply call again. */
 export const STILL_STARTING = "The GPU is still starting up (a cold start). Call the tool again in a minute.";
 
-/** A generation failed. The message is meant for the user. */
+/** A generation failed. The message is meant for the user. *retryable*: the same call may work
+ * later with no one doing anything (a cold start, a model downloading), which scripted callers act
+ * on; Claude goes by the message. */
 export class ComfyUIError extends Error {
   name = "ComfyUIError";
+  retryable: boolean;
+  constructor(message: string, opts: { retryable?: boolean } = {}) {
+    super(message);
+    this.retryable = opts.retryable ?? false;
+  }
 }
+const RETRY = { retryable: true };
 
 export class Response {
   status: number;
@@ -207,10 +215,10 @@ export class ComfyUIClient {
       if (resp.status === 200) return resp.json().prompt_id;
       if (!BOOTING.includes(resp.status) || !this.coldStartS) throw new ComfyUIError(rejection(resp));
       if (this.now() > deadline.at) {
-        throw new ComfyUIError(deadline.byCall ? STILL_STARTING : `The GPU did not start within ${this.coldStartS.toFixed(0)}s.`);
+        throw new ComfyUIError(deadline.byCall ? STILL_STARTING : `The GPU did not start within ${this.coldStartS.toFixed(0)}s.`, { retryable: deadline.byCall });
       }
       // Leave room for at least one more submit and a couple of polls after it.
-      if (!this.canSpend(3)) throw new ComfyUIError("The GPU is still starting up. Please try again in a minute.");
+      if (!this.canSpend(3)) throw new ComfyUIError("The GPU is still starting up. Please try again in a minute.", RETRY);
       await this.sleep(COLD_START_POLL_S);
     }
   }
@@ -243,7 +251,7 @@ export class ComfyUIClient {
       if (resp.status === 200) {
         const job = resp.json();
         if (job.state === "done") return outputs(promptId, job);
-        if (job.state === "unknown") throw new ComfyUIError(interrupted ? RESTARTED : unknown(promptId));
+        if (job.state === "unknown") throw new ComfyUIError(interrupted ? RESTARTED : unknown(promptId), { retryable: interrupted });
       } else {
         interrupted = true; // a 5xx mid-job: the GPU worker may have been replaced
       }
@@ -265,7 +273,7 @@ export class ComfyUIClient {
       if (checkQueue && (await this.queuePosition(promptId)) === null) {
         [entry] = await this.historyEntry(promptId); // it may have finished between the requests
         if (entry) return outputs(promptId, entry);
-        throw new ComfyUIError(interrupted ? RESTARTED : unknown(promptId));
+        throw new ComfyUIError(interrupted ? RESTARTED : unknown(promptId), { retryable: interrupted });
       }
       if (this.now() >= deadline) return null;
       await this.sleep(this.pollDelay(polls));
@@ -320,7 +328,7 @@ export class ComfyUIClient {
       const booting = BOOTING.includes(resp.status) && this.coldStartS;
       const retry = booting && this.now() <= deadline.at && (left === null || left > 0);
       if (!retry) {
-        if (booting && deadline.byCall && this.now() > deadline.at) throw new ComfyUIError(STILL_STARTING);
+        if (booting && deadline.byCall && this.now() > deadline.at) throw new ComfyUIError(STILL_STARTING, RETRY);
         throw new ComfyUIError(`Could not fetch ${image.filename} (HTTP ${resp.status}).`);
       }
       await this.sleep(COLD_START_POLL_S);
@@ -341,7 +349,7 @@ export class ComfyUIClient {
       const left = this.remaining();
       const retry = BOOTING.includes(resp.status) && this.coldStartS && this.now() <= deadline.at && (left === null || left > 3);
       if (!retry) {
-        if (BOOTING.includes(resp.status) && this.coldStartS) throw new ComfyUIError(STILL_STARTING);
+        if (BOOTING.includes(resp.status) && this.coldStartS) throw new ComfyUIError(STILL_STARTING, RETRY);
         throw new ComfyUIError(`Upload to ComfyUI failed (HTTP ${resp.status}): ${resp.text.slice(0, 300)}`);
       }
       await this.sleep(COLD_START_POLL_S);

@@ -9,8 +9,10 @@
 export const PROTOCOL_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 
 export type Content = Record<string, any>;
-/** (tool name, arguments) -> [content blocks, isError]. Throw UnknownTool for a tool not served. */
-export type ToolCall = (name: string, args: Record<string, any>) => Promise<[Content[], boolean]>;
+/** (tool name, arguments) -> [content blocks, isError, structuredContent if any]. Throw UnknownTool
+ * for a tool not served. The structured value is for scripted callers (design §3, Scripted callers); without it the
+ * result is content alone. */
+export type ToolCall = (name: string, args: Record<string, any>) => Promise<[Content[], boolean, Record<string, any>?]>;
 
 export class UnknownTool extends Error {
   name = "UnknownTool";
@@ -52,15 +54,16 @@ export class McpHandler {
       if (typeof name !== "string") return [200, error(id, -32602, "tools/call needs a tool name")];
       let content: Content[];
       let isError: boolean;
+      let structured: Record<string, any> | undefined;
       try {
-        [content, isError] = await this.call(name, args);
+        [content, isError, structured] = await this.call(name, args);
       } catch (e) {
         if (e instanceof UnknownTool) return [200, error(id, -32602, `Unknown tool: ${name}`)];
         // A bug in a tool: tell the model rather than dropping the call.
         const err = e as Error;
         [content, isError] = [[{ type: "text", text: `Tool failed: ${err?.name ?? "Error"}: ${err?.message ?? e}` }], true];
       }
-      return [200, result(id, JSON.stringify({ content, isError }))];
+      return [200, result(id, JSON.stringify(structured ? { content, structuredContent: structured, isError } : { content, isError }))];
     }
     if (method === "tools/list") return [200, result(id, this.toolsJson)];
     if (method === "ping") return [200, result(id, "{}")];

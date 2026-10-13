@@ -75,6 +75,7 @@ describe("MCP", () => {
     let [, r] = await mcp(app, "tools/call", { name: "generate_realistic_image", arguments: { prompt: "x" } });
     expect(r.result.isError).toBe(true);
     expect(r.result.content[0].text).toContain("no GPU is set up yet");
+    expect(r.result.structuredContent).toEqual({ status: "error", message: expect.stringContaining("no GPU is set up yet"), retryable: false });
     [, r] = await mcp(app, "tools/call", { name: "no_such_tool" });
     expect(r.error.code).toBe(-32602);
   });
@@ -94,6 +95,22 @@ describe("MCP", () => {
     const comfyCalls = net.calls.filter((c) => c[1].startsWith(COMFY));
     expect(comfyCalls.every((c) => c[2]["X-Test"] === "1")).toBe(true); // generator headers on every call
     expect(comfyCalls.length).toBeLessThanOrEqual(REQUEST_BUDGET);
+  });
+
+  it("scripted callers get the result structured too, and the content is unchanged", async () => {
+    const { app, comfy } = world();
+    await withGenerator(app);
+    comfy.viewBody = png(832, 1216);
+    const [, r] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x", aspect_ratio: "832x1216" } });
+    const id = r.result.content[1].text.split("image_id: ")[1].split("\n")[0];
+    expect(Object.keys(r.result)).toEqual(["content", "structuredContent", "isError"]);
+    expect(r.result.content.map((c: any) => c.type)).toEqual(["image", "text"]);
+    expect(r.result.structuredContent).toEqual({
+      status: "done",
+      images: [{ image_id: id, url: `https://${HOST}/img/${id}`, width: 832, height: 1216 }],
+    });
+    const size = Object.values<any>(comfy.prompts[0]).find((n) => n._meta?.title === "cg:size").inputs;
+    expect([size.width, size.height]).toEqual([832, 1216]);
   });
 
   it("large results are re-requested smaller", async () => {
@@ -178,6 +195,7 @@ describe("MCP", () => {
     const txt: string = r.result.content[0].text;
     expect(txt).toContain("fetch_result");
     const token = txt.split("request_token '")[1].split("'")[0];
+    expect(r.result.structuredContent).toEqual({ status: "pending", request_token: token });
     comfy.history = [];
     [, r] = await mcp(app, "tools/call", { name: "fetch_result", arguments: { request_token: token } });
     expect(r.result.content[0].type).toBe("image");
@@ -465,6 +483,7 @@ describe("Modal models", () => {
     expect(r.result.isError).toBe(true);
     expect(r.result.content[0].text).toContain("being downloaded");
     expect(r.result.content[0].text).toContain("https://comfy-gen.someone.workers.dev/");
+    expect(r.result.structuredContent).toMatchObject({ status: "error", retryable: true }); // a download is under way
     expect(net.seedState.anima_turbo.state).toBe("queued"); // the call started the download
     net.seedState.anima_turbo = { state: "downloading", done: 3, total: 4 };
     [, r] = await mcp(app, "tools/call", args);
@@ -925,10 +944,15 @@ describe("the PC path", () => {
     const [, off] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } });
     expect(off.result.isError).toBe(true);
     expect(toolText(off)).toContain("Your PC is offline");
+    expect(off.result.structuredContent).toMatchObject({ status: "error", retryable: false });
     pc.connected = true;
     pc.controls.ensure = () => [500, "The Anima model is downloading: 12% of 5.6 GB."];
     const [, dl] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } }, 2);
     expect(toolText(dl)).toContain("downloading: 12%");
+    expect(dl.result.structuredContent).toMatchObject({ status: "error", retryable: true });
+    pc.controls.ensure = () => [500, "The Anima model can't be downloaded: no space left. Free some space on that drive, then try again."];
+    const [, full] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } }, 3);
+    expect(full.result.structuredContent).toMatchObject({ status: "error", retryable: false });
   });
 
   it("relays any call of the PC's own page as it is, and says when it is offline", async () => {

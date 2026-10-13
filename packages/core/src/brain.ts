@@ -51,8 +51,10 @@ export class Pending {
 export class Failed {
   readonly kind = "failed";
   message: string;
-  constructor(message: string) {
+  retryable: boolean; // see ComfyUIError
+  constructor(message: string, retryable = false) {
     this.message = message;
+    this.retryable = retryable;
   }
   text(): string {
     return `Error: ${this.message}`;
@@ -136,7 +138,7 @@ export class Brain {
       images.push(await this.hooks.resolveImage(first));
       if (second) images.push(await this.hooks.resolveImage(second));
     } catch (e) {
-      if (e instanceof ComfyUIError) return new Failed(e.message);
+      if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
       throw e;
     }
     const wf = editWorkflow(pack, images);
@@ -150,7 +152,7 @@ export class Brain {
       if (!ensured) await this.hooks.ensure(pack);
       promptId = await this.client.submit(wf);
     } catch (e) {
-      if (e instanceof ComfyUIError) return new Failed(e.message);
+      if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
       throw e;
     }
     return this.wait(promptId);
@@ -165,7 +167,7 @@ export class Brain {
       }
       return new Done(images, promptId);
     } catch (e) {
-      if (e instanceof ComfyUIError) return new Failed(e.message);
+      if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
       throw e;
     }
   }
