@@ -10,10 +10,10 @@ No modal import: the Volume root is a parameter, so tests run on a temporary dir
 
 import os
 import re
-import urllib.request
+
+from comfy_gen_modal.download import download
 
 MAX_SIZE = 2 << 30  # the largest Anima LoRAs are a few hundred MB
-USER_AGENT = "comfy-gen-modal"  # Cloudflare 1010-blocks urllib's default against workers.dev
 _LORA_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._()\-]{0,150}\.safetensors")
 
 
@@ -61,25 +61,8 @@ def delete_lora(root: str, name: object) -> None:
 
 def fetch(root: str, name: str, url: str, size: int, retries: int = 5) -> None:
     """Download *url* into loras/<name>, resuming a cut connection with a Range request."""
-    os.makedirs(loras_dir(root), exist_ok=True)
-    part = f"{loras_dir(root)}/{name}.part-fetch"
-    for attempt in range(retries + 1):
-        have = os.path.getsize(part) if os.path.exists(part) else 0
-        headers = {"User-Agent": USER_AGENT, **({"Range": f"bytes={have}-"} if have else {})}
-        try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=120) as r:
-                mode = "ab" if have and r.status == 206 else "wb"
-                with open(part, mode) as out:
-                    while chunk := r.read(8 << 20):
-                        out.write(chunk)
-        except OSError:
-            if attempt == retries:
-                raise
-        # A connection closed early can end the read without an error: go round for the rest.
-        if os.path.getsize(part) >= size:
-            break
-    got = os.path.getsize(part)
-    if got != size:
-        os.remove(part)
-        raise LoraError(f"{name}: got {got} bytes, expected {size}", 502)
-    os.replace(part, f"{loras_dir(root)}/{name}")
+    path = f"{loras_dir(root)}/{name}"
+    try:
+        download(url, path, f"{path}.part-fetch", size=size, retries=retries)
+    except ValueError as e:
+        raise LoraError(str(e), 502) from e

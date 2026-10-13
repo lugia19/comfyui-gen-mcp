@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from
 import { join } from "node:path";
 import { fetchFile } from "./fetchfile.ts";
 import type { Paths } from "./paths.ts";
-import { run } from "./proc.ts";
+import { run, untar } from "./proc.ts";
 
 export const UV_VERSION = "0.12.20";
 
@@ -56,9 +56,7 @@ export async function ensureUv(p: Paths, onLine: (l: string) => void = () => {})
   mkdirSync(tmp, { recursive: true });
   const archive = join(tmp, asset);
   await fetchFile(base, archive, { sha256 });
-  // tar reads both: GNU tar the .tar.gz, Windows' bsdtar (tar.exe, Windows 10 and later) the .zip.
-  const { code, output } = await run("tar", ["-xf", archive, "-C", tmp], { timeoutMs: 60_000 });
-  if (code !== 0) throw new Error(`Unpacking uv failed: ${output.trim()}`);
+  await untar(archive);
   const found = findFile(tmp, WIN ? "uv.exe" : "uv");
   if (!found) throw new Error("The uv download did not contain uv");
   rmSync(exe, { force: true });

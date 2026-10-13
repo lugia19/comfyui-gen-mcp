@@ -10,7 +10,7 @@ import { request as httpRequest } from "node:http";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { failResult, McpHandler, toolSpecs } from "@comfy-gen/core";
-import { loadConfig, log, logTo, machineTray, paths, type Paths, type Tray, type TrayLook, type WebFiles } from "@comfy-gen/local";
+import { loadConfig, log, logTo, machineTray, paths, selfRequest, type Paths, type Tray, type TrayLook, type WebFiles } from "@comfy-gen/local";
 import { PACKS } from "./server/app.ts";
 import { startServer, type RunningServer } from "./server/server.ts";
 
@@ -124,12 +124,7 @@ export async function main(opts: MainOptions): Promise<void> {
         }
       }
       if (owner) {
-        const req = new Request(`http://127.0.0.1:${owner.port}${cfg.mcp_path}`, {
-          method: "POST",
-          body: line,
-          headers: { host: `127.0.0.1:${owner.port}`, "Content-Type": "application/json" },
-        });
-        const resp = await owner.app.handle(req, "127.0.0.1");
+        const resp = await owner.app.handle(selfRequest(owner.port, cfg.mcp_path, { method: "POST", body: line }), "127.0.0.1");
         return [resp.status, resp.status === 202 ? null : await resp.text()];
       }
       try {

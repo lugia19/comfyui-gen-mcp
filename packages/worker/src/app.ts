@@ -5,9 +5,9 @@
 // isolate cache. Each fetch to ComfyUI costs CPU, so the client backs off its polls.
 
 import {
-  Brain, ComfyUIClient, failResult, renderOutcome, UploadError, ComfyUIError, FetchTransport, McpHandler, SETTINGS_SCHEMA, UnknownTool,
-  builtinPacks, downloadSize, fromHex, fromUtf8, groupByTool, packLoras, packMetadata, refs, relay, select, sniffMime, tokenHex, tokenUrlsafe, safeEqual,
-  withoutLora, LORA_GROUPS, loraGroupMetadata, tagLoras, tagLooseLoras, type Config, type Content, type Pack,
+  Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
+  builtinPacks, fromHex, fromUtf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
+  withoutLora, tagLooseLoras, wantedLoras, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
@@ -15,7 +15,7 @@ import { newPcId, newPcName, splitToken, DEFAULT_KEEP_WARM, PC_KEEP_WARM, type G
 import { offlineMessage, pausedMessage, PcHooks, WorkerHooks } from "./hooks.ts";
 import * as loras from "./loras.ts";
 import * as modalAdmin from "./modal-admin.ts";
-import { bodyJson, error, json, withUserAgent, type Bucket, type Fetch, type Platform } from "./platform.ts";
+import { withUserAgent, type Bucket, type Fetch, type Platform } from "./platform.ts";
 import { Images } from "./images.ts";
 import { RelayTransport } from "./relay.ts";
 import { Store, type Secrets } from "./store.ts";
@@ -41,8 +41,7 @@ export const LOGIN_WINDOW_S = 3600;
 export const INSTRUCTIONS =
   "Images come back inline, each followed by its image_id. Pass an image_id to edit_image to edit that image.";
 
-/** What the settings page needs to render pack choices. */
-export const PACK_METADATA = packMetadata(PACKS);
+const SETTINGS_METADATA = settingsMetadata(PACKS);
 
 export function selectedPacks(cfg: Config): Pack[] {
   return select(GROUPS, cfg.pack_selections);
@@ -52,12 +51,6 @@ export function selectedPacks(cfg: Config): Pack[] {
 // agent asks again once a round is done, for the rest.
 export const SYNC_MAX_FILES = 20;
 
-/** What the agent needs to know about a pack to download or check it. */
-const needs = (p: Pack) => ({ name: p.name, display_name: p.display_name ?? p.name, models: p.models ?? [], required_nodes: p.required_nodes ?? {} });
-
-/** Every LoRA file some pack is set up to use (switched on in its group). */
-const wantedLoras = (cfg: Config): string[] =>
-  [...new Set(Object.values(cfg.pack_loras).flat().filter((l) => l.enabled !== false).map((l) => l.name as string))];
 
 const hmacKey = (s: Secrets) => fromHex(s.hmac_key);
 
@@ -361,7 +354,6 @@ export class App {
     if (!safeEqual(secret, s.mcp_secret)) return error(404, "not found");
     if (sub === "loras") return this.mcpLoras(req);
     if (sub !== undefined) return error(404, "not found");
-    if (req.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
     const cfg = await this.store.config(); // one config for every GPU: Claude sees one tool list
     const specs = new Brain(PACKS, cfg, null as unknown as ComfyUIClient, "refs").specs;
     const served = new Set(specs.map((spec) => spec.name));
@@ -426,10 +418,9 @@ export class App {
 
     const handler = new McpHandler("Comfy-Gen-MCP", this.version, specs, call, INSTRUCTIONS);
     let listed = false; // claude.ai lists the tools once the connector is added: setup's last step
-    const [status, body] = await handler.handle(await req.text(), (m) => (listed ||= m === "tools/list"));
+    const resp = await handler.respond(req, (m) => (listed ||= m === "tools/list"));
     if (listed && !(await this.store.setup()).claude_seen) await this.store.updateSetup({ claude_seen: this.p.now() });
-    if (body === null) return new Response(null, { status });
-    return new Response(body, { status, headers: { "Content-Type": "application/json" } });
+    return resp;
   }
 
   private async upload(req: Request, token: string): Promise<Response> {
@@ -446,18 +437,14 @@ export class App {
     const modal = data.modal;
     let warnings: string[] = [];
     if (modal && typeof modal === "object" && modal.server_url) {
-      // The Modal GPU: added at the end of the list (a fallback behind the PCs), or updated in place.
-      const gpus = await this.gpus();
-      const old = gpus.find((g) => g.kind === "modal");
-      const gpu: Gpu = {
+      const gpu = await this.putGpu("modal", (old) => ({
         id: "modal", kind: "modal", name: old?.name ?? "Modal", enabled: old?.enabled ?? true,
         keep_warm_minutes: old?.keep_warm_minutes ?? DEFAULT_KEEP_WARM,
         base_url: modal.server_url,
         admin_url: modal.admin_url ?? null,
         headers: { "Modal-Key": modal.proxy_token_id ?? "", "Modal-Secret": modal.proxy_token_secret ?? "" },
         cold_start_s: MODAL_COLD_START_S,
-      };
-      await this.saveGpus(old ? gpus.map((g) => (g === old ? gpu : g)) : [...gpus, gpu]);
+      }));
       // A deploy resets keep-warm to the app's default, and a fresh install has no models yet.
       warnings = await this.applyToModal(this.admin(gpu)!, await this.fresh.config(), gpu.keep_warm_minutes);
       warnings.push(...(await this.spreadLoras(new URL(req.url).origin)));
@@ -472,16 +459,34 @@ export class App {
   /** Best effort: apply keep-warm (when given), start downloads for selected packs. Returns warnings.
    * LoRAs are spreadLoras' (the callers call it after). */
   private async applyToModal(admin: modalAdmin.ModalAdmin, cfg: Config, keepWarmMinutes: number | null): Promise<string[]> {
-    const warnings: string[] = [];
-    if (keepWarmMinutes !== null) {
-      try {
-        await admin.idle(keepWarmMinutes);
-      } catch (e) {
-        if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-        warnings.push(`Could not apply keep-warm: ${e.message}`);
-      }
-    }
+    const warnings = keepWarmMinutes === null ? [] : await this.applyKeepWarm(admin, keepWarmMinutes);
     return warnings.concat(await modalAdmin.seedMissing(admin, this.fresh, selectedPacks(cfg)));
+  }
+
+  /** Set how long Modal stays warm after a call. Returns warnings (best effort). */
+  private async applyKeepWarm(admin: modalAdmin.ModalAdmin, minutes: number): Promise<string[]> {
+    try {
+      await admin.idle(minutes);
+      return [];
+    } catch (e) {
+      if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+      return [`Could not apply keep-warm: ${e.message}`];
+    }
+  }
+
+  /** A PC control op's answer for the page: its data, or 503 offline / 502 its error. */
+  private controlResponse(gpu: Gpu, r: { ok: true; data: unknown } | { ok: false; message: string }): Response {
+    return r.ok ? json(r.data) : error(r.message === offlineMessage([gpu]) ? 503 : 502, r.message);
+  }
+
+  /** The one GPU of *kind* (Modal, or a ComfyUI by URL) set to *make*'s: replaced where it is in the
+   * list, else added at the end (a fallback behind the PCs). */
+  private async putGpu(kind: Gpu["kind"], make: (old: Gpu | undefined) => Gpu): Promise<Gpu> {
+    const gpus = await this.gpus();
+    const old = gpus.find((g) => g.kind === kind);
+    const gpu = make(old);
+    await this.saveGpus(old ? gpus.map((g) => (g === old ? gpu : g)) : [...gpus, gpu]);
+    return gpu;
   }
 
   // ── settings API ──────────────────────────────────────────────────
@@ -567,9 +572,7 @@ export class App {
       claude_seen: setup.claude_seen ?? null,
       password_set: Boolean(s.password),
       config: await this.fresh.config(),
-      schema: SETTINGS_SCHEMA,
-      packs: PACK_METADATA,
-      lora_groups: loraGroupMetadata(),
+      ...SETTINGS_METADATA,
     };
   }
 
@@ -646,8 +649,7 @@ export class App {
       return json({ link: pairingLink(url, secret) });
     }
     if (m[2] === "pause" && req.method === "POST" && gpu.kind === "pc") {
-      const r = await this.control(gpu, "pause", { paused: (await bodyJson(req)).paused === true });
-      return r.ok ? json(r.data) : error(r.message === offlineMessage([gpu]) ? 503 : 502, r.message);
+      return this.controlResponse(gpu, await this.control(gpu, "pause", { paused: (await bodyJson(req)).paused === true }));
     }
     if (!m[2] && req.method === "PATCH") {
       const body = await bodyJson(req);
@@ -660,16 +662,8 @@ export class App {
         changes.keep_warm_minutes = minutes;
       }
       const updated = (await this.updateGpu(gpu.id, changes))!;
-      const warnings: string[] = [];
       const admin = this.admin(updated);
-      if (admin && changes.keep_warm_minutes !== undefined) {
-        try {
-          await admin.idle(updated.keep_warm_minutes);
-        } catch (e) {
-          if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-          warnings.push(`Could not apply keep-warm: ${e.message}`);
-        }
-      }
+      const warnings = admin && changes.keep_warm_minutes !== undefined ? await this.applyKeepWarm(admin, updated.keep_warm_minutes) : [];
       return json({ gpu: redact(updated, url), warnings });
     }
     if (!m[2] && req.method === "DELETE") {
@@ -754,7 +748,7 @@ export class App {
     }
     // As the extension does: a newly chosen pack starts downloading now.
     for (const pc of await this.onlinePcs(gpus)) {
-      for (const pack of selectedPacks(cfg)) await this.control(pc, "download", { pack: needs(pack) });
+      for (const pack of selectedPacks(cfg)) await this.control(pc, "download", { pack: packNeeds(pack) });
     }
     warnings.push(...(await this.spreadLoras(new URL(req.url).origin)));
     if (wantedLoras(cfg).length) warnings.push(...missingLoras(cfg, await this.loraListing()));
@@ -808,9 +802,9 @@ export class App {
   }
 
   /** Give each of *names* (LoRAs in storage) a group if it has none: *group*, else the default. */
-  private async tagStored(names: string[], group?: string): Promise<void> {
+  private async tagStored(names: string[], group?: unknown): Promise<void> {
     const cfg = await this.fresh.config();
-    const tagged = group ? tagLoras(cfg.pack_loras, names, group) : tagLooseLoras(cfg.pack_loras, names);
+    const tagged = tagLooseLoras(cfg.pack_loras, names, group);
     if (tagged) await this.fresh.saveConfig({ ...cfg, pack_loras: tagged });
   }
 
@@ -847,7 +841,7 @@ export class App {
         const done = await uploads.finish(m[1], body.parts);
         // Into the LoRA group it was uploaded for (the page's open tab), switched off until the page
         // saves it on; a push from a PC names none, and lands in the default group.
-        await this.tagStored([done.name], typeof body.group === "string" && body.group in LORA_GROUPS ? body.group : undefined);
+        await this.tagStored([done.name], body.group);
         const deleted = (await this.fresh.setup()).lora_deleted ?? {};
         if (done.name in deleted) await this.fresh.updateSetup({ lora_deleted: { ...deleted, [done.name]: undefined } });
         await this.spreadLoras(url.origin);
@@ -968,7 +962,7 @@ export class App {
     const gpus = (await this.gpus()).filter((g) => g.kind !== "url" && (!only || g.id === only));
     for (const gpu of gpus) {
       if (gpu.kind === "pc") {
-        const r = (await this.status(gpu)).online ? await this.control(gpu, "models", { packs: packs.map(needs) }) : null;
+        const r = (await this.status(gpu)).online ? await this.control(gpu, "models", { packs: packs.map(packNeeds) }) : null;
         const status = new Map<string, any>(r?.ok ? (r.data as any[]).map((st) => [st.name, st]) : []);
         for (const [i, p] of packs.entries()) {
           on[i][gpu.id] = !r ? { state: "offline" } : r.ok ? status.get(p.name) ?? { state: "unknown" } : { state: "unknown", error: r.message };
@@ -989,7 +983,7 @@ export class App {
     }
     return json({
       gpus: gpus.map((g) => ({ id: g.id, name: g.name, kind: g.kind })),
-      packs: packs.map((p, i) => ({ name: p.name, display_name: p.display_name ?? p.name, tool_name: p.tool_name, size: downloadSize(p), on: on[i] })),
+      packs: packs.map((p, i) => ({ ...packRow(p), on: on[i] })),
     });
   }
 
@@ -1001,8 +995,7 @@ export class App {
     const gpu = (await this.gpus()).find((g) => g.id === body.gpu);
     if (!gpu) return error(400, "no such GPU");
     if (gpu.kind === "pc") {
-      const r = await this.control(gpu, "download", { pack: needs(pack) });
-      return r.ok ? json(r.data) : error(r.message === offlineMessage([gpu]) ? 503 : 502, r.message);
+      return this.controlResponse(gpu, await this.control(gpu, "download", { pack: packNeeds(pack) }));
     }
     const admin = this.admin(gpu);
     if (!admin) return error(400, "a ComfyUI by URL downloads its own models");
@@ -1022,11 +1015,7 @@ export class App {
     if (!baseUrl.startsWith("https://") && !baseUrl.startsWith("http://")) return error(400, "base_url must be an http(s) URL");
     const resp = await new FetchTransport(this.fetch, baseUrl, headers).request("GET", "/system_stats");
     if (resp.status !== 200) return error(502, `ComfyUI did not answer at ${baseUrl}/system_stats (HTTP ${resp.status})`);
-    // One ComfyUI by URL: added at the end of the list, or replacing the one there was.
-    const gpus = await this.gpus();
-    const old = gpus.find((g) => g.kind === "url");
-    const gpu: Gpu = { id: "url", kind: "url", name: old?.name ?? "Your ComfyUI", enabled: true, keep_warm_minutes: DEFAULT_KEEP_WARM, base_url: baseUrl, headers };
-    await this.saveGpus(old ? gpus.map((g) => (g === old ? gpu : g)) : [...gpus, gpu]);
+    await this.putGpu("url", (old) => ({ id: "url", kind: "url", name: old?.name ?? "Your ComfyUI", enabled: true, keep_warm_minutes: DEFAULT_KEEP_WARM, base_url: baseUrl, headers }));
     return json({ ok: true, system: resp.json().system ?? {} });
   }
 

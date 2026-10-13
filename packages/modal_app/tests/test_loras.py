@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import http.server
+import os
 import threading
 
 import pytest
@@ -90,3 +91,19 @@ def test_fetch_refuses_a_wrong_size(tmp_path, server):
     with pytest.raises(loras.LoraError):
         loras.fetch(str(tmp_path), "s.safetensors", url, len(data) + 1)
     assert loras.list_loras(str(tmp_path)) == {}
+
+
+def test_download_checks_the_sha256_also_after_a_resume(tmp_path, server):
+    import hashlib
+
+    from comfy_gen_modal.download import download
+
+    url, data, state = server
+    path, part = str(tmp_path / "m" / "model.safetensors"), str(tmp_path / "m" / "model.part")
+    state["cut_at"] = 30000
+    seen = []
+    download(url, path, part, size=len(data), sha256=hashlib.sha256(data).hexdigest(), retries=2, on_bytes=seen.append)
+    assert open(path, "rb").read() == data and sum(seen) == len(data)
+    with pytest.raises(ValueError, match="checksum"):
+        download(url, path, part, sha256="0" * 64)
+    assert not os.path.exists(part)

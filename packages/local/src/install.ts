@@ -4,12 +4,12 @@
 // Only our own installs count (they carry a marker file); anything else in the folder is replaced by
 // an install, which keeps its models, outputs and inputs.
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fetchFile } from "./fetchfile.ts";
 import { log } from "./log.ts";
 import { venvBin, type Paths } from "./paths.ts";
-import { pythonEnv, run } from "./proc.ts";
+import { pythonEnv, run, untar } from "./proc.ts";
 import { ensureUv, uvEnv } from "./uv.ts";
 
 export const COMFYUI_VERSION = "0.37.0"; // as on Modal
@@ -81,12 +81,13 @@ export async function install(p: Paths, gpu: Gpu, onLine: (l: string) => void = 
   await clearWorkspace(ws);
 
   onLine(`Downloading ComfyUI ${COMFYUI_VERSION}`);
-  const tarball = join(p.home, `ComfyUI-${COMFYUI_VERSION}.tar.gz`);
+  const tarball = join(ws, `ComfyUI-${COMFYUI_VERSION}.tar.gz`); // unpacked where it is, then gone
   await fetchFile(`https://github.com/comfyanonymous/ComfyUI/archive/refs/tags/v${COMFYUI_VERSION}.tar.gz`, tarball);
-  mkdirSync(ws, { recursive: true });
-  const untar = await run("tar", ["-xzf", tarball, "-C", ws, "--strip-components=1"], { timeoutMs: 300_000 });
-  rmSync(tarball, { force: true });
-  if (untar.code !== 0) throw new Error(`Unpacking ComfyUI failed: ${untar.output.trim()}`);
+  try {
+    await untar(tarball, ["--strip-components=1"], 300_000);
+  } finally {
+    rmSync(tarball, { force: true });
+  }
 
   const uvRun = async (what: string, args: string[]) => {
     onLine(what);

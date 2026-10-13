@@ -8,7 +8,7 @@
 // the answering ComfyUI's inputs, under a name derived from the id, so editing the same image
 // twice reuses one file. An https URL is downloaded and uploaded the same way.
 
-import { ComfyUIError, Hooks, refs, relay, tokenUrlsafe, uploadInput, type ComfyUIClient, type Pack, type ResolvedImage } from "@comfy-gen/core";
+import { ComfyUIError, Hooks, packNeeds, refs, relay, tokenUrlsafe, uploadInput, type ComfyUIClient, type Pack, type ResolvedImage } from "@comfy-gen/core";
 import type { Images } from "./images.ts";
 import { ModalAdminError, packStatus, type ModalAdmin } from "./modal-admin.ts";
 import type { Gpu } from "./gpus.ts";
@@ -151,7 +151,7 @@ export class PcHooks extends WorkerHooks {
   /** The agent makes the pack ready; the answer also tells routing whether this PC has the pack. */
   async ensure(pack: Pack): Promise<void> {
     const args = {
-      pack: { name: pack.name, display_name: pack.display_name ?? pack.name, models: pack.models ?? [], required_nodes: pack.required_nodes ?? {} },
+      pack: packNeeds(pack),
       keep_warm_minutes: this.gpu.keep_warm_minutes,
     };
     const r = await this.relay.control("ensure", args, ENSURE_TIMEOUT_S);

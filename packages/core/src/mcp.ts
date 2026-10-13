@@ -35,6 +35,13 @@ export class McpHandler {
     this.initRest = JSON.stringify(rest).slice(1); // initialize's result minus protocolVersion
   }
 
+  /** One HTTP request to the MCP endpoint: 405 unless POST, else handle()'s answer. */
+  async respond(req: Request, seen?: (method: string) => void): Promise<Response> {
+    if (req.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
+    const [status, body] = await this.handle(await req.text(), seen);
+    return body === null ? new Response(null, { status }) : new Response(body, { status, headers: { "Content-Type": "application/json" } });
+  }
+
   /** One POSTed JSON-RPC message in; [HTTP status, response body or null for 202] out. *seen*
    * hears the method of each request (not notifications), before it is answered. */
   async handle(body: string, seen?: (method: string) => void): Promise<[number, string | null]> {

@@ -14,7 +14,7 @@ import { fetchFile } from "./fetchfile.ts";
 import { log } from "./log.ts";
 import type { Machine } from "./machine.ts";
 import type { Paths } from "./paths.ts";
-import { openExternal, run } from "./proc.ts";
+import { openExternal, run, untar } from "./proc.ts";
 
 /** This platform's tray helper in the bundle's release: the archive's URL and SHA-256, and the
  * helper's file name in it and SHA-256. */
@@ -50,10 +50,9 @@ export async function trayBinary(p: Paths, helper: TrayHelper | null): Promise<s
   mkdirSync(tmp, { recursive: true });
   try {
     await fetchFile(helper.url, join(tmp, "tray.tgz"), { sha256: helper.archiveSha256 });
-    // Relative paths only, in the folder (a GNU tar on Windows reads "C:" as a remote host).
-    const { code, output } = await run("tar", ["-xzf", "tray.tgz", helper.name], { cwd: tmp, timeoutMs: 60_000 });
+    await untar(join(tmp, "tray.tgz"), [helper.name]);
     const extracted = join(tmp, helper.name);
-    if (code !== 0 || !existsSync(extracted) || sha256(extracted) !== helper.sha256) throw new Error(`Unpacking the tray helper failed: ${output.trim()}`);
+    if (!existsSync(extracted) || sha256(extracted) !== helper.sha256) throw new Error("The tray helper download did not match its checksum");
     if (process.platform !== "win32") chmodSync(extracted, 0o755);
     renameSync(extracted, bin);
   } finally {

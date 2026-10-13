@@ -17,7 +17,6 @@ Deployed by deploy.py inside a Workers Build: `python -m modal deploy -m comfy_g
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import signal
@@ -29,6 +28,7 @@ import urllib.request
 import modal
 
 from comfy_gen_modal import loras
+from comfy_gen_modal.download import download
 from comfy_gen_modal.models import (
     INPUT_DIR, MODELS_DIR, OUTPUT_DIR, SUBFOLDERS, VOL, needed, rel_path, validate_models, validate_pack_name,
 )
@@ -41,7 +41,6 @@ STATE_DICT = "comfy-gen-state"  # seed progress, reload requests, the proxy toke
 COMFY_PORT = 8188
 KEEP_WARM_S = 300  # the default keep_warm_minutes; the Worker applies the user's setting via /idle
 RELOAD_POLL_S = 10
-USER_AGENT = "comfy-gen-seed"
 
 COMFY_DIR = "/root/comfy/ComfyUI"  # where comfy-cli installs it
 COMFY_NODE_SRC = os.path.join(os.path.dirname(__file__), "comfy_node")  # our /comfy-gen/wait route
@@ -187,19 +186,8 @@ def _present(models: list[dict]) -> dict[str, int]:
 
 def _download(m: dict, part_suffix: str, on_bytes) -> None:
     path = f"{MODELS_DIR}/{rel_path(m)}"
-    part = f"{path}.part-{part_suffix}"  # per pack: two packs may fetch a shared file at once
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    digest = hashlib.sha256()
-    req = urllib.request.Request(m["url"], headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=120) as r, open(part, "wb") as out:
-        while chunk := r.read(8 << 20):
-            out.write(chunk)
-            digest.update(chunk)
-            on_bytes(len(chunk))
-    if m.get("sha256") and digest.hexdigest() != m["sha256"]:
-        os.remove(part)
-        raise ValueError(f"{m['filename']}: checksum mismatch")
-    os.replace(part, path)
+    # The .part per pack: two packs may fetch a shared file at once.
+    download(m["url"], path, f"{path}.part-{part_suffix}", sha256=m.get("sha256"), on_bytes=on_bytes)
 
 
 # Seeds run in parallel. Two packs may fetch a shared file at once; each writes a complete .part and

@@ -78,6 +78,10 @@ function strengthOf(value: unknown): number {
   return Number.isFinite(n) ? n : 1;
 }
 
+/** Every LoRA file some pack is set up to use (switched on in its group). */
+export const wantedLoras = (cfg: Config): string[] =>
+  [...new Set(Object.values(cfg.pack_loras).flat().filter((l) => l.enabled !== false).map((l) => l.name as string))];
+
 /** *pack_loras* without the LoRA *name* in any pack, or null if no pack had it. A deleted LoRA leaves
  * the config with its file, or every generation of that pack would ask ComfyUI for a missing file. */
 export function withoutLora(packLoras: Record<string, LoraEntry[]>, name: string): Record<string, LoraEntry[]> | null {

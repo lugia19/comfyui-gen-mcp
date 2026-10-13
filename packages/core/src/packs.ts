@@ -7,7 +7,7 @@
 
 import { PACK_FILES, TOOL_FILE } from "../packs/index.ts";
 import { isPlainObject } from "./bytes.ts";
-import { tagLoras, type Config, type LoraEntry } from "./config.ts";
+import { SETTINGS_SCHEMA, tagLoras, type Config, type LoraEntry } from "./config.ts";
 import { injectLoras, nodesTitled, TITLES } from "./workflow.ts";
 
 export type Pack = Record<string, any> & {
@@ -40,9 +40,10 @@ export const TOOLS = TOOL_DEFS.tools;
 export const LORA_GROUPS = TOOL_DEFS.lora_groups;
 export const DEFAULT_LORA_GROUP = Object.keys(LORA_GROUPS)[0];
 
-/** *packLoras* with every one of *names* in a group: see config.ts tagLoras. */
-export function tagLooseLoras(packLoras: Record<string, LoraEntry[]>, names: Iterable<string>): Record<string, LoraEntry[]> | null {
-  return tagLoras(packLoras, names, DEFAULT_LORA_GROUP);
+/** *packLoras* with every one of *names* in a group: *group* when it is a LoRA group (the one an
+ * upload was made for), else the default. Null if every name had one. See config.ts tagLoras. */
+export function tagLooseLoras(packLoras: Record<string, LoraEntry[]>, names: Iterable<string>, group?: unknown): Record<string, LoraEntry[]> | null {
+  return tagLoras(packLoras, names, typeof group === "string" && group in LORA_GROUPS ? group : DEFAULT_LORA_GROUP);
 }
 
 /** Check a pack has the required fields. Returns it; throws otherwise. */
@@ -135,18 +136,27 @@ export function prepare(pack: Pack, cfg: Config): Pack {
   return out;
 }
 
+/** What a machine needs to make *pack* ready (the agent's ensure and download): its name, models and
+ * node packages. */
+export function packNeeds(pack: Pack) {
+  return { name: pack.name, display_name: pack.display_name ?? pack.name, models: pack.models ?? [], required_nodes: pack.required_nodes ?? {} };
+}
+
 /** Total bytes of the pack's model files, for the settings UI. */
 export function downloadSize(pack: Pack): number {
   return (pack.models ?? []).reduce((n, m) => n + (Number(m.size_bytes) || 0), 0);
 }
 
-/** The LoRA groups for a settings page: [{id, title}], in order (the first is the default). */
-export function loraGroupMetadata() {
-  return Object.entries(LORA_GROUPS).map(([id, title]) => ({ id, title }));
+/** What every settings page renders the settings from: the global fields' schema, the pack choices
+ * per tool, and the LoRA groups ([{id, title}], the first the default). */
+export function settingsMetadata(packs: Pack[]) {
+  return { schema: SETTINGS_SCHEMA, packs: packMetadata(packs), lora_groups: Object.entries(LORA_GROUPS).map(([id, title]) => ({ id, title })) };
 }
 
-/** What a settings page needs to render the pack choices, per tool. */
-export function packMetadata(packs: Pack[]) {
+/** A pack's row in a /models answer (each frontend adds where its models are). */
+export const packRow = (p: Pack) => ({ name: p.name, display_name: p.display_name ?? p.name, tool_name: p.tool_name, size: downloadSize(p) });
+
+function packMetadata(packs: Pack[]) {
   return Object.entries(groupByTool(packs)).map(([tool, group]) => ({
     tool_name: tool,
     title: TOOLS[tool]?.title ?? tool,

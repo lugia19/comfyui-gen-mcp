@@ -4,9 +4,8 @@
 // snippet, which posts the attached file to /upload/<token>; the Worker stores it in R2 and answers
 // with an image id that edit_image takes. No GPU needs to be online for it.
 
-import { failResult, refs, sniffMime, textBlock as text, type Content } from "@comfy-gen/core";
+import { error, failResult, json, refs, sniffMime, textBlock as text, type Content } from "@comfy-gen/core";
 import type { Images } from "./images.ts";
-import { error, json } from "./platform.ts";
 
 export const UPLOAD_TTL_S = 600;
 export const MAX_IMAGE_BYTES = 20_000_000;

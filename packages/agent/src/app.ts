@@ -3,7 +3,7 @@
 // Worker's page.
 
 import {
-  bodyJson, checkMachineSettings, error, fromThisMachine, json, log, webFile, type Machine, type WebFiles,
+  bodyJson, checkMachineSettings, error, json, settingsPage, type Machine, type WebFiles,
 } from "@comfy-gen/local";
 import { parsePairingLink, type AgentConfig } from "./config.ts";
 import type { RelayClient } from "./relay-client.ts";
@@ -34,17 +34,7 @@ export class AgentApp {
   }
 
   async handle(req: Request, remote: string): Promise<Response> {
-    const path = new URL(req.url).pathname;
-    if (!fromThisMachine(req, remote)) return error(403, "the settings page answers only on this computer");
-    if (path.startsWith("/api/")) {
-      try {
-        return (await this.s.machine.api(req, path.slice(4))) ?? (await this.api(req, path.slice(4)));
-      } catch (e) {
-        log.error(`${req.method} ${path} failed:`, e);
-        return error(500, (e as Error).message);
-      }
-    }
-    return webFile(this.s.web, req, path);
+    return settingsPage(req, remote, this.s.web, async (req, sub) => (await this.s.machine.api(req, sub)) ?? (await this.api(req, sub)));
   }
 
   private async api(req: Request, sub: string): Promise<Response> {

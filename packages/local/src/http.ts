@@ -2,25 +2,17 @@
 // check that guards their settings pages, static files, and node:http to Request/Response.
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { error as coreError, json as coreJson } from "@comfy-gen/core";
 import { log } from "./log.ts";
 
 export type WebFiles = (path: string) => { body: Uint8Array; type: string } | null;
 export type Handler = (req: Request, remote: string) => Promise<Response>;
 
-export function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
-}
-
-export const error = (status: number, message: string) => json({ error: message }, status);
-
-export async function bodyJson(req: Request): Promise<Record<string, any>> {
-  try {
-    const data = JSON.parse((await req.text()) || "{}");
-    return data && typeof data === "object" && !Array.isArray(data) ? data : {};
-  } catch {
-    return {};
-  }
-}
+// Local pages are never cached: a settings page shows the machine's state now.
+const NO_STORE = { "Cache-Control": "no-store" };
+export const json = (data: unknown, status = 200): Response => coreJson(data, status, NO_STORE);
+export const error = (status: number, message: string): Response => coreError(status, message, NO_STORE);
+export { bodyJson } from "@comfy-gen/core";
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
@@ -33,6 +25,24 @@ export function fromThisMachine(req: Request, remote: string): boolean {
   const origin = req.headers.get("origin");
   return !origin || origin === `http://${host}`;
 }
+
+/** A settings page (the agent's and the MCPB's): this machine's browser only; /api/<sub> to *api*
+ * (a crash becomes a 500 with its message), anything else the app's files. */
+export async function settingsPage(req: Request, remote: string, web: WebFiles, api: (req: Request, sub: string) => Promise<Response>): Promise<Response> {
+  const path = new URL(req.url).pathname;
+  if (!fromThisMachine(req, remote)) return error(403, "the settings page answers only on this computer");
+  if (!path.startsWith("/api/")) return webFile(web, req, path);
+  try {
+    return await api(req, path.slice(4));
+  } catch (e) {
+    log.error(`${req.method} ${path} failed:`, e);
+    return error(500, (e as Error).message);
+  }
+}
+
+/** A request to a local server from its own process, as this machine's browser would send it. */
+export const selfRequest = (port: number, path: string, init: { method: string; body?: string }): Request =>
+  new Request(`http://127.0.0.1:${port}${path}`, { ...init, headers: { host: `127.0.0.1:${port}`, "Content-Type": "application/json" } });
 
 /** The settings app's files; unknown paths get index.html (the app routes itself). */
 export function webFile(web: WebFiles, req: Request, path: string): Response {

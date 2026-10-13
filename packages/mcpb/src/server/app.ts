@@ -6,20 +6,19 @@
 
 import { join } from "node:path";
 import {
-  Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, SETTINGS_SCHEMA, UnknownTool,
-  builtinPacks, downloadSize, failResult, packMetadata, renderOutcome, safeEqual, select, groupByTool,
-  LORA_GROUPS, loraGroupMetadata, tagLoras, tagLooseLoras,
+  Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, UnknownTool,
+  builtinPacks, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras,
   type Config, type OutputImage, type Pack, type Rendered,
 } from "@comfy-gen/core";
 import {
-  bodyJson, checkMachineSettings, error, fromThisMachine, json, log, webFile,
+  bodyJson, checkMachineSettings, error, json, settingsPage,
   type LocalConfig, type Machine, type WebFiles,
 } from "@comfy-gen/local";
 import { LocalHooks } from "./hooks.ts";
 
 export const PACKS = builtinPacks();
 const GROUPS = groupByTool(PACKS);
-const PACK_METADATA = packMetadata(PACKS);
+const SETTINGS_METADATA = settingsMetadata(PACKS);
 
 export const instructions = (settingsUrl: string) =>
   "Images come back inline, each followed by its saved_path on this computer. Pass a saved_path (or any image path or URL) to edit_image to edit that image. " +
@@ -59,26 +58,18 @@ export class LocalApp {
     const path = url.pathname;
     if (path.startsWith("/mcp/")) return this.mcp(req, path);
     if (path === "/alive") return json({ version: this.s.version, pid: process.pid });
-    if (!fromThisMachine(req, remote)) return error(403, "the settings page answers only on this computer");
-    if (path.startsWith("/api/")) {
-      try {
-        const sub = path.slice(4);
-        // The machine side knows the LoRA files, this side the settings: every file keeps a group.
-        const finishing = req.method === "POST" && /^\/loras\/uploads\/[\w-]+\/finish$/.test(sub);
-        const group = finishing ? ((await req.clone().json().catch(() => ({}))) as { group?: unknown }).group : undefined;
-        const resp = (await this.s.machine.api(req, sub)) ?? (await this.api(req, sub));
-        if (finishing && resp.ok) {
-          const done = (await resp.clone().json()) as { state?: string; name?: string };
-          if (done.state === "done" && done.name) this.tagLoras([done.name], typeof group === "string" && group in LORA_GROUPS ? group : undefined);
-        }
-        if (sub === "/loras" && req.method === "GET") this.tagLoras(Object.keys(this.s.machine.loras()));
-        return resp;
-      } catch (e) {
-        log.error(`${req.method} ${path} failed:`, e);
-        return error(500, (e as Error).message);
+    return settingsPage(req, remote, this.s.web, async (req, sub) => {
+      // The machine side knows the LoRA files, this side the settings: every file keeps a group.
+      const finishing = req.method === "POST" && /^\/loras\/uploads\/[\w-]+\/finish$/.test(sub);
+      const group = finishing ? ((await req.clone().json().catch(() => ({}))) as { group?: unknown }).group : undefined;
+      const resp = (await this.s.machine.api(req, sub)) ?? (await this.api(req, sub));
+      if (finishing && resp.ok) {
+        const done = (await resp.clone().json()) as { state?: string; name?: string };
+        if (done.state === "done" && done.name) this.tagLoras([done.name], group);
       }
-    }
-    return webFile(this.s.web, req, path);
+      if (sub === "/loras" && req.method === "GET") this.tagLoras(Object.keys(this.s.machine.loras()));
+      return resp;
+    });
   }
 
   // ── MCP ───────────────────────────────────────────────────────────
@@ -86,11 +77,7 @@ export class LocalApp {
   private async mcp(req: Request, path: string): Promise<Response> {
     const cfg = this.s.config();
     if (!safeEqual(path.replace(/\/+$/, ""), cfg.mcp_path)) return error(404, "not found");
-    if (req.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
-    const handler = this.mcpHandler(cfg);
-    const [status, body] = await handler.handle(await req.text());
-    if (body === null) return new Response(null, { status });
-    return new Response(body, { status, headers: { "Content-Type": "application/json" } });
+    return this.mcpHandler(cfg).respond(req);
   }
 
   /** The MCP handler for *cfg*. Also what the shim answers tools/list from. */
@@ -155,9 +142,7 @@ export class LocalApp {
       listening_on_network: this.s.network,
       ...(await this.s.machine.state(cfg.gpu)),
       config: cfg,
-      schema: SETTINGS_SCHEMA,
-      packs: PACK_METADATA,
-      lora_groups: loraGroupMetadata(),
+      ...SETTINGS_METADATA,
     };
   }
 
@@ -187,13 +172,7 @@ export class LocalApp {
    * it carries on (switching away doesn't cancel it), so it stays listed until it is done. */
   private models() {
     const selected = selectedPacks(this.s.config());
-    const rows: Record<string, unknown>[] = selected.map((pack: Pack) => ({
-      name: pack.name,
-      display_name: pack.display_name ?? pack.name,
-      tool_name: pack.tool_name,
-      size: downloadSize(pack),
-      ...this.s.machine.downloads.status(pack.name, pack.models ?? []),
-    }));
+    const rows: Record<string, unknown>[] = selected.map((pack: Pack) => ({ ...packRow(pack), ...this.s.machine.downloads.status(pack.name, pack.models ?? []) }));
     for (const job of this.s.machine.downloads.jobs()) {
       if (selected.some((p) => p.name === job.key) || (job.state !== "queued" && job.state !== "downloading")) continue;
       const pack = PACKS.find((p) => p.name === job.key);
@@ -207,14 +186,13 @@ export class LocalApp {
     const listed = Object.values(cfg.pack_loras).flat();
     this.s.machine.loraRegistry.adopt(listed.map((l) => l.name)); // in use, so ours (one typed in by hand, say)
     const have = this.s.machine.loras();
-    const wanted = new Set(listed.filter((l) => l.enabled !== false).map((l) => l.name)); // only a switched-on one is loaded
-    return [...wanted].filter((n) => !(n in have)).map((n) => `The LoRA ${n} is not in any LoRA folder: generations will fail until it is.`);
+    return wantedLoras(cfg).filter((n) => !(n in have)).map((n) => `The LoRA ${n} is not in any LoRA folder: generations will fail until it is.`);
   }
 
   /** Give each of *names* (our LoRA files) a group if it has none: *group*, else the default. */
-  private tagLoras(names: string[], group?: string): void {
+  private tagLoras(names: string[], group?: unknown): void {
     const cfg = this.s.config();
-    const tagged = group ? tagLoras(cfg.pack_loras, names, group) : tagLooseLoras(cfg.pack_loras, names);
+    const tagged = tagLooseLoras(cfg.pack_loras, names, group);
     if (tagged) this.s.saveConfig({ ...cfg, pack_loras: tagged });
   }
 }

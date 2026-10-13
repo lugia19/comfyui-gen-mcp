@@ -1,6 +1,7 @@
 // Child processes: run a command to completion, start a long-running one, stop a process tree.
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { basename, dirname } from "node:path";
 import { log } from "./log.ts";
 
 const WIN = process.platform === "win32";
@@ -100,4 +101,12 @@ export function openExternal(target: string): void {
   // explorer exits with 1 even when it worked: only the others' exit codes mean anything.
   if (!WIN) child.on("exit", (code) => code && failed(`${cmd} exited with code ${code}`));
   child.unref();
+}
+
+/** Unpack *archive* (a .tar.gz, or a .zip: Windows' tar reads both) into the folder it is in, with
+ * *args* (member names, --strip-components). tar runs in that folder on the file's bare name: GNU tar
+ * on Windows reads "C:" in a path as a remote host. Throws with tar's output when it fails. */
+export async function untar(archive: string, args: string[] = [], timeoutMs = 60_000): Promise<void> {
+  const { code, output } = await run("tar", ["-xf", basename(archive), ...args], { cwd: dirname(archive), timeoutMs });
+  if (code !== 0) throw new Error(`Unpacking ${basename(archive)} failed: ${output.trim()}`);
 }

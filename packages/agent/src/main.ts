@@ -7,7 +7,7 @@
 // unpaired, either way: paired, its tray is the sign it runs); exit code
 // RESTART_EXIT_CODE asks it to start us again at once (into a newer bundle), 0 to stay stopped.
 
-import { agentInstance, setPartSuffix, listen, log, logTo, Machine, machineTray, openExternal, paths, type Paths, type TrayLook, type WebFiles } from "@comfy-gen/local";
+import { agentInstance, setPartSuffix, listen, log, logTo, Machine, machineTray, openExternal, paths, selfRequest, type Paths, type TrayLook, type WebFiles } from "@comfy-gen/local";
 import { AgentApp } from "./app.ts";
 import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts";
 import { agentHandler } from "./handlers.ts";
@@ -81,7 +81,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     settingsNote: `${settingsUrl} on your PC (the Comfy-Gen tray icon opens it)`,
     // The Worker's page, managing this PC: a call of this page's own API, as if made here.
     page: async (method, path, body) => {
-      const resp = await app.handle(new Request(`${settingsUrl}api${path}`, { method, body, headers: { host: `127.0.0.1:${cfg.port}`, "Content-Type": "application/json" } }), "127.0.0.1");
+      const resp = await app.handle(selfRequest(cfg.port, `/api${path}`, { method, body }), "127.0.0.1");
       return [resp.status, await resp.text()];
     },
   });

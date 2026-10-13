@@ -63,20 +63,3 @@ export function withUserAgent(fetch: Fetch): Fetch {
   return (url, init = {}) => fetch(url, { ...init, headers: { "User-Agent": USER_AGENT, ...(init.headers as Record<string, string>) } });
 }
 
-export function json(data: unknown, status = 200, headers: Record<string, string> = {}): Response {
-  return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json", ...headers } });
-}
-
-export function error(status: number, message: string): Response {
-  return json({ error: message }, status);
-}
-
-/** The request body as a JSON object, or {} if it isn't one. */
-export async function bodyJson(req: Request): Promise<Record<string, any>> {
-  try {
-    const data = JSON.parse((await req.text()) || "{}");
-    return data && typeof data === "object" && !Array.isArray(data) ? data : {};
-  } catch {
-    return {};
-  }
-}
