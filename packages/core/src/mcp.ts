@@ -9,10 +9,14 @@
 export const PROTOCOL_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 
 export type Content = Record<string, any>;
-/** (tool name, arguments) -> [content blocks, isError, structuredContent if any]. Throw UnknownTool
- * for a tool not served. The structured value is for scripted callers (design §3, Scripted callers); without it the
- * result is content alone. */
+/** (tool name, arguments) -> [content blocks, isError, a result for scripted callers if any].
+ * Throw UnknownTool for a tool not served. */
 export type ToolCall = (name: string, args: Record<string, any>) => Promise<[Content[], boolean, Record<string, any>?]>;
+
+/** Where a scripted caller's result goes: the result's `_meta`, which clients don't show the model
+ * (design §3, Scripted callers). Not `structuredContent`: Claude Code shows that to the model in
+ * place of the text blocks (seen 2026-10-13). */
+export const RESULT_META = "comfy-gen/result";
 
 export class UnknownTool extends Error {
   name = "UnknownTool";
@@ -63,7 +67,7 @@ export class McpHandler {
         const err = e as Error;
         [content, isError] = [[{ type: "text", text: `Tool failed: ${err?.name ?? "Error"}: ${err?.message ?? e}` }], true];
       }
-      return [200, result(id, JSON.stringify(structured ? { content, structuredContent: structured, isError } : { content, isError }))];
+      return [200, result(id, JSON.stringify(structured ? { content, isError, _meta: { [RESULT_META]: structured } } : { content, isError }))];
     }
     if (method === "tools/list") return [200, result(id, this.toolsJson)];
     if (method === "ping") return [200, result(id, "{}")];

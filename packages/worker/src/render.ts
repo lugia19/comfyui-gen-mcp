@@ -1,8 +1,8 @@
 // Brain outcomes to MCP content: each image inline, followed by a text block with its id (for
 // edits) and a link. The inline WebP is also what is stored in R2 under that id.
 //
-// Each result also carries a structured value for scripted callers (design §3, Scripted callers),
-// one of {status:"done", images:[{image_id, url, width, height}]}, {status:"pending",
+// Each result also carries a value for scripted callers in its _meta (RESULT_META; design §3,
+// Scripted callers), one of {status:"done", images:[{image_id, url, width, height}]}, {status:"pending",
 // request_token} or {status:"error", message, retryable}. The content is what Claude reads.
 
 import { ComfyUIError, imageBlock, imageSize, previewImage, textBlock, type ComfyUIClient, type Content, type Outcome } from "@comfy-gen/core";

@@ -574,4 +574,7 @@ blocks are unchanged.
   "is downloading" counts, its "can't be downloaded" doesn't.
 - **`GET /mcp/<secret>/loras`.**
 
+A live run on v1.12.0 showed Claude Code giving `structuredContent` to the model in place of the
+text blocks, so the value moved to `_meta["comfy-gen/result"]` (v1.12.1).
+
 Part B, in Visual Novelist, comes later.

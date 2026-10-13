@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { roundHalfEven } from "../src/bytes.ts";
 import { Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pending, type ResolvedImage } from "../src/brain.ts";
 import { ComfyUIError, STILL_STARTING } from "../src/comfyui.ts";
-import { McpHandler, PROTOCOL_VERSIONS, UnknownTool, type ToolCall } from "../src/mcp.ts";
+import { McpHandler, PROTOCOL_VERSIONS, RESULT_META, UnknownTool, type ToolCall } from "../src/mcp.ts";
 import { builtinPacks, type Pack } from "../src/packs.ts";
 import { toolSpecs } from "../src/tools.ts";
 import { normalize } from "../src/config.ts";
@@ -214,9 +214,9 @@ describe("mcp", () => {
     expect(r.result.tools).toEqual(TOOLS);
     [, r] = await rpc("tools/call", { name: "echo", arguments: { x: "hi" } });
     expect(r.result).toEqual({ content: [{ type: "text", text: "hi" }], isError: false });
-    // A structured value rides along when the tool gives one, and only then.
+    // A scripted caller's result rides in _meta when the tool gives one, and only then.
     [, r] = await rpc("tools/call", { name: "structured" });
-    expect(r.result).toEqual({ content: [{ type: "text", text: "t" }], structuredContent: { status: "done" }, isError: false });
+    expect(r.result).toEqual({ content: [{ type: "text", text: "t" }], isError: false, _meta: { [RESULT_META]: { status: "done" } } });
   });
 
   it("an unknown tool is a protocol error, a crash is a tool error", async () => {
