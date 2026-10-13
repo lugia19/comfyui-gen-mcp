@@ -43,6 +43,32 @@ describe("MCP", () => {
     expect((await app.handle(request("POST", "/mcp/wrong", {}))).status).toBe(404);
     const s = await secretsOf(app);
     expect((await app.handle(request("GET", `/mcp/${s.mcp_secret}`))).status).toBe(405);
+    expect((await app.handle(request("POST", `/mcp/${s.mcp_secret}/`, { jsonrpc: "2.0", id: 1, method: "ping" }))).status).toBe(200);
+    expect((await app.handle(request("POST", `/mcp/${s.mcp_secret}/other`, {}))).status).toBe(404);
+  });
+
+  it("lists the illustrated tool's switched-on LoRAs for scripted callers, behind the same secret", async () => {
+    const { app } = world();
+    const s = await secretsOf(app);
+    const loras = (secret: string, method = "GET") => app.handle(request(method, `/mcp/${secret}/loras`));
+    expect((await loras("wrong")).status).toBe(404);
+    expect((await loras(s.mcp_secret, "POST")).status).toBe(405);
+    expect(await body(await loras(s.mcp_secret))).toEqual({ loras: [] });
+    await app.store.saveConfig({
+      pack_loras: {
+        anima: [
+          { name: "ink.safetensors", trigger: "@ink", strength: 0.8 },
+          { name: "secret.safetensors", trigger: "@s", hidden: true },
+          { name: "off.safetensors", trigger: "@off", enabled: false },
+        ],
+      },
+    });
+    expect(await body(await loras(s.mcp_secret))).toEqual({
+      loras: [
+        { name: "ink.safetensors", trigger: "@ink", strength: 0.8, hidden: false },
+        { name: "secret.safetensors", trigger: "@s", strength: 1, hidden: true },
+      ],
+    });
   });
 
   it("tools/list is in refs mode", async () => {

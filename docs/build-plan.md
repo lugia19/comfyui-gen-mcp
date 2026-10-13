@@ -560,3 +560,18 @@ import nothing measurable. Tests: sealed round trip through generate, `/img`, HE
 uploads; off again; a fixed sealed object (the format); a changed or moved file; a stale isolate;
 no storage. Checked in Chromium on a test world.
 
+## Visual Novelist on the Worker, part A (2026-10-13)
+
+Visual Novelist will send its images to the user's Worker, as plain `tools/call` POSTs to the
+connector URL, instead of running its own ComfyUI and Modal. What it needs from here (design §3,
+Scripted callers), none of it visible to Claude: the tool list is byte-identical and the content
+blocks are unchanged.
+
+- **A hidden `negative`:** Anima's node 12 is now titled `cg:negative`.
+- **Exact "WxH":** 832x1216 stays 832x1216, not scaled up to the 1536² budget. Sides under 256
+  ("16x9") are still only a shape. The golden "1024x768" rows moved with it.
+- **`structuredContent` with a `retryable` flag.** `ComfyUIError` carries the flag; the agent's
+  "is downloading" counts, its "can't be downloaded" doesn't.
+- **`GET /mcp/<secret>/loras`.**
+
+Part B, in Visual Novelist, comes later.

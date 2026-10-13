@@ -242,6 +242,28 @@ Python, where the official MCP SDK cost about 2 s of CPU per fresh isolate (S1);
 is small, proven with claude.ai, and costs nothing. The Worker and the MCPB's local server both use
 it; the MCPB's stdio shim may use the official TypeScript SDK.
 
+### Scripted callers
+
+Apps can call the connector URL too: plain JSON-RPC `tools/call` POSTs, as Visual Novelist does
+for every image it makes. They get a few things Claude doesn't see, so Claude's tool list and
+results stay as they are:
+
+- **Hidden arguments** on the generate tools, absent from the schemas and descriptions:
+  - `aspect_ratio` as `"WxH"` is that exact size when it fits the pack's budget (sides of 256 or
+    more, rounded to multiples of 64), and otherwise only the shape.
+  - `negative` replaces the text of the pack's `cg:negative` node (Anima's). Packs without one
+    ignore it.
+- **`structuredContent`** on every Worker result, beside the unchanged content blocks:
+  - `{status: "done", images: [{image_id, url, width, height}]}`
+  - `{status: "pending", request_token}`
+  - `{status: "error", message, retryable}`
+
+  `retryable` means the same call should work later with no one doing anything (a cold start, a
+  model downloading, a GPU restarted mid-image). Offline, paused, unset-up and bad arguments are
+  not. A tool that crashed has `isError` and no structured value. The MCPB doesn't add it.
+- **`GET /mcp/<secret>/loras`**, behind the same secret: `{loras: [{name, trigger, strength,
+  hidden}]}`. These are the switched-on LoRAs of the pack the illustrated tool uses, or `[]`.
+
 ### Waiting
 
 `tools/call` blocks up to 2.5 minutes, returning the image directly. claude.ai's MCP client

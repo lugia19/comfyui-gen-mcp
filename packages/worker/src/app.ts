@@ -6,7 +6,7 @@
 
 import {
   Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, SETTINGS_SCHEMA, UnknownTool,
-  builtinPacks, downloadSize, fromHex, fromUtf8, groupByTool, packMetadata, refs, relay, select, sniffMime, tokenHex, tokenUrlsafe, safeEqual,
+  builtinPacks, downloadSize, fromHex, fromUtf8, groupByTool, packLoras, packMetadata, refs, relay, select, sniffMime, tokenHex, tokenUrlsafe, safeEqual,
   withoutLora, LORA_GROUPS, loraGroupMetadata, tagLoras, tagLooseLoras, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
@@ -351,9 +351,23 @@ export class App {
 
   // ── MCP ───────────────────────────────────────────────────────────
 
-  private async mcp(req: Request, url: URL, secret: string): Promise<Response> {
+  /** The switched-on LoRAs of the illustrated tool's pack, for a scripted caller to suggest their
+   * triggers (design §3, Scripted callers). Claude reads the visible ones in the tool description. */
+  private async mcpLoras(req: Request): Promise<Response> {
+    if (req.method !== "GET") return new Response(null, { status: 405, headers: { Allow: "GET" } });
+    const cfg = await this.store.config();
+    const pack = selectedPacks(cfg).find((p) => p.tool_name === "generate_illustrated_image");
+    const list = pack ? packLoras(pack, cfg) : [];
+    return json({ loras: list.map(({ name, trigger, strength, hidden }) => ({ name, trigger, strength, hidden })) });
+  }
+
+  /** /mcp/<secret>: the MCP endpoint; /mcp/<secret>/loras: its LoRA list. */
+  private async mcp(req: Request, url: URL, rest: string): Promise<Response> {
     const s = await this.store.secrets();
-    if (!safeEqual(secret.replace(/^\/+|\/+$/g, ""), s.mcp_secret)) return error(404, "not found");
+    const [secret, sub] = rest.replace(/^\/+|\/+$/g, "").split(/\/(.*)/s);
+    if (!safeEqual(secret, s.mcp_secret)) return error(404, "not found");
+    if (sub === "loras") return this.mcpLoras(req);
+    if (sub !== undefined) return error(404, "not found");
     if (req.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
     const cfg = await this.store.config(); // one config for every GPU: Claude sees one tool list
     const specs = new Brain(PACKS, cfg, null as unknown as ComfyUIClient, "refs").specs;
