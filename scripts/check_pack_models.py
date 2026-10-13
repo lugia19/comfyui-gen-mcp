@@ -9,6 +9,7 @@ import glob
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -21,12 +22,19 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def head(url: str):
+    """(status, headers) of the file's redirect. A refusal (429, 5xx: CI runners share their IPs and
+    get rate limited) is asked again a few times."""
     opener = urllib.request.build_opener(NoRedirect)
     req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "comfy-gen-ci"})
-    try:
-        return opener.open(req, timeout=60).headers
-    except urllib.error.HTTPError as e:
-        return e.headers
+    for attempt in range(4):
+        try:
+            resp = opener.open(req, timeout=60)
+            status, headers = resp.status, resp.headers
+        except urllib.error.HTTPError as e:
+            status, headers = e.code, e.headers
+        if headers.get("x-linked-size") or not (status == 429 or status >= 500) or attempt == 3:
+            return status, headers
+        time.sleep(2 ** (attempt + 1))
 
 
 def main() -> int:
@@ -36,14 +44,16 @@ def main() -> int:
             continue
         for m in json.load(open(path))["models"]:
             if m["url"] not in seen:
-                h = head(m["url"])
-                seen[m["url"]] = (int(h.get("x-linked-size") or h.get("content-length") or 0),
-                                  (h.get("x-linked-etag") or "").strip('"'))
-            size, sha = seen[m["url"]]
+                status, h = head(m["url"])
+                # Not the file's redirect (no x-linked-size): say what came back, not a size mismatch.
+                seen[m["url"]] = (int(h.get("x-linked-size") or 0), (h.get("x-linked-etag") or "").strip('"'), status)
+            size, sha, status = seen[m["url"]]
             problems = []
-            if size != m.get("size_bytes"):
+            if not size:
+                problems.append(f"HTTP {status} without the file's headers (refused, or a wrong URL)")
+            elif size != m.get("size_bytes"):
                 problems.append(f"size {m.get('size_bytes')} != {size}")
-            if m.get("sha256") and sha != m["sha256"]:
+            if size and m.get("sha256") and sha != m["sha256"]:
                 problems.append(f"sha256 {m['sha256'][:12]}… != {sha[:12]}…")
             if problems:
                 bad += 1
