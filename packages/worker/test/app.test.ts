@@ -764,6 +764,23 @@ describe("updates", () => {
     expect((await app.handle(request("POST", "/api/update"))).status).toBe(401); // cookie required
   });
 
+  it("a release seen once stays offered while GitHub's caches catch up", async () => {
+    const { app, net, env, clock } = world();
+    env.VERSION = "v1.0.0";
+    const cookie = await login(app);
+    const get = async () => body(await app.handle(request("GET", "/api/update", undefined, cookie)));
+    net.latestRelease = "v1.1.0";
+    expect(await get()).toMatchObject({ latest: "v1.1.0", newer: true });
+    net.latestRelease = "v1.0.0"; // a cache still on the old release
+    expect(await get()).toMatchObject({ latest: "v1.1.0", newer: true });
+    net.latestRelease = null;
+    expect(await get()).toMatchObject({ latest: "v1.1.0", newer: true });
+    expect(await body(await app.handle(request("POST", "/api/update", undefined, cookie)))).toMatchObject({ latest: "v1.1.0" });
+    clock.t += 3601; // an hour on, GitHub's answer stands (a release deleted after it was seen)
+    net.latestRelease = "v1.0.0";
+    expect(await get()).toMatchObject({ latest: "v1.0.0", newer: false });
+  });
+
   it("parseVersion", () => {
     expect(updates.parseVersion("v1.2.3")).toEqual([1, 2, 3]);
     expect(updates.parseVersion("dev")).toBeNull();

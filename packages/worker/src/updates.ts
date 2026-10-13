@@ -30,6 +30,21 @@ export async function latestRelease(fetch: Fetch): Promise<string | null> {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
+// Right after a release, GitHub's caches disagree for a few minutes: some answer the new tag, some
+// still the old one, and a Worker's requests go out through many IPs. Seen 2026-10-13: the page
+// showed "Update to v1.12.0", and a reload hid it again.
+const SEEN_FOR_S = 3600;
+export type Seen = { tag: string; at: number };
+
+/** The latest release for the settings page: GitHub's answer, unless a newer one was seen within
+ * the last hour (*seen*). Also what to remember, or null when nothing changes. Only an hour, so a
+ * release deleted after it was seen stops being offered. */
+export function steadyLatest(fetched: string | null, seen: Seen | null, now: number): [string | null, Seen | null] {
+  if (seen && now - seen.at < SEEN_FOR_S && (!fetched || isNewer(seen.tag, fetched))) return [seen.tag, null];
+  if (!fetched || (seen && seen.tag === fetched && now - seen.at < SEEN_FOR_S)) return [fetched, null];
+  return [fetched, { tag: fetched, at: now }];
+}
+
 /** Start a build now, which deploys *latest* (the Worker, and the Modal app if set up). Recorded as
  * the current build, so the setup page shows its log. Throws CloudflareError. */
 export async function startUpdate(fetch: Fetch, store: Store, latest: string): Promise<string> {

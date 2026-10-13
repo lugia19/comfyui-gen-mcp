@@ -586,10 +586,11 @@ export class App {
    * the build that deploys the latest now, as the daily check would (without waiting for it).
    */
   private async update(req: Request, s: Secrets): Promise<Response> {
-    const latest = await updates.latestRelease(this.fetch);
+    const setup = await this.fresh.setup();
+    const [latest, seen] = updates.steadyLatest(await updates.latestRelease(this.fetch), setup.latest_seen ?? null, this.p.now());
+    if (seen) await this.fresh.updateSetup({ latest_seen: seen });
     const can = Boolean(s.cf_token && s.cf_trigger);
     if (req.method === "GET") {
-      const setup = await this.fresh.setup();
       const build = setup.update_build ?? null;
       // In progress only while Cloudflare says so: a finished update build must not hide the button
       // for the next release (seen in v1.3.7). Once seen stopped it is recorded with its outcome

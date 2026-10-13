@@ -621,6 +621,10 @@ result, pick the GPU and install ComfyUI (or keep the old extension's). No accou
   (`GET /api/update`: `building`, and once stopped the `outcome` Cloudflare gave): **Updating…**,
   then **Reload for vX** or **Update failed** (the panel offers Try again and the log). The
   version's tooltip says when it is the latest; a development build says it doesn't update.
+  For the first minutes after a release, GitHub's caches don't all agree, so a reload could hide
+  the button again (2026-10-13). The Worker therefore keeps offering a release it has seen for an
+  hour (`latest_seen` in the setup state, `updates.steadyLatest`), even when a later answer is
+  older.
 - **Agent:** the launcher's shim loads the latest release's bundle, checking daily while
   the agent runs, and the agent restarts into a new one when idle (§2). The launcher changes only
   with a new Node; it is downloaded again by hand.
