@@ -578,3 +578,36 @@ A live run on v1.12.0 showed Claude Code giving `structuredContent` to the model
 text blocks, so the value moved to `_meta["comfy-gen/result"]` (v1.12.1).
 
 Part B, in Visual Novelist, comes later.
+
+## One copy of each thing (2026-10-13)
+
+A read-only audit (old-version shims, duplication across packages, dead code) found no dead
+subsystem: nearly every line was in use. Six commits then made each piece of logic exist once.
+Behaviour for current installs is unchanged except where noted.
+
+- **Shims removed:**
+  - the GPU-list conversion from `generator`/`agent_secret`, and the old-agent refusal mapping;
+  - `:lossless`, the removed config keys, and the old LoRA entry shapes;
+  - the MCPB's start-up LoRA tagging, the reinstall-kept restore, the old extension's nested
+    layout, and the launcher-pid fallback;
+  - bare `fetch_result` tokens, which now answer "no such request";
+  - guessing the setup answer from the GPUs: an install that never stored one is asked once.
+- **Dead code removed:** routes and ops nothing called, the always-empty `notes`, unused fields
+  and parameters, and stale comments.
+- **Merged into one copy:**
+  - tool results: core `renderOutcome`/`failResult`, for the Worker and the MCPB, which now also
+    carries `_meta`;
+  - an edit's input image (`uploadInput`), and `FetchTransport` with a live base URL;
+  - LoRA uploads: core `lora-upload.ts`, the server-side rules plus one sender for the page and
+    the agent;
+  - JSON helpers, the local settings-page skeleton, and `McpHandler.respond`;
+  - `untar`, which runs in the archive's folder (fixing uv and ComfyUI unpacking for GNU tar on
+    Windows);
+  - small Worker helpers: `packNeeds`, `settingsMetadata`, `packRow`, `wantedLoras`;
+  - the Modal app's one `download()`;
+  - in the web app, `Task`/`Copy`/`masked`, `ModelState`, and shared CSS.
+
+The test world's R2 now answers each part with its MD5, as R2 does. Local `wrangler dev` (miniflare)
+answers with an opaque token instead, so a chunked LoRA upload can't complete there. A LoRA upload
+is checked on a deployed Worker.
+
