@@ -408,9 +408,10 @@ it is the user's.
 **R2 is the hub** (2026-10-01). On a Worker an upload goes into R2 as `lora/<name>` (never
 expiring), and every GPU copies from there: Modal's Volume through its admin API, a PC through the
 agent's sync (§9). The extension's upload goes into this computer's LoRAs folder. Both speak one
-chunked protocol (`web/src/lib/upload.js`): open a session, PUT chunks, each answered with its MD5
-(R2's ETag for a multipart part, or the extension's own), which the page compares with its own, then
-finish with the list of parts. Delete removes a LoRA from R2 and every GPU, and records the name as
+chunked protocol (`packages/core` `lora-upload.ts`: the name and chunk rules both servers check, and
+the one sender the page and the agent's push use): open a session, PUT chunks, each answered with its
+MD5 (R2's ETag for a multipart part, or the extension's own), which the sender compares with its own,
+then finish with the list of parts. Delete removes a LoRA from R2 and every GPU, and records the name as
 deleted so a PC that was offline drops its copy at its next sync instead of pushing it back.
 
 A LoRA a model is set to use is ours too (2026-10-01, the extension's upgrade from v1.2.0): the

@@ -1,13 +1,14 @@
-// MD5 of bytes, as hex: R2 answers each uploaded chunk with its MD5 (the part's ETag), and the page
-// compares it with its own. WebCrypto has no MD5, hence this (RFC 1321). About 100 MB/s: a few
-// tens of ms per 8 MiB chunk.
+// MD5 of bytes, as hex: R2 answers each uploaded LoRA chunk with its MD5 (the part's ETag), and the
+// uploader compares it with its own (lora-upload.ts). WebCrypto has no MD5, hence this (RFC 1321),
+// for the browser; Node uploaders pass their own. About 100 MB/s: a few tens of ms per 8 MiB chunk.
+// Never on the Worker's request path: it loops over every byte (CLAUDE.md, CPU budget).
 
 const S = [7, 12, 17, 22, 5, 9, 14, 20, 4, 11, 16, 23, 6, 10, 15, 21]
 const K = new Int32Array(64)
 for (let i = 0; i < 64; i++) K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 2 ** 32) | 0
 
-/** The MD5 of *bytes* (a Uint8Array or ArrayBuffer), lowercase hex. */
-export function md5(bytes) {
+/** The MD5 of *bytes*, lowercase hex. */
+export function md5(bytes: Uint8Array | ArrayBuffer): string {
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
   const n = data.length
   const padded = new Uint8Array(((n + 8) >> 6) * 64 + 64)
@@ -22,7 +23,7 @@ export function md5(bytes) {
     for (let j = 0; j < 16; j++) M[j] = view.getInt32(off + j * 4, true)
     let a = a0, b = b0, c = c0, d = d0
     for (let i = 0; i < 64; i++) {
-      let f, g
+      let f: number, g: number
       if (i < 16) (f = (b & c) | (~b & d)), (g = i)
       else if (i < 32) (f = (d & b) | (~d & c)), (g = (5 * i + 1) & 15)
       else if (i < 48) (f = b ^ c ^ d), (g = (3 * i + 5) & 15)

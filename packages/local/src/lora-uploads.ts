@@ -11,30 +11,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { checkUpload, chunkLength, chunksMissing, isLoraName, UploadError, validLoraName } from "@comfy-gen/core";
 import { writeFileAtomic } from "./config.ts";
 
 export const LORA_CHUNK_SIZE = 4 << 20; // relayed through the Worker: well under its request limits
-const MAX_SIZE = 2 * 1024 ** 3; // not 2 << 30: that overflows to a negative 32-bit number
 const SESSION_MS = 24 * 3600 * 1000;
-// The same rule as the Modal app's (comfy_gen_modal/uploads.py).
-const LORA_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._()\-]{0,150}\.safetensors$/;
-
-export class UploadError extends Error {
-  name = "UploadError";
-  status: number;
-
-  constructor(message: string, status = 400) {
-    super(message);
-    this.status = status;
-  }
-}
-
-export function validLoraName(name: unknown): string {
-  if (typeof name !== "string" || !LORA_NAME.test(name) || name.includes("..")) {
-    throw new UploadError(`LoRA files must be .safetensors with a plain name: ${JSON.stringify(name)}`);
-  }
-  return name;
-}
 
 /** The LoRAs that are ours: names in a JSON file, files in *dir* (where uploads go) or, for ones
  * configured before the registry existed, in another LoRA folder ComfyUI reads (*others*). */
@@ -62,7 +43,7 @@ export class LoraRegistry {
    * before the registry, or a hand edit) are ours by definition. Returns the newly adopted. */
   adopt(names: string[]): string[] {
     const have = new Set(this.names());
-    const found = [...new Set(names)].filter((n) => !have.has(n) && LORA_NAME.test(n) && !n.includes("..") && this.find(n));
+    const found = [...new Set(names)].filter((n) => !have.has(n) && isLoraName(n) && this.find(n));
     if (found.length) this.save([...have, ...found]);
     return found;
   }
@@ -187,13 +168,10 @@ export class LoraUploads {
   }
 
   start(filename: unknown, size: unknown): { id: string; chunk_size: number; chunks: number } {
-    const name = validLoraName(filename);
-    if (typeof size !== "number" || !Number.isInteger(size) || size <= 0 || size > MAX_SIZE) {
-      throw new UploadError(`size must be 1 byte to 2 GB`);
-    }
+    const { name, chunks } = checkUpload(filename, size, LORA_CHUNK_SIZE);
     for (const [id, s] of this.sessions) if (s.expires < Date.now()) this.sessions.delete(id);
     const s: Session = {
-      id: randomBytes(32).toString("base64url"), filename: name, size, chunks: Math.ceil(size / LORA_CHUNK_SIZE),
+      id: randomBytes(32).toString("base64url"), filename: name, size: size as number, chunks,
       received: new Set(), state: "uploading", expires: Date.now() + SESSION_MS,
     };
     mkdirSync(this.dir(), { recursive: true });
@@ -207,8 +185,7 @@ export class LoraUploads {
   async chunk(id: string, index: number, data: Uint8Array): Promise<{ index: number; etag: string }> {
     const s = this.session(id);
     if (s.state !== "uploading") throw new UploadError(`upload is ${s.state}`, 409);
-    if (!Number.isInteger(index) || index < 0 || index >= s.chunks) throw new UploadError(`chunk ${index} out of range (0 to ${s.chunks - 1})`);
-    const expected = Math.min(LORA_CHUNK_SIZE, s.size - index * LORA_CHUNK_SIZE);
+    const expected = chunkLength(s.size, LORA_CHUNK_SIZE, index);
     if (data.length !== expected) throw new UploadError(`chunk ${index} has ${data.length} bytes, expected ${expected}`);
     const fh = await open(this.part(s), "r+");
     try {
@@ -224,7 +201,7 @@ export class LoraUploads {
     const s = this.session(id);
     if (s.state !== "uploading") return { state: s.state, name: s.filename };
     const missing = s.chunks - s.received.size;
-    if (missing) throw new UploadError(`${missing} chunk(s) still missing`, 409);
+    if (missing) throw chunksMissing(missing);
     renameSync(this.part(s), join(this.dir(), s.filename));
     this.registry.add(s.filename);
     s.state = "done";

@@ -5,13 +5,13 @@
 import { existsSync, statSync } from "node:fs";
 import { totalmem } from "node:os";
 import { join } from "node:path";
-import { ComfyUIError, downloadSize } from "@comfy-gen/core";
+import { ComfyUIError, downloadSize, UploadError } from "@comfy-gen/core";
 import { LocalComfy, type ComfySettings } from "./comfyui.ts";
 import { ModelDownloads, type ModelFile } from "./downloads.ts";
 import { bodyJson, error, json } from "./http.ts";
 import { detectGpu, GPUS, install, isGpu } from "./install.ts";
 import { log } from "./log.ts";
-import { LoraRegistry, LoraUploads, UploadError } from "./lora-uploads.ts";
+import { LoraRegistry, LoraUploads } from "./lora-uploads.ts";
 import type { Paths } from "./paths.ts";
 import { openExternal } from "./proc.ts";
 

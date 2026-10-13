@@ -13,3 +13,5 @@ export * from "./tools.ts";
 export * from "./mcp.ts";
 export * from "./brain.ts";
 export * from "./results.ts";
+export * from "./lora-upload.ts";
+export * from "./md5.ts";

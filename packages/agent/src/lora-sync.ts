@@ -8,10 +8,10 @@ import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { isLoraName, sendChunks } from "@comfy-gen/core";
 import { fetchFile, log, type Machine } from "@comfy-gen/local";
 import { AGENT_USER_AGENT } from "./relay-client.ts";
 
-const PARALLEL = 3;
 const RETRIES = 5;
 
 export type Push = { name: string; size: number; upload_url: string; chunk_size: number; chunks: number };
@@ -124,46 +124,34 @@ export class LoraSync {
     if (copied) this.again = true;
   }
 
-  /** Send a file to an upload in chunks, each checked against the MD5 R2 answers, then finish it. */
+  /** Send a file into an upload on the Worker (core's sender, as the settings page does). */
   private async push(p: Push, auth: Record<string, string>): Promise<void> {
     const path = this.o.machine.loraPaths()[p.name];
     if (!path) throw new Error("the file is no longer on this PC");
     const job = this.jobs[p.name];
-    const parts: { index: number; etag: string }[] = [];
     const fh = await open(path, "r");
     try {
-      let next = 0;
-      const worker = async () => {
-        while (next < p.chunks) {
-          const index = next++;
-          const length = Math.min(p.chunk_size, p.size - index * p.chunk_size);
+      await sendChunks(p, {
+        size: p.size,
+        read: async (offset, length) => {
           const buf = Buffer.alloc(length);
-          const { bytesRead } = await fh.read(buf, 0, length, index * p.chunk_size);
+          const { bytesRead } = await fh.read(buf, 0, length, offset);
           if (bytesRead !== length) throw new Error("the file changed while it was being sent");
-          const md5 = createHash("md5").update(buf).digest("hex");
-          for (let attempt = 0; ; attempt++) {
-            const { etag } = (await (await this.retrying(`${p.upload_url}/${index}`, { method: "PUT", headers: auth, body: buf })).json()) as { etag: string };
-            if (etag === md5) break;
-            if (attempt >= RETRIES) throw new Error(`chunk ${index} arrived damaged`);
-          }
-          parts.push({ index, etag: md5 });
-          job.done += length;
-        }
-      };
-      await Promise.all(Array.from({ length: Math.min(PARALLEL, p.chunks) }, worker));
+          return buf;
+        },
+        request: (url, init) => this.fetch(url, { ...init, headers: { ...(init.headers as Record<string, string>), ...auth, "User-Agent": AGENT_USER_AGENT } }),
+        onProgress: (sent) => (job.done = sent),
+        md5: (bytes) => createHash("md5").update(bytes).digest("hex"),
+        sleep: (ms) => this.sleep(ms),
+      });
     } finally {
       await fh.close();
     }
-    await this.retrying(`${p.upload_url}/finish`, {
-      method: "POST",
-      headers: { ...auth, "Content-Type": "application/json" },
-      body: JSON.stringify({ parts }),
-    });
   }
 
   /** Download a file into our LoRA folder, resuming when a request is cut off. */
   private async pull(p: Pull): Promise<void> {
-    if (basename(p.name) !== p.name || !p.name.endsWith(".safetensors")) throw new Error("not a plain LoRA file name");
+    if (!isLoraName(p.name)) throw new Error("not a plain LoRA file name");
     const job = this.jobs[p.name];
     const dest = join(this.o.machine.lorasDir, p.name);
     for (let attempt = 0; ; attempt++) {
@@ -179,25 +167,6 @@ export class LoraSync {
         if (attempt >= RETRIES || /HTTP 4\d\d/.test((e as Error).message)) throw e;
         await this.sleep(1000 * 2 ** attempt);
       }
-    }
-  }
-
-  /** A request to the Worker, retried on network errors and 5xx; a 4xx other than a timeout is final. */
-  private async retrying(url: string, init: RequestInit): Promise<Response> {
-    for (let attempt = 0; ; attempt++) {
-      let message: string;
-      let fatal = false;
-      try {
-        const resp = await this.fetch(url, { ...init, headers: { ...(init.headers as Record<string, string>), "User-Agent": AGENT_USER_AGENT } });
-        if (resp.ok) return resp;
-        const body = (await resp.json().catch(() => ({}))) as { error?: string };
-        message = body.error || `HTTP ${resp.status}`;
-        fatal = resp.status >= 400 && resp.status < 500 && resp.status !== 408 && resp.status !== 429;
-      } catch (e) {
-        message = (e as Error).message;
-      }
-      if (fatal || attempt >= RETRIES) throw new Error(message);
-      await this.sleep(1000 * 2 ** attempt);
     }
   }
 }

@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { LORA_CHUNK_SIZE, LoraRegistry, LoraUploads, UploadError } from "../src/lora-uploads.ts";
+import { UploadError } from "@comfy-gen/core";
+import { LORA_CHUNK_SIZE, LoraRegistry, LoraUploads } from "../src/lora-uploads.ts";
 
 const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 

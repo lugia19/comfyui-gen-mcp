@@ -5,7 +5,7 @@
 // isolate cache. Each fetch to ComfyUI costs CPU, so the client backs off its polls.
 
 import {
-  Brain, ComfyUIClient, failResult, renderOutcome, ComfyUIError, FetchTransport, McpHandler, SETTINGS_SCHEMA, UnknownTool,
+  Brain, ComfyUIClient, failResult, renderOutcome, UploadError, ComfyUIError, FetchTransport, McpHandler, SETTINGS_SCHEMA, UnknownTool,
   builtinPacks, downloadSize, fromHex, fromUtf8, groupByTool, packLoras, packMetadata, refs, relay, select, sniffMime, tokenHex, tokenUrlsafe, safeEqual,
   withoutLora, LORA_GROUPS, loraGroupMetadata, tagLoras, tagLooseLoras, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
@@ -198,7 +198,7 @@ export class App {
         const session = await uploads.start(name, size);
         plan.push.push({ name, size, upload_url: `${url.origin}/agent/loras/uploads/${session.id}`, chunk_size: session.chunk_size, chunks: session.chunks });
       } catch (e) {
-        if (!(e instanceof loras.LoraError)) throw e;
+        if (!(e instanceof UploadError)) throw e;
         plan.errors.push(`${name}: ${e.message}`);
       }
     }
@@ -855,7 +855,7 @@ export class App {
       }
       if (m && m[2] !== undefined && m[2] !== "finish" && req.method === "PUT") return json(await uploads.chunk(m[1], Number(m[2]), req));
     } catch (e) {
-      if (e instanceof loras.LoraError) return error(e.status, e.message);
+      if (e instanceof UploadError) return error(e.status, e.message);
       throw e;
     }
     return error(404, "not found");

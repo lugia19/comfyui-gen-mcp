@@ -4,7 +4,8 @@
 import { readFile } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { ComfyUIError, type relay } from "@comfy-gen/core";
-import { log, UploadError, type Machine, type PackNeeds } from "@comfy-gen/local";
+import { UploadError } from "@comfy-gen/core";
+import { log, type Machine, type PackNeeds } from "@comfy-gen/local";
 import type { SyncJob } from "./lora-sync.ts";
 import type { Reply } from "./relay-client.ts";
 
