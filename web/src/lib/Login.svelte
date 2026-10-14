@@ -78,7 +78,7 @@
     <li><OpenButton href={TOKEN_TEMPLATE_URL} label="Open Cloudflare's token page" /><br />Everything is filled in there.</li>
     <li>
       <Tour ids={['cf-token']} bind:shot>
-        Click <b>Continue to summary</b>, then <b>Create Token</b>, and copy the token. (If your Cloudflare login also has
+        Click <b>Continue to summary</b>, then <b>Create Token</b>, and copy the token: you can close Cloudflare's tab then. (If your Cloudflare login also has
         other accounts, an employer's say, first change <b>All accounts</b> to your own.)
       </Tour>
     </li>

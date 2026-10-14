@@ -275,7 +275,7 @@
           </Tour>
         </li>
         <li>
-          Come back to this tab: it checks by itself (about a minute) and moves on.
+          Close Cloudflare's tab and come back to this one: it checks by itself (about a minute) and moves on.
           <div class="row">
             <button class="secondary" onclick={checkStorage} disabled={storageChecking}>
               {storageTask.busy ? 'Starting…' : storageChecking ? 'Checking…' : 'Check now'}
@@ -370,7 +370,7 @@
           <ol class="steps">
             <li><OpenButton href={MODAL_BILLING} label="Add a card in Modal" onopen={() => (billingOpened = true)} /></li>
             <li>Click <b>Manage payment details</b> and add the card.</li>
-            <li>Come back to this tab: it tries again by itself.
+            <li>Close Modal's tab and come back to this one: it tries again by itself.
               <div class="row"><button class="secondary" onclick={() => deploy(false)} disabled={buildTask.busy}>{buildTask.busy ? 'Starting…' : 'Try again now'}</button></div>
             </li>
           </ol>
@@ -393,7 +393,7 @@
         <li>
           <OpenButton href={MODAL_TOKENS} label="Open Modal's API tokens" /><br />
           <Tour ids={['modal-token']} mode="wizard">
-            Click <b>New Token</b>, then <b>Create token</b>, and copy the command Modal shows.
+            Click <b>New Token</b>, then <b>Create token</b>, and copy the command Modal shows. You can close Modal's tab then.
           </Tour>
         </li>
         <li>
@@ -439,6 +439,7 @@
       <li>
         <OpenButton href={addConnector} label="Add to claude.ai" /><br />
         It opens claude.ai's <b>Add custom connector</b> with everything filled in: click <b>Add</b>, then <b>Connect</b>.
+        Keep claude.ai open: the next step is there.
       </li>
       <li>
         <Tour ids={['claude-chat']} mode="wizard">

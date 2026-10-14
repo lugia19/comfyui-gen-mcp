@@ -155,7 +155,7 @@
     <Checklist items={checklist} done="Ask Claude for an image, on claude.ai or the phone app: it is made on this PC." />
     <LocalSetup {info} {refresh} />
   {:else if agent}
-    <Checklist items={checklist} done="Ask Claude for an image, on claude.ai or the phone app: it is made on this PC." />
+    <Checklist items={checklist} done="Ask Claude for an image, on claude.ai or the phone app: it is made on this PC. You can close this page: the agent keeps running, with its icon in the tray." />
     <AgentWorker {info} {refresh} />
     {#if info.worker.state === 'connected' && info.comfyui.state !== 'not_installed'}
       <!-- Managed from the Worker's page now (Setup, Set up your PC, Manage ComfyUI); kept here for when
@@ -173,7 +173,7 @@
     {/if}
     {#if tab === 'setup'}
       {#if local}
-        <Checklist items={checklist} done="Ask Claude Desktop for an image." />
+        <Checklist items={checklist} done="Ask Claude Desktop for an image. You can close this page: the tray icon opens it again." />
         <LocalSetup {info} {refresh} />
       {:else}<Setup {info} {refresh} onsettings={hasSettings ? openSettings : null} />{/if}
     {:else}

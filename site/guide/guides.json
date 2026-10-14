@@ -90,7 +90,7 @@
       "side": "left"
      },
      {
-      "html": "Click <b>Deploy</b>.",
+      "html": "Click <b>Deploy</b>. Keep that tab open: the next step happens there.",
       "box": [
        671,
        443,
@@ -134,7 +134,7 @@
     "alt": "The Worker's page in the Cloudflare dashboard, with its Visit button",
     "steps": [
      {
-      "html": "Click <b>Visit</b> (top right). That's your Worker, at <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>: bookmark it.",
+      "html": "Click <b>Visit</b> (top right). That's your Worker, at <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>: bookmark it. You can close the Cloudflare tab then.",
       "box": [
        914,
        71,
@@ -208,7 +208,7 @@
     "alt": "The new token, shown once, with its copy button",
     "steps": [
      {
-      "html": "Copy the token with the button at its end, and paste it below.",
+      "html": "Copy the token with the button at its end, and paste it below. You can close Cloudflare's tab then.",
       "box": [
        615,
        135,
@@ -232,7 +232,7 @@
     "alt": "R2's page before it is turned on, with the Add R2 subscription to my account button",
     "steps": [
      {
-      "html": "Click <b>Add R2 subscription to my account</b>. It's $0 due; if the account has no card, it asks for one first.",
+      "html": "Click <b>Add R2 subscription to my account</b>. It's $0 due; if the account has no card, it asks for one first. Then you can close Cloudflare's tab.",
       "box": [
        619,
        27,
@@ -438,7 +438,7 @@
     "alt": "The new token, inside a modal token set command",
     "steps": [
      {
-      "html": "Modal shows the token once, inside a command. Copy the whole command (hover it for the copy button) and paste it into <b>Modal command</b> on your Worker's page.",
+      "html": "Modal shows the token once, inside a command. Copy the whole command (hover it for the copy button) and paste it into <b>Modal command</b> on your Worker's page. You can close Modal's tab then.",
       "box": [
        425,
        321,
