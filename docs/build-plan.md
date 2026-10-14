@@ -628,3 +628,21 @@ Scripted callers). Claude's tool list is byte-identical.
   model after every prompt (design §3, Waiting).
 - **`GET /mcp/<secret>/models`.**
 
+## Setup, as an average user would go through it (2026-10-14)
+
+From the user's run-through notes: instructions in grey, no buttons to the pages to visit, unclear
+where things go, jargon, a Modal card step, clicks after fields were already filled, and steps that
+only said to keep a default. Design §6, "Things happen by themselves", has the result:
+
+- **Moves on by itself:** a step that turns done (storage, PC paired, Modal ready, Claude
+  connected); steps with nothing to do are passed over (the answer from the setup site, the models).
+- **Acts on paste:** the Cloudflare token, Modal's token command, the agent's pairing link.
+- **Checks on return:** storage after opening R2; the Modal deploy after opening Modal's billing.
+- **Buttons to pages:** R2, Modal sign-up, tokens and billing, claude.ai's prefilled
+  "Add custom connector" link, a new chat; per-OS agent download; sign-ups on the site.
+- **The card check is the deploy:** Modal can't be asked whether a card is on file.
+- **Copy:** numbered steps in plain words; grey only for optional detail; build logs under
+  Details; costs folded on the site; plain graphics-card names on the machine pages.
+- **Walkthroughs:** the project-name, SETUP_MODE, "keep No sign-in", "name is optional" and "click
+  Pair" steps removed or merged; no guide IDs removed (older Workers load the same file).
+

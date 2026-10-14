@@ -565,35 +565,54 @@ both: through every step of the walkthrough, then on to the next step, and no fu
 step is through. On the site that means a question answered, every account ticked, or the
 walkthrough walked to its end, remembered once done; on the Worker's page it is the step's real
 state (storage on, the PC paired, Modal deployed, Claude connected), with "Waiting for …" under a
-disabled Next. The models step lets you go on while they download. Optional walkthroughs (the
-budget alert, Modal's spend limit) open over the window and gate nothing. The
+disabled Next. The models step lets you go on while they download. The
 login page sits beside the token walkthrough the same way. Without JavaScript the site is still
 the long page with every step open; a walkthrough that can't load falls back to its plain steps
 and holds nothing.
 
-What a step asks you to fill in appears only once its walkthrough reaches the step that gives it
-to you (`Tour`'s bindable `at`): Modal's command field at the step that copies the command, the
-connector URL at the one that pastes it, the login's token field at the one that copies the
-token. A finished step, and a walkthrough that can't load, show everything at once. The PC step
-follows the pairing in order: with no PC, only **Add a PC**; with one waiting to pair, the agent's
-downloads, then the walkthrough with the pairing link and **Copy link** under its first step; once
-paired, the GPU list and **Add another PC**. The last step's button, where Next would be, is **Go
-to settings**. The build log ends with wrangler's own output: the page reads it, so it no longer
-closes on a "Your Worker is ready" banner.
+**Things happen by themselves (2026-10-14, from a run-through as an average user).** Its notes:
+instructions hid in grey text, pages lacked buttons to the pages to visit, there was jargon nobody
+needed, the Modal card was a step of its own, and filled-in fields still waited for a click. So:
+- A step that turns done while it shows says "Done" and moves on (`Wizard.svelte`); moving on
+  passes over steps with nothing to do (*skip*: already done, such as the answer the setup site
+  gave, or the models once Modal is up). Back and the bar still open them, and the first step after
+  the answer says what it was, with **Change**.
+- Pasted input acts at once: the Cloudflare token logs in, Modal's `modal token set …` command
+  starts the deploy, the pairing link pairs the agent (each keeps its button).
+- Coming back to the tab (`onReturn`) checks what was done elsewhere: storage after **Open
+  Cloudflare storage**, the deploy again after **Add a card in Modal**.
+- Every page to visit is a button (`OpenButton`): R2, Modal's sign-up, tokens
+  (`modal.com/settings/tokens`) and billing (`modal.com/settings/usage`), claude.ai. What to do is
+  a numbered list (`ol.steps`) of plain sentences, each with its button or field; grey is only for
+  optional detail. Fields show at once; the walkthroughs stay beside them as pictures.
+- **The card is checked by the deploy.** Modal has no API that says whether a card is on file, so
+  there is no card step: a deploy refused for it shows **Add a card in Modal**, and retries when
+  the user comes back.
+- **Claude** gets claude.ai's install link, `claude.ai/customize/connectors?modal=add-custom-connector&connectorName=Comfy-Gen&connectorUrl=…`:
+  the dialog opens filled in, and the user clicks Add, then Connect. The URL to copy by hand is
+  folded under it.
+- Default-only walkthrough steps are gone (the project name, SETUP_MODE, "keep No sign-in"); old
+  Workers load the same `guides.json`, so only steps are removed, never a guide.
+
+The PC step follows the pairing in order: with no PC, only **Add a PC**; with one waiting to pair,
+the agent's download for this browser's system (the others one click away) and how to run it
+unsigned, then the pairing link and **Copy link**; once paired, the GPU list and **Add another
+PC**. The last step's button, where Next would be, is **Go to settings**. The build log is a line
+of status with the log folded under **Details**.
 
 **Storage is a step, not a prerequisite.** R2 needs a checkout with a card on file, which can't
 be automated, and a Deploy button on an account without R2 used to fail (wrangler's error 10042).
 The templates no longer declare the bucket; the build checks R2 (`wrangler r2 bucket list`) and,
 when it was never turned on, deploys without the binding. The Worker then runs without storage:
 tool calls, uploads and the LoRA routes say "storage isn't turned on yet" without touching a GPU,
-listings are empty, and its page shows the step (R2's dashboard link, the checkout, **Check
-again**, which rebuilds through the update path; the build binds the bucket once R2 is on). An R2
+listings are empty, and its page shows the step (R2's dashboard button, the checkout, then a check
+when the user comes back to the tab, or **Check now**: it rebuilds through the update path, and the
+build binds the bucket once R2 is on). An R2
 error the build can't place keeps the bucket bound, so an install never loses its storage to a
 hiccup. `COMFY_GEN_TEST_NO_STORAGE=1` (a build variable) forces the no-storage path for testing.
 
-**Costs** are on the site (Cloudflare's free tiers, R2 past 10 GB at $0.015 per GB a month, and a
-budget alert, which warns but doesn't stop; Modal per second with $30 free a month, and its
-Workspace budget, a hard cap), and as optional lines in the storage and Modal steps.
+**Costs** are on the site, folded under "What does it cost?" (Cloudflare free for one person, R2
+past 10 GB at $0.015 per GB a month; Modal per second with $30 free a month and a card on file).
 
 ### No GPU
 
@@ -619,9 +638,10 @@ Workspace budget, a hard cap), and as optional lines in the storage and Modal st
    If `modal deploy` fails, the build still deploys the Worker, and the callback carries Modal's
    own reason (the text of its Error panel, such as "Please add a payment method to use L4 GPU
    functions." on an account with no card, seen in the from-scratch test). The setup page shows it
-   in the Modal step, with the fix for a missing card, and **Try again** starts a build without
-   token fields: the build secrets keep the stored token, which Modal would not show again.
-7. The user copies the connector URL into claude.ai.
+   in the Modal step (for a missing card: **Add a card in Modal**, and a retry on coming back), and
+   **Try again** starts a build without token fields: the build secrets keep the stored token, which
+   Modal would not show again.
+7. **Add to claude.ai** opens claude.ai's connector dialog filled in.
 
 ### GPU owner
 
