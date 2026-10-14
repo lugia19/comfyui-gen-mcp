@@ -39,6 +39,9 @@
       display: inline-block; background: var(--accent); color: var(--accent-text); text-decoration: none; border: 0;
       font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 8px; margin: 8px 8px 8px 0; cursor: pointer;
     }
+    .button.secondary { background: transparent; color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+    .button.small { padding: 5px 12px; font-weight: 500; margin: 4px 0; }
+    .wz-checks .acct { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
     .tag { display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--accent); color: var(--accent-text); vertical-align: 2px; }
     .tag.green { background: var(--ok); color: var(--bg); }
 
@@ -97,15 +100,15 @@
     <li class="step" data-step="use" data-short="Use">
       <div class="head"><span class="num">1</span><h2>How will you use it?</h2></div>
       <div class="body">
-        <p class="lede">Image generation and editing for Claude, on a ComfyUI you own. A few questions, then only the steps you need.</p>
+        <p class="lede">Lets Claude make and edit images, on your own accounts. A few questions, then only the steps you need.</p>
         <div class="cards">
           <button class="card best" type="button" data-answer="worker">
             <b>claude.ai, on the web and your phone</b> <span class="tag">Recommended</span>
-            <span class="d">A free Cloudflare Worker gives Claude the image tool wherever you use Claude: the browser, the phone app, and Claude Desktop too.</span>
+            <span class="d">Works wherever you use Claude: the browser, the phone app and Claude Desktop. Runs on a free Cloudflare account.</span>
           </button>
           <button class="card" type="button" data-answer="desktop">
-            <b>Only Claude Desktop, on the PC with the GPU</b>
-            <span class="d">Everything runs on that PC, with no accounts and no Worker. Claude on the web and your phone won't have it.</span>
+            <b>Only Claude Desktop, on the PC with the graphics card</b>
+            <span class="d">Everything runs on that PC, with no accounts. Claude on the web and your phone won't have it.</span>
           </button>
         </div>
       </div>
@@ -115,15 +118,16 @@
     <li class="step" data-step="desktop" data-short="Install">
       <div class="head"><span class="num">2</span><h2>Install the extension</h2></div>
       <div class="body">
-        <p>You need an NVIDIA GPU (AMD on Linux) or an Apple silicon Mac.</p>
+        <p>You need an NVIDIA graphics card (AMD on Linux) or a Mac with Apple silicon.</p>
         <ol>
-          <li>Download <a href="https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/Comfy-Gen-MCP.mcpb">Comfy-Gen-MCP.mcpb</a> and open it: Claude Desktop installs it.</li>
+          <li><a class="button" href="https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/Comfy-Gen-MCP.mcpb">Download the extension</a><br>
+            Open the file: Claude Desktop installs it.</li>
           <li>The Comfy-Gen icon appears in the tray (the menu bar on a Mac). Open its settings page from there: it takes you
-            through choosing your GPU, installing ComfyUI and picking models.</li>
+            through installing ComfyUI and picking models.</li>
           <li>Ask Claude Desktop for an image.</li>
         </ol>
-        <p class="muted">Later want claude.ai too? Choose the first answer instead. Use the extension or the Worker's PC agent
-          on a PC, never both: each runs its own ComfyUI, and two don't fit on one GPU.</p>
+        <p>Want claude.ai and your phone too later? Choose the first answer instead, and don't keep both on one PC: they
+          don't fit on one graphics card together.</p>
       </div>
     </li>
 
@@ -132,17 +136,17 @@
       <div class="head"><span class="num">2</span><h2>Where should images be made?</h2></div>
       <div class="body">
         <div class="cards">
-          <button class="card best" type="button" data-answer="both">
-            <b>Both</b> <span class="tag green">Recommended if you have a powerful GPU</span>
-            <span class="d">Your PC when it is on (NVIDIA, AMD on Linux, or an Apple silicon Mac), the cloud when it is off.</span>
-          </button>
           <button class="card best" type="button" data-answer="cloud">
             <b>In the cloud (Modal)</b> <span class="tag">Recommended for most people</span>
-            <span class="d">No GPU needed, and it works with your PC off. Billed per second while it generates; new Modal accounts get $30 of free compute a month.</span>
+            <span class="d">No graphics card needed. Pay per second of use; Modal gives $30 free each month.</span>
+          </button>
+          <button class="card best" type="button" data-answer="both">
+            <b>Both</b> <span class="tag green">If you have a powerful graphics card</span>
+            <span class="d">Your PC when it's on, the cloud when it's off.</span>
           </button>
           <button class="card" type="button" data-answer="pc">
             <b>On my PC</b>
-            <span class="d">Your own GPU: NVIDIA (AMD on Linux) or an Apple silicon Mac. Nothing billed, but the PC has to be on to make images.</span>
+            <span class="d">Free, on your own graphics card (NVIDIA, AMD on Linux, or a Mac with Apple silicon). The PC must be on.</span>
           </button>
         </div>
       </div>
@@ -151,29 +155,26 @@
     <li class="step" data-step="accounts" data-short="Accounts">
       <div class="head"><span class="num">3</span><h2>The accounts you need</h2></div>
       <div class="body">
-        <p class="wz-only">Make each one, then tick it.</p>
+        <p>Make each one you don't have yet, then tick it. Make the GitHub one first: Cloudflare and Modal let you sign up with it
+          (<b>Continue with GitHub</b>), so there are fewer passwords.</p>
         <ul class="wz-checks">
-          <li><label><input type="checkbox" data-tick="github"> <span>A <a href="https://github.com/signup" target="_blank" rel="noopener">GitHub account</a>.
-            The deploy keeps a small copy of the setup in your GitHub, which is how your Worker updates itself.</span></label></li>
-          <li><label><input type="checkbox" data-tick="cloudflare"> <span>A <a href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noopener">Cloudflare account</a>:
-            the free plan is enough. Your Worker's page has you turn on its storage later (R2: free up to 10 GB, but Cloudflare wants a card on file).</span></label></li>
-          <li data-where="cloud both"><label><input type="checkbox" data-tick="modal"> <span>A <a href="https://modal.com/signup" target="_blank" rel="noopener">Modal account</a>,
-            with a card on file: Modal runs GPUs only with one, even on the free $30 a month. Your Worker's page walks through it.</span></label></li>
-          <li data-where="pc both"><label><input type="checkbox" data-tick="pc"> <span>A PC with an NVIDIA GPU (AMD on Linux) or an Apple silicon Mac, for the agent.</span></label></li>
-          <li><label><input type="checkbox" data-tick="claude"> <span>A claude.ai plan that can add custom connectors.</span></label></li>
+          <li><label class="acct"><input type="checkbox" data-tick="github"> <span>A GitHub account</span>
+            <a class="button secondary small" href="https://github.com/signup" target="_blank" rel="noopener">Sign up at GitHub</a></label></li>
+          <li><label class="acct"><input type="checkbox" data-tick="cloudflare"> <span>A Cloudflare account (the free plan)</span>
+            <a class="button secondary small" href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noopener">Sign up at Cloudflare</a></label></li>
+          <li data-where="cloud both"><label class="acct"><input type="checkbox" data-tick="modal"> <span>A Modal account</span>
+            <a class="button secondary small" href="https://modal.com/signup" target="_blank" rel="noopener">Sign up at Modal</a></label></li>
+          <li data-where="pc both"><label class="acct"><input type="checkbox" data-tick="pc"> <span>A PC with an NVIDIA graphics card (AMD on Linux) or a Mac with Apple silicon</span></label></li>
+          <li><label class="acct"><input type="checkbox" data-tick="claude"> <span>A claude.ai account</span>
+            <a class="button secondary small" href="https://claude.ai" target="_blank" rel="noopener">Open claude.ai</a></label></li>
         </ul>
-        <p class="tip"><b>Tip:</b> <span data-where="cloud both">Cloudflare and Modal both let</span><span data-where="pc">Cloudflare lets</span> you sign
-          up with your GitHub account (the <b>GitHub</b> button on the sign-up page). Make the GitHub account first and use it there: fewer logins.</p>
         <details class="guide" id="costs">
           <summary>What does it cost?</summary>
           <ul>
-            <li><b>Cloudflare:</b> the Worker is free (up to 100,000 requests a day). Its storage, R2, is free up to 10 GB stored,
-              a million writes and ten million reads a month; one person's use stays far inside those. Past 10 GB it is
-              $0.015 per GB a month, and images expire after a year. Cloudflare has no spending cap, but it sets up a $10 budget
-              alert by itself (<b>Manage account → Billing → Billable usage</b>); lower it if you like. It emails; it doesn't stop anything.</li>
-            <li data-where="cloud both"><b>Modal</b> (the cloud): billed per second, only while it generates, and new accounts get $30 of free compute a month.
-              Its <b>Spend limit</b> (<b>Settings → Usage &amp; billing → Usage limit</b>) is a hard cap: once charges pass it, with the
-              free credits used first, all work stops. At $0 you never pay past the credits.</li>
+            <li><b>Cloudflare:</b> free for one person's use. Storage past 10 GB costs $0.015 per GB a month; images are
+              deleted after a year. Cloudflare asks for a card once, to turn storage on.</li>
+            <li data-where="cloud both"><b>Modal</b> (the cloud): pay per second, only while an image is made. New accounts get $30
+              free each month, and Modal needs a card on file even for that.</li>
             <li data-where="pc both"><b>Your PC:</b> the electricity.</li>
           </ul>
         </details>
@@ -183,18 +184,16 @@
     <li class="step" data-step="deploy" data-short="Deploy">
       <div class="head"><span class="num">4</span><h2>Deploy your Worker</h2></div>
       <div class="body">
-        <p>The first time, Cloudflare also needs access to your GitHub. It takes two rounds of the same button: click
-          <b>Deploy to Cloudflare</b> (it opens in a new tab), then follow the steps.</p>
+        <p>Your Worker is your own copy of Comfy-Gen, in your Cloudflare account. The first time, Cloudflare also needs to
+          connect to your GitHub, so you click this button twice: the steps below show when.</p>
         <a class="button" id="deploy" target="_blank" rel="noopener" href="https://deploy.workers.cloudflare.com/?url=https://github.com/lugia19/comfyui-gen-mcp/tree/main/bootstrap">Deploy to Cloudflare</a>
-        <p class="muted wz-only">The form shows <b>SETUP_MODE</b> set to <code class="answer-code">cloud</code>: your answer. Leave it: your
-          Worker's page starts from it.</p>
         <div data-guide="deploy">
           <ol>
             <li>Under <b>Git account</b>, click <b>New GitHub connection</b>. GitHub asks to <b>Install &amp; Authorize</b>
               Cloudflare Workers and Pages: keep <b>All repositories</b> (the deploy creates a new repository) and click it.</li>
             <li>Cloudflare then opens its own <b>Select a repository</b> page. Ignore it: close that tab.</li>
             <li>Back here, click <b>Deploy to Cloudflare</b> again. Your GitHub account is in the <b>Git account</b> list now:
-              pick it, keep the project name <code>comfy-gen</code> and everything else as it is, and click <b>Deploy</b>.</li>
+              pick it and click <b>Deploy</b>.</li>
           </ol>
         </div>
         <details class="guide">
@@ -218,25 +217,24 @@
               <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>: bookmark it.</li>
           </ol>
         </div>
-        <p class="muted">Lost the tab? In the <a href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noopener">Cloudflare dashboard</a>,
-          open <b>Workers &amp; Pages → comfy-gen</b> and click <b>Visit</b>.</p>
+        <p>Closed the Cloudflare tab? Open your Workers here, click <b>comfy-gen</b>, then <b>Visit</b>:</p>
+        <a class="button secondary" href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noopener">Open Workers &amp; Pages in Cloudflare</a>
       </div>
     </li>
 
     <li class="step" data-step="finish" data-short="Finish">
       <div class="head"><span class="num">6</span><h2>Finish on your Worker's page</h2></div>
       <div class="body">
-        <p>Your Worker's page takes it from here, one step at a time:</p>
+        <p>Bookmark your Worker's page: it takes it from here, one step at a time, each with a button to the page you need.</p>
         <ol>
-          <li>Log in with a Cloudflare API token: the page links to a pre-filled one.</li>
-          <li>Turn on storage: <b>Add R2 subscription to my account</b> in Cloudflare (it's $0), then <b>Check again</b>.</li>
-          <li data-where="cloud">Deploy ComfyUI to Modal, and pick the models.</li>
-          <li data-where="pc">Add your PC, and run the agent on it.</li>
-          <li data-where="both">Add your PC and run the agent on it, then deploy ComfyUI to Modal as the fallback.</li>
-          <li>Connect Claude: in claude.ai, <b>Customize → Connectors</b>, add your Worker's connector URL as a custom connector.</li>
+          <li>Log in with Cloudflare.</li>
+          <li>Turn on storage in Cloudflare.</li>
+          <li data-where="cloud">Connect your Modal account.</li>
+          <li data-where="pc">Install the Comfy-Gen agent on your PC.</li>
+          <li data-where="both">Install the Comfy-Gen agent on your PC, then connect your Modal account.</li>
+          <li>Add it to claude.ai.</li>
         </ol>
-        <p class="muted wz-only">Your answer, <b class="answer-text"></b>, is already set there; you can change it on that page.</p>
-        <p class="muted">Updates install themselves: the Worker checks for a new release daily and redeploys, and the agent on a PC updates itself too.</p>
+        <p class="muted">Updates install themselves.</p>
       </div>
     </li>
   </ol>
@@ -325,10 +323,7 @@
         el.classList.toggle('off', Boolean(state.where) && el.dataset.where.split(' ').indexOf(state.where) < 0)
       })
       byName.accounts.querySelectorAll('[data-tick]').forEach(function (box) { box.checked = Boolean(state.ticks[box.dataset.tick]) })
-      var where = state.where || 'cloud'
       document.getElementById('deploy').href = 'https://deploy.workers.cloudflare.com/?url=' + REPO + (state.where ? 'bootstrap-' + state.where : 'bootstrap')
-      document.querySelectorAll('.answer-code').forEach(function (el) { el.textContent = where })
-      document.querySelectorAll('.answer-text').forEach(function (el) { el.textContent = LABELS[where].toLowerCase() })
 
       // The bar: a finished step, and the first unfinished one, can be opened from it.
       var reach = 0
@@ -423,6 +418,8 @@
       if (!e.target.dataset.tick) return
       state.ticks[e.target.dataset.tick] = e.target.checked
       render()
+      // The last one ticked: on to the next step by itself.
+      if (e.target.checked && ticksDone() && state.open === 'accounts') setTimeout(function () { if (state.open === 'accounts' && ticksDone()) forward() }, 600)
     })
     render()
   })()

@@ -80,32 +80,12 @@
     "alt": "The deploy form with a GitHub account picked, the project name, SETUP_MODE and the Deploy button",
     "steps": [
      {
-      "html": "Click <b>Deploy to Cloudflare</b> on this page again. Under <b>Git account</b>, pick your GitHub account: it's in the list now.",
+      "html": "Click <b>Deploy to Cloudflare</b> on this page again. Under <b>Git account</b>, pick your GitHub account: it's in the list now. Leave everything else as it is.",
       "box": [
        218,
        140,
        503,
        38
-      ],
-      "side": "left"
-     },
-     {
-      "html": "Keep the project name <code>comfy-gen</code>.",
-      "box": [
-       218,
-       311,
-       503,
-       36
-      ],
-      "side": "left"
-     },
-     {
-      "html": "<b>SETUP_MODE</b> holds your answer from this page: leave it as it is.",
-      "box": [
-       218,
-       396,
-       503,
-       36
       ],
       "side": "left"
      },
@@ -178,7 +158,7 @@
     "alt": "Cloudflare's Create Token page, filled in, with the Continue to summary button",
     "steps": [
      {
-      "html": "The permissions are already filled in. If your Cloudflare login also belongs to other accounts (an employer's, say), change <b>All accounts</b> to your own, so the token can't touch them.",
+      "html": "Everything is filled in. Only if your Cloudflare login also has other accounts (an employer's, say): change <b>All accounts</b> to your own.",
       "box": [
        216,
        567,
@@ -418,17 +398,7 @@
     "alt": "Modal's API tokens settings, with the New Token button",
     "steps": [
      {
-      "html": "In Modal's <b>Settings</b>, open <b>API tokens &amp; service users</b>.",
-      "box": [
-       12,
-       632,
-       232,
-       34
-      ],
-      "side": "right"
-     },
-     {
-      "html": "Click <b>New Token</b>.",
+      "html": "On Modal's <b>API tokens</b> page (<b>Settings → API tokens &amp; service users</b>), click <b>New Token</b>.",
       "box": [
        1141,
        24,
@@ -448,7 +418,7 @@
     "alt": "Modal's New token dialog",
     "steps": [
      {
-      "html": "Click <b>Create token</b>. The name is optional.",
+      "html": "Click <b>Create token</b>.",
       "box": [
        738,
        446,
@@ -468,7 +438,7 @@
     "alt": "The new token, inside a modal token set command",
     "steps": [
      {
-      "html": "Modal shows the token once, inside a command. Copy the whole command (hover it for the copy button) and paste it into <b>Modal command</b> below.",
+      "html": "Modal shows the token once, inside a command. Copy the whole command (hover it for the copy button) and paste it into <b>Modal command</b> on your Worker's page.",
       "box": [
        425,
        321,
@@ -552,7 +522,7 @@
     "alt": "The Add custom connector dialog, empty",
     "steps": [
      {
-      "html": "Name it anything (Comfy-Gen, say).",
+      "html": "Name it Comfy-Gen.",
       "box": [
        396,
        304,
@@ -591,16 +561,6 @@
     ],
     "alt": "The dialog's second page, with No sign-in picked",
     "steps": [
-     {
-      "html": "Under <b>Authentication</b>, keep <b>No sign-in</b>. Its warning, that anyone with the URL can use the connector, is expected: the URL is the secret.",
-      "box": [
-       394,
-       401,
-       160,
-       22
-      ],
-      "side": "left"
-     },
      {
       "html": "Scroll down and click <b>Add</b>.",
       "at": [
@@ -701,7 +661,7 @@
     "alt": "The agent's page, with the Pairing link field and the Pair button",
     "steps": [
      {
-      "html": "The agent's page opens in your browser. Paste the pairing link into <b>Pairing link</b> (<b>Copy link</b> on your Worker's page copies it).",
+      "html": "The agent's page opens in your browser. Paste the pairing link into <b>Pairing link</b> (<b>Copy link</b> on your Worker's page copies it). It pairs by itself; if not, click <b>Pair</b>.",
       "box": [
        65,
        33,
@@ -709,16 +669,6 @@
        40
       ],
       "side": "left"
-     },
-     {
-      "html": "Click <b>Pair</b>.",
-      "box": [
-       65,
-       83,
-       53,
-       37
-      ],
-      "side": "right"
      }
     ]
    }
