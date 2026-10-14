@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import {
   Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, UnknownTool,
-  builtinPacks, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras,
+  builtinPacks, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
   type Config, type OutputImage, type Pack, type Rendered,
 } from "@comfy-gen/core";
 import {
@@ -39,6 +39,12 @@ export type Services = {
 
 export function selectedPacks(cfg: Config): Pack[] {
   return select(GROUPS, cfg.pack_selections);
+}
+
+/** The selected packs and the rest of their families: a call may name one with the hidden `model`
+ * argument, so a family downloads whole. */
+export function wantedPacks(cfg: Config): Pack[] {
+  return withFamilies(selectedPacks(cfg), PACKS);
 }
 
 export class LocalApp {
@@ -159,8 +165,9 @@ export class LocalApp {
     // Every LoRA file keeps a group, also one the page's copy of the settings didn't know yet.
     const tagged = tagLooseLoras(cfg.pack_loras, Object.keys(this.s.machine.loras()));
     if (tagged) cfg = this.s.saveConfig({ ...cfg, pack_loras: tagged });
-    // A newly chosen model starts downloading now, not at its first use; the others wait for theirs.
-    this.s.download(selectedPacks(cfg).filter((p) => !before.has(p.name)));
+    // A newly chosen model, and the rest of its family, start downloading now, not at their first
+    // use; the others wait for theirs.
+    this.s.download(withFamilies(selectedPacks(cfg).filter((p) => !before.has(p.name)), PACKS));
     const warnings = this.missingLoras(cfg);
     if (current.comfyui_url !== cfg.comfyui_url || current.extra_models_dir !== cfg.extra_models_dir) {
       if (this.s.machine.comfy.state === "running") warnings.push("Restart ComfyUI (Setup tab) for the change to take effect.");
@@ -168,10 +175,10 @@ export class LocalApp {
     return json({ config: cfg, warnings });
   }
 
-  /** The selected packs' models, then any download still running for a pack no longer selected:
-   * it carries on (switching away doesn't cancel it), so it stays listed until it is done. */
+  /** The wanted packs' models, then any download still running for a pack no longer wanted: it
+   * carries on (switching away doesn't cancel it), so it stays listed until it is done. */
   private models() {
-    const selected = selectedPacks(this.s.config());
+    const selected = wantedPacks(this.s.config());
     const rows: Record<string, unknown>[] = selected.map((pack: Pack) => ({ ...packRow(pack), ...this.s.machine.downloads.status(pack.name, pack.models ?? []) }));
     for (const job of this.s.machine.downloads.jobs()) {
       if (selected.some((p) => p.name === job.key) || (job.state !== "queued" && job.state !== "downloading")) continue;

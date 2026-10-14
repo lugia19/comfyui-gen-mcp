@@ -252,6 +252,13 @@ results stay as they are:
     more, rounded to multiples of 64), and otherwise only the shape.
   - `negative` replaces the text of the pack's `cg:negative` node (Anima's). Packs without one
     ignore it.
+  - `model`, a pack name (`anima`, `anima_turbo`), runs that pack in place of the one the
+    settings page picked. That lets the owner use Anima in claude.ai and Anima Turbo in Visual
+    Novelist at once. It must back the tool called: any other name, or one of another tool, is
+    an error result (`retryable: false`) naming the valid ones. Empty means the picked pack.
+    `edit_image` and `fetch_result` ignore it. The pack's own settings, LoRA group and negative
+    come with it (core `packFor`, in the Brain and, for routing, the Worker). It also works on
+    the MCPB.
 - **`_meta["comfy-gen/result"]`** on every tool result, beside the unchanged content blocks:
   - `{status: "done", images: [{image_id, url, width, height}]}`
   - `{status: "pending", request_token}`
@@ -265,8 +272,31 @@ results stay as they are:
   blocks (seen 2026-10-13), which changed what Claude read. Clients don't show `_meta`.
 - **`GET /mcp/<secret>/loras`**, behind the same secret: `{loras: [{name, trigger, strength,
   hidden}]}`. These are the switched-on LoRAs of the pack the illustrated tool uses, or `[]`.
+- **`GET /mcp/<secret>/models`**, behind the same secret: `{models: [{name, display_name,
+  selected}]}`. These are the packs backing `generate_illustrated_image`, in pack order;
+  `selected` marks the one the settings page picked.
+
+A family downloads whole: every GPU gets each selected pack and the rest of its family (core
+`withFamilies`). Base models are never deleted, so a call naming a family member finds it ready.
+If one is still missing (the PC was off, a download failed), the call starts its download and
+answers the usual retryable "being downloaded". ComfyUI runs with `--cache-ram 4 6`, so calls
+alternating two packs keep both loaded (see Waiting, below).
 
 ### Waiting
+
+**Both models stay loaded.** ComfyUI 0.37.0's default RAM-pressure cache frees an earlier prompt's
+node outputs, the loaded model included, after every prompt. It treats them as "inactive" and frees
+them until free RAM reaches 100% of total RAM, which never happens. So calls alternating packs
+reloaded each time. On Modal (2026-10-14, v1.12.2), Z-Image Turbo took about 10 s warm and about
+20 s after an Anima call. Both launches (Modal's `app.py`, local `comfyui.ts`) now pass
+`--cache-ram 4 6`:
+- An earlier prompt's outputs stay while 6 GB of RAM is free.
+- The current prompt's outputs stay while 4 GB is free.
+
+A local probe (A, B, then A again) found prompt A's nodes cached with this flag, and not with the
+default or `--cache-classic`. `--cache-lru` would keep them too, but with no regard for RAM. The
+reading is cgroup-aware, so Modal's container limit counts.
+
 
 `tools/call` blocks up to 2.5 minutes, returning the image directly. claude.ai's MCP client
 timeout is 5 minutes (S8), but a claude.ai connector used from Claude Code gave up at about 183 s
@@ -576,8 +606,8 @@ Workspace budget, a hard cap), and as optional lines in the storage and Modal st
    and posts the server URL, admin URL and proxy token to it with the nonce (about 90 s in all once
    Modal has the image cached).
 6. The callback stores the generator, re-applies keep-warm (a deploy resets it) and starts a seed
-   for each selected pack. The setup page streams the build logs, then the downloads (about 20 GB
-   for the defaults, about 3 minutes). A tool whose models are not on the Volume yet answers with
+   for each selected pack and the rest of its family. The setup page streams the build logs, then
+   the downloads (about 23 GB for the defaults, Anima beside Anima Turbo; about 3 minutes). A tool whose models are not on the Volume yet answers with
    the download's progress instead of failing inside ComfyUI.
    If `modal deploy` fails, the build still deploys the Worker, and the callback carries Modal's
    own reason (the text of its Error panel, such as "Please add a payment method to use L4 GPU

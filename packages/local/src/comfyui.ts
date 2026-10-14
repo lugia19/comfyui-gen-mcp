@@ -16,6 +16,10 @@ import type { Paths } from "./paths.ts";
 import { killTree, pythonEnv, start } from "./proc.ts";
 
 export const PREFERRED_PORT = 8188;
+// Keep an earlier prompt's outputs (its loaded model) while at least 6 GB of RAM is free, so calls
+// alternating Anima and Anima Turbo don't reload either. ComfyUI 0.37's default frees them after
+// every prompt; its LRU cache would keep them with no regard for RAM. As on Modal (design §3).
+export const CACHE_ARGS = ["--cache-ram", "4", "6"];
 const LAUNCH_TIMEOUT_S = 300; // a first start compiles and caches; later ones take seconds
 
 export type ComfyState = "not_installed" | "stopped" | "starting" | "running" | "failed" | "external";
@@ -159,7 +163,7 @@ export class LocalComfy {
 
     const port = (await portFree(PREFERRED_PORT)) ? PREFERRED_PORT : await freePort();
     const url = `http://127.0.0.1:${port}`;
-    const args = ["main.py", "--listen", "127.0.0.1", "--port", String(port), "--disable-auto-launch"];
+    const args = ["main.py", "--listen", "127.0.0.1", "--port", String(port), "--disable-auto-launch", ...CACHE_ARGS];
     if ((inst.gpu ?? this.settings().gpu) === "cpu") args.push("--cpu");
     const data = this.p.instance ? this.dataDir! : null;
     if (data) {

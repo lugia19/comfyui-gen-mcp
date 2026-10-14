@@ -81,6 +81,10 @@ def _comfy_busy() -> bool:
 
 
 _proc: subprocess.Popen | None = None
+# Keep an earlier prompt's outputs (its loaded model) while at least 6 GB of RAM is free, so calls
+# alternating Anima and Anima Turbo don't reload either. ComfyUI 0.37's default frees them after
+# every prompt; its LRU cache would keep them with no regard for RAM. As on a PC (design §3).
+CACHE_ARGS = "--cache-ram 4 6"
 
 
 def _launch() -> None:
@@ -88,7 +92,8 @@ def _launch() -> None:
     _proc = subprocess.Popen(
         f"comfy launch -- --listen 0.0.0.0 --port {COMFY_PORT} "
         f"--input-directory {INPUT_DIR} --output-directory {OUTPUT_DIR} "
-        "--extra-model-paths-config /root/extra_model_paths.yaml",
+        "--extra-model-paths-config /root/extra_model_paths.yaml "
+        f"{CACHE_ARGS}",
         shell=True, start_new_session=True,  # its own process group: comfy launch starts a child
     )
 

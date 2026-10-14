@@ -106,7 +106,34 @@ describe("brain", () => {
     expect(Object.values<any>(comfy.prompts[0]).find((n) => n._meta?.title === "cg:negative").inputs.text).toBe("lowres");
     for (const mode of ["refs", "paths"] as const) {
       expect(JSON.stringify(toolSpecs(BUILTIN, normalize({}), mode))).not.toContain("negative");
+      // Nor the hidden model: no tool takes a property of that name.
+      for (const spec of toolSpecs(BUILTIN, normalize({}), mode)) expect(spec.inputSchema.properties).not.toHaveProperty("model");
     }
+  });
+
+  it("a hidden model runs that pack of the tool, with its group's LoRAs", async () => {
+    const cfg = {
+      pack_selections: { generate_illustrated_image: "anima" },
+      pack_loras: { anima: [{ name: "style.safetensors", strength: 0.5 }] },
+    };
+    const hooks = new PathHooks();
+    const { comfy, brain } = setup({ cfg, hooks });
+    const unet = (i: number) => Object.values<any>(comfy.prompts[i]).find((n) => n.class_type === "UNETLoader").inputs.unet_name;
+    await brain().call("generate_illustrated_image", { prompt: "x", model: "anima_turbo" });
+    await brain().call("generate_illustrated_image", { prompt: "x", model: " " });
+    expect([unet(0), unet(1)]).toEqual(["anima-turbo-v1.0.safetensors", "anima-base-v1.0.safetensors"]);
+    expect(hooks.ensured).toEqual(["anima_turbo", "anima"]);
+    const lora = Object.values<any>(comfy.prompts[0]).find((n) => n.class_type === "LoraLoaderModelOnly");
+    expect(lora.inputs).toMatchObject({ lora_name: "style.safetensors", strength_model: 0.5 });
+  });
+
+  it("a model of another tool, or none, is a plain error naming the valid ones", async () => {
+    const { comfy, brain } = setup();
+    for (const model of ["z_image_turbo", "nope"]) {
+      const out = await brain().call("generate_illustrated_image", { prompt: "x", model });
+      expect(out).toEqual(new Failed(`Unknown model "${model}" for generate_illustrated_image. Valid models: anima, anima_turbo.`));
+    }
+    expect(comfy.prompts).toEqual([]);
   });
 
   it("a timeout returns a stateless token, and fetch_result resumes", async () => {

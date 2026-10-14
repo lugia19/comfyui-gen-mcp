@@ -73,6 +73,41 @@ describe("MCP", () => {
     });
   });
 
+  it("lists the models a scripted caller may name, behind the same secret", async () => {
+    const { app } = world();
+    const s = await secretsOf(app);
+    const models = (secret: string, method = "GET") => app.handle(request(method, `/mcp/${secret}/models`));
+    expect((await models("wrong")).status).toBe(404);
+    expect((await models(s.mcp_secret, "POST")).status).toBe(405);
+    expect(await body(await models(s.mcp_secret))).toEqual({
+      models: [
+        { name: "anima", display_name: "Anima", selected: false },
+        { name: "anima_turbo", display_name: "Anima Turbo", selected: true },
+      ],
+    });
+    await app.store.saveConfig({ pack_selections: { generate_illustrated_image: "anima" } });
+    expect((await body(await models(s.mcp_secret))).models.map((m: any) => m.selected)).toEqual([true, false]);
+  });
+
+  it("a scripted caller's hidden model picks the pack; one of another tool, or none, is a plain error", async () => {
+    const { app, comfy } = world();
+    await withGenerator(app);
+    const call = (model: string) => mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x", model } });
+    const unet = (i: number) => Object.values<any>(comfy.prompts[i]).find((n) => n.class_type === "UNETLoader").inputs.unet_name;
+    for (const model of ["z_image_turbo", "nope"]) {
+      const [, r] = await call(model);
+      expect(structured(r)).toEqual({
+        status: "error", retryable: false,
+        message: `Unknown model "${model}" for generate_illustrated_image. Valid models: anima, anima_turbo.`,
+      });
+    }
+    expect(comfy.prompts).toEqual([]); // answered before any GPU time
+    const [, r] = await call("anima");
+    expect(structured(r).status).toBe("done");
+    await call("");
+    expect([unet(0), unet(1)]).toEqual(["anima-base-v1.0.safetensors", "anima-turbo-v1.0.safetensors"]);
+  });
+
   it("tools/list is in refs mode", async () => {
     const { app } = world();
     const [, r] = await mcp(app, "tools/list");
@@ -427,7 +462,8 @@ describe("settings API", () => {
     // A deploy resets keep-warm, and a fresh install has no models: both are applied right away.
     expect(net.adminCalls).toContainEqual(["POST", "/idle", { seconds: 300 }]);
     const seeds = net.adminCalls.filter((c) => c[1] === "/seed");
-    expect(seeds.map((c) => c[2].pack).sort()).toEqual(["anima_turbo", "flux2klein_edit", "z_image_turbo"]);
+    // The selected packs and the rest of their families (Anima beside Anima Turbo).
+    expect(seeds.map((c) => c[2].pack).sort()).toEqual(["anima", "anima_turbo", "flux2klein_edit", "z_image_turbo"]);
     expect(seeds.every((c) => c[2].models.length)).toBe(true);
   });
 
@@ -463,7 +499,7 @@ describe("Modal models", () => {
     net.adminUp = false;
     const ok = await app.handle(request("POST", "/build-callback", { nonce: "n", modal: { server_url: "https://m", admin_url: ADMIN } }));
     expect(ok.status).toBe(200);
-    expect((await body(ok)).warnings.length).toBe(4); // keep-warm + three packs
+    expect((await body(ok)).warnings.length).toBe(5); // keep-warm + four packs
     expect((await app.gpus())[0].kind).toBe("modal");
   });
 
@@ -479,7 +515,7 @@ describe("Modal models", () => {
     expect(models.packs[0].size).toBeGreaterThan(5e9);
     net.adminCalls = [];
     await app.handle(request("GET", "/api/models", undefined, cookie));
-    expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["/seed/flux2klein_edit", "/seed/z_image_turbo"]); // anima is recorded
+    expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["/seed/anima", "/seed/flux2klein_edit", "/seed/z_image_turbo"]); // anima_turbo is recorded
     const retry = await app.handle(request("POST", "/api/models/seed", { pack: "flux2klein_edit", gpu: "modal" }, cookie));
     expect((await body(retry)).started).toBe(true);
   });
@@ -488,7 +524,7 @@ describe("Modal models", () => {
     const { app, net } = world();
     await withModal(app);
     const cookie = await login(app);
-    await app.store.updateSetup({ seeded: ["anima_turbo", "z_image_turbo", "flux2klein_edit"] });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"] });
     const cfg = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
     const resp = await app.handle(request("PUT", "/api/config", { config: cfg }, cookie));
     expect((await body(resp)).warnings).toEqual([]);
@@ -523,6 +559,16 @@ describe("Modal models", () => {
     net.adminCalls = [];
     await mcp(app, "tools/call", args);
     expect(net.adminCalls).toEqual([]); // ready packs cost no admin call
+  });
+
+  it("a model only a hidden argument names downloads like the selected one", async () => {
+    const { app, net, comfy } = world();
+    await withModal(app);
+    await app.store.updateSetup({ seeded: ["anima_turbo"] }); // as before families downloaded whole
+    const [, r] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x", model: "anima" } });
+    expect(structured(r)).toMatchObject({ status: "error", retryable: true, message: expect.stringContaining("Anima model is being downloaded") });
+    expect(net.seedState.anima.state).toBe("queued");
+    expect(comfy.prompts).toEqual([]);
   });
 
   it("other generators never touch the admin API", async () => {
@@ -624,7 +670,7 @@ describe("LoRAs", () => {
     const { app, net, bucket } = world();
     await withModal(app);
     const cookie = await login(app);
-    await app.store.updateSetup({ seeded: ["anima_turbo", "z_image_turbo", "flux2klein_edit"] });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"] });
     await bucket.put("lora/here.safetensors", new Uint8Array(1));
     net.loras = { "here.safetensors": 1 };
     const cfg = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
@@ -827,14 +873,14 @@ describe("the PC path", () => {
   it("one config serves every GPU; saving applies it to the PC too; keep-warm is the PC's own", async () => {
     const { app, pc } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["anima_turbo", "z_image_turbo", "flux2klein_edit"] });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"] });
     const { cookie } = await pair(app);
     const state = async () => body(await app.handle(request("GET", "/api/state", undefined, cookie)));
     const cfg = { ...(await state()).config, pack_settings: { anima: { artist_list: "@one_artist" } } };
 
     const put = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
     expect(put.warnings).toEqual([]);
-    expect(pc.controlCalls.filter(([op]) => op === "download").length).toBe(3); // the PC downloads the selected packs
+    expect(pc.controlCalls.filter(([op]) => op === "download").map(([, a]) => a.pack.name)).toEqual(["anima", "anima_turbo", "flux2klein_edit", "z_image_turbo"]); // the selected packs and their families
     expect(pc.controlCalls.at(-1)![0]).toBe("sync"); // and copies LoRAs
 
     const illustrated = async () => (await mcp(app, "tools/list"))[1].result.tools.find((t: any) => t.name === "generate_illustrated_image").description;
@@ -856,7 +902,7 @@ describe("the PC path", () => {
   it("warns only about LoRAs that are not in storage, whatever the GPUs hold", async () => {
     const { app, net, pc, bucket } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["anima_turbo", "z_image_turbo", "flux2klein_edit"] });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"] });
     const { cookie } = await pair(app);
     await bucket.put("lora/stored.safetensors", new Uint8Array(1));
     net.loras = { "modal.safetensors": 1 };
@@ -918,6 +964,18 @@ describe("the PC path", () => {
     expect(toolText(onModal)).toContain("being downloaded to your GPU");
     expect(pc.comfy.prompts.length).toBe(1);
     expect(net.adminCalls.length).toBeGreaterThan(0);
+  });
+
+  it("routes a hidden model to a GPU that has it", async () => {
+    const { app, pc, comfy } = world();
+    await withModal(app);
+    await pair(app);
+    await app.store.updateSetup({ seeded: ["anima"], ready: { pc: { anima: false, anima_turbo: true } } });
+    const gen = (model: string) => mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x", model } });
+    await gen("anima");
+    expect([pc.comfy.prompts.length, comfy.prompts.length]).toEqual([0, 1]);
+    await gen("");
+    expect([pc.comfy.prompts.length, comfy.prompts.length]).toEqual([1, 1]);
   });
 
   it("images outlive their GPU: a PC image opens and is edited on Modal while the PC is off", async () => {
@@ -1057,7 +1115,7 @@ describe("the PC path", () => {
   it("shows each GPU's LoRA files and model downloads, and learns which packs a PC has", async () => {
     const { app, pc, net } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["anima_turbo", "z_image_turbo", "flux2klein_edit"] });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"] });
     const { cookie } = await pair(app);
     net.loras = { "both.safetensors": 7 };
     pc.controls.loras = () => [200, { files: { "mine.safetensors": 123, "both.safetensors": 7 }, syncing: { "x.safetensors": { to: "pc", done: 1, total: 2 } } }];

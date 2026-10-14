@@ -12,7 +12,7 @@ import { ComfyUIClient, ComfyUIError, type OutputImage } from "./comfyui.ts";
 import { normalize, type Config } from "./config.ts";
 import { imageSize, sniffMime } from "./images.ts";
 import { UnknownTool } from "./mcp.ts";
-import { groupByTool, prepare, select, type Pack } from "./packs.ts";
+import { groupByTool, packFor, prepare, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
 import * as refs from "./refs.ts";
 import { buildPrompt, withImages, type Workflow } from "./workflow.ts";
@@ -97,6 +97,7 @@ export class Brain {
   private client: ComfyUIClient;
   private hooks: Hooks;
   private waitS: number;
+  private packs: Pack[];
   // Raw selected packs by tool. They are prepared (LoRAs, budget) only when called, so a request
   // pays for one pack, not all of them.
   private selected: Record<string, Pack>;
@@ -106,6 +107,7 @@ export class Brain {
     this.client = client;
     this.hooks = opts.hooks ?? new Hooks();
     this.waitS = opts.waitS ?? DEFAULT_WAIT_S;
+    this.packs = packs;
     this.specs = toolSpecs(packs, this.cfg, imageMode);
     this.selected = Object.fromEntries(select(groupByTool(packs), this.cfg.pack_selections).map((p) => [p.tool_name, p]));
   }
@@ -115,7 +117,10 @@ export class Brain {
     this.client.stopBy = this.client.time() + this.waitS; // cold starts, uploads and the wait share it
     if (name === "fetch_result") return this.fetch(args);
     if (name === "edit_image" && "edit_image" in this.selected) return this.edit(args);
-    if (name in this.selected && !STATIC_TOOLS.has(name)) return this.generate(this.selected[name], args);
+    if (name in this.selected && !STATIC_TOOLS.has(name)) {
+      const pack = packFor(this.packs, this.selected[name], args.model); // a scripted caller's hidden `model`
+      return typeof pack === "string" ? new Failed(pack) : this.generate(pack, args);
+    }
     throw new UnknownTool(name);
   }
 

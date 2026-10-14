@@ -97,6 +97,26 @@ export function select(groups: Record<string, Pack[]>, selections: Record<string
   });
 }
 
+/** The pack a generate call runs: *selected*, or the one a scripted caller names in the hidden
+ * `model` argument, which must back the same tool (design §3, Scripted callers). A string is the
+ * error to answer with. */
+export function packFor(packs: Pack[], selected: Pack, model: unknown): Pack | string {
+  const name = typeof model === "string" ? model.trim() : "";
+  if (!name) return selected;
+  const choices = packs.filter((p) => p.tool_name === selected.tool_name);
+  return (
+    choices.find((p) => p.name === name) ??
+    `Unknown model "${name}" for ${selected.tool_name}. Valid models: ${choices.map((p) => p.name).join(", ")}.`
+  );
+}
+
+/** *selected* and every other pack of their families, in *packs* order: a family downloads whole,
+ * so a call naming a family member finds it ready (design §3, Brain). */
+export function withFamilies(selected: Pack[], packs: Pack[]): Pack[] {
+  const families = new Set(selected.map(family));
+  return packs.filter((p) => families.has(family(p)));
+}
+
 /** Whether the pack takes the user's LoRAs: it has a LoRA group. */
 export function supportsLoras(pack: Pack): boolean {
   return Boolean(pack.lora_group);

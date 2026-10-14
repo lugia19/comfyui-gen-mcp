@@ -7,7 +7,7 @@
 import {
   Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
   builtinPacks, fromHex, fromUtf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
-  withoutLora, tagLooseLoras, wantedLoras, type Config, type Content, type Pack,
+  withoutLora, tagLooseLoras, wantedLoras, packFor, withFamilies, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
@@ -45,6 +45,12 @@ const SETTINGS_METADATA = settingsMetadata(PACKS);
 
 export function selectedPacks(cfg: Config): Pack[] {
   return select(GROUPS, cfg.pack_selections);
+}
+
+/** The packs every GPU should have: the selected ones and the rest of their families (a call may
+ * name one with the hidden `model` argument). */
+export function wantedPacks(cfg: Config): Pack[] {
+  return withFamilies(selectedPacks(cfg), PACKS);
 }
 
 // A sync plan creates one Modal session per file: keep it well inside the subrequest limit. The
@@ -347,12 +353,22 @@ export class App {
     return json({ loras: list.map(({ name, trigger, strength, hidden }) => ({ name, trigger, strength, hidden })) });
   }
 
-  /** /mcp/<secret>: the MCP endpoint; /mcp/<secret>/loras: its LoRA list. */
+  /** The packs a scripted caller may name in the illustrated tool's hidden `model` argument, and
+   * which one the settings page picked (design §3, Scripted callers). */
+  private async mcpModels(req: Request): Promise<Response> {
+    if (req.method !== "GET") return new Response(null, { status: 405, headers: { Allow: "GET" } });
+    const picked = selectedPacks(await this.store.config()).map((p) => p.name);
+    const packs = PACKS.filter((p) => p.tool_name === "generate_illustrated_image");
+    return json({ models: packs.map((p) => ({ name: p.name, display_name: p.display_name, selected: picked.includes(p.name) })) });
+  }
+
+  /** /mcp/<secret>: the MCP endpoint; /mcp/<secret>/loras and /models: its lists. */
   private async mcp(req: Request, url: URL, rest: string): Promise<Response> {
     const s = await this.store.secrets();
     const [secret, sub] = rest.replace(/^\/+|\/+$/g, "").split(/\/(.*)/s);
     if (!safeEqual(secret, s.mcp_secret)) return error(404, "not found");
     if (sub === "loras") return this.mcpLoras(req);
+    if (sub === "models") return this.mcpModels(req);
     if (sub !== undefined) return error(404, "not found");
     const cfg = await this.store.config(); // one config for every GPU: Claude sees one tool list
     const specs = new Brain(PACKS, cfg, null as unknown as ComfyUIClient, "refs").specs;
@@ -367,7 +383,14 @@ export class App {
       if (name === "request_upload") return uploads.requestUpload(args, url.origin, key, this.p.now());
       const gpus = await this.gpus(this.store);
       if (!gpus.length) return failResult(`no GPU is set up yet. Finish setup at ${url.origin}/`);
-      const pack = selectedPacks(cfg).find((p) => p.tool_name === name) ?? null;
+      let pack = selectedPacks(cfg).find((p) => p.tool_name === name) ?? null;
+      // A scripted caller's hidden `model` (Brain resolves it the same way): routed by, and an
+      // unknown one answered before any GPU time.
+      if (pack && name !== "edit_image") {
+        const chosen = packFor(PACKS, pack, args.model);
+        if (typeof chosen === "string") return failResult(chosen);
+        pack = chosen;
+      }
       let gpu: Gpu | string;
       if (name === "fetch_result") {
         // The token names the GPU the job is on: only that one has it.
@@ -456,11 +479,11 @@ export class App {
     return json({ ok: true, warnings });
   }
 
-  /** Best effort: apply keep-warm (when given), start downloads for selected packs. Returns warnings.
+  /** Best effort: apply keep-warm (when given), start downloads for the wanted packs. Returns warnings.
    * LoRAs are spreadLoras' (the callers call it after). */
   private async applyToModal(admin: modalAdmin.ModalAdmin, cfg: Config, keepWarmMinutes: number | null): Promise<string[]> {
     const warnings = keepWarmMinutes === null ? [] : await this.applyKeepWarm(admin, keepWarmMinutes);
-    return warnings.concat(await modalAdmin.seedMissing(admin, this.fresh, selectedPacks(cfg)));
+    return warnings.concat(await modalAdmin.seedMissing(admin, this.fresh, wantedPacks(cfg)));
   }
 
   /** Set how long Modal stays warm after a call. Returns warnings (best effort). */
@@ -748,7 +771,7 @@ export class App {
     }
     // As the extension does: a newly chosen pack starts downloading now.
     for (const pc of await this.onlinePcs(gpus)) {
-      for (const pack of selectedPacks(cfg)) await this.control(pc, "download", { pack: packNeeds(pack) });
+      for (const pack of wantedPacks(cfg)) await this.control(pc, "download", { pack: packNeeds(pack) });
     }
     warnings.push(...(await this.spreadLoras(new URL(req.url).origin)));
     if (wantedLoras(cfg).length) warnings.push(...missingLoras(cfg, await this.loraListing()));
@@ -951,13 +974,13 @@ export class App {
   }
 
   /**
-   * Download state of the selected packs on each GPU, for the pages to poll: {gpus: [{id, name,
+   * Download state of the wanted packs (selected, and their families) on each GPU, for the pages to poll: {gpus: [{id, name,
    * kind}], packs: [{name, display_name, tool_name, size, on: {gpu id: status}}]}. ?gpu= limits it
    * to one. A PC's answer also tells routing which packs it has ready.
    */
   private async models(url: URL): Promise<Response> {
     const only = url.searchParams.get("gpu");
-    const packs = selectedPacks(await this.fresh.config());
+    const packs = wantedPacks(await this.fresh.config());
     const on: Record<string, any>[] = packs.map(() => ({}));
     const gpus = (await this.gpus()).filter((g) => g.kind !== "url" && (!only || g.id === only));
     for (const gpu of gpus) {

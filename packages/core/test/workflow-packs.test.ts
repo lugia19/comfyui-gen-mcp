@@ -3,7 +3,7 @@ import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize, tagLoras } from "../src/config.ts";
-import { builtinPacks, DEFAULT_LORA_GROUP, family, groupByTool, packLoras, prepare, select, supportsLoras, TOOLS, validate } from "../src/packs.ts";
+import { builtinPacks, DEFAULT_LORA_GROUP, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
 import { describe as describeTool } from "../src/tools.ts";
 import { buildPrompt, calcDimensions, injectLoras, withImages, type Workflow } from "../src/workflow.ts";
 
@@ -182,6 +182,16 @@ describe("packs and config", () => {
     for (const p of builtin.filter((x) => x.is_default)) expect(byTool[p.tool_name]).toBe(p.name);
     const other = groups.generate_illustrated_image.find((p) => p.name !== byTool.generate_illustrated_image)!.name;
     expect(select(groups, { generate_illustrated_image: other }).map((p) => p.name)).toContain(other);
+  });
+
+  it("a family downloads whole: each selected pack brings the rest of its family", () => {
+    const byName = (n: string) => builtin.find((p) => p.name === n)!;
+    const names = (ps: { name: string }[]) => ps.map((p) => p.name);
+    expect(names(withFamilies([byName("anima"), byName("z_image_turbo")], builtin))).toEqual(["anima", "anima_turbo", "z_image_turbo"]);
+    expect(names(withFamilies([byName("flux2klein")], builtin))).toEqual(["flux2klein"]);
+    expect(packFor(builtin, byName("anima"), undefined)).toBe(byName("anima"));
+    expect(packFor(builtin, byName("anima"), "anima_turbo")).toBe(byName("anima_turbo"));
+    expect(packFor(builtin, byName("z_image_turbo"), "anima")).toBe('Unknown model "anima" for generate_realistic_image. Valid models: flux2klein, flux2klein_9b, z_image_turbo.');
   });
 
   it("prepare splices LoRAs only for Anima", () => {

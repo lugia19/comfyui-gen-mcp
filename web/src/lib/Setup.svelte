@@ -395,7 +395,7 @@
     {/if}
   {:else if current === 'models'}
     {#if deployed}
-      <p>The models download straight into your Modal account (about 20 GB for the default choices, a few minutes).
+      <p>The models download straight into your Modal account (about 23 GB for the default choices, a few minutes).
         You can go on to the next step meanwhile.</p>
       <Models gpu="modal" onchange={(p) => (packs = p)} />
     {:else}

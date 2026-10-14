@@ -62,6 +62,19 @@ describe("MCP route", () => {
     expect((await w.local("/mcp/wrong", rpc("tools/list"))).status).toBe(404);
   });
 
+  it("takes a scripted caller's hidden model: a pack of the tool, else an error naming them", async () => {
+    const w = world();
+    const call = async (model: string) =>
+      (await (await w.local(w.cfg().mcp_path, rpc("tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x", model } }))).json()).result;
+    const bad = await call("z_image_turbo");
+    expect(bad._meta["comfy-gen/result"]).toEqual({
+      status: "error", retryable: false,
+      message: 'Unknown model "z_image_turbo" for generate_illustrated_image. Valid models: anima, anima_turbo.',
+    });
+    // A good one gets as far as this machine's ComfyUI, which the stub has stopped and uninstalled.
+    expect((await call("anima"))._meta["comfy-gen/result"].message).not.toContain("Unknown model");
+  });
+
   it("ignores a stored custom workflow (the feature was removed)", async () => {
     const w = world();
     saveConfig(w.p.config, { ...w.cfg(), custom_workflow: { workflow: { "1": { class_type: "EmptyImage", inputs: {} } } } });
@@ -104,7 +117,7 @@ describe("settings API", () => {
     expect(r.warnings.join()).toContain("gone.safetensors");
     expect(w.downloaded).toEqual([]); // the selection didn't change: models wait for their first use
     await put({ pack_selections: { generate_illustrated_image: "anima" } });
-    expect(w.downloaded).toEqual(["anima"]); // a newly chosen one starts at once
+    expect(w.downloaded).toEqual(["anima", "anima_turbo"]); // a newly chosen one starts at once, with its family
     expect((await put({ extra_models_dir: "/no/such/dir" })).status).toBe(400);
     expect((await put({ comfyui_url: "ftp://x" })).status).toBe(400);
   });
@@ -143,10 +156,10 @@ describe("settings API", () => {
     expect(await (await w.local("/api/loras")).json()).toEqual({ loras: {}, external: true });
   });
 
-  it("reports the selected packs' downloads", async () => {
+  it("reports the downloads of the selected packs and their families", async () => {
     const w = world();
     const { packs } = await (await w.local("/api/models")).json();
-    expect(packs.length).toBeGreaterThan(0);
+    expect(packs.map((p: any) => p.name)).toEqual(expect.arrayContaining(["anima", "anima_turbo"]));
     expect(packs[0]).toMatchObject({ state: "missing" });
   });
 });

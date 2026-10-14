@@ -611,3 +611,20 @@ The test world's R2 now answers each part with its MD5, as R2 does. Local `wrang
 answers with an opaque token instead, so a chunked LoRA upload can't complete there. A LoRA upload
 is checked on a deployed Worker.
 
+## Visual Novelist on the Worker, part B (2026-10-14)
+
+So the owner can use Anima in claude.ai and Anima Turbo in Visual Novelist at once (design §3,
+Scripted callers). Claude's tool list is byte-identical.
+
+- **A hidden `model`:** a pack name backing the tool called; any other name is a non-retryable
+  error naming the valid ones. Core `packFor` resolves it in the Brain, so the MCPB has it too.
+  The Worker resolves it before picking a GPU, so it routes to one that has that pack.
+- **A family downloads whole** (core `withFamilies`):
+  - Modal's seeding and the PC download on save cover the selected packs and the rest of their
+    families, and the models page lists them.
+  - On the MCPB, a newly chosen pack brings its family.
+  - A pack still missing starts its download on first use, as before.
+- **`--cache-ram 4 6`** on both ComfyUI launches. 0.37.0's default dropped the other pack's loaded
+  model after every prompt (design §3, Waiting).
+- **`GET /mcp/<secret>/models`.**
+
