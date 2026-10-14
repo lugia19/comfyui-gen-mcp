@@ -297,6 +297,13 @@ A local probe (A, B, then A again) found prompt A's nodes cached with this flag,
 default or `--cache-classic`. `--cache-lru` would keep them too, but with no regard for RAM. The
 reading is cgroup-aware, so Modal's container limit counts.
 
+Live on Modal after v1.13.0 (2026-10-14, through the connector with `model`):
+- Turbo right after an Anima call took 9.4–9.5 s, the same as warm Turbo (9.0–9.5 s).
+- Anima stayed at its warm ~40 s, so neither model reloads when calls alternate between them.
+- Z-Image Turbo right after an Anima-family call still took about 20 s, against about 10 s warm.
+  All three packs come to about 19 GB, so VRAM alone doesn't explain it. Unconfirmed: its GGUF
+  loaders, or the container dropping under the 6 GB threshold.
+
 
 `tools/call` blocks up to 2.5 minutes, returning the image directly. claude.ai's MCP client
 timeout is 5 minutes (S8), but a claude.ai connector used from Claude Code gave up at about 183 s
