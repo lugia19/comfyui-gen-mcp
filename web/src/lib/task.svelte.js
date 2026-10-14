@@ -35,3 +35,20 @@ export class Copy {
 
 /** A connector URL for the screen, its secret hidden (screenshots get shared). */
 export const masked = (url) => (url || '').replace(/(\/mcp\/).+$/, '$1••••••••')
+
+/** Run *fn* when the user comes back to this tab (from a page a button opened), at most once every
+ * few seconds. Returns the function that stops it, for an $effect's cleanup. */
+export function onReturn(fn) {
+  let last = 0
+  const back = () => {
+    if (document.visibilityState !== 'visible' || Date.now() - last < 3000) return
+    last = Date.now()
+    fn()
+  }
+  document.addEventListener('visibilitychange', back)
+  window.addEventListener('focus', back)
+  return () => {
+    document.removeEventListener('visibilitychange', back)
+    window.removeEventListener('focus', back)
+  }
+}

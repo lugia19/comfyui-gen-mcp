@@ -12,7 +12,7 @@
         <span class="badge" aria-hidden="true">{item.done ? '✓' : i + 1}</span>
         <span>
           <b>{item.title}</b>
-          {#if i === next && item.hint}<br /><span class="muted">{item.hint}</span>{/if}
+          {#if i === next && item.hint}<br /><span>{item.hint}</span>{/if}
         </span>
       </li>
     {/each}

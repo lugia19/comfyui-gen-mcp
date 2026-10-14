@@ -1,6 +1,7 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
   import { api } from './api.js'
+  import OpenButton from './OpenButton.svelte'
   import { Task } from './task.svelte.js'
 
   // The agent's link to a Worker: paste the pairing link from the Worker's settings page, see the
@@ -15,12 +16,26 @@
   const LABEL = {
     connected: 'Connected',
     connecting: 'Connecting…',
-    refused: 'Turned away',
+    refused: 'Refused',
     unpaired: 'Not paired',
   }
 
+  // A whole pairing link pasted pairs at once: https (or this machine), /agent, and its secret after
+  // # (the agent's parsePairingLink checks the same, and says what is wrong).
+  function looksLikeLink(text) {
+    try {
+      const u = new URL(text.trim())
+      return (u.protocol === 'https:' || /^(127\.0\.0\.1|localhost)(:\d+)?$/.test(u.host)) && u.pathname === '/agent' && u.hash.length > 32
+    } catch {
+      return false
+    }
+  }
+  function linkInput() {
+    if (looksLikeLink(link) && !pairing.busy) pair()
+  }
+
   function pair(e) {
-    e.preventDefault()
+    e?.preventDefault()
     pairing.run(async () => {
       await api('POST', '/pair', { link: link.trim() })
       link = ''
@@ -55,28 +70,22 @@
     {#if worker.paused}
       <p><b>Paused:</b> not taking image requests. Take them again from the Comfy-Gen tray icon.</p>
     {/if}
-    <p class="muted">Claude (claude.ai, the phone app) generates on this PC through your Worker while it is connected.</p>
-    <p class="muted">
-      <b>Don't also install the Claude Desktop extension on this PC:</b> each runs its own ComfyUI, and two don't fit on
-      one GPU. Claude Desktop can use your Worker as a connector instead.
-    </p>
+    <p>Claude makes images on this PC through your Worker while it is connected.</p>
+    <p><OpenButton href="{worker.url}/#settings" label="Open your Worker's settings" /></p>
+    <p class="muted">Models, styles and LoRAs are set there, for all your GPUs alike.</p>
     <p>
-      <a class="button" href="{worker.url}/#settings" target="_blank" rel="noopener">Edit settings</a>
-    </p>
-    <p class="muted">
-      Models, styles and LoRAs are set on your Worker's page, under Settings, for all its GPUs alike. LoRAs
-      uploaded there are copied to this PC from your Worker's storage. This PC's ComfyUI can be started,
-      stopped and installed from there too: Settings, <b>GPUs</b>, <b>Open its page</b> shows this page there.
+      <b>Don't also install the Claude Desktop extension on this PC:</b> two don't fit on one graphics card. Claude Desktop
+      can use your Worker instead.
     </p>
   {:else}
     <p>
-      Pair this PC with your Worker: on the Worker's Setup page, in <b>Set up your PC</b>, press <b>Add a PC</b> (<b>Add another PC</b>
-      once one is listed, or <b>New pairing link</b> on this PC's entry). Copy the link and paste it here.
+      On your Worker's page, in <b>Set up your PC</b>, click <b>Copy link</b>, then paste the link here: it pairs by itself.
+      (No link there? Click <b>Add a PC</b> first.)
     </p>
   {/if}
   <form onsubmit={pair}>
     <label for="link">{worker.paired ? 'Pair again with a new link' : 'Pairing link'}</label>
-    <input id="link" type="text" bind:value={link} placeholder="https://…workers.dev/agent#…" autocomplete="off" />
+    <input id="link" type="text" bind:value={link} oninput={linkInput} placeholder="https://…workers.dev/agent#…" autocomplete="off" disabled={pairing.busy} />
     <button type="submit" disabled={pairing.busy || !link.trim()}>{pairing.busy ? 'Pairing…' : 'Pair'}</button>
     {#if worker.paired}<button type="button" class="secondary" onclick={unpair}>Unpair</button>{/if}
   </form>

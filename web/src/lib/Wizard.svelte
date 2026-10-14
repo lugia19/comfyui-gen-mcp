@@ -7,8 +7,10 @@
   // *waiting* says what a step that can't be left yet waits for. *current* (bindable): the step
   // shown. The children render the current step's content; a walkthrough in it (Tour mode "wizard")
   // puts its screenshot on the left and is driven by Back / Next here. Next leaves a step only once
-  // it is done: its state is the proof. *end* ({ label, onclick }, optional): the last step's button,
-  // where Next would be.
+  // it is done: its state is the proof. A step that turns done while it shows moves on by itself.
+  // Moving on passes over steps marked *skip* (nothing to do there: already done, or optional); Back
+  // and the bar still open them. *end* ({ label, onclick }, optional): the last step's button, where
+  // Next would be.
   let { steps, current = $bindable(), end = null, children } = $props()
 
   let tour = $state.raw(null) // the current step's walkthrough, while it shows (raw: unregister compares it)
@@ -30,7 +32,11 @@
 
   let at = $derived(Math.max(0, steps.findIndex((s) => s.id === current)))
   let step = $derived(steps[at])
-  let nextStep = $derived(steps[at + 1])
+  // Where Next goes: the first later step with something to do, else the last one.
+  let nextStep = $derived.by(() => {
+    const later = steps.slice(at + 1)
+    return later.find((s) => !s.skip) ?? later.at(-1)
+  })
   // The bar opens any step up to the first that can't be left yet (as Next would reach it).
   let reach = $derived.by(() => {
     const i = steps.findIndex((s) => !s.canLeave)
@@ -43,6 +49,25 @@
   let leave = $derived(step.canLeave)
 
   let barH = $state(0)
+
+  // A step whose state turns done while it shows (storage on, a PC paired, Modal deployed, Claude
+  // connected) says so for a moment, then moves on. Only the change counts: arriving with Back at a
+  // done step stays there.
+  let justDone = $state(null)
+  const wasDone = new Map()
+  $effect(() => {
+    for (const s of steps) {
+      const before = wasDone.get(s.id)
+      wasDone.set(s.id, s.done)
+      if (before !== false || !s.done || s.id !== untrack(() => current)) continue
+      justDone = s.id
+      setTimeout(() => {
+        if (justDone !== s.id) return
+        justDone = null
+        if (current === s.id && nextStep) go(nextStep.id)
+      }, 1200)
+    }
+  })
 
   function go(id) {
     if (id === current) return
@@ -97,6 +122,7 @@
 
   <section class="wz-step" class:wz-split={split}>
     <h2 class="wz-title">{step.title}</h2>
+    {#if justDone === step.id}<p class="ok wz-done"><b>✓ Done.</b> On to the next step…</p>{/if}
     {@render children?.()}
     {#if nextStep || at > 0 || end}
       <div class="wz-nav">

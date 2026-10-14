@@ -342,3 +342,36 @@ main.wide > section:not(.wz-split) {
 a.button {
   text-decoration: none;
 }
+
+/* What to do, in order: each step a plain sentence with its button or field right under it. */
+ol.steps {
+  list-style: none;
+  counter-reset: step;
+  margin: 12px 0;
+  padding: 0;
+}
+ol.steps > li {
+  counter-increment: step;
+  position: relative;
+  padding: 0 0 14px 34px;
+}
+ol.steps > li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+ol.steps > li > .button:first-child,
+ol.steps > li > button:first-child {
+  margin-top: 0;
+}

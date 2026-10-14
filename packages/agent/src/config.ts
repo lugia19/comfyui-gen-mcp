@@ -53,14 +53,14 @@ export function parsePairingLink(link: string): [string, string] {
   try {
     url = new URL(link.trim());
   } catch {
-    throw new Error("That is not a link. Copy the pairing link from your Worker's settings page (Setup, Your PC).");
+    throw new Error("That is not a link. Copy the pairing link from your Worker's page (Setup, Set up your PC).");
   }
   const secret = url.hash.slice(1);
   if (url.protocol !== "https:" && !(url.protocol === "http:" && /^(127\.0\.0\.1|localhost)(:\d+)?$/.test(url.host))) {
     throw new Error("The pairing link must be an https link to your Worker.");
   }
   if (url.pathname !== "/agent" || secret.length < 32) {
-    throw new Error("That is not a pairing link. Copy it from your Worker's settings page (Setup, Your PC).");
+    throw new Error("That is not a pairing link. Copy it from your Worker's page (Setup, Set up your PC).");
   }
   return [url.origin, secret];
 }

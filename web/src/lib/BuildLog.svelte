@@ -36,13 +36,15 @@
   onDestroy(() => clearTimeout(timer))
 </script>
 
-<h2>Deploy log</h2>
-<p class="muted">
+<p>
   {#if status === 'stopped'}
-    {#if outcome === 'success'}<span class="ok">Finished.</span>{:else}<span class="err">Build {outcome}.</span>{/if}
+    {#if outcome === 'success'}<span class="ok">Finished.</span>{:else}<span class="err">It failed: the details below say why.</span>{/if}
   {:else}
-    Building… this takes {takes}.
+    Working on it: this takes {takes}.
   {/if}
 </p>
-<pre bind:this={pre}>{lines.join('\n') || '…'}</pre>
+<details class="guide" open={status === 'stopped' && outcome !== 'success'}>
+  <summary>Details</summary>
+  <pre bind:this={pre}>{lines.join('\n') || '…'}</pre>
+</details>
 {#if error}<p class="err">{error}</p>{/if}

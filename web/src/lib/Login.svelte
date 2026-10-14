@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import { api, TOKEN_TEMPLATE_URL } from './api.js'
+  import OpenButton from './OpenButton.svelte'
   import Tour from './Tour.svelte'
 
   // The first login is a Cloudflare token (it proves the Worker is yours); it then sets a password,
@@ -13,7 +14,6 @@
   let hasPassword = $state(null) // null while asking
   let useToken = $state(false)
   let shot = $state(false) // the token walkthrough's screenshot shows: it takes the left of the window
-  let at = $state() // its step: the token field shows from step 4, where the token is copied (null: no walkthrough)
 
   onMount(async () => {
     try {
@@ -23,8 +23,14 @@
     }
   })
 
+  // A whole token pasted logs in at once (Cloudflare's are cfut_…, or 40 characters for older ones).
+  const looksLikeToken = (t) => /^cfut_\S{20,}$|^[\w-]{40,}$/.test(t.trim())
+  function tokenInput() {
+    if (looksLikeToken(token) && !busy) submit()
+  }
+
   async function submit(e) {
-    e.preventDefault()
+    e?.preventDefault()
     busy = true
     error = ''
     try {
@@ -62,31 +68,29 @@
   <h2>Log in with Cloudflare</h2>
   <p>
     {#if hasPassword}
-      A Cloudflare API token that can manage this Worker proves it is yours.
+      A Cloudflare token proves this Worker is yours.
       <button type="button" class="link" onclick={() => ((useToken = false), (error = ''))}>Back to the password</button>
     {:else}
-      The first time, a Cloudflare API token that can manage this Worker proves it is yours. The Worker also keeps it
-      to set up the GPU side and update itself. After this you set a password for next time.
+      The first time, a Cloudflare token proves this Worker is yours. After this you set a password for next time.
     {/if}
   </p>
-  <p><a class="button" href={TOKEN_TEMPLATE_URL} target="_blank" rel="noopener">Open the pre-filled token page</a></p>
-  <Tour ids={['cf-token']} bind:shot bind:at>
-    <ol>
-      <li>The permissions are already ticked. Click <b>Continue to summary</b>, then <b>Create Token</b>, and paste it here.</li>
-    </ol>
-    <p class="muted">
-      If your Cloudflare login also belongs to other accounts (an employer's, say), change "All accounts" to your own
-      under <b>Account Resources</b> first, so the token cannot touch them.
-    </p>
-  </Tour>
-  {#if at === null || at >= 4}
-    <form onsubmit={submit}>
-      <label for="token">API token</label>
-      <input id="token" type="password" bind:value={token} placeholder="cfut_…" autocomplete="off" />
-      <button type="submit" disabled={busy || !token.trim()}>{busy ? 'Checking…' : 'Log in'}</button>
-      {#if error}<p class="err">{error}</p>{/if}
-    </form>
-  {/if}
+  <ol class="steps">
+    <li><OpenButton href={TOKEN_TEMPLATE_URL} label="Open Cloudflare's token page" /><br />Everything is filled in there.</li>
+    <li>
+      <Tour ids={['cf-token']} bind:shot>
+        Click <b>Continue to summary</b>, then <b>Create Token</b>, and copy the token. (If your Cloudflare login also has
+        other accounts, an employer's say, first change <b>All accounts</b> to your own.)
+      </Tour>
+    </li>
+    <li>
+      <form onsubmit={submit}>
+        <label for="token">Paste the token here: it logs you in.</label>
+        <input id="token" type="password" bind:value={token} oninput={tokenInput} placeholder="cfut_…" autocomplete="off" disabled={busy} />
+        <button type="submit" disabled={busy || !token.trim()}>{busy ? 'Checking…' : 'Log in'}</button>
+        {#if error}<p class="err">{error}</p>{/if}
+      </form>
+    </li>
+  </ol>
   <p class="muted">This browser stays logged in for a year.</p>
 </section>
 {/if}

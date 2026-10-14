@@ -12,11 +12,11 @@
   const remote = pcPage !== null
 
   const GPU_LABELS = {
-    nvidia: 'NVIDIA (CUDA)',
-    amd: 'AMD (ROCm on Linux; CPU on Windows)',
+    nvidia: 'NVIDIA',
+    amd: 'AMD (fast on Linux; very slow on Windows)',
     intel: 'Intel Arc',
-    mac: 'Apple silicon',
-    cpu: 'CPU only (very slow)',
+    mac: 'Mac with Apple silicon',
+    cpu: 'No graphics card (very slow)',
   }
   const STATE_LABELS = {
     not_installed: 'Not installed',
@@ -138,9 +138,9 @@
 {#snippet installSection()}
   <section>
     <h2>{comfy.state === 'not_installed' ? 'Install ComfyUI' : 'Reinstall ComfyUI'}</h2>
-    <p class="muted">
-      Downloads ComfyUI and the PyTorch build for your GPU into <code>~/.comfy-gen-mcp</code>, a few GB.
-      {#if info.detected_gpu}Detected: {GPU_LABELS[info.detected_gpu] || info.detected_gpu}.{/if}
+    <p>
+      ComfyUI is the program that makes the images: a few GB.
+      {#if info.detected_gpu}This {remote ? 'PC' : 'computer'} has: <b>{GPU_LABELS[info.detected_gpu] || info.detected_gpu}</b>.{/if}
     </p>
     {#each info.gpus as g (g)}
       <label class="choice">
@@ -229,25 +229,34 @@
       {@render folderForm()}
     </details>
   {:else}
-    {@render folderForm()}
+    {#if comfy.state !== 'not_installed'}
+      <form onsubmit={saveFolders}>{@render extraField()}<button type="submit">Save</button>{#if saved}<p class="ok">{saved}</p>{/if}</form>
+    {/if}
+    <details class="advanced">
+      <summary>Advanced</summary>
+      {@render folderForm(false)}
+    </details>
   {/if}
 </section>
 
-{#snippet folderForm()}
+{#snippet extraField()}
+  <label for="extra">Another models folder (optional)</label>
+  <input id="extra" type="text" bind:value={extraDir} placeholder={examplePath} />
+  <p class="muted">
+    The models folder of another ComfyUI install that isn't found by itself, used as is, so
+    nothing is downloaded twice.
+  </p>
+{/snippet}
+
+<!-- *withExtra*: the models folder too (before the install it is asked in the install section). -->
+{#snippet folderForm(withExtra = true)}
   <form onsubmit={saveFolders}>
-    {#if comfy.state !== 'not_installed'}<!-- before the install, it is asked in the install section -->
-      <label for="extra">Another models folder (optional)</label>
-      <input id="extra" type="text" bind:value={extraDir} placeholder={examplePath} />
-      <p class="muted">
-        The models folder of another ComfyUI install that isn't found by itself, used as is, so
-        nothing is downloaded twice.
-      </p>
-    {/if}
-    <label for="url">Your own ComfyUI (advanced)</label>
+    {#if withExtra && comfy.state !== 'not_installed'}{@render extraField()}{/if}
+    <label for="url">Your own ComfyUI</label>
     <input id="url" type="text" bind:value={comfyUrl} placeholder="http://127.0.0.1:8188" />
     <p class="muted">
-      Leave empty to use the managed one. A ComfyUI you run yourself is not started, stopped or given
-      models; it needs the packs' models and nodes already.
+      Leave empty to use the one installed here. One you run yourself is never started or stopped,
+      and needs the models and custom nodes already.
     </p>
     <button type="submit">Save</button>
     {#if saved}<p class="ok">{saved}</p>{/if}
@@ -259,8 +268,8 @@
   <h2>Connect Claude</h2>
   <p>Claude Desktop connects through the extension by itself. Nothing to do here.</p>
   <p>
-    <b>Don't also run the Comfy-Gen agent on this computer.</b> Each runs its own ComfyUI, and two don't
-    fit on one GPU: use this extension, or the agent with a Worker (which Claude Desktop can use too).
+    <b>Don't also run the Comfy-Gen agent on this computer:</b> two don't fit on one graphics card. Use this
+    extension, or the agent with a Worker (which Claude Desktop can use too).
   </p>
   <p class="muted">
     Other MCP clients on this computer can use <code>{showUrl ? info.connector_url : masked(info.connector_url)}</code>
