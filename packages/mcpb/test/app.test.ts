@@ -21,7 +21,7 @@ function world(overrides: Partial<Services> = {}) {
   const installs: string[] = [];
   const downloaded: string[] = [];
   // Discovery sees only this temporary home.
-  const models_ = new ModelLocator(() => ({ models, comfy: join(home, "comfyui") }), () => "", { home, platform: "linux", env: {}, registry: join(home, "registry"), roots: [] });
+  const models_ = new ModelLocator(() => ({ models, comfy: join(home, "comfyui") }), () => loadConfig(p.config).extra_models_dir, { home, platform: "linux", env: {}, registry: join(home, "registry"), roots: [] });
   const comfy = {
     state: "stopped", url: null, error: null, install: { dir: join(home, "comfyui"), python: "py", gpu: "cpu", version: "0.37.0" }, models: models_,
     refresh: async () => {}, restart: async () => {}, stop: async () => {},
@@ -104,6 +104,18 @@ describe("settings API", () => {
     expect(s.comfyui).toMatchObject({ state: "stopped", gpu: "cpu", version: "0.37.0" });
     expect(s.detected_gpu).toBe("nvidia");
     expect(s.packs.length).toBeGreaterThan(0);
+  });
+
+  it("offers the models already on this computer before ComfyUI is installed", async () => {
+    const w = world();
+    Object.assign(w.comfy, { state: "not_installed", install: null });
+    const mine = join(w.p.config, "..", "my-models");
+    mkdirSync(join(mine, "checkpoints"), { recursive: true });
+    writeFileSync(join(mine, "checkpoints", "big.safetensors"), "1");
+    saveConfig(w.p.config, { ...w.cfg(), extra_models_dir: mine });
+    const s = await (await w.local("/api/state")).json();
+    expect(s.comfyui.state).toBe("not_installed");
+    expect(s.model_sources.map((src: any) => src.path)).toContain(mine);
   });
 
   it("saves the config but not the secret path or port, and checks folders", async () => {

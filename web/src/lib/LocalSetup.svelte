@@ -45,6 +45,7 @@
   let gpu = $state(untrack(() => info.comfyui.gpu || info.detected_gpu))
   let install = $state(untrack(() => info.install))
   const task = new Task() // busy: 'restart' or 'stop' while ComfyUI starts or stops
+  const installTask = new Task() // its error shows by the Install button (a bad models folder)
   let acting = $derived(task.busy === 'restart' || task.busy === 'stop')
   // A start or stop call returns only once it is done, so while one runs the label says so.
   let shown = $derived(task.busy === 'restart' ? 'starting' : task.busy === 'stop' ? 'stopping' : comfy.state)
@@ -69,7 +70,14 @@
   async function startInstall() {
     const again = comfy.state !== 'not_installed'
     if (again && !confirm('Reinstall ComfyUI? Models, outputs and settings are kept; custom nodes are reinstalled as needed.')) return
-    if (await task.run(async () => (install = await api('POST', '/setup/install', { gpu })))) pollInstall()
+    const started = await installTask.run(async () => {
+      // A first install takes the models folder typed above it first: a bad one stops it here.
+      if (!again && extraDir.trim() !== (info.config.extra_models_dir || '')) {
+        await api('PUT', '/config', { config: { extra_models_dir: extraDir.trim() } })
+      }
+      install = await api('POST', '/setup/install', { gpu })
+    })
+    if (started) pollInstall()
   }
 
   async function action(name) {
@@ -140,9 +148,25 @@
         <span>{GPU_LABELS[g] || g}</span>
       </label>
     {/each}
-    <button class:secondary={comfy.state !== 'not_installed'} onclick={startInstall} disabled={install.state === 'running'}>
+    {#if comfy.state === 'not_installed'}
+      <!-- Before anything downloads: models already here are used as they are, never downloaded twice. -->
+      <h3>Models you already have</h3>
+      {#if info.model_sources.length}
+        <p class="muted">Found on this {remote ? 'PC' : 'computer'}, used as they are:</p>
+        {#each info.model_sources as src, i (i)}
+          <div class="source"><b>{src.from}</b> <code>{src.path}</code></div>
+        {/each}
+      {:else}
+        <p class="muted">No other ComfyUI found on this {remote ? 'PC' : 'computer'}.</p>
+      {/if}
+      <label for="extra-first">Another models folder (optional)</label>
+      <input id="extra-first" type="text" bind:value={extraDir} placeholder={examplePath} disabled={install.state === 'running'} />
+      <p class="muted">If you keep models somewhere else, such as a ComfyUI that isn't listed above, its models folder, so nothing is downloaded twice.</p>
+    {/if}
+    <button class:secondary={comfy.state !== 'not_installed'} onclick={startInstall} disabled={install.state === 'running' || installTask.busy}>
       {install.state === 'running' ? 'Installing…' : comfy.state === 'not_installed' ? 'Install' : 'Reinstall'}
     </button>
+    {#if installTask.error}<p class="err">{installTask.error}</p>{/if}
     {#if install.state !== 'idle'}
       {#if install.state === 'done'}<p class="ok">Installed.</p>{/if}
       {#if install.error}<p class="err">{install.error}</p>{/if}
@@ -211,12 +235,14 @@
 
 {#snippet folderForm()}
   <form onsubmit={saveFolders}>
-    <label for="extra">Another models folder (optional)</label>
-    <input id="extra" type="text" bind:value={extraDir} placeholder={examplePath} />
-    <p class="muted">
-      The models folder of another ComfyUI install that isn't found by itself, used as is, so
-      nothing is downloaded twice.
-    </p>
+    {#if comfy.state !== 'not_installed'}<!-- before the install, it is asked in the install section -->
+      <label for="extra">Another models folder (optional)</label>
+      <input id="extra" type="text" bind:value={extraDir} placeholder={examplePath} />
+      <p class="muted">
+        The models folder of another ComfyUI install that isn't found by itself, used as is, so
+        nothing is downloaded twice.
+      </p>
+    {/if}
     <label for="url">Your own ComfyUI (advanced)</label>
     <input id="url" type="text" bind:value={comfyUrl} placeholder="http://127.0.0.1:8188" />
     <p class="muted">

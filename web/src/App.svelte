@@ -70,7 +70,7 @@
         ...(agent && !pcPage
           ? [{ title: 'Pair with your Worker', done: info.worker.state === 'connected', hint: !info.worker.paired ? "Paste the pairing link from your Worker's page below." : info.worker.state === 'refused' ? 'The Worker refused this link: paste a new one below.' : 'Waiting for the Worker to accept the connection.' }]
           : []),
-        { title: 'Install ComfyUI', done: installed, hint: 'Choose your GPU below and click Install. It takes a few minutes.' },
+        { title: 'Install ComfyUI', done: installed, hint: 'Choose your GPU below, add a models folder if you keep models somewhere else, and click Install. It takes a few minutes.' },
       ],
   )
 

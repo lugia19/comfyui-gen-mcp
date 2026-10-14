@@ -190,8 +190,9 @@ export class Machine {
       gpus: GPUS,
       detected_gpu: await this.detectedGpu(),
       memory_gb: Math.round(totalmem() / 2 ** 30), // a Mac's GPU shares it: the page warns below 16
+      // Also before the install: the page offers them, and the extra folder, before anything downloads.
       model_sources:
-        comfy.state === "not_installed"
+        comfy.state === "external"
           ? []
           : comfy.models.sources().map((src) => ({ from: src.from, path: src.path, folders: Object.entries(src.folders).map(([type, dirs]) => ({ type, dirs })) })),
     };

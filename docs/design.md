@@ -624,7 +624,8 @@ Workspace budget, a hard cap), and as optional lines in the storage and Modal st
 3. The user downloads the launcher for their OS from the release and runs it. It installs itself,
    fetches Node, starts the agent and opens the agent's page on `127.0.0.1:9248`.
 4. There they paste the pairing link, then install ComfyUI as in the MCPB (GPU choice; other
-   installs' model folders are found and used). The agent connects to the Worker and keeps the
+   installs' model folders are found and used, and listed before the install beside a field for
+   another models folder, so nothing downloads twice). The agent connects to the Worker and keeps the
    connection; the Worker's page shows it connected, with its GPU and ComfyUI state.
 5. From then on the agent starts at login, starts ComfyUI on the first job, downloads a pack's
    missing models when a tool needs them, and stops ComfyUI after the idle window.
@@ -636,7 +637,9 @@ removes it.
 ### Claude Desktop only
 
 Install the `.mcpb` in Claude Desktop, open the settings page from the tray or the first tool
-result, pick the GPU and install ComfyUI (or keep the old extension's). No accounts.
+result, pick the GPU and install ComfyUI (or keep the old extension's). Before the install the page lists
+the model folders it found and asks for any other one: models download at the first image, so this
+is the moment to say where existing ones are. No accounts.
 
 ## 7. Updates
 
