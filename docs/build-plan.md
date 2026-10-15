@@ -688,3 +688,11 @@ The local end-to-end loop is now `wrangler dev` with a paired agent (CLAUDE.md).
 After v1.16.0, live on Modal: the first `remove_background` call answered "being downloaded" in
 2.1 s and started the 885 MB download. The model now downloads from the start like the watermark
 removal's (design §3), so the first sticker doesn't wait.
+
+Timed live on Modal (v1.16.1, Anima Turbo portrait sprites on grey, alternating runs): 16.3 to
+17.3 s with `remove_background` against 15.0 to 15.3 s without, so about 1.7 s per image. The first
+call after the deploy took 86 s (a cold container loading both models). Every cut-out came back
+RGBA, about 70% transparent, clean (a held mop included).
+On the user's PC (agent v1.16.1, its hello saying `remove_background`): 10.2 to 10.8 s with it
+against 9.0 to 9.4 s without, about 1.2 s; RGBA, 71 to 74% transparent.
+

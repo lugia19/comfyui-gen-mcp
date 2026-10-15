@@ -357,8 +357,8 @@ grey or coloured background in the prompt, never white.
 - **Edits.** LoadImage keeps only the colours of a transparent image (its alpha goes to a mask the
   edit packs don't use), so an edit fills the background back in; the description says to pass
   the option again.
-- **The spike** (scratchpad `bg/`): the graph ran on stock 0.37.0, CPU, 35 to 54 s per image there.
-  GPU timings are to be measured live.
+- **Cost:** about 1.7 s per image on Modal's L4 and 1.2 s on the user's PC (live, v1.16.1, Anima
+  Turbo portraits: 16.8 s against 15.1 s, and 10.4 s against 9.3 s). The spike's CPU took 35 to 54 s.
 
 ### Waiting
 
