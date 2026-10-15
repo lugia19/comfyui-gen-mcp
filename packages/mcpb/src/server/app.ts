@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import {
   Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, UnknownTool,
-  builtinPacks, BG_MODELS, MARK_MODELS, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
+  builtinPacks, isModelSet, MARK_MODELS, MODEL_SETS, wantedModelSets, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
   type Config, type OutputImage, type Pack, type Rendered,
 } from "@comfy-gen/core";
 import {
@@ -45,7 +45,7 @@ export function selectedPacks(cfg: Config): Pack[] {
  * argument, so a family downloads whole. */
 export function wantedPacks(cfg: LocalConfig): Pack[] {
   const packs = withFamilies(selectedPacks(cfg), PACKS);
-  return cfg.remove_marks ? [...packs, MARK_MODELS] : packs;
+  return [...packs, ...wantedModelSets(cfg)];
 }
 
 export class LocalApp {
@@ -187,12 +187,12 @@ export class LocalApp {
   /** The wanted packs' models, then any download still running for a pack no longer wanted: it
    * carries on (switching away doesn't cancel it), so it stays listed until it is done. */
   private models() {
-    // The watermark removal's models download in the background, never listed (design §3).
-    const selected = wantedPacks(this.s.config()).filter((p) => p !== MARK_MODELS);
+    // The watermark and background removal models download in the background, never listed.
+    const selected = wantedPacks(this.s.config()).filter((p) => !isModelSet(p));
     const rows: Record<string, unknown>[] = selected.map((pack: Pack) => ({ ...packRow(pack), ...this.s.machine.downloads.status(pack.name, pack.models ?? []) }));
     for (const job of this.s.machine.downloads.jobs()) {
       if (selected.some((p) => p.name === job.key) || (job.state !== "queued" && job.state !== "downloading")) continue;
-      if (job.key === MARK_MODELS.name || job.key === BG_MODELS.name) continue; // in the background, never listed
+      if (MODEL_SETS.some((p) => p.name === job.key)) continue; // in the background, never listed
       const pack = PACKS.find((p) => p.name === job.key);
       rows.push({ ...job, name: job.key, display_name: `${pack?.display_name ?? job.key} (not selected)`, size: job.total });
     }

@@ -344,9 +344,13 @@ grey or coloured background in the prompt, never white.
   the face) where general keeps the old background. But it turns white-on-white parts semi-
   transparent (a maid's white headdress on a white background): no per-pixel alpha fix separates
   those from the background, so the caller picks a non-white background instead.
-- **On demand.** The model set (core `BG_MODELS`) is not seeded or listed. The first call that asks
-  starts its download and gets the usual retryable "being downloaded": unlike the watermark
-  removal, a call never goes out without the step it asked for.
+- **Downloaded from the start** (the user's call, 2026-10-15: the option is on every call, so the
+  first sticker shouldn't wait for 885 MB). The model set (core `BG_MODELS`, with the watermark
+  removal's in `wantedModelSets`) is seeded with Modal's deploy and every save, sent to online PCs on
+  a save, and fetched by the agent and the extension once ComfyUI is installed (at start and after
+  an install, `Machine.fetchModelSets`); never listed. A call that still finds it missing starts it
+  and gets the usual retryable "being downloaded": unlike the watermark removal, a call never goes
+  out without the step it asked for.
 - **Where.** Modal, the extension, and a PC whose agent's hello says `remove_background` (v1.16.0:
   older agents lack the `background_removal` model folder, so the download would never count as
   done; they get a plain "needs a newer agent").

@@ -8,7 +8,7 @@ import { closeSync, openSync } from "node:fs";
 import type { Server } from "node:http";
 import { join } from "node:path";
 import { listen, loadConfig, log, logTo, Machine, openExternal, paths, saveConfig, type LocalConfig, type Paths, type WebFiles } from "@comfy-gen/local";
-import { withoutLora } from "@comfy-gen/core";
+import { wantedModelSets, withoutLora } from "@comfy-gen/core";
 import type { Pack } from "@comfy-gen/core";
 import { LocalApp } from "./app.ts";
 
@@ -46,12 +46,14 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     settings: () => config(),
     saveGpu: (gpu) => saveConfig(p.config, { ...config(), gpu }),
     waitExtension: opts.waitExtension,
+    modelSets: () => wantedModelSets(config()),
     onLoraDeleted: (name) => {
       const packLoras = withoutLora(config().pack_loras, name);
       if (packLoras) saveConfig(p.config, { ...config(), pack_loras: packLoras });
     },
   });
   await machine.comfy.refresh();
+  machine.fetchModelSets();
 
   const app = new LocalApp({
     version: opts.version,

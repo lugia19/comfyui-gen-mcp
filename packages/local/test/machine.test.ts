@@ -116,3 +116,19 @@ describe("Machine.idleFor", () => {
     }
   });
 });
+
+describe("model sets kept in the background", () => {
+  it("are fetched once ComfyUI is installed, not before", async () => {
+    const p = paths({ COMFY_GEN_HOME: dir() });
+    const set = { name: "remove-background", display_name: "Background removal", models: [{ url: "https://x.example/m", subfolder: "background_removal", filename: "m.safetensors" }] };
+    const comfy = { state: "not_installed" } as any;
+    const machine = new Machine({ paths: p, settings: () => loadConfig(p.config), saveGpu: () => {}, waitExtension: "", modelSets: () => [set], comfy });
+    const started: string[] = [];
+    machine.downloads.start = ((key: string) => (started.push(key), { state: "queued", done: 0, total: 1 })) as any;
+    machine.fetchModelSets();
+    expect(started).toEqual([]); // nowhere to put them yet
+    comfy.state = "stopped";
+    machine.fetchModelSets();
+    expect(started).toEqual(["remove-background"]);
+  });
+});

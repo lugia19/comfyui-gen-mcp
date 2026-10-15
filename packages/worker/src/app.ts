@@ -6,7 +6,7 @@
 
 import {
   Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
-  builtinPacks, MARK_MODELS, fromHex, fromUtf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
+  builtinPacks, isModelSet, wantedModelSets, fromHex, fromUtf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
   withoutLora, tagLooseLoras, wantedLoras, packFor, withFamilies, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
@@ -51,7 +51,7 @@ export function selectedPacks(cfg: Config): Pack[] {
  * name one with the hidden `model` argument). */
 export function wantedPacks(cfg: Config): Pack[] {
   const packs = withFamilies(selectedPacks(cfg), PACKS);
-  return cfg.remove_marks ? [...packs, MARK_MODELS] : packs;
+  return [...packs, ...wantedModelSets(cfg)];
 }
 
 // A sync plan creates one Modal session per file: keep it well inside the subrequest limit. The
@@ -984,8 +984,8 @@ export class App {
    */
   private async models(url: URL): Promise<Response> {
     const only = url.searchParams.get("gpu");
-    // The watermark removal's models download in the background, never listed (design §3).
-    const packs = wantedPacks(await this.fresh.config()).filter((p) => p !== MARK_MODELS);
+    // The watermark and background removal models download in the background, never listed.
+    const packs = wantedPacks(await this.fresh.config()).filter((p) => !isModelSet(p));
     const on: Record<string, any>[] = packs.map(() => ({}));
     const gpus = (await this.gpus()).filter((g) => !only || g.id === only);
     for (const gpu of gpus) {

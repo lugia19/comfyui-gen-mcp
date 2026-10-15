@@ -5,7 +5,7 @@
 import { existsSync, statSync } from "node:fs";
 import { totalmem } from "node:os";
 import { join } from "node:path";
-import { ComfyUIError, downloadSize, UploadError } from "@comfy-gen/core";
+import { ComfyUIError, downloadSize, MODEL_SETS, UploadError } from "@comfy-gen/core";
 import { LocalComfy, type ComfySettings } from "./comfyui.ts";
 import { ModelDownloads, type ModelFile } from "./downloads.ts";
 import { bodyJson, error, json } from "./http.ts";
@@ -29,6 +29,9 @@ export type MachineOptions = {
   /** After a LoRA is deleted (the MCPB takes it out of its packs' settings). */
   onLoraDeleted?: (name: string) => void;
   openFolder?: (path: string) => void;
+  /** Model sets kept here in the background (background removal, the watermark removal's): fetched
+   * once ComfyUI is installed, at start and after an install, so their first use doesn't wait. */
+  modelSets?: () => PackNeeds[];
   comfy?: LocalComfy; // tests pass a stand-in
 };
 
@@ -98,6 +101,13 @@ export class Machine {
     return (this.gpuGuess ??= detectGpu());
   }
 
+  /** Start downloading the model sets this machine keeps (MachineOptions.modelSets) that are missing.
+   * Not before ComfyUI is installed: downloads go into its models folder. */
+  fetchModelSets(): void {
+    if (this.comfy.state === "not_installed") return;
+    for (const set of this.opts.modelSets?.() ?? []) this.downloads.start(set.name, set.models ?? [], set.display_name);
+  }
+
   /** Install (or reinstall) ComfyUI for *gpu*, in the background; install() reports progress. */
   startInstall(gpu: string): void {
     if (!isGpu(gpu)) throw new Error(`unknown GPU kind ${gpu}`);
@@ -114,6 +124,7 @@ export class Machine {
       this.opts.saveGpu(gpu);
       await this.comfy.refresh();
       state.state = "done";
+      this.fetchModelSets();
     })().catch((e) => {
       log.error("Install failed:", e);
       state.state = "failed";
@@ -149,8 +160,8 @@ export class Machine {
         const size = downloadSize({ models } as any);
         const part = status.total < size ? ` (${gb(size - status.total)} of its ${gb(size)} is already on this computer)` : "";
         throw new ComfyUIError(
-          `The ${name} model is downloading: ${pct}% of ${gb(status.total)}${part}. ` +
-            `Try again when it is done; progress is on the settings page, ${settingsUrl}`,
+          `The ${name} model is downloading: ${pct}% of ${gb(status.total)}${part}. Try again when it is done` +
+            (MODEL_SETS.some((set) => set.name === pack.name) ? "." : `; progress is on the settings page, ${settingsUrl}`), // a model set isn't listed there
         );
       }
     }

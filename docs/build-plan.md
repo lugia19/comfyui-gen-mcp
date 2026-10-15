@@ -685,3 +685,6 @@ Then **background removal** (design §3): a visible `remove_background` option, 
 ComfyUI's own nodes, its model downloaded at first use. The caller picks a non-white background.
 The local end-to-end loop is now `wrangler dev` with a paired agent (CLAUDE.md).
 
+After v1.16.0, live on Modal: the first `remove_background` call answered "being downloaded" in
+2.1 s and started the 885 MB download. The model now downloads from the start like the watermark
+removal's (design §3), so the first sticker doesn't wait.

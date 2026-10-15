@@ -53,6 +53,16 @@ export const MARK_MODELS: Pack = { tool_name: "", workflow: {}, ...TOOL_DEFS.rem
  * call asks for it. */
 export const BG_MODELS: Pack = { tool_name: "", workflow: {}, ...TOOL_DEFS.remove_background };
 
+/** The model sets: downloaded in the background, never listed. */
+export const MODEL_SETS = [MARK_MODELS, BG_MODELS];
+export const isModelSet = (pack: Pack) => MODEL_SETS.some((p) => p.name === pack.name);
+
+/** The model sets a GPU keeps in place with *cfg*: background removal always (the option is there
+ * for every call), the watermark removal's while it is on. */
+export function wantedModelSets(cfg: Config): Pack[] {
+  return cfg.remove_marks ? [MARK_MODELS, BG_MODELS] : [BG_MODELS];
+}
+
 /** *packLoras* with every one of *names* in a group: *group* when it is a LoRA group (the one an
  * upload was made for), else the default. Null if every name had one. See config.ts tagLoras. */
 export function tagLooseLoras(packLoras: Record<string, LoraEntry[]>, names: Iterable<string>, group?: unknown): Record<string, LoraEntry[]> | null {

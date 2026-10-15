@@ -8,7 +8,7 @@
 // the answering ComfyUI's inputs, under a name derived from the id, so editing the same image
 // twice reuses one file. An https URL is downloaded and uploaded the same way.
 
-import { ComfyUIError, Hooks, packNeeds, refs, relay, tokenUrlsafe, uploadInput, type ComfyUIClient, type Pack, type ResolvedImage } from "@comfy-gen/core";
+import { ComfyUIError, Hooks, isModelSet, packNeeds, refs, relay, tokenUrlsafe, uploadInput, type ComfyUIClient, type Pack, type ResolvedImage } from "@comfy-gen/core";
 import type { Images } from "./images.ts";
 import { ModalAdminError, packStatus, type ModalAdmin } from "./modal-admin.ts";
 import type { Gpu } from "./gpus.ts";
@@ -73,7 +73,8 @@ export class WorkerHooks extends Hooks {
       const pct = Math.floor((100 * (status.done ?? 0)) / status.total);
       throw new ComfyUIError(`The ${name} model is still downloading to your GPU (${pct}%). Try again in a few minutes.`, RETRY);
     }
-    throw new ComfyUIError(`The ${name} model is being downloaded to your GPU. Try again in a few minutes; progress is on ${this.settingsUrl}.`, RETRY);
+    const where = isModelSet(pack) ? "" : `; progress is on ${this.settingsUrl}`; // a model set isn't listed there
+    throw new ComfyUIError(`The ${name} model is being downloaded to your GPU. Try again in a few minutes${where}.`, RETRY);
   }
 
   async resolveImage(arg: string): Promise<ResolvedImage> {

@@ -7,6 +7,7 @@
 // unpaired, either way: paired, its tray is the sign it runs); exit code
 // RESTART_EXIT_CODE asks it to start us again at once (into a newer bundle), 0 to stay stopped.
 
+import { BG_MODELS } from "@comfy-gen/core";
 import { agentInstance, setPartSuffix, listen, log, logTo, Machine, machineTray, openExternal, paths, selfRequest, type Paths, type TrayLook, type WebFiles } from "@comfy-gen/local";
 import { AgentApp } from "./app.ts";
 import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts";
@@ -51,8 +52,12 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
       saveAgentConfig(p, cfg);
     },
     waitExtension: opts.waitExtension,
+    // Background removal's model, for the option every call has. The watermark removal's come with
+    // the Worker's settings (its download on save, or the first call).
+    modelSets: () => [BG_MODELS],
   });
   await machine.comfy.refresh();
+  machine.fetchModelSets();
 
   let client: RelayClient | null = null;
   // Paused from the tray: connected, but not taking image requests (the Worker uses Modal, or says

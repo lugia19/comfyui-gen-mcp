@@ -473,8 +473,9 @@ describe("settings API", () => {
     expect(net.adminCalls).toContainEqual(["POST", "/idle", { seconds: 300 }]);
     const seeds = net.adminCalls.filter((c) => c[1] === "/seed");
     // The selected packs and the rest of their families (Anima beside Anima Turbo).
-    // And the watermark removal's models (the setting is on by default).
-    expect(seeds.map((c) => c[2].pack).sort()).toEqual(["anima", "anima_turbo", "flux2klein_edit", "remove-marks", "z_image_turbo"]);
+    // And the watermark and background removal models (the setting is on by default; the option is
+    // on every call).
+    expect(seeds.map((c) => c[2].pack).sort()).toEqual(["anima", "anima_turbo", "flux2klein_edit", "remove-background", "remove-marks", "z_image_turbo"]);
     expect(seeds.every((c) => c[2].models.length)).toBe(true);
   });
 
@@ -510,7 +511,7 @@ describe("Modal models", () => {
     net.adminUp = false;
     const ok = await app.handle(request("POST", "/build-callback", { nonce: "n", modal: { server_url: "https://m", admin_url: ADMIN } }));
     expect(ok.status).toBe(200);
-    expect((await body(ok)).warnings.length).toBe(6); // keep-warm + four packs + the watermark removal's
+    expect((await body(ok)).warnings.length).toBe(7); // keep-warm + four packs + the two model sets
     expect((await app.gpus())[0].kind).toBe("modal");
   });
 
@@ -536,7 +537,7 @@ describe("Modal models", () => {
     const { app, net } = world();
     await withModal(app);
     const cookie = await login(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit", "remove-marks"] });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit", "remove-marks", "remove-background"] });
     const cfg = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
     const resp = await app.handle(request("PUT", "/api/config", { config: cfg }, cookie));
     expect((await body(resp)).warnings).toEqual([]);
@@ -584,7 +585,7 @@ describe("Modal models", () => {
     expect(comfy.prompts).toEqual([]);
   });
 
-  it("background removal downloads its model to Modal at its first use, answering meanwhile", async () => {
+  it("background removal not on Modal yet (a deploy from before it): a call starts it and answers meanwhile", async () => {
     const { app, net, comfy } = world();
     await withReadyModal(app);
     const args = { name: "generate_illustrated_image", arguments: { prompt: "x", remove_background: true } };
@@ -906,8 +907,8 @@ describe("the PC path", () => {
 
     const put = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
     expect(put.warnings).toEqual([]);
-    // The selected packs and their families, and the watermark removal's models.
-    expect(pc.controlCalls.filter(([op]) => op === "download").map(([, a]) => a.pack.name)).toEqual(["anima", "anima_turbo", "flux2klein_edit", "z_image_turbo", "remove-marks"]);
+    // The selected packs and their families, and the watermark and background removal models.
+    expect(pc.controlCalls.filter(([op]) => op === "download").map(([, a]) => a.pack.name)).toEqual(["anima", "anima_turbo", "flux2klein_edit", "z_image_turbo", "remove-marks", "remove-background"]);
     expect(pc.controlCalls.at(-1)![0]).toBe("sync"); // and copies LoRAs
 
     const illustrated = async () => (await mcp(app, "tools/list"))[1].result.tools.find((t: any) => t.name === "generate_illustrated_image").description;
