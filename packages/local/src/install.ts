@@ -21,6 +21,9 @@ const WIN = process.platform === "win32";
 const MARKER = ".comfy-gen.json"; // written by our installs: {version, gpu, python}
 // Folders that hold the user's files, kept across a reinstall.
 const KEEP = ["models", "output", "input", "user"];
+// Our extension's Python packages, by module: the watermark removal's detector. The node imports it
+// when first used, so a ComfyUI without it starts, and passes images through unchanged. As on Modal.
+export const EXTENSION_PACKAGES: Record<string, string> = { ultralytics: "ultralytics==8.4.177" };
 
 export function isGpu(v: unknown): v is Gpu {
   return typeof v === "string" && (GPUS as readonly string[]).includes(v);
@@ -100,11 +103,38 @@ export async function install(p: Paths, gpu: Gpu, onLine: (l: string) => void = 
   await uvRun(`Creating a Python ${PYTHON_VERSION} environment`, ["venv", "--python", PYTHON_VERSION, "--seed", venv]);
   await uvRun(`Installing PyTorch (${gpu})`, ["pip", "install", "--python", python, ...backend, "torch", "torchvision", "torchaudio"]);
   await uvRun("Installing ComfyUI's requirements", ["pip", "install", "--python", python, ...backend, "-r", join(ws, "requirements.txt")]);
+  await uvRun("Installing the watermark removal", ["pip", "install", "--python", python, ...backend, ...Object.values(EXTENSION_PACKAGES)]);
 
   const done: Install = { dir: ws, python, gpu, version: COMFYUI_VERSION };
   writeFileSync(join(ws, MARKER), JSON.stringify({ version: COMFYUI_VERSION, gpu, python }, null, 2));
   onLine("ComfyUI is installed");
   return done;
+}
+
+let extending: Promise<void> | null = null;
+
+/** Add the extension packages an install lacks (one from before they were needed), once at a time.
+ * Never throws: without them, images go out uncleaned. ComfyUI need not restart (see above). */
+export function ensureExtensionPackages(p: Paths, inst: Install): Promise<void> {
+  extending ??= addExtensionPackages(p, inst)
+    .catch((e) => log.warn(`Installing the watermark removal failed: ${(e as Error).message}`))
+    .finally(() => (extending = null));
+  return extending;
+}
+
+async function addExtensionPackages(p: Paths, inst: Install): Promise<void> {
+  const missing: string[] = [];
+  for (const [module, spec] of Object.entries(EXTENSION_PACKAGES)) {
+    const probe = `import importlib.util, sys; sys.exit(importlib.util.find_spec(${JSON.stringify(module)}) is None)`;
+    if ((await run(inst.python, ["-c", probe], { env: pythonEnv(), timeoutMs: 60_000 })).code !== 0) missing.push(spec);
+  }
+  if (!missing.length) return;
+  log.info(`Installing the watermark removal (${missing.join(", ")})`);
+  const uv = await ensureUv(p);
+  const backend = inst.gpu ? ["--torch-backend", torchBackend(inst.gpu)] : []; // torch is there: kept as it is
+  const { code, output } = await run(uv, ["pip", "install", "--python", inst.python, ...backend, ...missing], { env: pythonEnv(uvEnv(p)), timeoutMs: 1_800_000 });
+  if (code !== 0) throw new Error(output.trim().split("\n").slice(-5).join("\n"));
+  log.info("Installed the watermark removal");
 }
 
 /**

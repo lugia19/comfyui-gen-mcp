@@ -3,9 +3,9 @@ import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize, tagLoras } from "../src/config.ts";
-import { builtinPacks, DEFAULT_LORA_GROUP, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
+import { builtinPacks, DEFAULT_LORA_GROUP, MARK_MODELS, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
 import { describe as describeTool } from "../src/tools.ts";
-import { buildPrompt, calcDimensions, injectLoras, withImages, type Workflow } from "../src/workflow.ts";
+import { buildPrompt, calcDimensions, injectLoras, REMOVE_MARKS_NODE, withImages, type Workflow } from "../src/workflow.ts";
 
 const smallWorkflow = (): Workflow => ({
   "1": { class_type: "UNETLoader", inputs: { unet_name: "m.safetensors" }, _meta: { title: "cg:model" } },
@@ -222,6 +222,28 @@ describe("packs and config", () => {
     const out = normalize(raw);
     out.pack_settings.anima.artist_list = "changed";
     expect(raw.pack_settings.anima.artist_list).toBe("@a"); // a deep copy
+  });
+
+  it("signature and watermark removal is on unless switched off", () => {
+    expect(normalize({}).remove_marks).toBe(true);
+    expect(normalize({ remove_marks: false }).remove_marks).toBe(false);
+    expect(normalize({ remove_marks: "no" }).remove_marks).toBe(true);
+  });
+
+  it("with removal, every pack's images pass through our node on the way to being saved", () => {
+    for (const pack of builtin) {
+      const plain = prepare(pack, normalize({}));
+      expect(JSON.stringify(plain.workflow)).not.toContain(REMOVE_MARKS_NODE);
+      const wf = prepare(pack, normalize({}), { removeMarks: true }).workflow;
+      const saves = Object.values<any>(wf).filter((n) => n.class_type === "SaveImage");
+      expect(saves.length).toBe(1);
+      const [id, out] = saves[0].inputs.images;
+      expect([wf[id].class_type, wf[id]._meta.title, out]).toEqual([REMOVE_MARKS_NODE, "cg:remove marks", 0]);
+      const before = Object.values<any>(pack.workflow).find((n) => n.class_type === "SaveImage").inputs.images;
+      expect(wf[id].inputs.images).toEqual(before); // the decoded image, as the save had it
+      expect(saves[0].inputs.filename_prefix).toBeDefined(); // the save is still the one buildPrompt names
+    }
+    expect(MARK_MODELS.models.map((m) => [m.subfolder, m.filename])).toEqual([["comfy_gen", "mimilens_y26l.pt"], ["comfy_gen", "big-lama.pt"]]);
   });
 
   it("normalize cleans LoRA entries and caps keep-warm", () => {

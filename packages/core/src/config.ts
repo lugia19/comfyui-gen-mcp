@@ -11,6 +11,8 @@
 //                     one group (the models it was trained for), and is on or off in it
 //   keep_warm_minutes integer, how long an idle ComfyUI stays up (the extension's; on a Worker each
 //                     GPU in its list has its own)
+//   remove_marks      boolean, default on: clean the signatures and watermarks some artist styles
+//                     paint into images (our ComfyUI extension's node, where the GPU has it)
 
 import { isPlainObject } from "./bytes.ts";
 
@@ -25,6 +27,7 @@ export type Config = {
   pack_settings: Record<string, { artist_list?: string; max_pixels?: number }>;
   pack_loras: Record<string, any[]>;
   keep_warm_minutes: number;
+  remove_marks: boolean;
   [key: string]: any;
 };
 
@@ -33,6 +36,7 @@ export const DEFAULTS: Config = {
   pack_settings: {},
   pack_loras: {},
   keep_warm_minutes: DEFAULT_KEEP_WARM_MINUTES,
+  remove_marks: true,
 };
 
 // Each field: key, title, description, type ("int" | "bool" | "text"), default,
@@ -51,6 +55,15 @@ export const SETTINGS_SCHEMA = [
     max: KEEP_WARM_MAX,
     machine: true,
   },
+  {
+    key: "remove_marks",
+    title: "Remove signatures and watermarks",
+    description:
+      "Some artist styles come with the artist's signature, stamp or Patreon link painted in. " +
+      "When one is found, it is filled in to match the image around it.",
+    type: "bool",
+    default: true,
+  },
 ];
 
 /** Fill in defaults and drop wrongly typed known values. Unknown keys are kept. Never throws. */
@@ -62,6 +75,8 @@ export function normalize(raw: unknown): Config {
       cfg[key] = structuredClone(val); // a newer version's or a frontend's key: keep it
     } else if (key === "keep_warm_minutes") {
       if (Number.isInteger(val) && val > 0) cfg[key] = Math.min(val, KEEP_WARM_MAX);
+    } else if (key === "remove_marks") {
+      if (typeof val === "boolean") cfg[key] = val;
     } else if (key === "pack_loras") {
       if (isPlainObject(val)) cfg[key] = loraGroups(val);
     } else if (isPlainObject(val)) {

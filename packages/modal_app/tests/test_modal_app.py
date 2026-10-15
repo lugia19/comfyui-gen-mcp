@@ -23,6 +23,13 @@ def test_every_builtin_pack_passes_validation():
         assert len(validate_models(pack["models"])) == len(pack["models"])
 
 
+def test_the_watermark_removal_models_pass_validation():
+    # Seeded as a pack of their own (core packs.ts MARK_MODELS), into our node's folder.
+    marks = json.loads((PACKS / "tools.json").read_text())["remove_marks"]
+    validate_pack_name(marks["name"])
+    assert [m["subfolder"] for m in validate_models(marks["models"])] == ["comfy_gen", "comfy_gen"]
+
+
 def test_validation_keeps_known_keys_and_normalizes_the_hash():
     (m,) = validate_models([{**MODEL, "extra": 1}])
     assert m == {**MODEL, "sha256": "a" * 64}

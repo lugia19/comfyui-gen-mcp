@@ -11,6 +11,7 @@
 //   cg:model         the model loader LoRAs attach to (output 0)
 //   cg:image…        an edit's nodes for its first image (see withImages)
 // Save nodes need no title: any node with a `filename_prefix` gets this call's own (outputName).
+// A node this code adds is titled too: cg:remove marks (withMarkRemoval).
 //
 // Node order: JS objects list integer-like keys ("3", "19") first, ascending, whatever order the
 // JSON had. ComfyUI node ids are such keys, so "the first KSampler" is the one with the lowest id.
@@ -48,6 +49,7 @@ export const TITLES = {
   image: "cg:image",
   imageScale: "cg:image scale",
   imageChain: "cg:image chain",
+  removeMarks: "cg:remove marks",
 } as const;
 const IMAGE_GROUP = "cg:image"; // every node whose title starts so is part of one image's chain
 
@@ -198,6 +200,27 @@ export function injectLoras(workflow: Workflow, loras: Lora[]): LoraToggle[] {
   }
   for (const [nodeId, key] of modelConsumers) workflow[nodeId].inputs[key] = modelHead;
   return toggles;
+}
+
+/** Our ComfyUI extension's node (comfy_gen_modal/comfy_node) that finds signatures and watermarks in
+ * an image and fills them. */
+export const REMOVE_MARKS_NODE = "ComfyGenRemoveMarks";
+// What the detector must be sure of: the marks it missed at 0.5 scored 0.40 to 0.41 (2026-10-15).
+const MARK_THRESHOLD = 0.3;
+
+/** Feed every SaveImage of *workflow* through REMOVE_MARKS_NODE, so images are saved cleaned. */
+export function withMarkRemoval(workflow: Workflow): void {
+  let nextId = nextNodeId(workflow);
+  for (const node of Object.values(workflow)) {
+    if (node.class_type !== "SaveImage" || !Array.isArray(node.inputs?.images)) continue;
+    const nodeId = String(nextId++);
+    workflow[nodeId] = {
+      inputs: { images: node.inputs.images, threshold: MARK_THRESHOLD },
+      class_type: REMOVE_MARKS_NODE,
+      _meta: { title: TITLES.removeMarks },
+    };
+    node.inputs.images = [nodeId, 0];
+  }
 }
 
 /**

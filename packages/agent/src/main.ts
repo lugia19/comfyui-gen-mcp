@@ -109,7 +109,10 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
       workerUrl: cfg.worker_url,
       secret: cfg.secret,
       handle,
-      hello: () => ({ version: opts.version, platform: process.platform, gpu: machine.comfy.install?.gpu ?? cfg.gpu ?? null, comfyui: machine.comfy.state, paused }),
+      hello: () => ({ version: opts.version, platform: process.platform, gpu: machine.comfy.install?.gpu ?? cfg.gpu ?? null, comfyui: machine.comfy.state, paused,
+        // Our ComfyUI extension (with its mark-removal node) runs on the managed ComfyUI only. An
+        // agent without this flag predates the node: the Worker leaves the step out.
+        remove_marks: !cfg.comfyui_url }),
       onOpen: () => {
         void sync.sync();
         void whoami();
@@ -126,6 +129,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     saveConfig: (next) => {
       cfg = next;
       saveAgentConfig(p, cfg);
+      client?.refreshHello(); // the ComfyUI URL may have changed what the Worker can send
     },
     reconnect,
     relay: () => client,

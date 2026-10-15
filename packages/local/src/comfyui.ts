@@ -8,7 +8,7 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { ComfyUIError } from "@comfy-gen/core";
 import { ModelLocator } from "./discover.ts";
-import { findInstall, type Install } from "./install.ts";
+import { ensureExtensionPackages, findInstall, type Install } from "./install.ts";
 import { log } from "./log.ts";
 import { publish, writeExtraModelPaths } from "./models.ts";
 import { installedNodePackages, installNodePackage, writeWaitExtension } from "./nodes.ts";
@@ -152,6 +152,7 @@ export class LocalComfy {
     this.objectInfo = null;
 
     writeWaitExtension(inst, this.waitExtension);
+    void ensureExtensionPackages(this.p, inst); // in the background: ComfyUI starts meanwhile
     const sources = this.models.sources(true);
     writeExtraModelPaths(inst.dir, sources.map((s) => s.folders));
     log.info(`Model folders shared with ComfyUI: ${sources.map((s) => `${s.from} (${s.path})`).join("; ") || "none"}`);

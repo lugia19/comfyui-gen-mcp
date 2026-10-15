@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadConfig, Machine, ModelLocator, paths, saveConfig, type LocalComfy } from "@comfy-gen/local";
-import { LocalApp, type Services } from "../src/server/app.ts";
+import { LocalApp, wantedPacks, type Services } from "../src/server/app.ts";
 import { LocalHooks, STILL_STARTING_HERE } from "../src/server/hooks.ts";
 import { ComfyUIClient, type Pack, type Transport } from "@comfy-gen/core";
 
@@ -173,6 +173,20 @@ describe("settings API", () => {
     const { packs } = await (await w.local("/api/models")).json();
     expect(packs.map((p: any) => p.name)).toEqual(expect.arrayContaining(["anima", "anima_turbo"]));
     expect(packs[0]).toMatchObject({ state: "missing" });
+    expect(packs.at(-1)).toMatchObject({ name: "remove-marks", display_name: "Watermark removal", state: "missing" });
+  });
+
+  it("the watermark removal's models: wanted while it is on, not with your own ComfyUI (it lacks our node)", async () => {
+    const w = world();
+    const names = () => wantedPacks(w.cfg()).map((p) => p.name);
+    expect(names()).toContain("remove-marks");
+    const put = (config: object) => w.local("/api/config", { method: "PUT", body: JSON.stringify({ config }) });
+    await put({ remove_marks: false });
+    expect(names()).not.toContain("remove-marks");
+    await put({ remove_marks: true });
+    expect(w.downloaded).toEqual(["remove-marks"]); // switched on: they start at once
+    saveConfig(w.p.config, { ...w.cfg(), comfyui_url: "http://127.0.0.1:8188" });
+    expect(names()).not.toContain("remove-marks");
   });
 });
 

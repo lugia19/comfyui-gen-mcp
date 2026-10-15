@@ -6,7 +6,7 @@
 
 import {
   Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
-  builtinPacks, fromHex, fromUtf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
+  builtinPacks, MARK_MODELS, fromHex, fromUtf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
   withoutLora, tagLooseLoras, wantedLoras, packFor, withFamilies, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
@@ -50,7 +50,8 @@ export function selectedPacks(cfg: Config): Pack[] {
 /** The packs every GPU should have: the selected ones and the rest of their families (a call may
  * name one with the hidden `model` argument). */
 export function wantedPacks(cfg: Config): Pack[] {
-  return withFamilies(selectedPacks(cfg), PACKS);
+  const packs = withFamilies(selectedPacks(cfg), PACKS);
+  return cfg.remove_marks ? [...packs, MARK_MODELS] : packs;
 }
 
 // A sync plan creates one Modal session per file: keep it well inside the subrequest limit. The
@@ -420,7 +421,9 @@ export class App {
           target.kind === "pc"
             ? new PcHooks(client, key, this.fetch, this.store, `${url.origin}/`, this.p.relays(target.id), target, images, onReady)
             : new WorkerHooks(client, key, this.fetch, this.admin(target), this.store, `${url.origin}/`, images, onReady);
-        const outcome = await new Brain(PACKS, cfg, client, "refs", { hooks }).call(name, args);
+        // Only our ComfyUI extension has the mark-removal node: Modal's, and a PC agent's managed one.
+        const canRemoveMarks = target.kind === "modal" || (target.kind === "pc" && (await this.status(target)).info?.remove_marks === true);
+        const outcome = await new Brain(PACKS, cfg, client, "refs", { hooks, canRemoveMarks }).call(name, args);
         tried.push(target);
         if (outcome.kind === "failed" && downloading && name !== "fetch_result") {
           const next = await this.pick(gpus, pack, tried);
@@ -1013,7 +1016,7 @@ export class App {
   /** Start downloading a pack on one GPU: {pack, gpu: id}. */
   private async seedPack(req: Request): Promise<Response> {
     const body = await bodyJson(req);
-    const pack = PACKS.find((p) => p.name === body.pack);
+    const pack = [MARK_MODELS, ...PACKS].find((p) => p.name === body.pack);
     if (!pack) return error(400, "no such pack");
     const gpu = (await this.gpus()).find((g) => g.id === body.gpu);
     if (!gpu) return error(400, "no such GPU");

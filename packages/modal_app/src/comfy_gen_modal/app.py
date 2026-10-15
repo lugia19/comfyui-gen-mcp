@@ -53,13 +53,15 @@ state = modal.Dict.from_name(STATE_DICT, create_if_missing=True)
 
 comfy_image = (
     modal.Image.debian_slim(python_version="3.12")
-    .apt_install("git")
+    .apt_install("git", "libgl1", "libglib2.0-0")  # the GL and GLib libraries: OpenCV, for ultralytics
     .pip_install("comfy-cli==1.21.0")
     .run_commands("comfy --skip-prompt install --nvidia --version 0.37.0")
     # The one custom node pack the product supports on Modal. `comfy node install` needs
     # ComfyUI-Manager; registry-install talks to the Comfy Registry directly (the id is mixed-case).
     .run_commands("comfy node registry-install ComfyUI-GGUF")
     .pip_install("gguf>=0.13.0", "sentencepiece", "protobuf")
+    # Our node's watermark removal: the detector (as local/src/install.ts EXTENSION_PACKAGES).
+    .pip_install("ultralytics==8.4.177")
     .add_local_dir(COMFY_NODE_SRC, f"{COMFY_DIR}/custom_nodes/comfy-gen")
     .add_local_python_source("comfy_gen_modal")
 )

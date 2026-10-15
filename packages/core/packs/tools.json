@@ -15,5 +15,25 @@
   },
   "lora_groups": {
     "anima": "Anima"
+  },
+  "remove_marks": {
+    "name": "remove-marks",
+    "display_name": "Watermark removal",
+    "models": [
+      {
+        "url": "https://huggingface.co/Minthy/MimiLens-Models/resolve/cd0d9ecb21711fd4546ad78d2deea14a16f2cf79/models/detect_y26l_v1.2.pt",
+        "subfolder": "comfy_gen",
+        "filename": "mimilens_y26l.pt",
+        "size_bytes": 53142117,
+        "sha256": "8326c1aa821439ae24bcfbbf8643281d397c04d58bdc0e17819b7fceef7a25e5"
+      },
+      {
+        "url": "https://huggingface.co/spaces/aryadytm/remove-photo-object/resolve/d7a6e771a25cb9e95429dbcd13458b6372a2031c/assets/big-lama.pt",
+        "subfolder": "comfy_gen",
+        "filename": "big-lama.pt",
+        "size_bytes": 205669692,
+        "sha256": "344c77bbcb158f17dd143070d1e789f38a66c04202311ae3a258ef66667a9ea9"
+      }
+    ]
   }
 }

@@ -25,6 +25,8 @@ const addGpu = async (app: App, gpu: Record<string, unknown>) => {
   const gpus = (await app.gpus()).filter((g) => g.id !== gpu.id);
   await app.store.updateSecrets({ gpus: [...gpus, { enabled: true, keep_warm_minutes: 5, ...gpu }] });
 };
+/** Whether a prompt had its images cleaned of signatures and watermarks. */
+const marked = (prompt: Record<string, any>) => Object.values<any>(prompt).some((n) => n.class_type === "ComfyGenRemoveMarks");
 const withGenerator = (app: App) => addGpu(app, { id: "url", kind: "url", name: "Your ComfyUI", base_url: COMFY, headers: { "X-Test": "1" } });
 const withModal = (app: App) =>
   addGpu(app, { id: "modal", kind: "modal", name: "Modal", base_url: COMFY, admin_url: ADMIN, headers: { "Modal-Key": "wk", "Modal-Secret": "ws" } });
@@ -463,7 +465,8 @@ describe("settings API", () => {
     expect(net.adminCalls).toContainEqual(["POST", "/idle", { seconds: 300 }]);
     const seeds = net.adminCalls.filter((c) => c[1] === "/seed");
     // The selected packs and the rest of their families (Anima beside Anima Turbo).
-    expect(seeds.map((c) => c[2].pack).sort()).toEqual(["anima", "anima_turbo", "flux2klein_edit", "z_image_turbo"]);
+    // And the watermark removal's models (the setting is on by default).
+    expect(seeds.map((c) => c[2].pack).sort()).toEqual(["anima", "anima_turbo", "flux2klein_edit", "remove-marks", "z_image_turbo"]);
     expect(seeds.every((c) => c[2].models.length)).toBe(true);
   });
 
@@ -499,7 +502,7 @@ describe("Modal models", () => {
     net.adminUp = false;
     const ok = await app.handle(request("POST", "/build-callback", { nonce: "n", modal: { server_url: "https://m", admin_url: ADMIN } }));
     expect(ok.status).toBe(200);
-    expect((await body(ok)).warnings.length).toBe(5); // keep-warm + four packs
+    expect((await body(ok)).warnings.length).toBe(6); // keep-warm + four packs + the watermark removal's
     expect((await app.gpus())[0].kind).toBe("modal");
   });
 
@@ -515,7 +518,7 @@ describe("Modal models", () => {
     expect(models.packs[0].size).toBeGreaterThan(5e9);
     net.adminCalls = [];
     await app.handle(request("GET", "/api/models", undefined, cookie));
-    expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["/seed/anima", "/seed/flux2klein_edit", "/seed/z_image_turbo"]); // anima_turbo is recorded
+    expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["/seed/anima", "/seed/flux2klein_edit", "/seed/remove-marks", "/seed/z_image_turbo"]); // anima_turbo is recorded
     const retry = await app.handle(request("POST", "/api/models/seed", { pack: "flux2klein_edit", gpu: "modal" }, cookie));
     expect((await body(retry)).started).toBe(true);
   });
@@ -524,7 +527,7 @@ describe("Modal models", () => {
     const { app, net } = world();
     await withModal(app);
     const cookie = await login(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"] });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit", "remove-marks"] });
     const cfg = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
     const resp = await app.handle(request("PUT", "/api/config", { config: cfg }, cookie));
     expect((await body(resp)).warnings).toEqual([]);
@@ -542,6 +545,7 @@ describe("Modal models", () => {
   it("a generation waits for its models", async () => {
     const { app, net, comfy } = world();
     await withModal(app);
+    await app.store.updateSetup({ seeded: ["remove-marks"] });
     const args = { name: "generate_illustrated_image", arguments: { prompt: "x" } };
     let [, r] = await mcp(app, "tools/call", args);
     expect(r.result.isError).toBe(true);
@@ -572,11 +576,27 @@ describe("Modal models", () => {
   });
 
   it("other generators never touch the admin API", async () => {
-    const { app, net } = world();
+    const { app, net, comfy } = world();
     await withGenerator(app);
     const [, r] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x" } });
     expect(r.result.content[0].type).toBe("image");
     expect(net.adminCalls).toEqual([]);
+    expect(marked(comfy.prompts[0])).toBe(false); // a ComfyUI by URL lacks our node
+  });
+
+  it("removes signatures and watermarks on Modal once their models are there", async () => {
+    const { app, net, comfy } = world();
+    await withModal(app);
+    await app.store.updateSetup({ seeded: ["anima_turbo"] });
+    const call = () => mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x" } });
+    let [, r] = await call();
+    expect(r.result.content[0].type).toBe("image"); // still downloading: this image goes out as it is
+    expect(marked(comfy.prompts[0])).toBe(false);
+    expect(net.seedState["remove-marks"].state).toBe("queued");
+    net.seedState["remove-marks"] = { state: "done" };
+    [, r] = await call();
+    expect(r.result.content[0].type).toBe("image");
+    expect(marked(comfy.prompts[1])).toBe(true);
   });
 });
 
@@ -880,7 +900,8 @@ describe("the PC path", () => {
 
     const put = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
     expect(put.warnings).toEqual([]);
-    expect(pc.controlCalls.filter(([op]) => op === "download").map(([, a]) => a.pack.name)).toEqual(["anima", "anima_turbo", "flux2klein_edit", "z_image_turbo"]); // the selected packs and their families
+    // The selected packs and their families, and the watermark removal's models.
+    expect(pc.controlCalls.filter(([op]) => op === "download").map(([, a]) => a.pack.name)).toEqual(["anima", "anima_turbo", "flux2klein_edit", "z_image_turbo", "remove-marks"]);
     expect(pc.controlCalls.at(-1)![0]).toBe("sync"); // and copies LoRAs
 
     const illustrated = async () => (await mcp(app, "tools/list"))[1].result.tools.find((t: any) => t.name === "generate_illustrated_image").description;
@@ -945,6 +966,19 @@ describe("the PC path", () => {
     expect((await app.handle(request("DELETE", "/api/loras/both.safetensors", undefined, cookie))).status).toBe(200);
     const after = await body(await sync({ "both.safetensors": 1, "pc.safetensors": 40, "stored.safetensors": 30 }));
     expect([after.delete, after.push, after.pull]).toEqual([["both.safetensors"], [], []]);
+  });
+
+  it("removes signatures and watermarks on a PC whose agent has our node", async () => {
+    const { app, pc } = world();
+    await pair(app);
+    const call = () => mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } });
+    await call();
+    expect(marked(pc.comfy.prompts[0])).toBe(false); // an agent from before the node, or one using its own ComfyUI
+    expect(pc.controlCalls.some(([op, a]) => op === "ensure" && a.pack.name === "remove-marks")).toBe(false);
+    pc.removeMarks = true;
+    await call();
+    expect(marked(pc.comfy.prompts[1])).toBe(true);
+    expect(pc.controlCalls.some(([op, a]) => op === "ensure" && a.pack.name === "remove-marks")).toBe(true);
   });
 
   it("generates on the PC when it is online, on Modal when it is not", async () => {

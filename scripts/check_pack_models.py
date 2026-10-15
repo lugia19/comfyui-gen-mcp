@@ -1,4 +1,4 @@
-"""Check every pack's model entries against Hugging Face: the size and sha256 in the pack must match
+"""Check every pack's model entries (and the watermark removal's, in tools.json) against Hugging Face: the size and sha256 in the pack must match
 what the URL serves (HEAD, x-linked-size / x-linked-etag). The Modal seed skips files whose size
 matches, so a wrong size means a re-download on every seed.
 
@@ -37,12 +37,18 @@ def head(url: str):
         time.sleep(2 ** (attempt + 1))
 
 
+def model_lists():
+    """(source, models) per pack, and the watermark removal's from tools.json (the tool definitions)."""
+    for path in sorted(glob.glob(os.path.join(PACKS, "*.json"))):
+        data = json.load(open(path))
+        name = os.path.basename(path)
+        yield name, data["remove_marks"]["models"] if name == "tools.json" else data["models"]
+
+
 def main() -> int:
     bad, seen = 0, {}
-    for path in sorted(glob.glob(os.path.join(PACKS, "*.json"))):
-        if os.path.basename(path) == "tools.json":  # the tool definitions, not a pack
-            continue
-        for m in json.load(open(path))["models"]:
+    for source, models in model_lists():
+        for m in models:
             if m["url"] not in seen:
                 status, h = head(m["url"])
                 # Not the file's redirect (no x-linked-size): say what came back, not a size mismatch.
@@ -57,7 +63,7 @@ def main() -> int:
                 problems.append(f"sha256 {m['sha256'][:12]}… != {sha[:12]}…")
             if problems:
                 bad += 1
-                print(f"{os.path.basename(path)}: {m['filename']}: {'; '.join(problems)}")
+                print(f"{source}: {m['filename']}: {'; '.join(problems)}")
     print(f"{len(seen)} files checked, {bad} problems")
     return 1 if bad else 0
 

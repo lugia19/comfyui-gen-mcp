@@ -49,13 +49,14 @@ class PathHooks extends Hooks {
   }
 }
 
-function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number } = {}) {
+function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number; canRemoveMarks?: boolean } = {}) {
   const comfy = new FakeComfy();
   const client = fastClient(comfy, { coldStartS: 60, requestBudget: opts.budget ?? null });
   const brain = (o: typeof opts = {}) =>
     new Brain(BUILTIN, o.cfg ?? opts.cfg ?? {}, client, "paths", {
       hooks: o.hooks ?? opts.hooks ?? new PathHooks(),
       waitS: o.waitS ?? opts.waitS,
+      canRemoveMarks: o.canRemoveMarks ?? opts.canRemoveMarks,
     });
   return { comfy, client, brain };
 }
@@ -134,6 +135,34 @@ describe("brain", () => {
       expect(out).toEqual(new Failed(`Unknown model "${model}" for generate_illustrated_image. Valid models: anima, anima_turbo.`));
     }
     expect(comfy.prompts).toEqual([]);
+  });
+
+  it("removes signatures and watermarks where the GPU can, once its models are there", async () => {
+    const marked = (comfy: FakeComfy) => JSON.stringify(comfy.prompts.at(-1)).includes("ComfyGenRemoveMarks");
+    const { comfy, brain } = setup({ canRemoveMarks: true });
+    const hooks = new PathHooks();
+    await brain({ hooks }).call("generate_illustrated_image", { prompt: "x" });
+    expect(hooks.ensured).toEqual(["remove-marks", "anima_turbo"]); // its models first, like a pack's
+    expect(marked(comfy)).toBe(true);
+    await brain({ hooks }).call("edit_image", { prompt: "x", image_path: "a.png" });
+    expect(marked(comfy)).toBe(true); // edits too
+
+    // Still downloading: the image goes out as it comes, not waiting for them.
+    class Downloading extends PathHooks {
+      async ensure(pack: Pack) {
+        if (pack.name === "remove-marks") throw new ComfyUIError("The Watermark removal model is being downloaded.", { retryable: true });
+        return super.ensure(pack);
+      }
+    }
+    expect(await brain({ hooks: new Downloading() }).call("generate_illustrated_image", { prompt: "x" })).toBeInstanceOf(Done);
+    expect(marked(comfy)).toBe(false);
+
+    // Switched off, or a GPU without our extension (a ComfyUI of the user's own): never asked for.
+    for (const o of [{ cfg: { remove_marks: false } }, { canRemoveMarks: false }]) {
+      const h = new PathHooks();
+      await brain({ hooks: h, ...o }).call("generate_illustrated_image", { prompt: "x" });
+      expect([h.ensured, marked(comfy)]).toEqual([["anima_turbo"], false]);
+    }
   });
 
   it("a timeout returns a stateless token, and fetch_result resumes", async () => {

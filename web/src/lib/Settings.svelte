@@ -42,6 +42,7 @@
 
   // The extension's own settings (keep-warm); a Worker's GPUs each have theirs under GPUs.
   const keepWarms = machine ? fixed.info.schema.filter((f) => f.machine) : []
+  const marks = fixed.info.schema.find((f) => f.key === 'remove_marks') ?? null
   // The LoRA groups that have models, in order (the first takes LoRAs without a group): packs of a
   // group share its LoRAs (Anima and Anima Turbo). artistPrefix: its models take @artist tags, so
   // a LoRA's trigger is one too.
@@ -81,6 +82,7 @@
     const [now, then] = [loras(cfg), loras(saved)]
     const changed = new Set([...Object.keys(now), ...Object.keys(then)].filter((n) => now[n] !== then[n])).size
     if (changed) out.push(changed === 1 ? '1 LoRA' : `${changed} LoRAs`)
+    if (marks && cfg.remove_marks !== saved.remove_marks) out.push('watermark removal')
     for (const f of keepWarms) if (cfg[f.key] !== saved[f.key]) out.push(f.title)
     return out.length ? out : ['settings']
   })
@@ -186,7 +188,7 @@
     {/if}
 
     {#if section === 'models'}
-      <SettingsModels bind:cfg {saved} packs={fixed.info.packs} status={models} />
+      <SettingsModels bind:cfg {saved} packs={fixed.info.packs} status={models} {marks} />
     {:else if section === 'loras'}
       <section>
         <LoraSection {cfg} groups={loraGroups} listing={loraListing} reload={loadLoras} />

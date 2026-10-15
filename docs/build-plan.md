@@ -646,3 +646,17 @@ only said to keep a default. Design §6, "Things happen by themselves", has the 
 - **Walkthroughs:** the project-name, SETUP_MODE, "keep No sign-in", "name is optional" and "click
   Pair" steps removed or merged; no guide IDs removed (older Workers load the same file).
 
+## Signatures and watermarks (2026-10-15)
+
+Some artist styles paint in a signature, stamp or Patreon link that the negative prompt doesn't
+stop (Turbo skips the negative). Design §3, "Signatures and watermarks", has the result:
+
+- **A spike** in the scratchpad found MimiLens YOLO26 (watermark and signature labels, 0.3) and
+  LaMa per mark at full resolution clean on 28 live images.
+- **`ComfyGenRemoveMarks`** in our extension, never failing an image; `prepare` reroutes SaveImage
+  through it.
+- **`remove_marks`, on by default:** a card in Settings → Models.
+- **`MARK_MODELS`** ("Watermark removal", folder `comfy_gen`): seeded, downloaded and listed like a
+  pack; `scripts/check_pack_models.py` checks them too.
+- **Where:** Modal; PCs whose agent says `remove_marks`; the extension without a ComfyUI URL.
+- **`ultralytics`** in Modal's image, in new PC installs, and added at launch to older ones.

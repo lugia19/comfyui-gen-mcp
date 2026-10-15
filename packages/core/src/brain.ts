@@ -12,7 +12,7 @@ import { ComfyUIClient, ComfyUIError, type OutputImage } from "./comfyui.ts";
 import { normalize, type Config } from "./config.ts";
 import { imageSize, sniffMime } from "./images.ts";
 import { UnknownTool } from "./mcp.ts";
-import { groupByTool, packFor, prepare, select, type Pack } from "./packs.ts";
+import { groupByTool, MARK_MODELS, packFor, prepare, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
 import * as refs from "./refs.ts";
 import { buildPrompt, withImages, type Workflow } from "./workflow.ts";
@@ -89,7 +89,9 @@ export async function uploadInput(client: ComfyUIClient, data: Uint8Array, key: 
   return [image.loadValue(), imageSize(data)];
 }
 
-export type BrainOptions = { hooks?: Hooks; waitS?: number };
+/** *canRemoveMarks*: the GPU runs our ComfyUI extension (not a ComfyUI of the user's own), so the
+ * remove_marks setting can apply. */
+export type BrainOptions = { hooks?: Hooks; waitS?: number; canRemoveMarks?: boolean };
 
 export class Brain {
   readonly cfg: Config;
@@ -97,6 +99,7 @@ export class Brain {
   private client: ComfyUIClient;
   private hooks: Hooks;
   private waitS: number;
+  private canRemoveMarks: boolean;
   private packs: Pack[];
   // Raw selected packs by tool. They are prepared (LoRAs, budget) only when called, so a request
   // pays for one pack, not all of them.
@@ -107,6 +110,7 @@ export class Brain {
     this.client = client;
     this.hooks = opts.hooks ?? new Hooks();
     this.waitS = opts.waitS ?? DEFAULT_WAIT_S;
+    this.canRemoveMarks = opts.canRemoveMarks ?? false;
     this.packs = packs;
     this.specs = toolSpecs(packs, this.cfg, imageMode);
     this.selected = Object.fromEntries(select(groupByTool(packs), this.cfg.pack_selections).map((p) => [p.tool_name, p]));
@@ -128,7 +132,7 @@ export class Brain {
     const prompt = String(args.prompt || "").trim();
     if (!prompt) return new Failed("prompt is required.");
     const aspect = String(args.aspect_ratio || "square");
-    const pack = prepare(rawPack, this.cfg);
+    const pack = prepare(rawPack, this.cfg, { removeMarks: await this.marksReady() });
     const wf = buildPrompt(pack.workflow, prompt, {
       aspectRatio: aspect,
       maxPixels: pack.max_pixels ?? 1_048_576,
@@ -150,7 +154,7 @@ export class Brain {
     const first = String(args.image_path || args.image || "").trim();
     const second = String(args.second_image_path || args.second_image || "").trim();
     if (!prompt || !first) return new Failed("prompt and an image are required.");
-    const pack = prepare(this.selected.edit_image, this.cfg);
+    const pack = prepare(this.selected.edit_image, this.cfg, { removeMarks: await this.marksReady() });
     const images: ResolvedImage[] = [];
     try {
       await this.hooks.ensure(pack); // before uploads: a local ComfyUI may not be running yet
@@ -163,6 +167,20 @@ export class Brain {
     const wf = editWorkflow(pack, images);
     // LoRAs gated on their triggers here too (an edit pack in a LoRA group).
     return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles }), true);
+  }
+
+  /** Whether this call's images get their signatures and watermarks removed: the setting is on, the
+   * GPU can (*canRemoveMarks*), and its models are there. They are fetched like a pack's (ensure);
+   * while they download, images go out as they come rather than waiting for them. */
+  private async marksReady(): Promise<boolean> {
+    if (!this.canRemoveMarks || !this.cfg.remove_marks) return false;
+    try {
+      await this.hooks.ensure(MARK_MODELS);
+      return true;
+    } catch (e) {
+      if (e instanceof ComfyUIError) return false;
+      throw e;
+    }
   }
 
   private async run(pack: Pack, wf: Workflow, ensured = false): Promise<Outcome> {

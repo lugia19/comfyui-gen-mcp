@@ -31,6 +31,8 @@ the extension and the agent all build it in. Packs are ours; there are no user w
 3. **Export it in API format** (Workflow → Export (API)) and put it under `"workflow"` in a new
    pack file. Set every file name a loader names (`unet_name`, `clip_name`, `vae_name`, …) and the
    SaveImage `filename_prefix` to `comfy-gen`.
+   Leave the signature and watermark removal out: it is added in code to every SaveImage's
+   input (`withMarkRemoval`, design §3).
 4. **Write the rest of the pack:**
 
    ```json

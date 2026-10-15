@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import {
   Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, UnknownTool,
-  builtinPacks, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
+  builtinPacks, MARK_MODELS, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
   type Config, type OutputImage, type Pack, type Rendered,
 } from "@comfy-gen/core";
 import {
@@ -43,8 +43,9 @@ export function selectedPacks(cfg: Config): Pack[] {
 
 /** The selected packs and the rest of their families: a call may name one with the hidden `model`
  * argument, so a family downloads whole. */
-export function wantedPacks(cfg: Config): Pack[] {
-  return withFamilies(selectedPacks(cfg), PACKS);
+export function wantedPacks(cfg: LocalConfig): Pack[] {
+  const packs = withFamilies(selectedPacks(cfg), PACKS);
+  return cfg.remove_marks && !cfg.comfyui_url ? [...packs, MARK_MODELS] : packs;
 }
 
 export class LocalApp {
@@ -91,7 +92,10 @@ export class LocalApp {
     const { machine } = this.s;
     const comfy = machine.comfy;
     const client = () => new ComfyUIClient(new FetchTransport(fetch, () => comfy.url));
-    const brain = (c: ComfyUIClient) => new Brain(PACKS, cfg, c, "paths", { hooks: new LocalHooks(machine, c, this.settingsUrl) });
+    const brain = (c: ComfyUIClient) => new Brain(PACKS, cfg, c, "paths", {
+      hooks: new LocalHooks(machine, c, this.settingsUrl),
+      canRemoveMarks: !cfg.comfyui_url, // a ComfyUI the user runs lacks our extension's node
+    });
     const specs = brain(client()).specs;
     const served = new Set(specs.map((spec) => spec.name));
 
@@ -132,7 +136,7 @@ export class LocalApp {
     if (sub === "/models" && m === "GET") return json({ packs: this.models() });
     if (sub === "/models/seed" && m === "POST") {
       const wanted = (await bodyJson(req)).pack;
-      const pack = PACKS.find((p) => p.name === wanted);
+      const pack = [MARK_MODELS, ...PACKS].find((p) => p.name === wanted);
       if (!pack) return error(400, "no such pack");
       return json(this.s.machine.downloads.start(pack.name, pack.models ?? [], pack.display_name));
     }
@@ -161,13 +165,16 @@ export class LocalApp {
     const bad = checkMachineSettings(merged);
     if (bad) return error(400, bad);
     const before = new Set(selectedPacks(current).map((p) => p.name));
+    const marksBefore = wantedPacks(current).includes(MARK_MODELS);
     let cfg = this.s.saveConfig(merged);
     // Every LoRA file keeps a group, also one the page's copy of the settings didn't know yet.
     const tagged = tagLooseLoras(cfg.pack_loras, Object.keys(this.s.machine.loras()));
     if (tagged) cfg = this.s.saveConfig({ ...cfg, pack_loras: tagged });
     // A newly chosen model, and the rest of its family, start downloading now, not at their first
-    // use; the others wait for theirs.
-    this.s.download(withFamilies(selectedPacks(cfg).filter((p) => !before.has(p.name)), PACKS));
+    // use; the others wait for theirs. So do the watermark removal's, when switched on.
+    const fresh = withFamilies(selectedPacks(cfg).filter((p) => !before.has(p.name)), PACKS);
+    if (!marksBefore && wantedPacks(cfg).includes(MARK_MODELS)) fresh.push(MARK_MODELS);
+    this.s.download(fresh);
     const warnings = this.missingLoras(cfg);
     if (current.comfyui_url !== cfg.comfyui_url || current.extra_models_dir !== cfg.extra_models_dir) {
       if (this.s.machine.comfy.state === "running") warnings.push("Restart ComfyUI (Setup tab) for the change to take effect.");

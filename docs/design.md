@@ -282,6 +282,48 @@ If one is still missing (the PC was off, a download failed), the call starts its
 answers the usual retryable "being downloaded". ComfyUI runs with `--cache-ram 4 6`, so calls
 alternating two packs keep both loaded (see Waiting, below).
 
+### Signatures and watermarks (2026-10-15)
+
+Some artist tags make the models paint the artist's signature, stamp, name or Patreon link into
+the image (cutesexyrobutts, banishment, tokyogenso, mifuru, gemi, mks). The negative prompt doesn't
+stop it, and on Anima Turbo it can't: at CFG 1 the negative is skipped. So a last step cleans
+them, on by default (`remove_marks`, §5):
+
+- **Our node.** `ComfyGenRemoveMarks` lives in our own ComfyUI extension (`comfy_node`, the file
+  that serves `/comfy-gen/wait`), so Modal, the PC agent and the extension all have it. `prepare`
+  (core `packs.ts`) reroutes every SaveImage's images through it, titled `cg:remove marks`; packs
+  need nothing for it.
+- **Finding.** MimiLens YOLO26l (`mimilens_y26l.pt`) detects marks; only its `watermark` and
+  `signature` labels count (it also finds speech bubbles, text and SFX), at a 0.3 threshold (the
+  cutesexyrobutts marks scored 0.40 to 0.41).
+- **Filling.** Each mark is filled on its own by LaMa (`big-lama.pt`, through spandrel) at full
+  resolution:
+  - the hole is the box grown by 8 px or 12% of its longer side, whichever is more, reaching the
+    image's edge when within 24 px of it;
+  - the crop is the hole plus a margin, padded to a multiple of 8;
+  - the result is pasted back with a feathered edge; overlapping boxes are merged first.
+- **Never fails an image.** A missing package or model file, or any error, passes the image
+  through unchanged and logs a warning.
+- **Where it runs.** Only where our extension runs (`BrainOptions.canRemoveMarks`):
+  - Modal;
+  - a PC whose agent's hello says `remove_marks` (one using its own ComfyUI doesn't, nor an agent
+    from before the node);
+  - the extension without a `comfyui_url`.
+
+  A ComfyUI by URL never gets it.
+- **Models.** The two files (260 MB, folder `comfy_gen`) are their own download set, core
+  `MARK_MODELS` ("Watermark removal", in `packs/tools.json`): seeded and listed like a pack while
+  the setting is on. The Brain ensures them before the pack. While they are still downloading, the
+  image goes out uncleaned instead of waiting.
+- **Package.** The detector needs `ultralytics` (pinned):
+  - in Modal's image (with the GL libraries OpenCV loads);
+  - in a new PC install;
+  - for an existing install, added in the background at launch (`ensureExtensionPackages`). The
+    node imports it when first used, so ComfyUI needn't restart.
+- **The spike (2026-10-15, scratchpad).** 28 images from the live Worker were cleaned on every mark
+  found, with nothing flagged on clean images. On CPU, detection took about 2 s, plus 1 to 2 s per
+  mark.
+
 ### Waiting
 
 **Both models stay loaded.** ComfyUI 0.37.0's default RAM-pressure cache frees an earlier prompt's
@@ -501,6 +543,8 @@ and failing that the file waits in `loras-pending-delete.json` until ComfyUI sto
   time on a PC costs nothing, so a new PC starts at 10 minutes and Modal at 5). The extension keeps `keep_warm_minutes` in its settings for its idle
   stop.
 - Which GPU answers is the list's order (§2, "GPUs").
+- `remove_marks` (default on): clean painted-in signatures and watermarks (§3, "Signatures and
+  watermarks"). It is a card beside the model cards; switching it on starts its models' downloads.
 - **One config for every backend** (decided 2026-09-30, after trying one per backend): Claude sees
   one tool list, and its descriptions (styles, LoRA triggers, packs) cannot change with which
   backend is online, so separate settings needed a "keep these the same by hand" warning. What
@@ -954,6 +998,8 @@ Later: the ComfyUI client and the Modal app can become shared with Visual-Noveli
 | Worker uploading over its own script | Replaced by Workers Builds, which also updates Modal |
 | An automatic upload route for images pasted into Claude Desktop (MCPB) | The sandbox trick needs a public endpoint, and the extension is on `127.0.0.1`. A clipboard route (the model asks the user to copy the image, then passes `"clipboard"`) was built and removed: too much machinery for the gain. What remains is opt-in, and costs no code: the `edit_image` description offers a file path, or an upload to Litterbox (catbox's temporary host) for one hour, only after the user agrees to the image being public for that hour; the returned URL goes to `edit_image` like any URL. It needs code execution with network access to `litterbox.catbox.moe`. Tested 2026-09-30: one POST, the URL serves the same bytes to the extension's fetch |
 | A PC's settings reachable from the Worker only through an allow-list (2026-10-02) | Guarded nothing: the Worker can already run code on the PC through each pack's `required_nodes`. Every setting is now on the PC's own page on the Worker; only pairing stays on the PC (§9, "A page per PC") |
+| The negative prompt against painted-in signatures (2026-10-15) | Didn't stop them on base Anima, and Anima Turbo skips the negative at CFG 1 |
+| Repainting a mark with the image's own model, or ready-made node packs (2026-10-15) | A diffusion inpaint per image costs seconds of GPU and loads another graph. The marks sit on flat colour near the corners, which LaMa fills well. Acly's LaMa node resizes the whole image to 512 and blurred it; Impact Pack's detailers were more machinery than one detector and one fill. Our own node crops each mark at full resolution |
 | comfy-cli for the local ComfyUI install | Needs git (a hard failure without it) and a second Python env just to run it, and caused the old extension's Windows bugs (spaces in `override.txt`, cp1252 crashes, a leaked `VIRTUAL_ENV`). What it abstracts, uv does: `--torch-backend auto` picks the CUDA wheels from the driver on every OS and the ROCm build by GPU architecture on Linux. The one gap, Intel Arc on Windows, is an explicit "intel" choice (`xpu`). AMD on Windows gets CPU wheels either way (comfy-cli installed DirectML but never launched with `--directml`). `local` downloads the pinned ComfyUI release, makes the venv with uv, installs node packages from the Comfy Registry API. Installs the old extension made with comfy-cli run as they are |
 
 ## 12. Phases
