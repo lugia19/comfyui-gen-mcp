@@ -12,10 +12,10 @@ import { ComfyUIClient, ComfyUIError, type OutputImage } from "./comfyui.ts";
 import { normalize, type Config } from "./config.ts";
 import { imageSize, sniffMime } from "./images.ts";
 import { UnknownTool } from "./mcp.ts";
-import { BG_MODELS, groupByTool, MARK_MODELS, packFor, prepare, select, type Pack } from "./packs.ts";
+import { BG_MODELS, FACE_MODELS, groupByTool, MARK_MODELS, packFor, prepare, redrawPack, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
 import * as refs from "./refs.ts";
-import { buildPrompt, withImages, type Workflow } from "./workflow.ts";
+import { buildPrompt, redrawWorkflow, withImages, type Workflow } from "./workflow.ts";
 
 // A tool call answers within this, counted from its start. claude.ai gives up at 300 s (S8), but a
 // claude.ai connector used from Claude Code gave up at about 183 s (2026-10-01: a cold Modal edit
@@ -92,10 +92,19 @@ export async function uploadInput(client: ComfyUIClient, data: Uint8Array, key: 
 /** *canRemoveMarks*: the GPU's ComfyUI has our extension's mark-removal node, so the remove_marks
  * setting can apply. *canRemoveBackground*: it can take the background removal model (a PC agent
  * from before v1.16.0 lacks its folder). */
-export type BrainOptions = { hooks?: Hooks; waitS?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean };
+export type BrainOptions = { hooks?: Hooks; waitS?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean };
 
 export const BACKGROUND_UNAVAILABLE =
   "Background removal needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that, or without remove_background.";
+
+export const REDRAW_UNAVAILABLE =
+  "Redrawing needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that.";
+
+// Redraw's strength: the sampler's denoise. 0.9 changed expressions clearly and kept identity in
+// the spikes (0.8 barely changed them); below 0.3 nothing visible changes.
+const REDRAW_STRENGTH = 0.9;
+const MIN_STRENGTH = 0.3;
+const MIN_BOX_SIDE = 0.01;
 
 export class Brain {
   readonly cfg: Config;
@@ -105,6 +114,7 @@ export class Brain {
   private waitS: number;
   private canRemoveMarks: boolean;
   private canRemoveBackground: boolean;
+  private canRedraw: boolean;
   private packs: Pack[];
   // Raw selected packs by tool. They are prepared (LoRAs, budget) only when called, so a request
   // pays for one pack, not all of them.
@@ -117,6 +127,7 @@ export class Brain {
     this.waitS = opts.waitS ?? DEFAULT_WAIT_S;
     this.canRemoveMarks = opts.canRemoveMarks ?? false;
     this.canRemoveBackground = opts.canRemoveBackground ?? false;
+    this.canRedraw = opts.canRedraw ?? false;
     this.packs = packs;
     this.specs = toolSpecs(packs, this.cfg, imageMode);
     this.selected = Object.fromEntries(select(groupByTool(packs), this.cfg.pack_selections).map((p) => [p.tool_name, p]));
@@ -127,6 +138,7 @@ export class Brain {
     this.client.stopBy = this.client.time() + this.waitS; // cold starts, uploads and the wait share it
     if (name === "fetch_result") return this.fetch(args);
     if (name === "edit_image" && "edit_image" in this.selected) return this.edit(args);
+    if (name === "redraw" && this.specs.some((s) => s.name === "redraw")) return this.redraw(args);
     if (name in this.selected && !STATIC_TOOLS.has(name)) {
       const pack = packFor(this.packs, this.selected[name], args.model); // a scripted caller's hidden `model`
       return typeof pack === "string" ? new Failed(pack) : this.generate(pack, args);
@@ -180,6 +192,32 @@ export class Brain {
     return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles }), null);
   }
 
+  private async redraw(args: Record<string, any>): Promise<Outcome> {
+    const prompt = String(args.prompt || "").trim();
+    const image = String(args.image_path || args.image || "").trim();
+    if (!prompt || !image) return new Failed("prompt and an image are required.");
+    const box = redrawBox(args.box);
+    if (box instanceof Failed) return box;
+    const strength = args.strength === undefined || args.strength === null ? REDRAW_STRENGTH : Number(args.strength);
+    if (!Number.isFinite(strength) || strength < MIN_STRENGTH || strength > 1) return new Failed(`strength must be a number from ${MIN_STRENGTH} to 1.`);
+    if (!this.canRedraw) return new Failed(REDRAW_UNAVAILABLE);
+    const rawPack = redrawPack(this.packs, Object.values(this.selected), args.style, args.model);
+    if (typeof rawPack === "string") return new Failed(rawPack);
+    const pack = prepare(rawPack, this.cfg);
+    let loadValue: string;
+    try {
+      await this.ensureAll(pack, box ? [] : [FACE_MODELS]); // before the upload, as for edits
+      [loadValue] = await this.hooks.resolveImage(image);
+    } catch (e) {
+      if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
+      throw e;
+    }
+    const wf = redrawWorkflow(pack.workflow, loadValue, {
+      box, wholeImage: args.whole_image === true, strength, maxPixels: pack.max_pixels ?? 1_048_576,
+    });
+    return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles, negative: String(args.negative ?? "") }), null);
+  }
+
   /** Make *pack* ready, after the model sets the call also needs (*extra*): a call that asked for a
    * background removal waits for its model like for the pack's, never going out without it. */
   private async ensureAll(pack: Pack, extra: Pack[]): Promise<void> {
@@ -228,6 +266,24 @@ export class Brain {
       throw e;
     }
   }
+}
+
+/** A redraw call's box for the node: "left,top,right,bottom" fractions, "" for the largest face; a
+ * Failed saying what is wrong with it. Accepts the four numbers as an array or a string of them
+ * (some callers send one). */
+export function redrawBox(box: unknown): string | Failed {
+  if (box === undefined || box === null || box === "") return "";
+  let parts: unknown[] = [];
+  if (Array.isArray(box)) parts = box;
+  else if (typeof box === "string") parts = box.replace(/[[\]()]/g, "").split(",").map((v) => (v.trim() === "" ? NaN : Number(v)));
+  const n = parts.map((v) => (typeof v === "number" ? v : NaN));
+  if (n.length !== 4 || n.some((v) => !Number.isFinite(v))) return new Failed("box must be four numbers: [left, top, right, bottom].");
+  if (n.some((v) => v < -0.05 || v > 1.05)) {
+    return new Failed("box is fractions of the image's width and height, from 0 to 1, not pixels: divide by the image's size.");
+  }
+  const [l, t, r, b] = n.map((v) => Math.min(1, Math.max(0, v)));
+  if (r - l < MIN_BOX_SIDE || b - t < MIN_BOX_SIDE) return new Failed("box is empty: left must be less than right, and top less than bottom.");
+  return [l, t, r, b].map((v) => String(roundHalfEven(v * 1e4) / 1e4)).join(",");
 }
 
 /**

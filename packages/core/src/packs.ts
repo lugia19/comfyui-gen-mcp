@@ -8,7 +8,7 @@
 import { PACK_FILES, TOOL_FILE } from "../packs/index.ts";
 import { isPlainObject } from "./bytes.ts";
 import { SETTINGS_SCHEMA, tagLoras, type Config, type LoraEntry } from "./config.ts";
-import { injectLoras, nodesTitled, TITLES, withBackgroundRemoval, withMarkRemoval } from "./workflow.ts";
+import { injectLoras, nodesTitled, redrawSampler, TITLES, withBackgroundRemoval, withMarkRemoval } from "./workflow.ts";
 
 export type Pack = Record<string, any> & {
   name: string;
@@ -35,6 +35,7 @@ const TOOL_DEFS = TOOL_FILE as {
   lora_groups: Record<string, string>;
   remove_marks: Pick<Pack, "name" | "display_name" | "models">;
   remove_background: Pick<Pack, "name" | "display_name" | "models">;
+  detect_faces: Pick<Pack, "name" | "display_name" | "models">;
 };
 
 /** The tools packs back, by name (packs/tools.json). */
@@ -53,14 +54,17 @@ export const MARK_MODELS: Pack = { tool_name: "", workflow: {}, ...TOOL_DEFS.rem
  * call asks for it. */
 export const BG_MODELS: Pack = { tool_name: "", workflow: {}, ...TOOL_DEFS.remove_background };
 
+/** The face detector redraw finds a face with when the caller gives no box (packs/tools.json). */
+export const FACE_MODELS: Pack = { tool_name: "", workflow: {}, ...TOOL_DEFS.detect_faces };
+
 /** The model sets: downloaded in the background, never listed. */
-export const MODEL_SETS = [MARK_MODELS, BG_MODELS];
+export const MODEL_SETS = [MARK_MODELS, BG_MODELS, FACE_MODELS];
 export const isModelSet = (pack: Pack) => MODEL_SETS.some((p) => p.name === pack.name);
 
-/** The model sets a GPU keeps in place with *cfg*: background removal always (the option is there
- * for every call), the watermark removal's while it is on. */
+/** The model sets a GPU keeps in place with *cfg*: background removal's and the face detector always
+ * (any call may need them), the watermark removal's while it is on. */
 export function wantedModelSets(cfg: Config): Pack[] {
-  return cfg.remove_marks ? [MARK_MODELS, BG_MODELS] : [BG_MODELS];
+  return cfg.remove_marks ? [MARK_MODELS, BG_MODELS, FACE_MODELS] : [BG_MODELS, FACE_MODELS];
 }
 
 /** *packLoras* with every one of *names* in a group: *group* when it is a LoRA group (the one an
@@ -131,6 +135,34 @@ export function packFor(packs: Pack[], selected: Pack, model: unknown): Pack | s
     choices.find((p) => p.name === name) ??
     `Unknown model "${name}" for ${selected.tool_name}. Valid models: ${choices.map((p) => p.name).join(", ")}.`
   );
+}
+
+/** Whether redraw can run on *pack*: its sampler is a KSampler (it has a denoise) fed by the
+ * pack's empty latent (workflow.ts redrawSampler). */
+export function canRedraw(pack: Pack): boolean {
+  return redrawSampler(pack.workflow) !== null;
+}
+
+/** The generation tool whose selected pack redraws each style. */
+export const REDRAW_STYLES: Record<string, string> = { illustrated: "generate_illustrated_image", realistic: "generate_realistic_image" };
+
+/** The pack a redraw call runs: the one a scripted caller names in the hidden `model`, else the
+ * pack selected for *style*'s generation tool (*selected*: one per tool). A string is the error to
+ * answer with: an unknown style or model, or a selected model that can't redraw (no surprise
+ * download of another). */
+export function redrawPack(packs: Pack[], selected: Pack[], style: unknown, model: unknown): Pack | string {
+  const able = packs.filter(canRedraw);
+  const name = typeof model === "string" ? model.trim() : "";
+  if (name) return able.find((p) => p.name === name) ?? `Unknown model "${name}" for redraw. Valid models: ${able.map((p) => p.name).join(", ")}.`;
+  const key = style === undefined || style === null || style === "" ? "illustrated" : String(style);
+  const tool = REDRAW_STYLES[key];
+  if (!tool) return `style must be one of: ${Object.keys(REDRAW_STYLES).join(", ")}.`;
+  const pack = selected.find((p) => p.tool_name === tool);
+  if (!pack) return `No ${key} model is set up.`;
+  if (canRedraw(pack)) return pack;
+  const others = able.filter((p) => p.tool_name === tool).map((p) => p.display_name);
+  return `The ${key} model selected in settings (${pack.display_name}) can't redraw. ` +
+    (others.length ? `Pick ${others.join(" or ")} there, or use edit_image.` : "Use edit_image instead.");
 }
 
 /** *selected* and every other pack of their families, in *packs* order: a family downloads whole,

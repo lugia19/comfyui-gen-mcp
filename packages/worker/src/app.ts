@@ -7,7 +7,7 @@
 import {
   Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
   builtinPacks, isModelSet, wantedModelSets, fromHex, fromUtf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
-  withoutLora, tagLooseLoras, wantedLoras, packFor, withFamilies, type Config, type Content, type Pack,
+  withoutLora, tagLooseLoras, wantedLoras, packFor, redrawPack, withFamilies, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
@@ -39,7 +39,7 @@ export const LOGIN_FAILS_MAX = 10;
 export const LOGIN_WINDOW_S = 3600;
 
 export const INSTRUCTIONS =
-  "Images come back inline, each followed by its image_id. Pass an image_id to edit_image to edit that image.";
+  "Images come back inline, each followed by its image_id. Pass an image_id to edit_image to edit that image, or to redraw to repaint one part of it.";
 
 const SETTINGS_METADATA = settingsMetadata(PACKS);
 
@@ -393,6 +393,11 @@ export class App {
         if (typeof chosen === "string") return failResult(chosen);
         pack = chosen;
       }
+      if (name === "redraw") {
+        const chosen = redrawPack(PACKS, selectedPacks(cfg), args.style, args.model);
+        if (typeof chosen === "string") return failResult(chosen);
+        pack = chosen;
+      }
       let gpu: Gpu | string;
       if (name === "fetch_result") {
         // The token names the GPU the job is on: only that one has it.
@@ -426,7 +431,9 @@ export class App {
         // before a feature doesn't say it).
         const info = target.kind === "pc" ? (await this.status(target)).info : null;
         const can = (feature: string) => target.kind === "modal" || info?.[feature] === true;
-        const outcome = await new Brain(PACKS, cfg, client, "refs", { hooks, canRemoveMarks: can("remove_marks"), canRemoveBackground: can("remove_background") }).call(name, args);
+        const outcome = await new Brain(PACKS, cfg, client, "refs", {
+          hooks, canRemoveMarks: can("remove_marks"), canRemoveBackground: can("remove_background"), canRedraw: can("redraw"),
+        }).call(name, args);
         tried.push(target);
         if (outcome.kind === "failed" && downloading && name !== "fetch_result") {
           const next = await this.pick(gpus, pack, tried);

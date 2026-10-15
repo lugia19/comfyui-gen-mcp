@@ -37,7 +37,7 @@ def head(url: str):
         time.sleep(2 ** (attempt + 1))
 
 
-MODEL_SETS = ("remove_marks", "remove_background")  # tools.json's model sets (core packs.ts)
+MODEL_SETS = ("remove_marks", "remove_background", "detect_faces")  # tools.json's model sets (core packs.ts)
 
 
 def model_lists():

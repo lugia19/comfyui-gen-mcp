@@ -7,7 +7,7 @@
 // unpaired, either way: paired, its tray is the sign it runs); exit code
 // RESTART_EXIT_CODE asks it to start us again at once (into a newer bundle), 0 to stay stopped.
 
-import { BG_MODELS } from "@comfy-gen/core";
+import { BG_MODELS, FACE_MODELS } from "@comfy-gen/core";
 import { agentInstance, setPartSuffix, listen, log, logTo, Machine, machineTray, openExternal, paths, selfRequest, type Paths, type TrayLook, type WebFiles } from "@comfy-gen/local";
 import { AgentApp } from "./app.ts";
 import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts";
@@ -52,9 +52,9 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
       saveAgentConfig(p, cfg);
     },
     waitExtension: opts.waitExtension,
-    // Background removal's model, for the option every call has. The watermark removal's come with
-    // the Worker's settings (its download on save, or the first call).
-    modelSets: () => [BG_MODELS],
+    // Background removal's model and redraw's face detector, for options every call has. The
+    // watermark removal's come with the Worker's settings (its download on save, or the first call).
+    modelSets: () => [BG_MODELS, FACE_MODELS],
   });
   await machine.comfy.refresh();
   machine.fetchModelSets();
@@ -103,6 +103,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
         // used a ComfyUI of the user's own): the Worker leaves the step out.
         remove_marks: true, // our extension's mark-removal node
         remove_background: true, // the background_removal model folder (v1.16.0)
+        redraw: true, // our extension's redraw nodes (v1.17.0)
       }),
       onOpen: () => void sync.sync(),
     });

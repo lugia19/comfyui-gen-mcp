@@ -48,5 +48,18 @@
         "sha256": "a43e3dd84cbe84db76bd2015ef8f7034c9503c50d9b56fa2155803b69bd2f408"
       }
     ]
+  },
+  "detect_faces": {
+    "name": "detect-faces",
+    "display_name": "Face detection",
+    "models": [
+      {
+        "url": "https://huggingface.co/deepghs/anime_face_detection/resolve/784dc4c0bb692351ddcdbe6131a050b17d3025d5/face_detect_v1.4_s/model.onnx",
+        "subfolder": "comfy_gen",
+        "filename": "face_detect_v1.4_s.onnx",
+        "size_bytes": 44583229,
+        "sha256": "403b5bc93b6ff789b7d183418df4a1364049bac00c24acd927604a7ff6891483"
+      }
+    ]
   }
 }

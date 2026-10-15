@@ -4,7 +4,7 @@ import { png } from "../../core/test/fake-comfy.ts";
 import { LORA_CHUNK } from "../src/loras.ts";
 import { PACKS, REQUEST_BUDGET, type App } from "../src/app.ts";
 import { offlineMessage, pausedMessage } from "../src/hooks.ts";
-import { BACKGROUND_UNAVAILABLE } from "@comfy-gen/core";
+import { BACKGROUND_UNAVAILABLE, REDRAW_UNAVAILABLE } from "@comfy-gen/core";
 import { cacheEntry } from "../src/store.ts";
 import * as updates from "../src/updates.ts";
 import golden from "../../core/test/golden.json" with { type: "json" };
@@ -213,6 +213,19 @@ describe("MCP", () => {
 
     clock.t += 3600; // the link expires
     expect((await app.handle(request("POST", `/upload/${token}`, png()))).status).toBe(403);
+  });
+
+  it("redraw is listed and routed by its style's pack; a model that can't is answered before any GPU time", async () => {
+    const { app, comfy } = world();
+    await withReadyModal(app);
+    const [, list] = await mcp(app, "tools/list", {});
+    expect(list.result.tools.map((t: any) => t.name)).toContain("redraw");
+    let [, r] = await mcp(app, "tools/call", { name: "redraw", arguments: { prompt: "x", image: "https://images.example/a.png", box: [0.1, 0.1, 0.5, 0.5], style: "realistic" } });
+    expect(r.result.isError).toBe(false);
+    expect(Object.values<any>(comfy.prompts.at(-1)!).find((n) => n._meta?.title === "cg:model").inputs.unet_name).toContain("z-image-turbo");
+    [, r] = await mcp(app, "tools/call", { name: "redraw", arguments: { prompt: "x", image: "https://images.example/a.png", model: "flux2klein" } });
+    expect(r.result.content[0].text).toMatch(/Unknown model "flux2klein" for redraw/);
+    expect(comfy.prompts.length).toBe(1);
   });
 
   it("edit by URL downloads and sizes the input", async () => {
@@ -473,9 +486,9 @@ describe("settings API", () => {
     expect(net.adminCalls).toContainEqual(["POST", "/idle", { seconds: 300 }]);
     const seeds = net.adminCalls.filter((c) => c[1] === "/seed");
     // The selected packs and the rest of their families (Anima beside Anima Turbo).
-    // And the watermark and background removal models (the setting is on by default; the option is
-    // on every call).
-    expect(seeds.map((c) => c[2].pack).sort()).toEqual(["anima", "anima_turbo", "flux2klein_edit", "remove-background", "remove-marks", "z_image_turbo"]);
+    // And the watermark and background removal models and the face detector (the setting is on by
+    // default; the options are on every call).
+    expect(seeds.map((c) => c[2].pack).sort()).toEqual(["anima", "anima_turbo", "detect-faces", "flux2klein_edit", "remove-background", "remove-marks", "z_image_turbo"]);
     expect(seeds.every((c) => c[2].models.length)).toBe(true);
   });
 
@@ -511,7 +524,7 @@ describe("Modal models", () => {
     net.adminUp = false;
     const ok = await app.handle(request("POST", "/build-callback", { nonce: "n", modal: { server_url: "https://m", admin_url: ADMIN } }));
     expect(ok.status).toBe(200);
-    expect((await body(ok)).warnings.length).toBe(7); // keep-warm + four packs + the two model sets
+    expect((await body(ok)).warnings.length).toBe(8); // keep-warm + four packs + the three model sets
     expect((await app.gpus())[0].kind).toBe("modal");
   });
 
@@ -537,7 +550,7 @@ describe("Modal models", () => {
     const { app, net } = world();
     await withModal(app);
     const cookie = await login(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit", "remove-marks", "remove-background"] });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit", "remove-marks", "remove-background", "detect-faces"] });
     const cfg = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
     const resp = await app.handle(request("PUT", "/api/config", { config: cfg }, cookie));
     expect((await body(resp)).warnings).toEqual([]);
@@ -908,7 +921,7 @@ describe("the PC path", () => {
     const put = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
     expect(put.warnings).toEqual([]);
     // The selected packs and their families, and the watermark and background removal models.
-    expect(pc.controlCalls.filter(([op]) => op === "download").map(([, a]) => a.pack.name)).toEqual(["anima", "anima_turbo", "flux2klein_edit", "z_image_turbo", "remove-marks", "remove-background"]);
+    expect(pc.controlCalls.filter(([op]) => op === "download").map(([, a]) => a.pack.name)).toEqual(["anima", "anima_turbo", "flux2klein_edit", "z_image_turbo", "remove-marks", "remove-background", "detect-faces"]);
     expect(pc.controlCalls.at(-1)![0]).toBe("sync"); // and copies LoRAs
 
     const illustrated = async () => (await mcp(app, "tools/list"))[1].result.tools.find((t: any) => t.name === "generate_illustrated_image").description;
@@ -1000,6 +1013,21 @@ describe("the PC path", () => {
     expect(r.result.content[0].type).toBe("image");
     expect(Object.values<any>(pc.comfy.prompts[0]).some((n) => n.class_type === "JoinImageWithAlpha")).toBe(true);
     expect(pc.controlCalls.some(([op, a]) => op === "ensure" && a.pack.name === "remove-background")).toBe(true);
+  });
+
+  it("redraws on a PC whose agent can, and says why on one that can't", async () => {
+    const { app, pc } = world();
+    await pair(app);
+    const call = () => mcp(app, "tools/call", { name: "redraw", arguments: { prompt: "smile", image: "https://images.example/a.png" } });
+    let [, r] = await call();
+    expect(r.result.content[0].text).toContain(REDRAW_UNAVAILABLE); // an agent from before v1.17.0
+    expect(pc.comfy.prompts.length).toBe(0);
+    pc.redraw = true;
+    [, r] = await call();
+    expect(r.result.content[0].type).toBe("image");
+    expect(Object.values<any>(pc.comfy.prompts[0]).some((n) => n.class_type === "ComfyGenRedrawPaste")).toBe(true);
+    // no box: the face detector made ready with the pack
+    expect(pc.controlCalls.filter(([op]) => op === "ensure").map(([, a]) => a.pack.name)).toEqual(["detect-faces", "anima_turbo"]);
   });
 
   it("generates on the PC when it is online, on Modal when it is not", async () => {

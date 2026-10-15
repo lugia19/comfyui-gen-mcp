@@ -127,4 +127,8 @@ const FINISHED: Record<string, any> = {
     status: { status_str: "error", messages: [["execution_error", { node_type: "KSampler", exception_message: "out of memory" }]] },
     outputs: {},
   },
+  noface: {
+    status: { status_str: "error", messages: [["execution_error", { node_type: "ComfyGenRedrawRegion", exception_message: "No face found in this image: pass a box around it instead." }]] },
+    outputs: {},
+  },
 };

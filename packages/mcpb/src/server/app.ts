@@ -96,6 +96,7 @@ export class LocalApp {
       hooks: new LocalHooks(machine, c, this.settingsUrl),
       canRemoveMarks: true, // our extension is in the managed ComfyUI
       canRemoveBackground: true,
+      canRedraw: true,
     });
     const specs = brain(client()).specs;
     const served = new Set(specs.map((spec) => spec.name));

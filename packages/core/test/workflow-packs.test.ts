@@ -3,9 +3,9 @@ import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize, tagLoras } from "../src/config.ts";
-import { BG_MODELS, builtinPacks, DEFAULT_LORA_GROUP, MARK_MODELS, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
+import { BG_MODELS, builtinPacks, canRedraw, DEFAULT_LORA_GROUP, FACE_MODELS, MARK_MODELS, redrawPack, wantedModelSets, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
 import { describe as describeTool } from "../src/tools.ts";
-import { BACKGROUND_MODEL, buildPrompt, calcDimensions, injectLoras, REMOVE_MARKS_NODE, withImages, type Workflow } from "../src/workflow.ts";
+import { BACKGROUND_MODEL, buildPrompt, calcDimensions, injectLoras, redrawWorkflow, REDRAW_PASTE_NODE, REDRAW_REGION_NODE, REMOVE_MARKS_NODE, withImages, type Workflow } from "../src/workflow.ts";
 
 const smallWorkflow = (): Workflow => ({
   "1": { class_type: "UNETLoader", inputs: { unet_name: "m.safetensors" }, _meta: { title: "cg:model" } },
@@ -331,5 +331,67 @@ describe("packs and config", () => {
     const desc = describeTool(anima, cfg);
     expect(desc).toContain("@on");
     expect(desc).not.toContain("@off");
+  });
+});
+
+describe("redraw", () => {
+  const builtin = builtinPacks();
+  const pack = (name: string) => builtin.find((p) => p.name === name)!;
+
+  it("runs on the packs whose sampler has a denoise", () => {
+    expect(builtin.filter(canRedraw).map((p) => p.name).sort()).toEqual(["anima", "anima_turbo", "z_image_turbo"]);
+  });
+
+  it("repaints the loaded image through a mask instead of drawing from an empty latent", () => {
+    const cfg = normalize({ pack_loras: { anima: [{ name: "style.safetensors", trigger: "@style" }] } });
+    const prepared = prepare(pack("anima_turbo"), cfg);
+    const wf = redrawWorkflow(prepared.workflow, "sprite.png [input]", { box: "0.3,0.7,0.4,0.9", wholeImage: false, strength: 0.9, maxPixels: 2359296 });
+    const node = (ref: [string, number]) => wf[ref[0]];
+    const byClass = (c: string) => Object.values<any>(wf).filter((n) => n.class_type === c);
+    expect(byClass("EmptyLatentImage")).toEqual([]); // the empty latent is gone
+    expect(JSON.stringify(prepared.workflow)).toContain("EmptyLatentImage"); // the pack itself untouched
+    const [sampler] = byClass("KSampler");
+    expect(sampler.inputs.denoise).toBe(0.9);
+    const mask = node(sampler.inputs.latent_image);
+    expect(mask.class_type).toBe("SetLatentNoiseMask");
+    const encode = node(mask.inputs.samples);
+    const region = node(encode.inputs.pixels);
+    expect([region.class_type, mask.inputs.mask[0], mask.inputs.mask[1]]).toEqual([REDRAW_REGION_NODE, encode.inputs.pixels[0], 1]);
+    expect(region.inputs).toMatchObject({ box: "0.3,0.7,0.4,0.9", whole_image: false, max_pixels: 2359296 });
+    const load = node(region.inputs.image);
+    expect([load.class_type, load.inputs.image]).toEqual(["LoadImage", "sprite.png [input]"]);
+    expect(encode.inputs.vae).toEqual(byClass("VAEDecode")[0].inputs.vae);
+    const diff = node(sampler.inputs.model);
+    expect(diff.class_type).toBe("DifferentialDiffusion");
+    expect(node(diff.inputs.model).class_type).toBe("LoraLoaderModelOnly"); // after the LoRAs
+    const [save] = byClass("SaveImage");
+    const paste = node(save.inputs.images);
+    expect(paste.class_type).toBe(REDRAW_PASTE_NODE);
+    expect(node(paste.inputs.redrawn).class_type).toBe("VAEDecode");
+    expect([paste.inputs.original, paste.inputs.alpha, paste.inputs.region]).toEqual([region.inputs.image, [region.inputs.image[0], 1], [encode.inputs.pixels[0], 2]]);
+    // buildPrompt fills it like a generation, with no size to set
+    const built = buildPrompt(wf, "smile", { loraToggles: prepared.lora_toggles });
+    expect(Object.values<any>(built).find((n) => n._meta?.title === "cg:prompt").inputs.text).toBe("smile");
+  });
+
+  it("won't build on a pack that can't", () => {
+    expect(() => redrawWorkflow(pack("flux2klein").workflow, "a.png", { box: "", wholeImage: true, strength: 1, maxPixels: 1 })).toThrow(/can't redraw/);
+  });
+
+  it("picks the selected pack for the style, or a named one", () => {
+    const selected = select(groupByTool(builtin), {});
+    expect((redrawPack(builtin, selected, undefined, undefined) as any).name).toBe("anima_turbo");
+    expect((redrawPack(builtin, selected, "realistic", undefined) as any).name).toBe("z_image_turbo");
+    expect((redrawPack(builtin, selected, "illustrated", "anima") as any).name).toBe("anima");
+    expect(redrawPack(builtin, selected, "cartoon", undefined)).toMatch(/style must be one of: illustrated, realistic/);
+    expect(redrawPack(builtin, selected, undefined, "flux2klein")).toMatch(/Unknown model "flux2klein" for redraw. Valid models: anima, anima_turbo, z_image_turbo/);
+    const flux = select(groupByTool(builtin), { generate_realistic_image: "flux2klein" });
+    expect(redrawPack(builtin, flux, "realistic", undefined)).toMatch(/The realistic model selected in settings \(.+\) can't redraw. Pick Z-Image/);
+  });
+
+  it("the face detector is a model set every GPU keeps", () => {
+    expect(FACE_MODELS.models.map((m) => [m.subfolder, m.filename])).toEqual([["comfy_gen", "face_detect_v1.4_s.onnx"]]);
+    expect(wantedModelSets(normalize({ remove_marks: false })).map((p) => p.name)).toEqual(["remove-background", "detect-faces"]);
+    expect(wantedModelSets(normalize({})).map((p) => p.name)).toContain("detect-faces");
   });
 });

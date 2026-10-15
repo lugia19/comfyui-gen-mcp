@@ -11,7 +11,7 @@
 //   cg:model         the model loader LoRAs attach to (output 0)
 //   cg:image…        an edit's nodes for its first image (see withImages)
 // Save nodes need no title: any node with a `filename_prefix` gets this call's own (outputName).
-// A node this code adds is titled too: cg:remove marks (withMarkRemoval).
+// A node this code adds is titled too: cg:remove marks (withMarkRemoval), cg:redraw … (redrawWorkflow).
 //
 // Node order: JS objects list integer-like keys ("3", "19") first, ascending, whatever order the
 // JSON had. ComfyUI node ids are such keys, so "the first KSampler" is the one with the lowest id.
@@ -54,6 +54,12 @@ export const TITLES = {
   background: "cg:remove background",
   backgroundAlpha: "cg:background alpha",
   backgroundJoin: "cg:background join",
+  redrawImage: "cg:redraw image",
+  redrawRegion: "cg:redraw region",
+  redrawEncode: "cg:redraw encode",
+  redrawMask: "cg:redraw mask",
+  redrawModel: "cg:redraw model",
+  redrawPaste: "cg:redraw paste",
 } as const;
 const IMAGE_GROUP = "cg:image"; // every node whose title starts so is part of one image's chain
 
@@ -290,4 +296,73 @@ export function withImages(workflow: Workflow, count: number): [Workflow, { load
     prev = ids;
   }
   return [wf, images];
+}
+
+/** Our extension's redraw nodes (comfy_gen_modal/comfy_node): the region to repaint with its mask and
+ * what to sample, and the paste back. */
+export const REDRAW_REGION_NODE = "ComfyGenRedrawRegion";
+export const REDRAW_PASTE_NODE = "ComfyGenRedrawPaste";
+
+/** A pack workflow's sampler and empty latent, when redraw can use it: the one cg:size node feeds
+ * exactly one KSampler's latent_image (a KSampler has the denoise a redraw needs; Flux 2 Klein's
+ * SamplerCustomAdvanced does not), and a VAEDecode decodes that sampler. Else null. */
+export function redrawSampler(workflow: Workflow): { sampler: string; size: string; vae: [string, number] } | null {
+  const sizes = nodesTitled(workflow, TITLES.size);
+  if (sizes.length !== 1) return null;
+  const uses = consumersOf(workflow, [sizes[0], 0]);
+  if (uses.length !== 1) return null;
+  const [sampler, key] = uses[0];
+  if (workflow[sampler].class_type !== "KSampler" || key !== "latent_image") return null;
+  const decode = consumersOf(workflow, [sampler, 0]).find(([id]) => workflow[id].class_type === "VAEDecode");
+  const vae = decode && workflow[decode[0]].inputs.vae;
+  if (!Array.isArray(vae)) return null;
+  return { sampler, size: sizes[0], vae: [vae[0], vae[1]] };
+}
+
+export type RedrawOptions = {
+  /** "left,top,right,bottom" fractions of the image, or "" for the largest face. */
+  box: string;
+  /** Sample the whole image (the prompt describes all of it), not a crop around the box. */
+  wholeImage: boolean;
+  /** The sampler's denoise: how far the repainted part may stray from what is there. */
+  strength: number;
+  /** The most pixels to sample (the pack's budget). */
+  maxPixels: number;
+};
+
+/**
+ * A copy of a (prepared: LoRAs spliced in) generation workflow that repaints part of the image
+ * *loadValue* instead of drawing from nothing: its empty latent is replaced by the image, encoded,
+ * with REDRAW_REGION_NODE's mask as the latent's noise mask; the sampler denoises *strength* through
+ * DifferentialDiffusion (the mask's soft edge blends instead of cutting); every SaveImage gets the
+ * result pasted back into the original by REDRAW_PASTE_NODE, so the rest of the image is untouched,
+ * at its own size, with its transparency (LoadImage's mask). buildPrompt then fills the prompt and
+ * seeds; there is no size to set. Throws for a workflow redrawSampler rejects.
+ */
+export function redrawWorkflow(workflow: Workflow, loadValue: string, opts: RedrawOptions): Workflow {
+  const wf = structuredClone(workflow);
+  const found = redrawSampler(wf);
+  if (!found) throw new Error("this workflow can't redraw: no empty latent feeding a KSampler");
+  const { sampler, size, vae } = found;
+  let nextId = nextNodeId(wf);
+  const [image, region, encode, mask, model] = [nextId++, nextId++, nextId++, nextId++, nextId++].map(String);
+  const node = (class_type: string, title: string, inputs: Record<string, any>): Node => ({ inputs, class_type, _meta: { title } });
+  delete wf[size];
+  wf[image] = node("LoadImage", TITLES.redrawImage, { image: loadValue });
+  wf[region] = node(REDRAW_REGION_NODE, TITLES.redrawRegion, {
+    image: [image, 0], box: opts.box, whole_image: opts.wholeImage, max_pixels: Math.round(opts.maxPixels),
+  });
+  wf[encode] = node("VAEEncode", TITLES.redrawEncode, { pixels: [region, 0], vae });
+  wf[mask] = node("SetLatentNoiseMask", TITLES.redrawMask, { samples: [encode, 0], mask: [region, 1] });
+  wf[model] = node("DifferentialDiffusion", TITLES.redrawModel, { model: wf[sampler].inputs.model });
+  Object.assign(wf[sampler].inputs, { latent_image: [mask, 0], model: [model, 0], denoise: opts.strength });
+  for (const save of Object.values(wf)) {
+    if (save.class_type !== "SaveImage" || !Array.isArray(save.inputs?.images)) continue;
+    const paste = String(nextId++);
+    wf[paste] = node(REDRAW_PASTE_NODE, TITLES.redrawPaste, {
+      original: [image, 0], redrawn: save.inputs.images, region: [region, 2], alpha: [image, 1],
+    });
+    save.inputs.images = [paste, 0];
+  }
+  return wf;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { roundHalfEven } from "../src/bytes.ts";
-import { BACKGROUND_UNAVAILABLE, Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pending, type ResolvedImage } from "../src/brain.ts";
+import { BACKGROUND_UNAVAILABLE, Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pending, REDRAW_UNAVAILABLE, redrawBox, type ResolvedImage } from "../src/brain.ts";
 import { ComfyUIError, STILL_STARTING } from "../src/comfyui.ts";
 import { McpHandler, PROTOCOL_VERSIONS, RESULT_META, UnknownTool, type ToolCall } from "../src/mcp.ts";
 import { builtinPacks, type Pack } from "../src/packs.ts";
@@ -49,7 +49,7 @@ class PathHooks extends Hooks {
   }
 }
 
-function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean } = {}) {
+function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean } = {}) {
   const comfy = new FakeComfy();
   const client = fastClient(comfy, { coldStartS: 60, requestBudget: opts.budget ?? null });
   const brain = (o: typeof opts = {}) =>
@@ -58,6 +58,7 @@ function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: nu
       waitS: o.waitS ?? opts.waitS,
       canRemoveMarks: o.canRemoveMarks ?? opts.canRemoveMarks,
       canRemoveBackground: o.canRemoveBackground ?? opts.canRemoveBackground,
+      canRedraw: o.canRedraw ?? opts.canRedraw,
     });
   return { comfy, client, brain };
 }
@@ -346,5 +347,68 @@ describe("mcp", () => {
     expect(r.error.code).toBe(-32601);
     [, r] = await rpc("ping");
     expect(r.result).toEqual({});
+  });
+});
+
+describe("redraw", () => {
+  const nodeOf = (prompt: Record<string, any>, cls: string) => Object.values<any>(prompt).find((n) => n.class_type === cls);
+
+  it("is listed in both modes with that mode's image argument", () => {
+    const paths = toolSpecs(BUILTIN, normalize({}), "paths").find((s) => s.name === "redraw")!;
+    const refs = toolSpecs(BUILTIN, normalize({}), "refs").find((s) => s.name === "redraw")!;
+    expect(paths.inputSchema.required).toEqual(["prompt", "image_path"]);
+    expect(refs.inputSchema.required).toEqual(["prompt", "image"]);
+    for (const spec of [paths, refs]) {
+      expect(Object.keys(spec.inputSchema.properties)).not.toContain("whole_image"); // hidden: scripted callers
+      expect(spec.description).toContain("fractions");
+    }
+  });
+
+  it("repaints a box, or the largest face with the detector made ready", async () => {
+    const { comfy, brain } = setup({ canRedraw: true, cfg: { remove_marks: false } });
+    let hooks = new PathHooks();
+    let out = await brain({ hooks }).call("redraw", { prompt: "knight, gauntlets", image_path: "a.png", box: [0.3, 0.7, 0.4, 0.9] });
+    expect(out).toBeInstanceOf(Done);
+    expect(hooks.ensured).toEqual(["anima_turbo"]);
+    let prompt = comfy.prompts.at(-1)!;
+    expect(nodeOf(prompt, "ComfyGenRedrawRegion").inputs).toMatchObject({ box: "0.3,0.7,0.4,0.9", whole_image: false });
+    expect(nodeOf(prompt, "KSampler").inputs.denoise).toBe(0.9);
+    expect(nodeOf(prompt, "LoadImage").inputs.image).toBe("a.png [output]");
+    expect(JSON.stringify(prompt)).not.toContain("ComfyGenRemoveMarks"); // the rest of the image stays as it was
+
+    hooks = new PathHooks();
+    out = await brain({ hooks }).call("redraw", { prompt: "1girl, smile", image_path: "a.png", whole_image: true, strength: 1, style: "realistic" });
+    expect(hooks.ensured).toEqual(["detect-faces", "z_image_turbo"]);
+    prompt = comfy.prompts.at(-1)!;
+    expect(nodeOf(prompt, "ComfyGenRedrawRegion").inputs).toMatchObject({ box: "", whole_image: true });
+    expect(nodeOf(prompt, "KSampler").inputs.denoise).toBe(1);
+  });
+
+  it("answers a bad call before any GPU time", async () => {
+    const { comfy, brain } = setup({ canRedraw: true });
+    const fail = async (args: Record<string, any>, b = brain()) => ((await b.call("redraw", { prompt: "x", image_path: "a.png", ...args })) as Failed).message;
+    expect(await fail({ box: [10, 20, 300, 400] })).toMatch(/fractions .* not pixels/);
+    expect(await fail({ box: [0.5, 0.5, 0.4, 0.6] })).toMatch(/box is empty/);
+    expect(await fail({ box: [0.1, 0.2] })).toMatch(/four numbers/);
+    expect(await fail({ strength: 0.1 })).toMatch(/strength must be/);
+    expect(await fail({ style: "cartoon" })).toMatch(/style must be/);
+    expect(await fail({}, brain({ canRedraw: false }))).toBe(REDRAW_UNAVAILABLE);
+    const flux = brain({ canRedraw: true, cfg: { pack_selections: { generate_realistic_image: "flux2klein" } } });
+    expect(await fail({ style: "realistic" }, flux)).toMatch(/can't redraw/);
+    expect(((await brain().call("redraw", { prompt: "", image_path: "a.png" })) as Failed).message).toMatch(/required/);
+    expect(comfy.prompts).toEqual([]);
+  });
+
+  it("takes the box as numbers or a string of them", () => {
+    expect(redrawBox(undefined)).toBe("");
+    expect(redrawBox("[0.25, 0.5, 0.75, 1]")).toBe("0.25,0.5,0.75,1");
+    expect(redrawBox([-0.02, 0.1, 1.03, 0.333333])).toBe("0,0.1,1,0.3333"); // a little past an edge: clipped
+  });
+
+  it("a face the detector can't find comes back as the node's message", async () => {
+    const { comfy, brain } = setup({ canRedraw: true });
+    comfy.history = ["noface"];
+    const out = await brain().call("redraw", { prompt: "x", image_path: "a.png" });
+    expect((out as Failed).message).toContain("No face found in this image: pass a box around it instead.");
   });
 });
