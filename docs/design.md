@@ -367,8 +367,9 @@ grey or coloured background in the prompt, never white.
 face, an expression, a small detail. Visual Novelist makes a sprite's expressions with it, so the
 body, outfit and pose stay identical across them. Arguments: the image, a prompt, an optional
 `box` (`[left, top, right, bottom]`, fractions of the image; none means the largest face),
-`strength` (0.3 to 1, default 0.9) and `style` (`illustrated` or `realistic`: the pack selected
-for that generation tool); hidden, `model` and `negative` (Scripted callers).
+`strength` (0.3 to 1, default 0.9) and `style` (`illustrated`: Anima Turbo whatever the settings
+select, the user's call, 2026-10-15, as base Anima took 74 s live against Turbo's 11; `realistic`:
+the pack selected for that tool); hidden, `model` and `negative` (Scripted callers).
 
 - **The technique.** The pack's own generation graph, with its empty latent replaced by the image:
   VAE-encoded, a soft mask as the latent's noise mask (`SetLatentNoiseMask`), the model through

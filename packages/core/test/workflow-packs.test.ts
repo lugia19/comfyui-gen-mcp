@@ -383,6 +383,9 @@ describe("redraw", () => {
     expect((redrawPack(builtin, selected, undefined, undefined) as any).name).toBe("anima_turbo");
     expect((redrawPack(builtin, selected, "realistic", undefined) as any).name).toBe("z_image_turbo");
     expect((redrawPack(builtin, selected, "illustrated", "anima") as any).name).toBe("anima");
+    // Anima Turbo whatever the settings select for illustrations; a named model still wins
+    const base = select(groupByTool(builtin), { generate_illustrated_image: "anima" });
+    expect((redrawPack(builtin, base, "illustrated", undefined) as any).name).toBe("anima_turbo");
     expect(redrawPack(builtin, selected, "cartoon", undefined)).toMatch(/style must be one of: illustrated, realistic/);
     expect(redrawPack(builtin, selected, undefined, "flux2klein")).toMatch(/Unknown model "flux2klein" for redraw. Valid models: anima, anima_turbo, z_image_turbo/);
     const flux = select(groupByTool(builtin), { generate_realistic_image: "flux2klein" });

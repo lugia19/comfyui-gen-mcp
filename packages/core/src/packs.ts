@@ -146,8 +146,14 @@ export function canRedraw(pack: Pack): boolean {
 /** The generation tool whose selected pack redraws each style. */
 export const REDRAW_STYLES: Record<string, string> = { illustrated: "generate_illustrated_image", realistic: "generate_realistic_image" };
 
+/** The pack a style redraws with whatever the settings select (the user's call, 2026-10-15): Anima
+ * Turbo for illustrations, about 11 s against base Anima's 72. Its family downloads whole, so it is
+ * there wherever Anima is. */
+export const REDRAW_DEFAULTS: Record<string, string> = { illustrated: "anima_turbo" };
+
 /** The pack a redraw call runs: the one a scripted caller names in the hidden `model`, else the
- * pack selected for *style*'s generation tool (*selected*: one per tool). A string is the error to
+ * style's REDRAW_DEFAULTS pack, else the pack selected for *style*'s generation tool (*selected*:
+ * one per tool). A string is the error to
  * answer with: an unknown style or model, or a selected model that can't redraw (no surprise
  * download of another). */
 export function redrawPack(packs: Pack[], selected: Pack[], style: unknown, model: unknown): Pack | string {
@@ -157,6 +163,8 @@ export function redrawPack(packs: Pack[], selected: Pack[], style: unknown, mode
   const key = style === undefined || style === null || style === "" ? "illustrated" : String(style);
   const tool = REDRAW_STYLES[key];
   if (!tool) return `style must be one of: ${Object.keys(REDRAW_STYLES).join(", ")}.`;
+  const preferred = able.find((p) => p.name === REDRAW_DEFAULTS[key] && p.tool_name === tool);
+  if (preferred) return preferred;
   const pack = selected.find((p) => p.tool_name === tool);
   if (!pack) return `No ${key} model is set up.`;
   if (canRedraw(pack)) return pack;

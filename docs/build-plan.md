@@ -724,6 +724,8 @@ After v1.17.0, live through the connector (Anima Turbo unless said):
   A box in pixels was refused in 0.7 s with the fractions message.
 - **The user's PC** (agent v1.17.0): the same sprite flow at 10.5 to 11.6 s per expression, and
   the sword fixed cleanly by Turbo in 11.2 s.
+- Since then, illustrated redraws run Anima Turbo unless `model` names another pack, whatever the
+  settings select (core `REDRAW_DEFAULTS`).
 
 Next: Visual Novelist makes expression variants with `redraw`: its sprite prompt with the
 expression swapped, no box.

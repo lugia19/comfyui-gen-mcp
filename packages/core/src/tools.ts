@@ -64,7 +64,7 @@ const REDRAW_PROPS = {
     description: "[left, top, right, bottom] as fractions (0 to 1) of the image's width and height. Leave it out to redraw the largest face.",
   },
   strength: { type: "number", minimum: 0.3, maximum: 1, default: 0.9, description: "How far the redrawn part may stray from what is there now." },
-  style: { type: "string", enum: Object.keys(REDRAW_STYLES), default: "illustrated", description: "The image's style: illustrated (drawn, anime) or realistic (photographic)." },
+  style: { type: "string", enum: Object.keys(REDRAW_STYLES), default: "illustrated", description: "The image's style: illustrated (drawn, anime; redrawn with Anima Turbo) or realistic (photographic)." },
 };
 
 export const REDRAW_SCHEMA_PATHS = {
