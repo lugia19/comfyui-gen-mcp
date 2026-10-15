@@ -37,7 +37,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   // one up front: that was 22 GB before the first image on a new install (seen 2026-10-02).
   const download = (packs: Pack[]) => {
     const comfy = machine.comfy;
-    if (comfy.state === "external" || comfy.state === "not_installed" || !packs.length) return;
+    if (comfy.state === "not_installed" || !packs.length) return;
     comfy.models.sources(true); // look again: a folder may have appeared
     for (const pack of packs) if (pack.models?.length) machine.downloads.start(pack.name, pack.models, pack.display_name);
   };

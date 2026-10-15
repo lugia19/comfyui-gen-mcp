@@ -213,10 +213,10 @@ describe("packs and config", () => {
   });
 
   it("normalize fills defaults and keeps unknown keys", () => {
-    const cfg = normalize({ keep_warm_minutes: 0, pack_loras: "junk", comfyui_url: "http://x" });
+    const cfg = normalize({ keep_warm_minutes: 0, pack_loras: "junk", someday: "kept" });
     expect(cfg.keep_warm_minutes).toBe(DEFAULT_KEEP_WARM_MINUTES);
     expect(cfg.pack_loras).toEqual({});
-    expect(cfg.comfyui_url).toBe("http://x");
+    expect(cfg.someday).toBe("kept");
     expect(normalize(null)).toEqual(DEFAULTS);
     const raw = { pack_settings: { anima: { artist_list: "@a" } } };
     const out = normalize(raw);

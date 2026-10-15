@@ -101,7 +101,7 @@
     try {
       const got = await api('GET', '/loras')
       loraListing = machine
-        ? { backends: [got.external ? 'url' : 'machine'], files: Object.fromEntries(Object.entries(got.loras).map(([n, size]) => [n, { machine: size }])), syncing: {}, errors: {} }
+        ? { backends: ['machine'], files: Object.fromEntries(Object.entries(got.loras).map(([n, size]) => [n, { machine: size }])), syncing: {}, errors: {} }
         : got
       tagLoose(cfg)
       tagLoose(saved)

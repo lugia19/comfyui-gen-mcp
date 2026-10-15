@@ -192,7 +192,7 @@ export class Tray {
 
 export type TrayColor = "yellow" | "green" | "red";
 const STATE_COLORS: Record<string, TrayColor> = {
-  running: "green", external: "green", stopped: "yellow", starting: "yellow", failed: "red", not_installed: "red",
+  running: "green", stopped: "yellow", starting: "yellow", failed: "red", not_installed: "red",
 };
 
 /** An extra tray item for one program (the agent's pause), and the note it adds to the status. */

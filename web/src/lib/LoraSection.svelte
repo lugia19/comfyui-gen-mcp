@@ -14,9 +14,7 @@
   // with backends among:
   //   machine  this computer (the Claude Desktop extension)
   //   storage  the Worker's R2 storage: every LoRA comes in here, and every GPU copies from it
-  //   <id>     one of the Worker's GPUs (gpus says its name and kind): a PC, the Modal Volume, or a
-  //            ComfyUI by URL, which has no listing (a file is added by name)
-  //   url      the extension's own ComfyUI by URL (the same)
+  //   <id>     one of the Worker's GPUs (gpus says its name and kind): a PC or the Modal Volume
   // One way in: every LoRA comes through Upload LoRA, into storage (or this computer's folder on the
   // extension), and the Worker copies it to each GPU. Only LoRAs that came in this way are listed,
   // never others that happen to be in a PC's folders.
@@ -29,13 +27,10 @@
   let progress = $state(null) // {name, phase, done, total} while an upload runs
   let error = $state('')
   let note = $state('')
-  let typed = $state('')
 
   let backends = $derived(listing?.backends ?? [])
   let gpus = $derived(listing?.gpus ?? [])
-  const kindOf = (b) => gpus.find((g) => g.id === b)?.kind
   const place = (b) => (b === 'storage' ? 'Stored' : gpus.find((g) => g.id === b)?.name ?? '')
-  let listed = $derived(backends.filter((b) => b !== 'url' && kindOf(b) !== 'url'))
   let files = $derived(listing?.files ?? {})
   let has = (b) => backends.includes(b)
   let hasKind = (k) => gpus.some((g) => g.kind === k)
@@ -101,13 +96,6 @@
     drop(name)
     cfg.pack_loras[to] ??= []
     cfg.pack_loras[to].push({ ...(entry ?? { name, strength: 1, trigger: '', hidden: false }), enabled: false })
-  }
-
-  function addTyped() {
-    const name = typed.trim()
-    if (!name || !group) return
-    if (!grouped(name)) toggle(group, name, true)
-    typed = ''
   }
 
   async function pick(e) {
@@ -206,7 +194,7 @@
 {#if !listing}
   <p class="muted">Loading…</p>
 {:else if !names.length}
-  <p class="muted">{listed.length ? 'None yet.' : 'None added yet.'}</p>
+  <p class="muted">{backends.length ? 'None yet.' : 'None added yet.'}</p>
 {/if}
 
 {#each names as name (name)}
@@ -214,11 +202,11 @@
   <div class="file">
     <div class="row head">
       <b class="name">{name}</b>
-      {#each listed as where (where)}
+      {#each backends as where (where)}
         {@const m = mark(name, where)}
         <span class="place" class:ok={m.ok} class:err={m.err} class:muted={!m.ok && !m.err}>{#if place(where)}<b>{place(where)}</b>&nbsp;{/if}{m.text}</span>
       {/each}
-      {#if files[name] && listed.length}
+      {#if files[name] && backends.length}
         <button type="button" class="danger small icon-btn" onclick={() => remove(name)} disabled={!!progress || deleting !== null} title="Delete {name}" aria-label="Delete {name}">
           {#if deleting === name}Deleting…{:else}<Icon name="trash" />{/if}
         </button>
@@ -254,12 +242,6 @@
       <input type="file" accept=".safetensors" onchange={pick} />
     </label>
   {/if}
-{/if}
-{#if has('url') || hasKind('url')}
-  <div class="row">
-    <input type="text" bind:value={typed} placeholder="file.safetensors" aria-label="LoRA file name" />
-    <button class="secondary" onclick={addTyped} disabled={!typed.trim()}>Add</button>
-  </div>
 {/if}
 {#if note}<p class="muted">{note}</p>{/if}
 {#if error}<p class="err">{error}</p>{/if}

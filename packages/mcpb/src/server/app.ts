@@ -32,7 +32,7 @@ export type Services = {
   config(): LocalConfig;
   saveConfig(cfg: Record<string, any>): LocalConfig;
   machine: Machine;
-  /** Start downloading these packs' missing models (the managed ComfyUI only). */
+  /** Start downloading these packs' missing models (once ComfyUI is installed). */
   download(packs: Pack[]): void;
   web: WebFiles;
 };
@@ -45,7 +45,7 @@ export function selectedPacks(cfg: Config): Pack[] {
  * argument, so a family downloads whole. */
 export function wantedPacks(cfg: LocalConfig): Pack[] {
   const packs = withFamilies(selectedPacks(cfg), PACKS);
-  return cfg.remove_marks && !cfg.comfyui_url ? [...packs, MARK_MODELS] : packs;
+  return cfg.remove_marks ? [...packs, MARK_MODELS] : packs;
 }
 
 export class LocalApp {
@@ -94,7 +94,7 @@ export class LocalApp {
     const client = () => new ComfyUIClient(new FetchTransport(fetch, () => comfy.url));
     const brain = (c: ComfyUIClient) => new Brain(PACKS, cfg, c, "paths", {
       hooks: new LocalHooks(machine, c, this.settingsUrl),
-      canRemoveMarks: !cfg.comfyui_url, // a ComfyUI the user runs lacks our extension's node
+      canRemoveMarks: true, // our extension is in the managed ComfyUI
     });
     const specs = brain(client()).specs;
     const served = new Set(specs.map((spec) => spec.name));
@@ -118,10 +118,11 @@ export class LocalApp {
     return new McpHandler("Comfy-Gen-MCP", this.s.version, specs, call, instructions(this.settingsUrl));
   }
 
-  /** Where the result is on disk; for a ComfyUI we don't manage, the name it knows it by. */
+  /** Where the result is on disk; without an install (it was removed meanwhile), the name ComfyUI
+   * knows it by. */
   private savedPath(image: OutputImage): string {
     const comfy = this.s.machine.comfy;
-    if (comfy.install && comfy.state !== "external") {
+    if (comfy.install) {
       return join(comfy.install.dir, image.type, ...image.subfolder.split("/").filter(Boolean), image.filename);
     }
     return image.loadValue();
@@ -176,7 +177,7 @@ export class LocalApp {
     if (!marksBefore && wantedPacks(cfg).includes(MARK_MODELS)) fresh.push(MARK_MODELS);
     this.s.download(fresh);
     const warnings = this.missingLoras(cfg);
-    if (current.comfyui_url !== cfg.comfyui_url || current.extra_models_dir !== cfg.extra_models_dir) {
+    if (current.extra_models_dir !== cfg.extra_models_dir) {
       if (this.s.machine.comfy.state === "running") warnings.push("Restart ComfyUI (Setup tab) for the change to take effect.");
     }
     return json({ config: cfg, warnings });
@@ -197,7 +198,6 @@ export class LocalApp {
   }
 
   private missingLoras(cfg: LocalConfig): string[] {
-    if (cfg.comfyui_url) return []; // your own ComfyUI's folders are not ours to see
     const listed = Object.values(cfg.pack_loras).flat();
     this.s.machine.loraRegistry.adopt(listed.map((l) => l.name)); // in use, so ours (one typed in by hand, say)
     const have = this.s.machine.loras();

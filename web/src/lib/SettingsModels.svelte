@@ -116,7 +116,6 @@
         <input type="checkbox" bind:checked={cfg.remove_marks} />
         <span><b>{marks.title}</b><br /><span class="muted">{marks.description}</span></span>
       </label>
-      <p class="muted">Not on a ComfyUI you run yourself (by URL): it lacks this step.</p>
     </section>
   {/if}
 </div>

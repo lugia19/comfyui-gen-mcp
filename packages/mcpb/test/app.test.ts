@@ -131,7 +131,6 @@ describe("settings API", () => {
     await put({ pack_selections: { generate_illustrated_image: "anima" } });
     expect(w.downloaded).toEqual(["anima", "anima_turbo"]); // a newly chosen one starts at once, with its family
     expect((await put({ extra_models_dir: "/no/such/dir" })).status).toBe(400);
-    expect((await put({ comfyui_url: "ftp://x" })).status).toBe(400);
   });
 
   it("lists LoRAs, opens folders, starts installs", async () => {
@@ -155,17 +154,13 @@ describe("settings API", () => {
     expect(w.installs).toEqual(["intel"]);
   });
 
-  it("lists LoRAs in use, also ones from before uploads; with your own ComfyUI they are typed in", async () => {
+  it("lists LoRAs in use, also ones from before uploads", async () => {
     const w = world();
     const put = (config: object) => w.local("/api/config", { method: "PUT", body: JSON.stringify({ config }) });
     // mine.safetensors sits in the LoRA folder; configured, it is in use, so ours.
     const r = await (await put({ pack_loras: { anima: [{ name: "mine.safetensors" }] } })).json();
     expect(r.warnings).toEqual([]);
     expect((await (await w.local("/api/loras")).json()).loras).toEqual({ "mine.safetensors": 5 });
-    // Your own ComfyUI: its folders are not ours to see; no warnings, names are typed in.
-    const own = await (await put({ comfyui_url: "http://127.0.0.1:8188", pack_loras: { anima: [{ name: "theirs.safetensors" }] } })).json();
-    expect(own.warnings.join()).not.toContain("theirs.safetensors");
-    expect(await (await w.local("/api/loras")).json()).toEqual({ loras: {}, external: true });
   });
 
   it("reports the downloads of the selected packs and their families", async () => {
@@ -176,7 +171,7 @@ describe("settings API", () => {
     expect(packs.map((p: any) => p.name)).not.toContain("remove-marks"); // downloads in the background, never listed
   });
 
-  it("the watermark removal's models: wanted while it is on, not with your own ComfyUI (it lacks our node)", async () => {
+  it("the watermark removal's models: wanted while it is on", async () => {
     const w = world();
     const names = () => wantedPacks(w.cfg()).map((p) => p.name);
     expect(names()).toContain("remove-marks");
@@ -185,8 +180,6 @@ describe("settings API", () => {
     expect(names()).not.toContain("remove-marks");
     await put({ remove_marks: true });
     expect(w.downloaded).toEqual(["remove-marks"]); // switched on: they start at once
-    saveConfig(w.p.config, { ...w.cfg(), comfyui_url: "http://127.0.0.1:8188" });
-    expect(names()).not.toContain("remove-marks");
   });
 });
 

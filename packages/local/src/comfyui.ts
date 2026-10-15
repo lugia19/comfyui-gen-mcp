@@ -1,6 +1,5 @@
 // The managed ComfyUI: started on demand, stopped when idle or on exit, with the model folders,
-// our wait extension and the packs' node packages in place. Or a ComfyUI the user runs, at
-// comfyui_url, which is only checked, never managed.
+// our wait extension and the packs' node packages in place.
 
 import type { ChildProcess } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readSync, renameSync, statSync } from "node:fs";
@@ -22,9 +21,9 @@ export const PREFERRED_PORT = 8188;
 export const CACHE_ARGS = ["--cache-ram", "4", "6"];
 const LAUNCH_TIMEOUT_S = 300; // a first start compiles and caches; later ones take seconds
 
-export type ComfyState = "not_installed" | "stopped" | "starting" | "running" | "failed" | "external";
+export type ComfyState = "not_installed" | "stopped" | "starting" | "running" | "failed";
 
-export type ComfySettings = { comfyui_url: string; extra_models_dir: string; keep_warm_minutes: number; gpu: string };
+export type ComfySettings = { extra_models_dir: string; keep_warm_minutes: number; gpu: string };
 
 /** True if *port* can be bound on *host* right now. A real bind, which also catches Windows'
  * reserved port ranges (error 10013) that a connect probe misses. */
@@ -114,27 +113,14 @@ export class LocalComfy {
 
   /** Refresh state without starting anything: is there an install, is it running. */
   async refresh(): Promise<void> {
-    const external = this.settings().comfyui_url;
-    if (external) {
-      this.url = external;
-      this.state = "external";
-      return;
-    }
     if (this.child || this.starting) return;
     this.install = await findInstall(this.p);
     if (!this.install) this.state = "not_installed";
-    else if (this.state === "not_installed" || this.state === "external") this.state = "stopped";
+    else if (this.state === "not_installed") this.state = "stopped";
   }
 
   /** The ComfyUI URL, starting the managed ComfyUI if needed. Throws ComfyUIError for the user. */
   async ensureRunning(): Promise<string> {
-    const external = this.settings().comfyui_url;
-    if (external) {
-      this.url = external;
-      this.state = "external";
-      if (await answers(external)) return external;
-      throw new ComfyUIError(`ComfyUI is not answering at ${external} (set in the settings). Start it, or clear the URL to use the managed ComfyUI.`);
-    }
     if (this.state === "running" && this.child && this.url) return this.url;
     this.starting ??= this.launch().finally(() => (this.starting = null));
     return this.starting;
@@ -240,7 +226,7 @@ export class LocalComfy {
       this.onStopped?.();
     }
     if (this.state === "running" || this.state === "starting") this.state = "stopped";
-    if (this.state !== "external") this.url = null;
+    this.url = null;
     this.objectInfo = null;
   }
 
@@ -331,14 +317,14 @@ export class LocalComfy {
   }
 
   /** Install the node packages a pack needs ({class_type: package id}) and restart ComfyUI to load
-   * them. A ComfyUI the user runs is only told what is missing. */
+   * them. */
   async ensureNodes(required: Record<string, string>): Promise<void> {
     const have = await this.nodeClasses();
     const missing = Object.entries(required).filter(([cls]) => !have.has(cls));
     if (!missing.length) return;
     const packages = [...new Set(missing.map(([, pkg]) => pkg))];
-    if (this.state === "external" || !this.install) {
-      throw new ComfyUIError(`This model needs the custom node package(s) ${packages.join(", ")} in your ComfyUI.`);
+    if (!this.install) {
+      throw new ComfyUIError(`This model needs the custom node package(s) ${packages.join(", ")}, and ComfyUI is not installed.`);
     }
     const present = installedNodePackages(this.install);
     const toInstall = packages.filter((pkg) => !present.has(pkg.toLowerCase()));

@@ -13,8 +13,8 @@ describe("keep-warm's idle stop", () => {
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     try {
       const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-      const comfy = new LocalComfy(paths({ COMFY_GEN_HOME: mkdtempSync(join(tmpdir(), "idle-")) }), () => ({ comfyui_url: url, extra_models_dir: "", keep_warm_minutes: 1, gpu: "" }), "");
-      await comfy.refresh();
+      const comfy = new LocalComfy(paths({ COMFY_GEN_HOME: mkdtempSync(join(tmpdir(), "idle-")) }), () => ({ extra_models_dir: "", keep_warm_minutes: 1, gpu: "" }), "");
+      comfy.url = url; // as if launched
       expect(await comfy.queueEmpty()).toBe(false);
       queue = { queue_running: [], queue_pending: [["2", "p"]] };
       expect(await comfy.queueEmpty()).toBe(false);

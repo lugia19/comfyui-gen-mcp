@@ -3,7 +3,7 @@
 // Both read and write the same shape, so switching modes keeps settings. Pack-derived settings
 // (pack choice, artists, LoRAs, resolution) are keyed by pack and built into the settings UI from
 // the loaded packs; SETTINGS_SCHEMA covers only the global, statically known fields. Frontends may
-// add their own keys (the MCPB's ComfyUI URL, for instance); normalize() keeps them.
+// add their own keys (the MCPB's MCP port, for instance); normalize() keeps them.
 //
 //   pack_selections   {tool_name: pack_name}
 //   pack_settings     {family: {artist_list: string, max_pixels: number}}

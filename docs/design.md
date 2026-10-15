@@ -420,7 +420,7 @@ A `generate_custom_image` tool ran a workflow the user pasted in (API format), o
 PC. Removed 2026-09-30: barely used, untestable beyond a few graphs (it takes any graph with any
 nodes), and it threaded through every layer (config, a prompt-node guesser, a node-inventory check
 over the relay, its own tool and settings editor, a Modal exclusion). People with their own
-workflows already run ComfyUI and can point the MCPB or the agent at it ("Your own ComfyUI").
+workflows already run ComfyUI themselves.
 
 ## 4. Images, references, uploads, edits
 
@@ -484,8 +484,8 @@ workflows already run ComfyUI and can point the MCPB or the agent at it ("Your o
 and only LoRAs that came in that way exist for the app. A PC may hold hundreds of LoRAs in its
 ComfyUI's folders, many not for our models; they are never listed, synced or configured. On a
 machine "ours" is a registry, `loras.json` in the app's home, of the names uploaded or copied there
-(`packages/local` `lora-uploads.ts`); the folder alone would not do, since with "Your own ComfyUI"
-it is the user's.
+(`packages/local` `lora-uploads.ts`); the folder alone would not do, since a shared folder is the
+user's.
 
 **R2 is the hub** (2026-10-01). On a Worker an upload goes into R2 as `lora/<name>` (never
 expiring), and every GPU copies from there: Modal's Volume through its admin API, a PC through the
@@ -499,9 +499,8 @@ deleted so a PC that was offline drops its copy at its next sync instead of push
 A LoRA a model is set to use is ours too (2026-10-01, the extension's upgrade from v1.2.0): the
 extension's server adopts the configured names into the registry at start and on every save,
 when the file is in a LoRA folder ComfyUI reads, ours or a shared one. The registry finds a name
-in our folder first, then in the others; deleting one from a shared folder only forgets it. With
-"Your own ComfyUI" the page lists nothing and LoRAs are added by name (its folders are the user's,
-and uploads would land where it doesn't look).
+in our folder first, then in the others; deleting one from a shared folder only forgets it. (With
+"Your own ComfyUI", removed 2026-10-15, LoRAs were typed in by name.)
 
 LoRAs are uploaded from the settings page, and each belongs to one **LoRA group**: the models it
 was trained for (`lora_group` on a pack; Anima and Anima Turbo share `anima`, the only group so
@@ -844,7 +843,7 @@ a header and its chunks in one synchronous run, so messages never interleave.
 | `http` | Worker → agent | One ComfyUI request (method, path, params, headers, body); the agent calls its ComfyUI inside a job, so the idle stop waits |
 | `control` | Worker → agent | An agent operation: `pause` (`{paused}`, from the Setup page), `ensure` (start ComfyUI, install the pack's nodes, check or start its model downloads), `loras` (its files and the LoRA copies in progress), `models`, `download`, `sync` (start a LoRA sync), `lora_delete`, `status` |
 | `reply` | agent → Worker | `{id, status}` and the body |
-| `hello` | agent → Worker | On connecting, and again when paused or resumed: version, platform, GPU, ComfyUI state, `paused`; the latest is kept with the socket for the settings page |
+| `hello` | agent → Worker | On connecting, and again when paused or resumed: version, platform, GPU, ComfyUI state, `paused`, and what this agent's ComfyUI can do (`remove_marks`; absent on an agent from before it, so the Worker leaves that step out); the latest is kept with the socket for the settings page |
 
 On the Worker, `RelayTransport` is core's `Transport` over the object's `request()`, so the
 ComfyUI client, held waits and the brain are unchanged. A call with no agent connected waits 10 s
@@ -898,7 +897,7 @@ login whatever the id. On that path the app (`api.js`) sends every call to
 `/api/gpus/<id>/machine/…`, which the Worker relays as a `machine` control op, path, query and a
 JSON body as text, unparsed; binary bodies (the agent page's own LoRA uploads) get 415, since LoRAs
 come in on the Worker's page and are synced. The page shows everything the agent's page has,
-folders and a ComfyUI of your own included, except pairing and the buttons that open a folder on
+its models folder included, except pairing and the buttons that open a folder on
 the PC's screen; an offline PC shows as such, with a retry every 10 s.
 
 The 2026-10-02 allow-list (the agent let the Worker read its state, install, start and stop, and

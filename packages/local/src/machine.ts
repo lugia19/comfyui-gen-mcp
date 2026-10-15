@@ -1,6 +1,6 @@
-// One machine's generator, as the MCPB and the agent both run it: the managed ComfyUI (or the
-// user's), its install, model downloads and model folders, making a pack ready, and the settings
-// routes for all that. The MCPB adds MCP and pack settings on top; the agent adds the relay.
+// One machine's generator, as the MCPB and the agent both run it: the managed ComfyUI, its install,
+// model downloads and model folders, making a pack ready, and the settings routes for all that. The
+// MCPB adds MCP and pack settings on top; the agent adds the relay.
 
 import { existsSync, statSync } from "node:fs";
 import { totalmem } from "node:os";
@@ -136,7 +136,7 @@ export class Machine {
       );
     }
     const models = pack.models ?? [];
-    if (comfy.state !== "external" && models.length) {
+    if (models.length) {
       const name = pack.display_name ?? pack.name;
       let status = this.downloads.status(pack.name, models);
       if (status.state === "missing" || status.state === "failed") status = this.downloads.start(pack.name, models, name);
@@ -191,10 +191,7 @@ export class Machine {
       detected_gpu: await this.detectedGpu(),
       memory_gb: Math.round(totalmem() / 2 ** 30), // a Mac's GPU shares it: the page warns below 16
       // Also before the install: the page offers them, and the extra folder, before anything downloads.
-      model_sources:
-        comfy.state === "external"
-          ? []
-          : comfy.models.sources().map((src) => ({ from: src.from, path: src.path, folders: Object.entries(src.folders).map(([type, dirs]) => ({ type, dirs })) })),
+      model_sources: comfy.models.sources().map((src) => ({ from: src.from, path: src.path, folders: Object.entries(src.folders).map(([type, dirs]) => ({ type, dirs })) })),
     };
   }
 
@@ -237,8 +234,7 @@ export class Machine {
     if (sub === "/setup/install" && m === "GET") return json(this.installState);
     if (sub === "/comfyui/restart" && m === "POST") return this.comfyAction(() => this.comfy.restart());
     if (sub === "/comfyui/stop" && m === "POST") return this.comfyAction(() => this.comfy.stop());
-    // With your own ComfyUI, its LoRA folders are its own business: LoRAs are added by name.
-    if (sub === "/loras" && m === "GET") return json(this.opts.settings().comfyui_url ? { loras: {}, external: true } : { loras: this.loras() });
+    if (sub === "/loras" && m === "GET") return json({ loras: this.loras() });
     if (sub === "/loras" || sub.startsWith("/loras/")) {
       const r = await this.loraApi(req, sub);
       if (r) return r;
@@ -277,11 +273,9 @@ export class Machine {
   }
 }
 
-/** The machine settings a page may change (comfyui_url, extra_models_dir), checked. Returns an error
- * message, or null. */
+/** The machine settings a page may change (extra_models_dir), checked. Returns an error message,
+ * or null. */
 export function checkMachineSettings(cfg: Record<string, any>): string | null {
-  const url = String(cfg.comfyui_url ?? "").trim();
-  if (url && !/^https?:\/\/[^\s/]+/.test(url)) return "the ComfyUI URL must be an http(s) URL";
   const extra = String(cfg.extra_models_dir ?? "").trim();
   if (extra && (!existsSync(extra) || !statSync(extra).isDirectory())) return `${extra} is not a folder`;
   return null;

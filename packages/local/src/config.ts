@@ -11,7 +11,6 @@ export type LocalConfig = Config & {
   mcp_path: string; // the MCP route's secret path, "/mcp/<token>"
   mcp_port: number;
   mcp_network: boolean; // the MCP route on every interface, for other computers; false: this one only
-  comfyui_url: string; // a ComfyUI the user runs; empty: the managed one
   extra_models_dir: string; // another models folder to read from
   gpu: string; // "nvidia" | "amd" | "mac" | "cpu", chosen at install; empty until then
 };
@@ -20,10 +19,12 @@ function withLocalDefaults(raw: Record<string, any>): LocalConfig {
   const cfg = normalize(raw) as LocalConfig;
   if (typeof cfg.mcp_path !== "string" || !cfg.mcp_path.startsWith("/mcp/")) cfg.mcp_path = `/mcp/${tokenUrlsafe(32)}`;
   if (!Number.isInteger(cfg.mcp_port) || cfg.mcp_port <= 0 || cfg.mcp_port > 65535) cfg.mcp_port = DEFAULT_MCP_PORT;
-  for (const key of ["comfyui_url", "extra_models_dir", "gpu"] as const) {
+  for (const key of ["extra_models_dir", "gpu"] as const) {
     if (typeof cfg[key] !== "string") cfg[key] = "";
   }
-  cfg.comfyui_url = cfg.comfyui_url.trim().replace(/\/+$/, "");
+  // A ComfyUI of the user's own (removed 2026-10-15, design §11): the managed one takes over, and
+  // the file is rewritten without it.
+  delete (cfg as Record<string, unknown>).comfyui_url;
   cfg.mcp_network = cfg.mcp_network === true;
   return cfg;
 }

@@ -11,8 +11,8 @@ import { ComfyUIError, Hooks, imageSize, sniffMime, uploadInput, type ComfyUICli
 import { USER_AGENT, type Machine } from "@comfy-gen/local";
 
 export const MAX_IMAGE_BYTES = 50_000_000;
-// ComfyUI's own annotated names ("sub/file.png [output]"), as the result text gives them for a
-// ComfyUI the user runs.
+// ComfyUI's own annotated names ("sub/file.png [output]"), as results gave them for a ComfyUI of the
+// user's own (removed 2026-10-15): such a path from an older result still works.
 const ANNOTATED = / \[(output|input|temp)\]$/;
 export const STILL_STARTING_HERE = "ComfyUI is still starting on this computer (the first start can take a few minutes). Call the tool again in a minute.";
 

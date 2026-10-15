@@ -1077,7 +1077,7 @@ describe("the PC path", () => {
       : [200, { method: args.method, path: args.path, body: args.body ?? null }];
     const state = await app.handle(request("GET", `/api/gpus/${id}/machine/state`, undefined, cookie));
     expect([state.status, await body(state)]).toEqual([200, { method: "GET", path: "/state", body: null }]);
-    const config = { config: { extra_models_dir: "D:/models", comfyui_url: "" } };
+    const config = { config: { extra_models_dir: "D:/models" } };
     expect(await body(await app.handle(request("PUT", `/api/gpus/${id}/machine/config`, config, { ...cookie, "Content-Type": "application/json" }))))
       .toEqual({ method: "PUT", path: "/config", body: JSON.stringify(config) }); // the body as sent, unparsed
     expect((await body(await app.handle(request("GET", `/api/gpus/${id}/machine/setup/install?x=1`, undefined, cookie)))).path).toBe("/setup/install?x=1");

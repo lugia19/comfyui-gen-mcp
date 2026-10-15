@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -276,14 +276,25 @@ describe("the Worker's page managing this PC", () => {
 });
 
 describe("the page's settings", () => {
-  it("saves the folders and the own-ComfyUI URL, and answers with those only: never the pairing secret", async () => {
+  it("drops a ComfyUI of the user's own (removed in v1.16.0) from agent.json: the managed one takes over", () => {
+    const p = paths({ COMFY_GEN_HOME: mkdtempSync(join(tmpdir(), "agent-")) });
+    mkdirSync(p.home, { recursive: true });
+    const file = join(p.home, "agent.json");
+    writeFileSync(file, JSON.stringify({ worker_url: "https://w.example", secret: "s", comfyui_url: "http://127.0.0.1:8188", extra_models_dir: "" }));
+    const cfg = loadAgentConfig(p);
+    expect("comfyui_url" in cfg).toBe(false);
+    expect(cfg.worker_url).toBe("https://w.example");
+    expect(readFileSync(file, "utf8")).not.toContain("comfyui_url");
+  });
+
+  it("saves the models folder, and answers with it only: never the pairing secret", async () => {
     const dir = mkdtempSync(join(tmpdir(), "models-"));
-    let cfg = { worker_url: "https://w.example", secret: "s".repeat(43), port: 9248, comfyui_url: "", extra_models_dir: "" } as any;
+    let cfg = { worker_url: "https://w.example", secret: "s".repeat(43), port: 9248, extra_models_dir: "" } as any;
     const machine = { api: async () => null, comfy: { state: "stopped" } } as unknown as Machine;
     const app = new AgentApp({ version: "t", port: 9248, machine, config: () => cfg, saveConfig: (c) => (cfg = c), reconnect: () => {}, relay: () => null, web: {} as any });
     const put = await app.handle(new Request("http://127.0.0.1:9248/api/config", { method: "PUT", headers: { host: "127.0.0.1:9248" }, body: JSON.stringify({ config: { extra_models_dir: dir } }) }), "127.0.0.1");
     const answer = await put.json();
-    expect(answer).toEqual({ config: { comfyui_url: "", extra_models_dir: dir }, warnings: [] });
+    expect(answer).toEqual({ config: { extra_models_dir: dir }, warnings: [] });
     expect(JSON.stringify(answer)).not.toContain("s".repeat(43));
     expect([cfg.extra_models_dir, cfg.secret]).toEqual([dir, "s".repeat(43)]);
   });

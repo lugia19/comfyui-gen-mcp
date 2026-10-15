@@ -35,11 +35,15 @@ export function loadAgentConfig(p: Paths): AgentConfig {
   // A second agent on this machine takes the next ports: 9249 for instance 2.
   const defaultPort = DEFAULT_AGENT_PORT + (p.instance ? p.instance.n - 1 : 0);
   const port = Number.isInteger(raw.port) && raw.port > 0 && raw.port < 65536 ? raw.port : defaultPort;
-  return {
+  const cfg: AgentConfig = {
     worker_url: str("worker_url"), secret: str("secret"), port,
-    comfyui_url: str("comfyui_url").replace(/\/+$/, ""), extra_models_dir: str("extra_models_dir"), gpu: str("gpu"),
+    extra_models_dir: str("extra_models_dir"), gpu: str("gpu"),
     keep_warm_minutes: keepWarm,
   };
+  // A ComfyUI of the user's own (removed 2026-10-15, design §11): the managed one takes over, and
+  // the file is rewritten without it.
+  if ("comfyui_url" in raw) saveAgentConfig(p, cfg);
+  return cfg;
 }
 
 export function saveAgentConfig(p: Paths, cfg: AgentConfig): void {

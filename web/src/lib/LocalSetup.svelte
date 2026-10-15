@@ -5,7 +5,7 @@
   import { Copy, masked, Task } from './task.svelte.js'
 
   // The Claude Desktop extension's setup: install ComfyUI for this machine's GPU, see and control it,
-  // and point it at other model folders or at a ComfyUI of your own. The agent's page too, here or as
+  // and point it at other model folders. The agent's page too, here or as
   // the PC's page on the Worker (*remote*: api.js relays the calls), where only opening a folder on
   // the PC's screen isn't offered.
   let { info, refresh } = $props()
@@ -25,7 +25,7 @@
     stopping: 'Stopping…',
     running: 'Running',
     failed: 'Failed to start',
-    external: 'Using your own ComfyUI',
+    external: 'Using your own ComfyUI', // an agent from before v1.16.0, seen from the Worker's page
   }
 
   let comfy = $derived(info.comfyui)
@@ -54,7 +54,6 @@
   let network = $state(untrack(() => info.config.mcp_network === true))
   const saveNetwork = (on) => task.run(async () => (await api('PUT', '/config', { config: { mcp_network: on } }), (network = on)))
 
-  let comfyUrl = $state(untrack(() => info.config.comfyui_url || ''))
   let extraDir = $state(untrack(() => info.config.extra_models_dir || ''))
   let saved = $state('')
 
@@ -89,7 +88,7 @@
     e.preventDefault()
     saved = ''
     task.run(async () => {
-      const r = await api('PUT', '/config', { config: { comfyui_url: comfyUrl.trim(), extra_models_dir: extraDir.trim() } })
+      const r = await api('PUT', '/config', { config: { extra_models_dir: extraDir.trim() } })
       saved = ['Saved.', ...(r.warnings || [])].join(' ')
       await refresh()
     })
@@ -122,7 +121,7 @@
       minimum; 24 GB or more is recommended. Modal or another PC will be much faster.
     </p>
   {/if}
-  {#if comfy.state !== 'not_installed' && comfy.state !== 'external'}
+  {#if comfy.state !== 'not_installed'}
     <div class="row">
       <button class:secondary={comfy.state === 'running'} onclick={() => action('restart')} disabled={acting || install.state === 'running'}>
         {comfy.state === 'running' ? (task.busy === 'restart' ? 'Restarting…' : 'Restart') : task.busy === 'restart' ? 'Starting…' : 'Start'}
@@ -175,15 +174,15 @@
   </section>
 {/snippet}
 
-{#if comfy.state !== 'external' && !(agent && comfy.state !== 'not_installed' && install.state === 'idle')}
+{#if !(agent && comfy.state !== 'not_installed' && install.state === 'idle')}
   {@render installSection()}
 {/if}
 
-{#if comfy.state !== 'not_installed' && comfy.state !== 'external'}
+{#if comfy.state !== 'not_installed'}
   <section hidden={!packCount}><Models local onchange={(p) => (packCount = p.length)} /></section>
 {/if}
 
-{#if comfy.state !== 'not_installed' && comfy.state !== 'external'}
+{#if comfy.state !== 'not_installed'}
   <section>
     <h2>Models found on this {remote ? 'PC' : 'computer'}</h2>
     {#if info.model_sources.length}
@@ -216,7 +215,7 @@
   {#if agent && remote}
     <!-- The PC's page on the Worker: no folders to open here, so its folder settings show at once. -->
     {@render folderForm()}
-    {#if comfy.state !== 'external' && comfy.state !== 'not_installed' && install.state === 'idle'}
+    {#if comfy.state !== 'not_installed' && install.state === 'idle'}
       <details class="advanced">
         <summary>Advanced</summary>
         {@render installSection()}
@@ -225,17 +224,11 @@
   {:else if agent}
     <details class="advanced">
       <summary>Advanced</summary>
-      {#if comfy.state !== 'external' && comfy.state !== 'not_installed' && install.state === 'idle'}{@render installSection()}{/if}
+      {#if comfy.state !== 'not_installed' && install.state === 'idle'}{@render installSection()}{/if}
       {@render folderForm()}
     </details>
   {:else}
-    {#if comfy.state !== 'not_installed'}
-      <form onsubmit={saveFolders}>{@render extraField()}<button type="submit">Save</button>{#if saved}<p class="ok">{saved}</p>{/if}</form>
-    {/if}
-    <details class="advanced">
-      <summary>Advanced</summary>
-      {@render folderForm(false)}
-    </details>
+    {@render folderForm()}
   {/if}
 </section>
 
@@ -248,19 +241,15 @@
   </p>
 {/snippet}
 
-<!-- *withExtra*: the models folder too (before the install it is asked in the install section). -->
-{#snippet folderForm(withExtra = true)}
-  <form onsubmit={saveFolders}>
-    {#if withExtra && comfy.state !== 'not_installed'}{@render extraField()}{/if}
-    <label for="url">Your own ComfyUI</label>
-    <input id="url" type="text" bind:value={comfyUrl} placeholder="http://127.0.0.1:8188" />
-    <p class="muted">
-      Leave empty to use the one installed here. One you run yourself is never started or stopped,
-      and needs the models and custom nodes already.
-    </p>
-    <button type="submit">Save</button>
-    {#if saved}<p class="ok">{saved}</p>{/if}
-  </form>
+<!-- The models folder, once installed (before the install it is asked in the install section). -->
+{#snippet folderForm()}
+  {#if comfy.state !== 'not_installed'}
+    <form onsubmit={saveFolders}>
+      {@render extraField()}
+      <button type="submit">Save</button>
+      {#if saved}<p class="ok">{saved}</p>{/if}
+    </form>
+  {/if}
 {/snippet}
 
 {#if info.mode !== 'agent'}

@@ -45,7 +45,6 @@ export class AgentApp {
       const cfg = this.s.config();
       const next = {
         ...cfg,
-        comfyui_url: String(incoming.comfyui_url ?? cfg.comfyui_url).trim().replace(/\/+$/, ""),
         extra_models_dir: String(incoming.extra_models_dir ?? cfg.extra_models_dir).trim(),
       };
       const bad = checkMachineSettings(next);
@@ -54,7 +53,7 @@ export class AgentApp {
       const warnings = this.s.machine.comfy.state === "running" ? ["Restart ComfyUI for the change to take effect."] : [];
       // The page's settings only: this answer also reaches the Worker's page, and the pairing secret
       // stays on the PC.
-      return json({ config: { comfyui_url: next.comfyui_url, extra_models_dir: next.extra_models_dir }, warnings });
+      return json({ config: { extra_models_dir: next.extra_models_dir }, warnings });
     }
     if (sub === "/pair" && m === "POST") {
       let worker: string, secret: string;
@@ -96,7 +95,7 @@ export class AgentApp {
         since: client?.connectedSince ?? null,
         paused: this.s.paused?.() ?? false,
       },
-      config: { comfyui_url: cfg.comfyui_url, extra_models_dir: cfg.extra_models_dir },
+      config: { extra_models_dir: cfg.extra_models_dir },
     };
   }
 }

@@ -16,11 +16,12 @@ describe("loadConfig", () => {
     expect(loadConfig(path).mcp_path).toBe(cfg.mcp_path);
   });
 
-  it("keeps unknown keys and normalizes a custom URL", () => {
+  it("keeps unknown keys, and drops a ComfyUI of the user's own (removed) from the file", () => {
     const path = join(dir(), "config.json");
     writeFileSync(path, JSON.stringify({ comfyui_url: "http://box:8188/", mcp_port: 9300, someday: 1, pack_selections: { generate_illustrated_image: "anima" } }));
     const cfg = loadConfig(path);
-    expect(cfg.comfyui_url).toBe("http://box:8188");
+    expect("comfyui_url" in cfg).toBe(false);
+    expect("comfyui_url" in JSON.parse(readFileSync(path, "utf8"))).toBe(false);
     expect(cfg.mcp_port).toBe(9300);
     expect(cfg.someday).toBe(1);
     expect(cfg.pack_selections).toEqual({ generate_illustrated_image: "anima" });
