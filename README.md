@@ -1,4 +1,5 @@
 # Comfy-Gen-MCP
+Do you just want to install this? Follow this guide: https://lugia19.github.io/comfyui-gen-mcp/
 
 Image generation for Claude through ComfyUI, wherever the GPU is:
 
