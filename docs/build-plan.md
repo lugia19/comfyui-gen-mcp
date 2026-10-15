@@ -716,5 +716,14 @@ with no pixel changed outside the area; a face found and redrawn with the image'
 transparent frame kept; a picture without a face answered "No face found in this image: pass a box
 around it instead."
 
+After v1.17.0, live through the connector (Anima Turbo unless said):
+- **Modal:** a Frenni sprite (1344×1792) then happy, angry and surprised by `redraw` with no box:
+  16 to 20 s each, wall time, every one the base's size, the face found first time. The body
+  is unchanged up to WebP noise. A busy tavern scene's broken sword hilt, boxed from a gridded
+  crop: the selected pack (base Anima) took 74 s per call, and one of three tries was clean.
+  A box in pixels was refused in 0.7 s with the fractions message.
+- **The user's PC** (agent v1.17.0): the same sprite flow at 10.5 to 11.6 s per expression, and
+  the sword fixed cleanly by Turbo in 11.2 s.
+
 Next: Visual Novelist makes expression variants with `redraw`: its sprite prompt with the
 expression swapped, no box.
