@@ -173,7 +173,7 @@ describe("settings API", () => {
     const { packs } = await (await w.local("/api/models")).json();
     expect(packs.map((p: any) => p.name)).toEqual(expect.arrayContaining(["anima", "anima_turbo"]));
     expect(packs[0]).toMatchObject({ state: "missing" });
-    expect(packs.at(-1)).toMatchObject({ name: "remove-marks", display_name: "Watermark removal", state: "missing" });
+    expect(packs.map((p: any) => p.name)).not.toContain("remove-marks"); // downloads in the background, never listed
   });
 
   it("the watermark removal's models: wanted while it is on, not with your own ComfyUI (it lacks our node)", async () => {

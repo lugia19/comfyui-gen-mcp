@@ -312,9 +312,11 @@ them, on by default (`remove_marks`, §5):
 
   A ComfyUI by URL never gets it.
 - **Models.** The two files (260 MB, folder `comfy_gen`) are their own download set, core
-  `MARK_MODELS` ("Watermark removal", in `packs/tools.json`): seeded and listed like a pack while
-  the setting is on. The Brain ensures them before the pack. While they are still downloading, the
-  image goes out uncleaned instead of waiting.
+  `MARK_MODELS` (in `packs/tools.json`), fetched in the background and never shown (the user's
+  call, 2026-10-15: nothing to decide there). While the setting is on, they are seeded on Modal's
+  deploy and every settings save, sent to online PCs on a save, and ensured by the Brain before the
+  pack at each call. While they are still downloading, the image goes out uncleaned instead of
+  waiting.
 - **Package.** The detector needs `ultralytics` (pinned):
   - in Modal's image (with the GL libraries OpenCV loads);
   - in a new PC install;
@@ -544,7 +546,8 @@ and failing that the file waits in `loras-pending-delete.json` until ComfyUI sto
   stop.
 - Which GPU answers is the list's order (§2, "GPUs").
 - `remove_marks` (default on): clean painted-in signatures and watermarks (§3, "Signatures and
-  watermarks"). It is a card beside the model cards; switching it on starts its models' downloads.
+  watermarks"). It is a card beside the model cards, a checkbox only: its models download in the
+  background.
 - **One config for every backend** (decided 2026-09-30, after trying one per backend): Claude sees
   one tool list, and its descriptions (styles, LoRA triggers, packs) cannot change with which
   backend is online, so separate settings needed a "keep these the same by hand" warning. What

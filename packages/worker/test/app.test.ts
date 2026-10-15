@@ -518,7 +518,8 @@ describe("Modal models", () => {
     expect(models.packs[0].size).toBeGreaterThan(5e9);
     net.adminCalls = [];
     await app.handle(request("GET", "/api/models", undefined, cookie));
-    expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["/seed/anima", "/seed/flux2klein_edit", "/seed/remove-marks", "/seed/z_image_turbo"]); // anima_turbo is recorded
+    expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["/seed/anima", "/seed/flux2klein_edit", "/seed/z_image_turbo"]); // anima_turbo is recorded
+    expect(models.packs.map((p: any) => p.name)).not.toContain("remove-marks"); // downloads in the background, never listed
     const retry = await app.handle(request("POST", "/api/models/seed", { pack: "flux2klein_edit", gpu: "modal" }, cookie));
     expect((await body(retry)).started).toBe(true);
   });

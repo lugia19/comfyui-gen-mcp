@@ -6,9 +6,8 @@
   // options (saved with the page's Save), and its foot shows that model's download on each GPU
   // (*status*, a ModelStatus), which starts at once. *cfg* is the page's working copy, *saved* the
   // last saved config, *packs* /api/state's tool groups. *marks*: the remove_marks setting's schema
-  // entry, a card of its own with its models' downloads.
+  // entry, a card of its own (its models download in the background, never shown).
   let { cfg = $bindable(), saved, packs, status, marks = null } = $props()
-  const MARK_MODELS = 'remove-marks' // core packs.ts MARK_MODELS
 
   const MP = 1024 * 1024
 
@@ -91,11 +90,26 @@
         </p>
       {/if}
 
-      {@render foot(unsaved && `Not saved yet. Saving downloads ${current.display_name} (${formatBytes(current.download_size)}) to any GPU that lacks it.`, current.name, row)}
+      {#if unsaved || (row && status.backends.length)}
+      <div class="foot">
+        {#if unsaved}
+          <p class="muted">Not saved yet. Saving downloads {current.display_name} ({formatBytes(current.download_size)}) to any GPU that lacks it.</p>
+        {:else if row}
+          {#each status.backends as where (where)}
+            {@const s = row.on[where] ?? { state: 'unknown' }}
+            <div class="place">
+              <span class="where">{status.names[where] ?? 'This computer'}</span>
+              <ModelState {s} {status} pack={current.name} {where} />
+            </div>
+            {#if s.state === 'downloading' && s.total}<progress max={s.total} value={s.done}></progress>{/if}
+            {#if s.error}<p class="err">{s.error}</p>{/if}
+          {/each}
+        {/if}
+      </div>
+      {/if}
     </section>
   {/each}
   {#if marks}
-    {@const unsaved = cfg.remove_marks && !saved.remove_marks}
     <section class="card">
       <h2>Watermark removal</h2>
       <label class="choice">
@@ -103,31 +117,9 @@
         <span><b>{marks.title}</b><br /><span class="muted">{marks.description}</span></span>
       </label>
       <p class="muted">Not on a ComfyUI you run yourself (by URL): it lacks this step.</p>
-      {@render foot(unsaved && 'Not saved yet. Saving downloads what it needs to any GPU that lacks it.', MARK_MODELS, unsaved || !cfg.remove_marks ? null : status.of(MARK_MODELS))}
     </section>
   {/if}
 </div>
-
-<!-- A card's foot: *note* while its change is unsaved, else the model's download on each GPU. -->
-{#snippet foot(note, pack, row)}
-  {#if note || (row && status.backends.length)}
-    <div class="foot">
-      {#if note}
-        <p class="muted">{note}</p>
-      {:else}
-        {#each status.backends as where (where)}
-          {@const s = row.on[where] ?? { state: 'unknown' }}
-          <div class="place">
-            <span class="where">{status.names[where] ?? 'This computer'}</span>
-            <ModelState {s} {status} {pack} {where} />
-          </div>
-          {#if s.state === 'downloading' && s.total}<progress max={s.total} value={s.done}></progress>{/if}
-          {#if s.error}<p class="err">{s.error}</p>{/if}
-        {/each}
-      {/if}
-    </div>
-  {/if}
-{/snippet}
 {#if status.error}<p class="err">{status.error}</p>{/if}
 <p class="muted">Models download once to each GPU (a PC's ComfyUI models folder, or your Modal Volume). A tool whose model is still downloading says so.</p>
 

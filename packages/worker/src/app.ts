@@ -983,7 +983,8 @@ export class App {
    */
   private async models(url: URL): Promise<Response> {
     const only = url.searchParams.get("gpu");
-    const packs = wantedPacks(await this.fresh.config());
+    // The watermark removal's models download in the background, never listed (design §3).
+    const packs = wantedPacks(await this.fresh.config()).filter((p) => p !== MARK_MODELS);
     const on: Record<string, any>[] = packs.map(() => ({}));
     const gpus = (await this.gpus()).filter((g) => g.kind !== "url" && (!only || g.id === only));
     for (const gpu of gpus) {
@@ -1016,7 +1017,7 @@ export class App {
   /** Start downloading a pack on one GPU: {pack, gpu: id}. */
   private async seedPack(req: Request): Promise<Response> {
     const body = await bodyJson(req);
-    const pack = [MARK_MODELS, ...PACKS].find((p) => p.name === body.pack);
+    const pack = PACKS.find((p) => p.name === body.pack);
     if (!pack) return error(400, "no such pack");
     const gpu = (await this.gpus()).find((g) => g.id === body.gpu);
     if (!gpu) return error(400, "no such GPU");

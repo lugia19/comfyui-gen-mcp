@@ -136,7 +136,7 @@ export class LocalApp {
     if (sub === "/models" && m === "GET") return json({ packs: this.models() });
     if (sub === "/models/seed" && m === "POST") {
       const wanted = (await bodyJson(req)).pack;
-      const pack = [MARK_MODELS, ...PACKS].find((p) => p.name === wanted);
+      const pack = PACKS.find((p) => p.name === wanted);
       if (!pack) return error(400, "no such pack");
       return json(this.s.machine.downloads.start(pack.name, pack.models ?? [], pack.display_name));
     }
@@ -185,7 +185,8 @@ export class LocalApp {
   /** The wanted packs' models, then any download still running for a pack no longer wanted: it
    * carries on (switching away doesn't cancel it), so it stays listed until it is done. */
   private models() {
-    const selected = wantedPacks(this.s.config());
+    // The watermark removal's models download in the background, never listed (design §3).
+    const selected = wantedPacks(this.s.config()).filter((p) => p !== MARK_MODELS);
     const rows: Record<string, unknown>[] = selected.map((pack: Pack) => ({ ...packRow(pack), ...this.s.machine.downloads.status(pack.name, pack.models ?? []) }));
     for (const job of this.s.machine.downloads.jobs()) {
       if (selected.some((p) => p.name === job.key) || (job.state !== "queued" && job.state !== "downloading")) continue;

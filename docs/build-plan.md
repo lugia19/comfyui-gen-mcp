@@ -655,9 +655,9 @@ stop (Turbo skips the negative). Design §3, "Signatures and watermarks", has th
   LaMa per mark at full resolution clean on 28 live images.
 - **`ComfyGenRemoveMarks`** in our extension, never failing an image; `prepare` reroutes SaveImage
   through it.
-- **`remove_marks`, on by default:** a card in Settings → Models.
-- **`MARK_MODELS`** ("Watermark removal", folder `comfy_gen`): seeded, downloaded and listed like a
-  pack; `scripts/check_pack_models.py` checks them too.
+- **`remove_marks`, on by default:** a checkbox card in Settings → Models.
+- **`MARK_MODELS`** (folder `comfy_gen`): seeded and downloaded like a pack, but in the background
+  and never listed; `scripts/check_pack_models.py` checks them too.
 - **Where:** Modal; PCs whose agent says `remove_marks`; the extension without a ComfyUI URL.
 - **`ultralytics`** in Modal's image, in new PC installs, and added at launch to older ones.
 
