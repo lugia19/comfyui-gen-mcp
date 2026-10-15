@@ -21,15 +21,25 @@ const ASPECT_PROP = {
   description: "Image shape: square (1:1), portrait (3:4), landscape (4:3), tall (9:16), wide (16:9).",
 };
 
+const BACKGROUND_PROP = {
+  type: "boolean",
+  default: false,
+  description:
+    "true for a transparent background (stickers, sprites, cut-outs), only when the user wants one. " +
+    "Then ask for a plain grey or coloured background in the prompt, not white: white parts of the " +
+    "subject would turn transparent too. Editing a transparent image fills its background in: pass " +
+    "this again to keep it transparent.",
+};
+
 export const GENERATION_SCHEMA = {
   type: "object",
-  properties: { prompt: { type: "string" }, aspect_ratio: ASPECT_PROP },
+  properties: { prompt: { type: "string" }, aspect_ratio: ASPECT_PROP, remove_background: BACKGROUND_PROP },
   required: ["prompt"],
 };
 
 export const EDIT_SCHEMA_PATHS = {
   type: "object",
-  properties: { prompt: { type: "string" }, image_path: { type: "string" }, second_image_path: { type: "string" } },
+  properties: { prompt: { type: "string" }, image_path: { type: "string" }, second_image_path: { type: "string" }, remove_background: BACKGROUND_PROP },
   required: ["prompt", "image_path"],
 };
 
@@ -39,6 +49,7 @@ export const EDIT_SCHEMA_REFS = {
     prompt: { type: "string" },
     image: { type: "string", description: "An image id, or a public https URL." },
     second_image: { type: "string", description: "Optional second image id or https URL." },
+    remove_background: BACKGROUND_PROP,
   },
   required: ["prompt", "image"],
 };

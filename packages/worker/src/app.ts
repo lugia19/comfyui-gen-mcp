@@ -422,10 +422,11 @@ export class App {
           target.kind === "pc"
             ? new PcHooks(client, key, this.fetch, this.store, `${url.origin}/`, this.p.relays(target.id), target, images, onReady)
             : new WorkerHooks(client, key, this.fetch, this.admin(target), this.store, `${url.origin}/`, images, onReady);
-        // Our ComfyUI extension's mark-removal node: on Modal, and on a PC whose agent says so (one from
-        // before the node doesn't).
-        const canRemoveMarks = target.kind === "modal" || (target.kind === "pc" && (await this.status(target)).info?.remove_marks === true);
-        const outcome = await new Brain(PACKS, cfg, client, "refs", { hooks, canRemoveMarks }).call(name, args);
+        // What this GPU's ComfyUI can do: all of it on Modal; on a PC what its agent says (one from
+        // before a feature doesn't say it).
+        const info = target.kind === "pc" ? (await this.status(target)).info : null;
+        const can = (feature: string) => target.kind === "modal" || info?.[feature] === true;
+        const outcome = await new Brain(PACKS, cfg, client, "refs", { hooks, canRemoveMarks: can("remove_marks"), canRemoveBackground: can("remove_background") }).call(name, args);
         tried.push(target);
         if (outcome.kind === "failed" && downloading && name !== "fetch_result") {
           const next = await this.pick(gpus, pack, tried);

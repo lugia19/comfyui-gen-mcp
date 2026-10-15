@@ -50,6 +50,10 @@ export const TITLES = {
   imageScale: "cg:image scale",
   imageChain: "cg:image chain",
   removeMarks: "cg:remove marks",
+  backgroundModel: "cg:background model",
+  background: "cg:remove background",
+  backgroundAlpha: "cg:background alpha",
+  backgroundJoin: "cg:background join",
 } as const;
 const IMAGE_GROUP = "cg:image"; // every node whose title starts so is part of one image's chain
 
@@ -221,6 +225,27 @@ export function withMarkRemoval(workflow: Workflow): void {
       _meta: { title: TITLES.removeMarks },
     };
     node.inputs.images = [nodeId, 0];
+  }
+}
+
+// The background removal model (core packs.ts BG_MODELS): Lucida, BiRefNet tuned on illustrations.
+export const BACKGROUND_MODEL = "lucida.safetensors";
+
+/** Make every SaveImage of *workflow* save its image with the background transparent, with ComfyUI's
+ * own nodes: the model finds the subject (a mask, 1 = subject), inverted it is the part to clear,
+ * and JoinImageWithAlpha makes it transparent (an RGBA image, which SaveImage keeps). After
+ * withMarkRemoval, so the marks are filled first. */
+export function withBackgroundRemoval(workflow: Workflow): void {
+  let nextId = nextNodeId(workflow);
+  for (const node of Object.values(workflow)) {
+    if (node.class_type !== "SaveImage" || !Array.isArray(node.inputs?.images)) continue;
+    const [model, remove, invert, join] = [nextId++, nextId++, nextId++, nextId++].map(String);
+    const image = node.inputs.images;
+    workflow[model] = { inputs: { bg_removal_name: BACKGROUND_MODEL }, class_type: "LoadBackgroundRemovalModel", _meta: { title: TITLES.backgroundModel } };
+    workflow[remove] = { inputs: { bg_removal_model: [model, 0], image }, class_type: "RemoveBackground", _meta: { title: TITLES.background } };
+    workflow[invert] = { inputs: { mask: [remove, 0] }, class_type: "InvertMask", _meta: { title: TITLES.backgroundAlpha } };
+    workflow[join] = { inputs: { image, alpha: [invert, 0] }, class_type: "JoinImageWithAlpha", _meta: { title: TITLES.backgroundJoin } };
+    node.inputs.images = [join, 0];
   }
 }
 

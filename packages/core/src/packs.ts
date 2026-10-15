@@ -8,7 +8,7 @@
 import { PACK_FILES, TOOL_FILE } from "../packs/index.ts";
 import { isPlainObject } from "./bytes.ts";
 import { SETTINGS_SCHEMA, tagLoras, type Config, type LoraEntry } from "./config.ts";
-import { injectLoras, nodesTitled, TITLES, withMarkRemoval } from "./workflow.ts";
+import { injectLoras, nodesTitled, TITLES, withBackgroundRemoval, withMarkRemoval } from "./workflow.ts";
 
 export type Pack = Record<string, any> & {
   name: string;
@@ -34,6 +34,7 @@ const TOOL_DEFS = TOOL_FILE as {
   tools: Record<string, Tool>;
   lora_groups: Record<string, string>;
   remove_marks: Pick<Pack, "name" | "display_name" | "models">;
+  remove_background: Pick<Pack, "name" | "display_name" | "models">;
 };
 
 /** The tools packs back, by name (packs/tools.json). */
@@ -47,6 +48,10 @@ export const DEFAULT_LORA_GROUP = Object.keys(LORA_GROUPS)[0];
 /** The models the signature and watermark removal needs (packs/tools.json), downloaded like a pack
  * of their own: the remove_marks setting adds them to what each GPU gets. */
 export const MARK_MODELS: Pack = { tool_name: "", workflow: {}, ...TOOL_DEFS.remove_marks };
+
+/** The model background removal needs (packs/tools.json), downloaded like a pack the first time a
+ * call asks for it. */
+export const BG_MODELS: Pack = { tool_name: "", workflow: {}, ...TOOL_DEFS.remove_background };
 
 /** *packLoras* with every one of *names* in a group: *group* when it is a LoRA group (the one an
  * upload was made for), else the default. Null if every name had one. See config.ts tagLoras. */
@@ -147,10 +152,11 @@ function maxPixels(pack: Pack, cfg: Config): number | null {
   return Math.min(value as number, limit);
 }
 
-/** A copy of *pack* with the user's LoRAs spliced in and resolution budget applied, and with
- * *removeMarks* its images cleaned of signatures and watermarks before they are saved. Failures are
- * logged and the pack served unmodified rather than taking the tool down. */
-export function prepare(pack: Pack, cfg: Config, { removeMarks = false } = {}): Pack {
+/** A copy of *pack* with the user's LoRAs spliced in and resolution budget applied; with
+ * *removeMarks* its images cleaned of signatures and watermarks before they are saved, and with
+ * *removeBackground* saved with a transparent background. LoRA failures are logged and the pack
+ * served without them rather than taking the tool down. */
+export function prepare(pack: Pack, cfg: Config, { removeMarks = false, removeBackground = false } = {}): Pack {
   const out = structuredClone(pack);
   const ls = packLoras(out, cfg);
   if (ls.length) {
@@ -163,6 +169,7 @@ export function prepare(pack: Pack, cfg: Config, { removeMarks = false } = {}): 
   const budget = maxPixels(out, cfg);
   if (budget !== null) out.max_pixels = budget;
   if (removeMarks) withMarkRemoval(out.workflow);
+  if (removeBackground) withBackgroundRemoval(out.workflow);
   return out;
 }
 

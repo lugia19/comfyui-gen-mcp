@@ -3,9 +3,9 @@ import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize, tagLoras } from "../src/config.ts";
-import { builtinPacks, DEFAULT_LORA_GROUP, MARK_MODELS, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
+import { BG_MODELS, builtinPacks, DEFAULT_LORA_GROUP, MARK_MODELS, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
 import { describe as describeTool } from "../src/tools.ts";
-import { buildPrompt, calcDimensions, injectLoras, REMOVE_MARKS_NODE, withImages, type Workflow } from "../src/workflow.ts";
+import { BACKGROUND_MODEL, buildPrompt, calcDimensions, injectLoras, REMOVE_MARKS_NODE, withImages, type Workflow } from "../src/workflow.ts";
 
 const smallWorkflow = (): Workflow => ({
   "1": { class_type: "UNETLoader", inputs: { unet_name: "m.safetensors" }, _meta: { title: "cg:model" } },
@@ -244,6 +244,25 @@ describe("packs and config", () => {
       expect(saves[0].inputs.filename_prefix).toBeDefined(); // the save is still the one buildPrompt names
     }
     expect(MARK_MODELS.models.map((m) => [m.subfolder, m.filename])).toEqual([["comfy_gen", "mimilens_y26l.pt"], ["comfy_gen", "big-lama.pt"]]);
+  });
+
+  it("with background removal, the save gets an RGBA image: the marks cleaned first, then the background", () => {
+    for (const pack of builtin) {
+      const wf = prepare(pack, normalize({}), { removeMarks: true, removeBackground: true }).workflow;
+      const save = Object.values<any>(wf).find((n) => n.class_type === "SaveImage");
+      const node = (ref: [string, number]) => wf[ref[0]];
+      const join = node(save.inputs.images);
+      expect(join.class_type).toBe("JoinImageWithAlpha");
+      const marks = node(join.inputs.image);
+      expect(marks.class_type).toBe(REMOVE_MARKS_NODE); // the image the alpha is joined to: cleaned
+      const invert = node(join.inputs.alpha);
+      expect(invert.class_type).toBe("InvertMask"); // RemoveBackground's mask is the subject; the alpha clears the rest
+      const remove = node(invert.inputs.mask);
+      expect([remove.class_type, remove.inputs.image]).toEqual(["RemoveBackground", join.inputs.image]);
+      expect(node(remove.inputs.bg_removal_model).inputs).toEqual({ bg_removal_name: BACKGROUND_MODEL });
+      expect(JSON.stringify(prepare(pack, normalize({})).workflow)).not.toContain("RemoveBackground");
+    }
+    expect(BG_MODELS.models.map((m) => [m.subfolder, m.filename])).toEqual([["background_removal", BACKGROUND_MODEL]]);
   });
 
   it("normalize cleans LoRA entries and caps keep-warm", () => {

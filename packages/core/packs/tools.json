@@ -35,5 +35,18 @@
         "sha256": "344c77bbcb158f17dd143070d1e789f38a66c04202311ae3a258ef66667a9ea9"
       }
     ]
+  },
+  "remove_background": {
+    "name": "remove-background",
+    "display_name": "Background removal",
+    "models": [
+      {
+        "url": "https://huggingface.co/Comfy-Org/BiRefNet/resolve/25511f8787e51912e1480706b4e47b8f467fbf72/background_removal/lucida.safetensors",
+        "subfolder": "background_removal",
+        "filename": "lucida.safetensors",
+        "size_bytes": 884878856,
+        "sha256": "a43e3dd84cbe84db76bd2015ef8f7034c9503c50d9b56fa2155803b69bd2f408"
+      }
+    ]
   }
 }

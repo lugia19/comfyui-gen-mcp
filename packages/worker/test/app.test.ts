@@ -4,6 +4,7 @@ import { png } from "../../core/test/fake-comfy.ts";
 import { LORA_CHUNK } from "../src/loras.ts";
 import { PACKS, REQUEST_BUDGET, type App } from "../src/app.ts";
 import { offlineMessage, pausedMessage } from "../src/hooks.ts";
+import { BACKGROUND_UNAVAILABLE } from "@comfy-gen/core";
 import { cacheEntry } from "../src/store.ts";
 import * as updates from "../src/updates.ts";
 import golden from "../../core/test/golden.json" with { type: "json" };
@@ -583,6 +584,20 @@ describe("Modal models", () => {
     expect(comfy.prompts).toEqual([]);
   });
 
+  it("background removal downloads its model to Modal at its first use, answering meanwhile", async () => {
+    const { app, net, comfy } = world();
+    await withReadyModal(app);
+    const args = { name: "generate_illustrated_image", arguments: { prompt: "x", remove_background: true } };
+    let [, r] = await mcp(app, "tools/call", args);
+    expect(structured(r)).toMatchObject({ status: "error", retryable: true, message: expect.stringContaining("Background removal") });
+    expect(net.seedState["remove-background"].state).toBe("queued");
+    expect(comfy.prompts).toEqual([]);
+    net.seedState["remove-background"] = { state: "done" };
+    [, r] = await mcp(app, "tools/call", args);
+    expect(r.result.content[0].type).toBe("image");
+    expect(Object.values<any>(comfy.prompts[0]).some((n) => n.class_type === "RemoveBackground")).toBe(true);
+  });
+
   it("removes signatures and watermarks on Modal once their models are there", async () => {
     const { app, net, comfy } = world();
     await withModal(app);
@@ -970,6 +985,20 @@ describe("the PC path", () => {
     await call();
     expect(marked(pc.comfy.prompts[1])).toBe(true);
     expect(pc.controlCalls.some(([op, a]) => op === "ensure" && a.pack.name === "remove-marks")).toBe(true);
+  });
+
+  it("removes the background on a PC whose agent can, and says why on one that can't", async () => {
+    const { app, pc } = world();
+    await pair(app);
+    const call = () => mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat", remove_background: true } });
+    let [, r] = await call();
+    expect(r.result.content[0].text).toContain(BACKGROUND_UNAVAILABLE); // an agent from before v1.16.0
+    expect(pc.comfy.prompts.length).toBe(0);
+    pc.removeBackground = true;
+    [, r] = await call();
+    expect(r.result.content[0].type).toBe("image");
+    expect(Object.values<any>(pc.comfy.prompts[0]).some((n) => n.class_type === "JoinImageWithAlpha")).toBe(true);
+    expect(pc.controlCalls.some(([op, a]) => op === "ensure" && a.pack.name === "remove-background")).toBe(true);
   });
 
   it("generates on the PC when it is online, on Modal when it is not", async () => {

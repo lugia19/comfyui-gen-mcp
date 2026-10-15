@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { roundHalfEven } from "../src/bytes.ts";
-import { Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pending, type ResolvedImage } from "../src/brain.ts";
+import { BACKGROUND_UNAVAILABLE, Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pending, type ResolvedImage } from "../src/brain.ts";
 import { ComfyUIError, STILL_STARTING } from "../src/comfyui.ts";
 import { McpHandler, PROTOCOL_VERSIONS, RESULT_META, UnknownTool, type ToolCall } from "../src/mcp.ts";
 import { builtinPacks, type Pack } from "../src/packs.ts";
@@ -49,7 +49,7 @@ class PathHooks extends Hooks {
   }
 }
 
-function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number; canRemoveMarks?: boolean } = {}) {
+function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean } = {}) {
   const comfy = new FakeComfy();
   const client = fastClient(comfy, { coldStartS: 60, requestBudget: opts.budget ?? null });
   const brain = (o: typeof opts = {}) =>
@@ -57,6 +57,7 @@ function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: nu
       hooks: o.hooks ?? opts.hooks ?? new PathHooks(),
       waitS: o.waitS ?? opts.waitS,
       canRemoveMarks: o.canRemoveMarks ?? opts.canRemoveMarks,
+      canRemoveBackground: o.canRemoveBackground ?? opts.canRemoveBackground,
     });
   return { comfy, client, brain };
 }
@@ -112,6 +113,14 @@ describe("brain", () => {
     }
   });
 
+  it("remove_background is offered on every image tool, in both modes", () => {
+    for (const mode of ["refs", "paths"] as const) {
+      const specs = toolSpecs(BUILTIN, normalize({}), mode).filter((s) => s.name.startsWith("generate_") || s.name === "edit_image");
+      expect(specs.length).toBe(3);
+      for (const spec of specs) expect(spec.inputSchema.properties.remove_background).toMatchObject({ type: "boolean", default: false });
+    }
+  });
+
   it("a hidden model runs that pack of the tool, with its group's LoRAs", async () => {
     const cfg = {
       pack_selections: { generate_illustrated_image: "anima" },
@@ -163,6 +172,39 @@ describe("brain", () => {
       await brain({ hooks: h, ...o }).call("generate_illustrated_image", { prompt: "x" });
       expect([h.ensured, marked(comfy)]).toEqual([["anima_turbo"], false]);
     }
+  });
+
+  it("removes the background when a call asks, waiting for its model like a pack's", async () => {
+    const cleared = (comfy: FakeComfy) => JSON.stringify(comfy.prompts.at(-1)).includes("JoinImageWithAlpha");
+    const { comfy, brain } = setup({ canRemoveBackground: true, cfg: { remove_marks: false } });
+    let hooks = new PathHooks();
+    await brain({ hooks }).call("generate_illustrated_image", { prompt: "x" });
+    expect([hooks.ensured, cleared(comfy)]).toEqual([["anima_turbo"], false]); // not asked: untouched
+    hooks = new PathHooks();
+    await brain({ hooks }).call("generate_illustrated_image", { prompt: "x", remove_background: true });
+    expect([hooks.ensured, cleared(comfy)]).toEqual([["remove-background", "anima_turbo"], true]);
+    hooks = new PathHooks();
+    await brain({ hooks }).call("edit_image", { prompt: "x", image_path: "a.png", remove_background: true });
+    expect([hooks.ensured, cleared(comfy)]).toEqual([["remove-background", "flux2klein_edit"], true]); // edits too
+
+    // Still downloading: a retryable answer, never an image that kept its background.
+    class Downloading extends PathHooks {
+      async ensure(pack: Pack) {
+        if (pack.name === "remove-background") throw new ComfyUIError("The Background removal model is being downloaded.", { retryable: true });
+        return super.ensure(pack);
+      }
+    }
+    const before = comfy.prompts.length;
+    const r = await brain({ hooks: new Downloading() }).call("generate_illustrated_image", { prompt: "x", remove_background: true });
+    expect(r).toMatchObject({ message: "The Background removal model is being downloaded.", retryable: true });
+    expect(comfy.prompts.length).toBe(before);
+
+    // A GPU that can't (a PC agent from before it): a plain answer, nothing run.
+    for (const tool of ["generate_illustrated_image", "edit_image"]) {
+      const out = await brain({ canRemoveBackground: false }).call(tool, { prompt: "x", image_path: "a.png", remove_background: true });
+      expect([out instanceof Failed, (out as Failed).message]).toEqual([true, BACKGROUND_UNAVAILABLE]);
+    }
+    expect(comfy.prompts.length).toBe(before);
   });
 
   it("a timeout returns a stateless token, and fetch_result resumes", async () => {

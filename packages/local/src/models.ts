@@ -17,7 +17,7 @@ export const APP_ID = "comfy-gen-mcp";
 // ComfyUI's standard model subfolders, shared broadly: other installs may hold anything useful. And
 // comfy_gen, our extension's own (the watermark removal's models; the node registers the folder).
 export const SHARED_SUBFOLDERS = [
-  "checkpoints", "clip", "clip_vision", "comfy_gen", "controlnet", "diffusion_models",
+  "background_removal", "checkpoints", "clip", "clip_vision", "comfy_gen", "controlnet", "diffusion_models",
   "embeddings", "loras", "text_encoders", "unet", "upscale_models", "vae",
 ];
 // Folder types ComfyUI searches together (its legacy names).

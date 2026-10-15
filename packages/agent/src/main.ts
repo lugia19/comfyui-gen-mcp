@@ -94,9 +94,11 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
       secret: cfg.secret,
       handle,
       hello: () => ({ version: opts.version, platform: process.platform, gpu: machine.comfy.install?.gpu ?? cfg.gpu ?? null, comfyui: machine.comfy.state, paused,
-        // Our ComfyUI extension has the mark-removal node. An agent without this flag predates it
-        // (or, before v1.16.0, used a ComfyUI of the user's own): the Worker leaves the step out.
-        remove_marks: true }),
+        // What this agent's ComfyUI can do. An agent without a flag predates it (or, before v1.16.0,
+        // used a ComfyUI of the user's own): the Worker leaves the step out.
+        remove_marks: true, // our extension's mark-removal node
+        remove_background: true, // the background_removal model folder (v1.16.0)
+      }),
       onOpen: () => void sync.sync(),
     });
     client.start();

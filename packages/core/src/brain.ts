@@ -12,7 +12,7 @@ import { ComfyUIClient, ComfyUIError, type OutputImage } from "./comfyui.ts";
 import { normalize, type Config } from "./config.ts";
 import { imageSize, sniffMime } from "./images.ts";
 import { UnknownTool } from "./mcp.ts";
-import { groupByTool, MARK_MODELS, packFor, prepare, select, type Pack } from "./packs.ts";
+import { BG_MODELS, groupByTool, MARK_MODELS, packFor, prepare, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
 import * as refs from "./refs.ts";
 import { buildPrompt, withImages, type Workflow } from "./workflow.ts";
@@ -89,9 +89,13 @@ export async function uploadInput(client: ComfyUIClient, data: Uint8Array, key: 
   return [image.loadValue(), imageSize(data)];
 }
 
-/** *canRemoveMarks*: the GPU runs our ComfyUI extension (not a ComfyUI of the user's own), so the
- * remove_marks setting can apply. */
-export type BrainOptions = { hooks?: Hooks; waitS?: number; canRemoveMarks?: boolean };
+/** *canRemoveMarks*: the GPU's ComfyUI has our extension's mark-removal node, so the remove_marks
+ * setting can apply. *canRemoveBackground*: it can take the background removal model (a PC agent
+ * from before v1.16.0 lacks its folder). */
+export type BrainOptions = { hooks?: Hooks; waitS?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean };
+
+export const BACKGROUND_UNAVAILABLE =
+  "Background removal needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that, or without remove_background.";
 
 export class Brain {
   readonly cfg: Config;
@@ -100,6 +104,7 @@ export class Brain {
   private hooks: Hooks;
   private waitS: number;
   private canRemoveMarks: boolean;
+  private canRemoveBackground: boolean;
   private packs: Pack[];
   // Raw selected packs by tool. They are prepared (LoRAs, budget) only when called, so a request
   // pays for one pack, not all of them.
@@ -111,6 +116,7 @@ export class Brain {
     this.hooks = opts.hooks ?? new Hooks();
     this.waitS = opts.waitS ?? DEFAULT_WAIT_S;
     this.canRemoveMarks = opts.canRemoveMarks ?? false;
+    this.canRemoveBackground = opts.canRemoveBackground ?? false;
     this.packs = packs;
     this.specs = toolSpecs(packs, this.cfg, imageMode);
     this.selected = Object.fromEntries(select(groupByTool(packs), this.cfg.pack_selections).map((p) => [p.tool_name, p]));
@@ -132,14 +138,16 @@ export class Brain {
     const prompt = String(args.prompt || "").trim();
     if (!prompt) return new Failed("prompt is required.");
     const aspect = String(args.aspect_ratio || "square");
-    const pack = prepare(rawPack, this.cfg, { removeMarks: await this.marksReady() });
+    const removeBackground = args.remove_background === true;
+    if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
+    const pack = prepare(rawPack, this.cfg, { removeMarks: await this.marksReady(), removeBackground });
     const wf = buildPrompt(pack.workflow, prompt, {
       aspectRatio: aspect,
       maxPixels: pack.max_pixels ?? 1_048_576,
       loraToggles: pack.lora_toggles,
       negative: String(args.negative ?? ""),
     });
-    return this.run(pack, wf);
+    return this.run(pack, wf, removeBackground ? [BG_MODELS] : []);
   }
 
   private async fetch(args: Record<string, any>): Promise<Outcome> {
@@ -154,10 +162,13 @@ export class Brain {
     const first = String(args.image_path || args.image || "").trim();
     const second = String(args.second_image_path || args.second_image || "").trim();
     if (!prompt || !first) return new Failed("prompt and an image are required.");
-    const pack = prepare(this.selected.edit_image, this.cfg, { removeMarks: await this.marksReady() });
+    const removeBackground = args.remove_background === true;
+    if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
+    const pack = prepare(this.selected.edit_image, this.cfg, { removeMarks: await this.marksReady(), removeBackground });
     const images: ResolvedImage[] = [];
     try {
-      await this.hooks.ensure(pack); // before uploads: a local ComfyUI may not be running yet
+      // Before uploads: a local ComfyUI may not be running yet.
+      await this.ensureAll(pack, removeBackground ? [BG_MODELS] : []);
       images.push(await this.hooks.resolveImage(first));
       if (second) images.push(await this.hooks.resolveImage(second));
     } catch (e) {
@@ -166,7 +177,14 @@ export class Brain {
     }
     const wf = editWorkflow(pack, images);
     // LoRAs gated on their triggers here too (an edit pack in a LoRA group).
-    return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles }), true);
+    return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles }), null);
+  }
+
+  /** Make *pack* ready, after the model sets the call also needs (*extra*): a call that asked for a
+   * background removal waits for its model like for the pack's, never going out without it. */
+  private async ensureAll(pack: Pack, extra: Pack[]): Promise<void> {
+    for (const models of extra) await this.hooks.ensure(models);
+    await this.hooks.ensure(pack);
   }
 
   /** Whether this call's images get their signatures and watermarks removed: the setting is on, the
@@ -183,10 +201,12 @@ export class Brain {
     }
   }
 
-  private async run(pack: Pack, wf: Workflow, ensured = false): Promise<Outcome> {
+  /** Submit *wf* and wait for it. *extra*: the model sets to make ready with the pack, null when the
+   * caller already did. */
+  private async run(pack: Pack, wf: Workflow, extra: Pack[] | null = []): Promise<Outcome> {
     let promptId: string;
     try {
-      if (!ensured) await this.hooks.ensure(pack);
+      if (extra) await this.ensureAll(pack, extra);
       promptId = await this.client.submit(wf);
     } catch (e) {
       if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);

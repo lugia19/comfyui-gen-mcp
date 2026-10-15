@@ -231,6 +231,7 @@ export class FakeRelay implements RelayStub {
   dropped = 0;
   paused = false; // the agent's tray pause, as its hello reports it
   removeMarks = false; // its hello says its ComfyUI has our mark-removal node (one from before it: no)
+  removeBackground = false; // its hello says it can take the background removal model (v1.16.0)
 
   async request(req: RelayRequest): Promise<RelayReply> {
     if (!this.connected) return { status: 503, body: utf8("offline"), offline: true };
@@ -248,7 +249,7 @@ export class FakeRelay implements RelayStub {
   }
 
   async status(): Promise<RelayStatus> {
-    return { connected: this.connected, since: this.connected ? 1000 : null, info: this.connected ? { version: "t", gpu: "nvidia", paused: this.paused, remove_marks: this.removeMarks } : null };
+    return { connected: this.connected, since: this.connected ? 1000 : null, info: this.connected ? { version: "t", gpu: "nvidia", paused: this.paused, remove_marks: this.removeMarks, remove_background: this.removeBackground } : null };
   }
 
   async drop(): Promise<void> {

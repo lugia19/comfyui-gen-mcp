@@ -1,4 +1,4 @@
-"""Check every pack's model entries (and the watermark removal's, in tools.json) against Hugging Face: the size and sha256 in the pack must match
+"""Check every pack's model entries (and the model sets in tools.json) against Hugging Face: the size and sha256 in the pack must match
 what the URL serves (HEAD, x-linked-size / x-linked-etag). The Modal seed skips files whose size
 matches, so a wrong size means a re-download on every seed.
 
@@ -37,12 +37,19 @@ def head(url: str):
         time.sleep(2 ** (attempt + 1))
 
 
+MODEL_SETS = ("remove_marks", "remove_background")  # tools.json's model sets (core packs.ts)
+
+
 def model_lists():
-    """(source, models) per pack, and the watermark removal's from tools.json (the tool definitions)."""
+    """(source, models) per pack, and per model set in tools.json (the tool definitions)."""
     for path in sorted(glob.glob(os.path.join(PACKS, "*.json"))):
         data = json.load(open(path))
         name = os.path.basename(path)
-        yield name, data["remove_marks"]["models"] if name == "tools.json" else data["models"]
+        if name == "tools.json":
+            for key in MODEL_SETS:
+                yield f"{name} {key}", data[key]["models"]
+        else:
+            yield name, data["models"]
 
 
 def main() -> int:

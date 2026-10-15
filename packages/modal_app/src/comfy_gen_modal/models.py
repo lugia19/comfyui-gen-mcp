@@ -11,7 +11,7 @@ INPUT_DIR = f"{VOL}/input"
 OUTPUT_DIR = f"{VOL}/output"
 
 # The folders ComfyUI's loaders read, mapped in extra_model_paths.yaml.
-SUBFOLDERS = ("diffusion_models", "text_encoders", "vae", "loras", "comfy_gen")  # comfy_gen: our node's own
+SUBFOLDERS = ("diffusion_models", "text_encoders", "vae", "loras", "comfy_gen", "background_removal")  # comfy_gen: our node's own
 
 _SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._\-]{0,199}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")

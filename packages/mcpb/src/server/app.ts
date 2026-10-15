@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import {
   Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, UnknownTool,
-  builtinPacks, MARK_MODELS, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
+  builtinPacks, BG_MODELS, MARK_MODELS, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
   type Config, type OutputImage, type Pack, type Rendered,
 } from "@comfy-gen/core";
 import {
@@ -95,6 +95,7 @@ export class LocalApp {
     const brain = (c: ComfyUIClient) => new Brain(PACKS, cfg, c, "paths", {
       hooks: new LocalHooks(machine, c, this.settingsUrl),
       canRemoveMarks: true, // our extension is in the managed ComfyUI
+      canRemoveBackground: true,
     });
     const specs = brain(client()).specs;
     const served = new Set(specs.map((spec) => spec.name));
@@ -191,6 +192,7 @@ export class LocalApp {
     const rows: Record<string, unknown>[] = selected.map((pack: Pack) => ({ ...packRow(pack), ...this.s.machine.downloads.status(pack.name, pack.models ?? []) }));
     for (const job of this.s.machine.downloads.jobs()) {
       if (selected.some((p) => p.name === job.key) || (job.state !== "queued" && job.state !== "downloading")) continue;
+      if (job.key === MARK_MODELS.name || job.key === BG_MODELS.name) continue; // in the background, never listed
       const pack = PACKS.find((p) => p.name === job.key);
       rows.push({ ...job, name: job.key, display_name: `${pack?.display_name ?? job.key} (not selected)`, size: job.total });
     }

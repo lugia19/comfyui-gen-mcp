@@ -670,3 +670,18 @@ uncleaned while its models downloaded, as designed). One cutesexyrobutts mark cu
 edge scored 0.24 and was missed, so v1.15.2 lowers the threshold to 0.2 and drops boxes over 10% of
 the image (the one false find, at 0.14, covered 19%). Turbo took 10 to 12 s on the PC and 16 to
 19 s on Modal.
+
+## v1.16.0: only our own ComfyUI, and background removal (2026-10-15)
+
+Every feature since the held wait needs our ComfyUI extension, so the two ways to run images on a
+ComfyUI we don't control are gone (design §11):
+
+- **The Worker's "ComfyUI by URL" GPU:** a stored one is left out of the list (and so dropped at the
+  next write); the setup route and step, and every URL branch, are gone.
+- **"Your own ComfyUI" on the agent and the extension:** a stored `comfyui_url` is dropped when the
+  config loads; the "external" state, the field and typed-in LoRA names are gone.
+
+Then **background removal** (design §3): a visible `remove_background` option, Lucida through
+ComfyUI's own nodes, its model downloaded at first use. The caller picks a non-white background.
+The local end-to-end loop is now `wrangler dev` with a paired agent (CLAUDE.md).
+

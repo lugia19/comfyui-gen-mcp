@@ -327,6 +327,35 @@ them, on by default (`remove_marks`, §5):
   found, with nothing flagged on clean images. On CPU, detection took about 2 s, plus 1 to 2 s per
   mark.
 
+### Background removal (2026-10-15)
+
+`remove_background: true` on the generate tools and `edit_image` returns the image with a
+transparent background (stickers, sprites, cut-outs). It is a visible option, off by default: the
+description tells Claude to use it only when the user wants transparency, and to ask for a plain
+grey or coloured background in the prompt, never white.
+
+- **ComfyUI's own nodes.** 0.37.0 has background removal built in. `prepare` (`withBackgroundRemoval`)
+  routes each SaveImage's image through LoadBackgroundRemovalModel → RemoveBackground (the subject's
+  mask) → InvertMask → JoinImageWithAlpha, after the watermark step. SaveImage keeps the RGBA, and
+  `/view?preview=webp;90` keeps the alpha in the WebP the tools return and R2 stores.
+- **The model: Lucida** (`lucida.safetensors`, 885 MB, Comfy-Org's packaging pinned by commit, folder
+  `background_removal`). It is BiRefNet HR fine-tuned on illustrations (ToonOut). Against BiRefNet
+  general on our sprites it clears enclosed gaps (inside a ponytail's loop, between a twintail and
+  the face) where general keeps the old background. But it turns white-on-white parts semi-
+  transparent (a maid's white headdress on a white background): no per-pixel alpha fix separates
+  those from the background, so the caller picks a non-white background instead.
+- **On demand.** The model set (core `BG_MODELS`) is not seeded or listed. The first call that asks
+  starts its download and gets the usual retryable "being downloaded": unlike the watermark
+  removal, a call never goes out without the step it asked for.
+- **Where.** Modal, the extension, and a PC whose agent's hello says `remove_background` (v1.16.0:
+  older agents lack the `background_removal` model folder, so the download would never count as
+  done; they get a plain "needs a newer agent").
+- **Edits.** LoadImage keeps only the colours of a transparent image (its alpha goes to a mask the
+  edit packs don't use), so an edit fills the background back in; the description says to pass
+  the option again.
+- **The spike** (scratchpad `bg/`): the graph ran on stock 0.37.0, CPU, 35 to 54 s per image there.
+  GPU timings are to be measured live.
+
 ### Waiting
 
 **Both models stay loaded.** ComfyUI 0.37.0's default RAM-pressure cache frees an earlier prompt's
