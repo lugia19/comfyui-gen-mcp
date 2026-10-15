@@ -128,6 +128,15 @@ MARK_LABELS = ("watermark", "signature")  # not text or speech bubbles: those ma
 # (strokes run past the box, more so on bigger marks), out to the image's edge when within EDGE of it.
 GROW_MIN, GROW_SHARE, EDGE = 8, 0.12, 24
 FEATHER = 6  # the pasted fill's soft edge, in pixels
+# A box bigger than this share of the image is not a mark: the largest real one seen was about 1%,
+# the one false find (at 0.14) about 19%, which would have repainted most of the image's bottom.
+MAX_SHARE = 0.1
+
+
+def mark_sized(box, width, height):
+    """Whether box [x0, y0, x1, y1] is small enough to be a signature or watermark."""
+    x0, y0, x1, y1 = box
+    return (x1 - x0) * (y1 - y0) <= MAX_SHARE * width * height
 
 
 def merge_boxes(boxes):
@@ -235,6 +244,7 @@ def remove_marks(images, threshold):
         rgb = Image.fromarray((image[..., :3].cpu().numpy() * 255).round().astype(np.uint8))
         found = detector.predict(rgb, conf=threshold, device=device, verbose=False)[0]
         boxes = [[int(v) for v in b] for c, b in zip(found.boxes.cls.tolist(), found.boxes.xyxy.tolist()) if found.names[int(c)] in MARK_LABELS]
+        boxes = [b for b in boxes if mark_sized(b, width, height)]
         if not boxes:
             out.append(image)
             continue
@@ -247,13 +257,13 @@ def remove_marks(images, threshold):
 class ComfyGenRemoveMarks:
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required": {"images": ("IMAGE",), "threshold": ("FLOAT", {"default": 0.3, "min": 0.05, "max": 0.95, "step": 0.05})}}
+        return {"required": {"images": ("IMAGE",), "threshold": ("FLOAT", {"default": 0.2, "min": 0.05, "max": 0.95, "step": 0.05})}}
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "run"
     CATEGORY = "comfy-gen"
 
-    def run(self, images, threshold=0.3):
+    def run(self, images, threshold=0.2):
         try:
             return (remove_marks(images, threshold),)
         except Exception as e:  # never fail a generation over this: the image as it was

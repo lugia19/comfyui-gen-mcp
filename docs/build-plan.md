@@ -663,3 +663,10 @@ stop (Turbo skips the negative). Design §3, "Signatures and watermarks", has th
 
 The agent's tray "Open settings" opens the Worker's Settings again while connected, not this PC's
 page: most settings are there, and the PC's page is in its GPU list (design §9).
+
+Live on v1.15.1 (8 images on the PC, 12 on Modal, Turbo): the marks of banishment, tokyogenso and
+cutesexyrobutts were filled on both (the node's log on the PC; on Modal the first call went out
+uncleaned while its models downloaded, as designed). One cutesexyrobutts mark cut off by the top
+edge scored 0.24 and was missed, so v1.15.2 lowers the threshold to 0.2 and drops boxes over 10% of
+the image (the one false find, at 0.14, covered 19%). Turbo took 10 to 12 s on the PC and 16 to
+19 s on Modal.

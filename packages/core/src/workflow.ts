@@ -205,8 +205,9 @@ export function injectLoras(workflow: Workflow, loras: Lora[]): LoraToggle[] {
 /** Our ComfyUI extension's node (comfy_gen_modal/comfy_node) that finds signatures and watermarks in
  * an image and fills them. */
 export const REMOVE_MARKS_NODE = "ComfyGenRemoveMarks";
-// What the detector must be sure of: the marks it missed at 0.5 scored 0.40 to 0.41 (2026-10-15).
-const MARK_THRESHOLD = 0.3;
+// What the detector must be sure of. Marks scored 0.24 (one cut off by the image's top edge) to 0.81;
+// nothing else in 44 test images scored over 0.14, and the node drops boxes too big to be marks.
+const MARK_THRESHOLD = 0.2;
 
 /** Feed every SaveImage of *workflow* through REMOVE_MARKS_NODE, so images are saved cleaned. */
 export function withMarkRemoval(workflow: Workflow): void {

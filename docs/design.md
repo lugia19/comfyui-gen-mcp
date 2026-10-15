@@ -294,8 +294,10 @@ them, on by default (`remove_marks`, §5):
   (core `packs.ts`) reroutes every SaveImage's images through it, titled `cg:remove marks`; packs
   need nothing for it.
 - **Finding.** MimiLens YOLO26l (`mimilens_y26l.pt`) detects marks; only its `watermark` and
-  `signature` labels count (it also finds speech bubbles, text and SFX), at a 0.3 threshold (the
-  cutesexyrobutts marks scored 0.40 to 0.41).
+  `signature` labels count (it also finds speech bubbles, text and SFX), at a 0.2 threshold, and
+  only boxes up to 10% of the image. Marks scored 0.24 to 0.81: 0.3 at first (v1.15.0), until a
+  cutesexyrobutts mark cut off by the image's top edge scored 0.24 live. Nothing else in 44 test
+  images scored over 0.14, and that one false find was a box over 19% of the image.
 - **Filling.** Each mark is filled on its own by LaMa (`big-lama.pt`, through spandrel) at full
   resolution:
   - the hole is the box grown by 8 px or 12% of its longer side, whichever is more, reaching the

@@ -69,7 +69,7 @@ def test_pid_alive():
 
 # ── Removing signatures and watermarks: the box arithmetic (the node itself needs ComfyUI) ──
 
-from comfy_gen_modal.comfy_node import ComfyGenRemoveMarks, crop_box, hole_box, merge_boxes
+from comfy_gen_modal.comfy_node import ComfyGenRemoveMarks, crop_box, hole_box, mark_sized, merge_boxes
 
 
 def test_one_mark_found_twice_is_filled_once():
@@ -94,3 +94,9 @@ def test_the_crop_keeps_the_surroundings_inside_the_image():
 def test_the_node_never_fails_an_image():
     images = object()  # whatever ComfyUI hands it: without ComfyUI, removal fails and it passes through
     assert ComfyGenRemoveMarks().run(images) == (images,)
+
+
+def test_only_mark_sized_boxes_count():
+    # The largest real mark seen (a watermark) against the one false find, on a 1536 x 1536 image.
+    assert mark_sized([2, 0, 373, 65], 1536, 1536)
+    assert not mark_sized([263, 1119, 1361, 1536], 1536, 1536)
