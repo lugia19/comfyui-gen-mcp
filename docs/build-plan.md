@@ -660,3 +660,6 @@ stop (Turbo skips the negative). Design §3, "Signatures and watermarks", has th
   pack; `scripts/check_pack_models.py` checks them too.
 - **Where:** Modal; PCs whose agent says `remove_marks`; the extension without a ComfyUI URL.
 - **`ultralytics`** in Modal's image, in new PC installs, and added at launch to older ones.
+
+The agent's tray "Open settings" opens the Worker's Settings again while connected, not this PC's
+page: most settings are there, and the PC's page is in its GPU list (design §9).

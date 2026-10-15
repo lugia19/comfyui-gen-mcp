@@ -12,7 +12,7 @@ import { AgentApp } from "./app.ts";
 import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts";
 import { agentHandler } from "./handlers.ts";
 import { LoraSync } from "./lora-sync.ts";
-import { AGENT_USER_AGENT, RelayClient } from "./relay-client.ts";
+import { RelayClient } from "./relay-client.ts";
 import { bindWhenFree, launcherPid, watchParent } from "./watchdog.ts";
 
 export const RESTART_EXIT_CODE = 75;
@@ -85,25 +85,9 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
       return [resp.status, await resp.text()];
     },
   });
-  // This PC's id on the Worker, for the tray to open its page there (/gpu/<id>); asked once per
-  // pairing, on connecting. Until it answers, the tray opens the Worker's Settings.
-  let gpuId: string | null = null;
-  const whoami = async () => {
-    if (gpuId || !cfg.worker_url || !cfg.secret) return;
-    try {
-      const resp = await fetch(`${cfg.worker_url}/agent/whoami`, {
-        headers: { Authorization: `Bearer ${cfg.secret}`, "User-Agent": AGENT_USER_AGENT },
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (resp.ok) gpuId = String((await resp.json()).id ?? "") || null;
-    } catch {
-      // the next connection asks again
-    }
-  };
   const reconnect = () => {
     client?.stop();
     client = null;
-    gpuId = null;
     if (!cfg.worker_url || !cfg.secret) return;
     client = new RelayClient({
       workerUrl: cfg.worker_url,
@@ -113,10 +97,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
         // Our ComfyUI extension (with its mark-removal node) runs on the managed ComfyUI only. An
         // agent without this flag predates the node: the Worker leaves the step out.
         remove_marks: !cfg.comfyui_url }),
-      onOpen: () => {
-        void sync.sync();
-        void whoami();
-      },
+      onOpen: () => void sync.sync(),
     });
     client.start();
   };
@@ -156,9 +137,10 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
   const trouble = () =>
     !cfg.worker_url ? "not paired with a Worker" : client && client.state !== "connected" ? "not connected to your Worker" : null;
   const tray = opts.tray
-    ? // Paired and connected: this PC's page on the Worker (its Settings until whoami answered); this
-      // PC's own page otherwise (pairing, or the Worker unreachable).
-      await machineTray(machine, opts.tray, () => (cfg.worker_url && client?.state === "connected" ? (gpuId ? `${cfg.worker_url}/gpu/${gpuId}` : `${cfg.worker_url}/#settings`) : settingsUrl), trouble, {
+    ? // Paired and connected: the Worker's Settings, where most settings are (this PC's page there is
+      // a click away, in its GPU list); this PC's own page otherwise (pairing, or the Worker
+      // unreachable).
+      await machineTray(machine, opts.tray, () => (cfg.worker_url && client?.state === "connected" ? `${cfg.worker_url}/#settings` : settingsUrl), trouble, {
         title: () => (paused ? "Resume agent" : "Pause agent"),
         note: () => (paused ? "paused until resumed or restarted" : null),
         onClick: () => setPaused(!paused, "the tray"),

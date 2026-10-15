@@ -886,9 +886,9 @@ settings stay on the Worker, whose settings page lists each GPU's LoRAs and mode
 
 **A page per PC (2026-10-12; replaces "One settings page", 2026-10-02).** Each paired PC has its
 own page on the Worker, `/gpu/<id>`: the agent's own settings page, all of it, relayed. The GPU
-list (Settings, GPUs) links to it with **Open its page** (a new tab); the agent's tray opens it
-while connected (the agent asks `GET /agent/whoami`, with its bearer secret, for its id on
-connecting). The Worker serves the app on
+list (Settings, GPUs) links to it with **Open its page** (a new tab). The agent's tray opens the
+Worker's Settings while connected, where most settings are (2026-10-15; until then it opened this
+page, its id from `GET /agent/whoami`, which stays for agents from before). The Worker serves the app on
 that path (the `ASSETS` binding, `/gpu/*` run first) after checking the id when logged in: Modal or
 a ComfyUI by URL goes to the GPU list, an unknown id is a 404, and a logged-out visitor gets the
 login whatever the id. On that path the app (`api.js`) sends every call to
