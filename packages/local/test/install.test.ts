@@ -44,13 +44,14 @@ describe("the extension's packages", () => {
   it.skipIf(process.platform === "win32")("are installed when an older install lacks them", async () => {
     const { p, inst, calls } = setup(false);
     await ensureExtensionPackages(p, inst);
-    expect(calls()[1]).toBe(`uv pip install --python ${inst.python} --torch-backend auto ${EXTENSION_PACKAGES.ultralytics}`);
+    expect(calls()[2]).toBe(`uv pip install --python ${inst.python} --torch-backend auto ${Object.values(EXTENSION_PACKAGES).join(" ")}`);
   });
 
   it.skipIf(process.platform === "win32")("are left alone when present", async () => {
     const { p, inst, calls } = setup(true);
     await ensureExtensionPackages(p, inst);
-    expect(calls()).toHaveLength(1);
+    expect(calls()).toHaveLength(2);
     expect(calls()[0]).toContain("find_spec(\"ultralytics\")");
+    expect(calls()[1]).toContain("find_spec(\"onnxruntime\")");
   });
 });

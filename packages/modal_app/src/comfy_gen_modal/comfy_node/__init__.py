@@ -21,8 +21,15 @@ missing package or model file, or any error, passes the image through with a log
 generation never fails over it. The packs' workflows get it before their SaveImage when the
 remove_marks setting is on (core packs.ts).
 
-Loaded by ComfyUI from custom_nodes/, where it can import `server`. The node's heavy imports
-(torch, ultralytics, spandrel) are inside it: tests import this module without ComfyUI.
+ComfyGenRedrawRegion and ComfyGenRedrawPaste (nodes): the redraw tool (core workflow.ts
+redrawWorkflow). The first picks what to repaint (a caller's box, or the largest face the anime face
+detector finds, models/comfy_gen/FACE_DETECTOR, run by onnxruntime), builds its soft mask, and hands
+the sampler either the whole image or a crop around the box scaled to about a megapixel; the second
+puts the result back through the mask, so every other pixel stays as it was and the image keeps its
+size and transparency.
+
+Loaded by ComfyUI from custom_nodes/, where it can import `server`. The nodes' heavy imports
+(torch, ultralytics, spandrel, onnxruntime) are inside them: tests import this module without ComfyUI.
 """
 
 import asyncio
@@ -271,8 +278,230 @@ class ComfyGenRemoveMarks:
             return (images,)
 
 
-NODE_CLASS_MAPPINGS = {"ComfyGenRemoveMarks": ComfyGenRemoveMarks}
-NODE_DISPLAY_NAME_MAPPINGS = {"ComfyGenRemoveMarks": "Remove signatures and watermarks (Comfy-Gen)"}
+# ── Redrawing part of an image ─────────────────────────────────────────────────────────────────
+
+FACE_DETECTOR = "face_detect_v1.4_s.onnx"  # deepghs/anime_face_detection v1.4 s (YOLOv8, MIT), in MARK_FOLDER
+FACE_SIZE, FACE_CONF, FACE_IOU = 640, 0.3, 0.5
+FACE_GROW = 1.2  # a found face, grown: the redrawn ellipse takes in the chin and the fringe
+BOX_GROW = 1.15  # a caller's box, grown: an estimated box need not be exact
+CONTEXT = 2.0  # region mode: the crop is this many times the grown box's longer side (wider, and a
+# small subject is too small in it to be drawn)
+REGION_PIXELS = 1024 * 1024  # region mode samples the crop at this size, up or down
+FEATHER_SHARE = 0.08  # the mask's soft edge (Gaussian sigma): this share of the grown box's shorter side
+ROUND_SHARE = 0.2  # a box's corner radius: this share of its shorter side
+SIDE_STEP = 16  # sampled sides are multiples of this (the latent's 8, times the model's 2x2 patches)
+NO_FACE = "No face found in this image: pass a box around it instead."
+
+
+def parse_box(text, width, height):
+    """A caller's box, "left,top,right,bottom" fractions of the image, in pixels; None for "" (the
+    largest face)."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    parts = [float(v) for v in text.split(",")]
+    if len(parts) != 4:
+        raise ValueError(f"box must be 4 numbers, got {text!r}")
+    l, t, r, b = (min(1.0, max(0.0, v)) for v in parts)
+    if r <= l or b <= t:
+        raise ValueError(f"box {text!r} is empty: left < right and top < bottom")
+    return [l * width, t * height, r * width, b * height]
+
+
+def grow(box, factor):
+    """*box* scaled by *factor* about its centre."""
+    x0, y0, x1, y1 = box
+    cx, cy, hw, hh = (x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) * factor / 2, (y1 - y0) * factor / 2
+    return [cx - hw, cy - hh, cx + hw, cy + hh]
+
+
+def crop_for(box, width, height, whole):
+    """The part of the image that is sampled, [x0, y0, x1, y1] in pixels: all of it in whole mode,
+    else a square of CONTEXT times the box's longer side around it, kept inside the image (moved in
+    from an edge before it is cut)."""
+    if whole:
+        return [0, 0, width, height]
+    x0, y0, x1, y1 = box
+    side = CONTEXT * max(x1 - x0, y1 - y0)
+
+    def span(c, limit):
+        s = min(side, limit)
+        lo = min(max(c - s / 2, 0), limit - s)
+        return int(round(lo)), int(round(lo + s))
+
+    cx0, cx1 = span((x0 + x1) / 2, width)
+    cy0, cy1 = span((y0 + y1) / 2, height)
+    return [cx0, cy0, cx1, cy1]
+
+
+def sample_size(width, height, pixels, scale_up):
+    """(w, h) to sample a *width* x *height* crop at: about *pixels* in area (only ever smaller
+    unless *scale_up*), the sides rounded to multiples of SIDE_STEP."""
+    s = (pixels / (width * height)) ** 0.5
+    if not scale_up:
+        s = min(1.0, s)
+    return tuple(max(SIDE_STEP, round(side * s / SIDE_STEP) * SIDE_STEP) for side in (width, height))
+
+
+def shape_mask(height, width, box, ellipse):
+    """A (height, width) float mask: 1 inside *box* (an ellipse, else a rounded rectangle), its edge
+    blurred by FEATHER_SHARE of the box's shorter side."""
+    import torch
+    import torch.nn.functional as F
+
+    x0, y0, x1, y1 = box
+    cx, cy, hw, hh = (x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2
+    ys = torch.arange(height, dtype=torch.float32)[:, None] + 0.5
+    xs = torch.arange(width, dtype=torch.float32)[None, :] + 0.5
+    if ellipse:
+        inside = ((xs - cx) / hw) ** 2 + ((ys - cy) / hh) ** 2 <= 1
+    else:
+        r = ROUND_SHARE * min(hw, hh) * 2
+        dx = ((xs - cx).abs() - (hw - r)).clamp(min=0)
+        dy = ((ys - cy).abs() - (hh - r)).clamp(min=0)
+        inside = dx**2 + dy**2 <= r**2
+    mask = inside.float()
+    sigma = FEATHER_SHARE * min(hw, hh) * 2
+    if sigma < 0.5:
+        return mask
+    k = int(3 * sigma)
+    g = torch.exp(-(torch.arange(-k, k + 1, dtype=torch.float32) ** 2) / (2 * sigma**2))
+    g = (g / g.sum())[None, None]
+    m = mask[None, None]
+    m = F.conv2d(F.pad(m, (k, k, 0, 0), mode="replicate"), g[..., None, :])
+    m = F.conv2d(F.pad(m, (0, 0, k, k), mode="replicate"), g[..., :, None])
+    return m[0, 0].clamp(0, 1)
+
+
+def resize(images, width, height):
+    """A (B, H, W, C) batch resized to *width* x *height* (bicubic, antialiased when shrinking)."""
+    import torch.nn.functional as F
+
+    out = F.interpolate(images.movedim(-1, 1), size=(height, width), mode="bicubic", antialias=True, align_corners=False)
+    return out.movedim(1, -1).clamp(0, 1)
+
+
+def face_boxes(output, scale, conf=FACE_CONF):
+    """Face boxes [x0, y0, x1, y1] in source pixels from the detector's (5, N) output (centre x,
+    centre y, width, height at the letterboxed size, score), largest first."""
+    import torch
+    from torchvision.ops import nms
+
+    out = torch.as_tensor(output, dtype=torch.float32)
+    keep = out[4] >= conf
+    cx, cy, w, h, score = out[:, keep]
+    boxes = torch.stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], dim=1) / scale
+    boxes = boxes[nms(boxes, score, FACE_IOU)]
+    area = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    return boxes[area.argsort(descending=True)].tolist()
+
+
+_face_session = []
+
+
+def largest_face(image):
+    """The largest face in *image* (H, W, C float tensor), [x0, y0, x1, y1] in pixels; raises
+    ValueError(NO_FACE) when there is none."""
+    import numpy as np
+
+    if not _face_session:
+        import folder_paths
+        import onnxruntime
+
+        path = folder_paths.get_full_path(MARK_FOLDER, FACE_DETECTOR)
+        if not path:
+            raise FileNotFoundError(f"models/{MARK_FOLDER}/{FACE_DETECTOR} is missing")
+        _face_session.append(onnxruntime.InferenceSession(path, providers=["CPUExecutionProvider"]))
+    height, width = image.shape[:2]
+    scale = FACE_SIZE / max(width, height)
+    small = resize(image[None, ..., :3], max(1, round(width * scale)), max(1, round(height * scale)))[0]
+    board = np.full((FACE_SIZE, FACE_SIZE, 3), 114 / 255, dtype=np.float32)  # letterboxed, YOLO's grey
+    board[: small.shape[0], : small.shape[1]] = small.cpu().numpy()
+    output = _face_session[0].run(None, {"images": board.transpose(2, 0, 1)[None]})[0][0]
+    boxes = face_boxes(output, scale)
+    if not boxes:
+        raise ValueError(NO_FACE)
+    return boxes[0]
+
+
+def redraw_region(image, box_text, whole_image, max_pixels):
+    """(sample, mask, region) for the first image of a batch: what to sample, its mask, and what
+    ComfyGenRedrawPaste needs to put the result back."""
+    import torch
+
+    height, width = image.shape[1:3]
+    box = parse_box(box_text, width, height)
+    face = box is None
+    box = grow(largest_face(image[0]) if face else box, FACE_GROW if face else BOX_GROW)
+    full = shape_mask(height, width, box, ellipse=face)
+    x0, y0, x1, y1 = crop = crop_for(box, width, height, whole_image)
+    pixels = max_pixels if whole_image else min(REGION_PIXELS, max_pixels)
+    sw, sh = sample_size(x1 - x0, y1 - y0, pixels, scale_up=not whole_image)
+    sample = resize(image[:1, y0:y1, x0:x1, :3], sw, sh)
+    mask = resize(full[None, y0:y1, x0:x1, None], sw, sh)[..., 0]
+    return sample, mask, {"crop": crop, "mask": full.to(torch.float32)}
+
+
+def redraw_paste(original, redrawn, region, alpha=None):
+    """*original* with *redrawn* blended in through the region's mask: every pixel outside it as it
+    was, the output the original's size. A source with transparency (LoadImage's mask, 1 where
+    transparent) gets its alpha back."""
+    import torch
+
+    x0, y0, x1, y1 = region["crop"]
+    out = original[:1, ..., :3].clone()
+    part = resize(redrawn[:1, ..., :3].to(out), x1 - x0, y1 - y0)
+    m = region["mask"][y0:y1, x0:x1, None].to(out)
+    out[:, y0:y1, x0:x1] = out[:, y0:y1, x0:x1] * (1 - m) + part * m
+    if alpha is not None and tuple(alpha.shape[-2:]) == tuple(out.shape[1:3]) and float(alpha.max()) > 0:
+        out = torch.cat([out, (1 - alpha[:1, ..., None]).to(out)], dim=-1)
+    return out
+
+
+class ComfyGenRedrawRegion:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "box": ("STRING", {"default": ""}),
+                "whole_image": ("BOOLEAN", {"default": False}),
+                "max_pixels": ("INT", {"default": REGION_PIXELS, "min": 65536, "max": 16777216}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "MASK", "CG_REGION")
+    RETURN_NAMES = ("sample", "mask", "region")
+    FUNCTION = "run"
+    CATEGORY = "comfy-gen"
+
+    def run(self, image, box="", whole_image=False, max_pixels=REGION_PIXELS):
+        return redraw_region(image, box, whole_image, max_pixels)
+
+
+class ComfyGenRedrawPaste:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"original": ("IMAGE",), "redrawn": ("IMAGE",), "region": ("CG_REGION",)}, "optional": {"alpha": ("MASK",)}}
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "run"
+    CATEGORY = "comfy-gen"
+
+    def run(self, original, redrawn, region, alpha=None):
+        return (redraw_paste(original, redrawn, region, alpha),)
+
+
+NODE_CLASS_MAPPINGS = {
+    "ComfyGenRemoveMarks": ComfyGenRemoveMarks,
+    "ComfyGenRedrawRegion": ComfyGenRedrawRegion,
+    "ComfyGenRedrawPaste": ComfyGenRedrawPaste,
+}
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "ComfyGenRemoveMarks": "Remove signatures and watermarks (Comfy-Gen)",
+    "ComfyGenRedrawRegion": "Redraw: region and mask (Comfy-Gen)",
+    "ComfyGenRedrawPaste": "Redraw: paste back (Comfy-Gen)",
+}
 
 
 def _register_mark_folder() -> None:

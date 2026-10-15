@@ -60,8 +60,9 @@ comfy_image = (
     # ComfyUI-Manager; registry-install talks to the Comfy Registry directly (the id is mixed-case).
     .run_commands("comfy node registry-install ComfyUI-GGUF")
     .pip_install("gguf>=0.13.0", "sentencepiece", "protobuf")
-    # Our node's watermark removal: the detector (as local/src/install.ts EXTENSION_PACKAGES).
-    .pip_install("ultralytics==8.4.177")
+    # Our nodes' packages: the watermark detector, and redraw's face detector runtime (as
+    # local/src/install.ts EXTENSION_PACKAGES).
+    .pip_install("ultralytics==8.4.177", "onnxruntime==1.30.0")
     .add_local_dir(COMFY_NODE_SRC, f"{COMFY_DIR}/custom_nodes/comfy-gen")
     .add_local_python_source("comfy_gen_modal")
 )

@@ -100,3 +100,122 @@ def test_only_mark_sized_boxes_count():
     # The largest real mark seen (a watermark) against the one false find, on a 1536 x 1536 image.
     assert mark_sized([2, 0, 373, 65], 1536, 1536)
     assert not mark_sized([263, 1119, 1361, 1536], 1536, 1536)
+
+
+# ── Redrawing part of an image: the geometry here; the tensor parts where torch is installed ──
+
+import pytest
+
+from comfy_gen_modal.comfy_node import NO_FACE, crop_for, grow, parse_box, sample_size
+
+
+def test_a_box_is_fractions_of_the_image():
+    assert parse_box("", 1536, 1024) is None  # the largest face
+    assert parse_box("0.25, 0.5, 0.75, 1", 1536, 1024) == [384, 512, 1152, 1024]
+    assert parse_box("-0.1,0,1.2,0.5", 100, 100) == [0, 0, 100, 50]  # clipped to the image
+    with pytest.raises(ValueError):
+        parse_box("0.5,0.5,0.4,0.6", 100, 100)
+    with pytest.raises(ValueError):
+        parse_box("0.1,0.2,0.3", 100, 100)
+
+
+def test_the_box_grows_about_its_centre():
+    assert grow([100, 100, 200, 300], 1.2) == pytest.approx([90, 80, 210, 320])
+
+
+def test_region_mode_crops_twice_the_box_inside_the_image():
+    # the tavern knight's hand: 2x its longer side, square
+    assert crop_for([495, 735, 650, 885], 1536, 1024, False) == [418, 655, 728, 965]
+    # near the bottom edge: moved up rather than cut
+    assert crop_for([700, 950, 800, 1020], 1536, 1024, False) == [650, 824, 850, 1024]
+    # bigger than the image: all of it
+    assert crop_for([0, 0, 900, 1000], 1536, 1024, False) == [0, 0, 1536, 1024]
+    assert crop_for([10, 10, 20, 20], 640, 480, True) == [0, 0, 640, 480]
+
+
+def test_samples_are_a_megapixel_in_steps_of_16():
+    assert sample_size(310, 310, 1024 * 1024, True) == (1024, 1024)  # a small crop is scaled up
+    assert sample_size(1536, 1024, 2359296, False) == (1536, 1024)  # whole mode, within budget
+    assert sample_size(4000, 3000, 2359296, False) == (1776, 1328)  # whole mode, over: scaled down
+    assert sample_size(1530, 1021, 2359296, False) == (1536, 1024)
+    assert sample_size(345, 344, 1024 * 1024, True) == (1024, 1024)
+
+
+def test_the_no_face_message_points_at_the_box():
+    assert "box" in NO_FACE
+
+
+def test_the_mask_is_soft_and_inside_its_box():
+    torch = pytest.importorskip("torch")
+    from comfy_gen_modal.comfy_node import shape_mask
+
+    m = shape_mask(200, 300, [100, 50, 200, 150], ellipse=False)
+    assert m.shape == (200, 300)
+    assert m[100, 150] == pytest.approx(1)  # the centre
+    assert float(m[:, :60].max()) < 0.01 and float(m[:30].max()) < 0.01  # well outside: untouched
+    assert 0.2 < float(m[100, 100]) < 0.8  # the edge: soft
+    e = shape_mask(200, 300, [100, 50, 200, 150], ellipse=True)
+    assert float(e[55, 105]) < float(m[55, 105])  # an ellipse leaves the corners
+
+
+def test_the_paste_changes_only_the_masked_pixels_and_keeps_the_size():
+    torch = pytest.importorskip("torch")
+    from comfy_gen_modal.comfy_node import redraw_paste, shape_mask
+
+    original = torch.rand(1, 120, 160, 3)
+    mask = shape_mask(120, 160, [60, 40, 100, 80], ellipse=True)
+    region = {"crop": [40, 20, 120, 100], "mask": mask}
+    out = redraw_paste(original, torch.zeros(1, 512, 512, 3), region)
+    assert out.shape == original.shape
+    assert torch.equal(out[0][mask == 0], original[0][mask == 0])
+    assert float(out[0, 60, 80].max()) < 0.01  # the centre: the redraw
+    alpha = torch.zeros(1, 120, 160)
+    alpha[0, :10] = 1  # transparent along the top
+    rgba = redraw_paste(original, torch.zeros(1, 512, 512, 3), region, alpha)
+    assert rgba.shape == (1, 120, 160, 4) and float(rgba[0, 5, 5, 3]) == 0 and float(rgba[0, 60, 80, 3]) == 1
+    opaque = redraw_paste(original, torch.zeros(1, 512, 512, 3), region, torch.zeros(1, 64, 64))  # LoadImage without alpha
+    assert opaque.shape[-1] == 3
+
+
+def test_the_region_node_samples_a_crop_with_its_mask():
+    torch = pytest.importorskip("torch")
+    from comfy_gen_modal.comfy_node import redraw_region
+
+    image = torch.rand(1, 1024, 1536, 3)
+    sample, mask, region = redraw_region(image, "0.322,0.718,0.423,0.864", False, 2359296)
+    assert sample.shape == (1, 1024, 1024, 3) and mask.shape == (1, 1024, 1024)
+    assert region["mask"].shape == (1024, 1536)
+    sample, mask, region = redraw_region(image, "0.322,0.718,0.423,0.864", True, 2359296)
+    assert sample.shape == (1, 1024, 1536, 3) and region["crop"] == [0, 0, 1536, 1024]
+
+
+def test_faces_come_from_the_detector_output_largest_first():
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("torchvision")
+    from comfy_gen_modal.comfy_node import face_boxes
+
+    # columns: centre x, centre y, width, height, score (at the letterboxed size)
+    out = torch.tensor([[100, 101, 400, 300], [100, 100, 300, 300], [40, 40, 120, 10], [40, 40, 120, 10], [0.9, 0.8, 0.7, 0.1]]).float()
+    found = face_boxes(out, 0.5)  # one face twice: kept once
+    assert [pytest.approx(b) for b in found] == [[680, 480, 920, 720], [160, 160, 240, 240]]
+    assert face_boxes(out[:, 3:], 1.0) == []
+
+
+def test_the_detector_finds_frenni():
+    pytest.importorskip("onnxruntime")
+    import os
+
+    model = os.environ.get("FACE_MODEL")
+    picture = os.environ.get("FACE_PICTURE")
+    if not (model and picture):
+        pytest.skip("FACE_MODEL and FACE_PICTURE name the detector and a sprite")
+    import numpy as np
+    import torch
+    from PIL import Image
+
+    import comfy_gen_modal.comfy_node as node
+    import onnxruntime
+
+    node._face_session[:] = [onnxruntime.InferenceSession(model, providers=["CPUExecutionProvider"])]
+    image = torch.from_numpy(np.asarray(Image.open(picture).convert("RGB"), dtype=np.float32) / 255)
+    assert node.largest_face(image) == pytest.approx([522, 183, 760, 405], abs=6)
