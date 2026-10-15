@@ -215,14 +215,14 @@ describe("MCP", () => {
     expect((await app.handle(request("POST", `/upload/${token}`, png()))).status).toBe(403);
   });
 
-  it("redraw is listed and routed by its style's pack; a model that can't is answered before any GPU time", async () => {
+  it("redraw is listed and routed by its pack; a model that can't is answered before any GPU time", async () => {
     const { app, comfy } = world();
     await withReadyModal(app);
     const [, list] = await mcp(app, "tools/list", {});
     expect(list.result.tools.map((t: any) => t.name)).toContain("redraw");
-    let [, r] = await mcp(app, "tools/call", { name: "redraw", arguments: { prompt: "x", image: "https://images.example/a.png", box: [0.1, 0.1, 0.5, 0.5], style: "realistic" } });
+    let [, r] = await mcp(app, "tools/call", { name: "redraw", arguments: { prompt: "x", image: "https://images.example/a.png", box: [0.1, 0.1, 0.5, 0.5], model: "anima" } });
     expect(r.result.isError).toBe(false);
-    expect(Object.values<any>(comfy.prompts.at(-1)!).find((n) => n._meta?.title === "cg:model").inputs.unet_name).toContain("z-image-turbo");
+    expect(Object.values<any>(comfy.prompts.at(-1)!).find((n) => n._meta?.title === "cg:model").inputs.unet_name).toBe("anima-base-v1.0.safetensors");
     [, r] = await mcp(app, "tools/call", { name: "redraw", arguments: { prompt: "x", image: "https://images.example/a.png", model: "flux2klein" } });
     expect(r.result.content[0].text).toMatch(/Unknown model "flux2klein" for redraw/);
     expect(comfy.prompts.length).toBe(1);

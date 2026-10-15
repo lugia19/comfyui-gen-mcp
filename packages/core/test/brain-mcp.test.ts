@@ -363,6 +363,14 @@ describe("redraw", () => {
     }
   });
 
+  it("runs Anima Turbo whatever the settings select for illustrations", async () => {
+    const { comfy, brain } = setup({ canRedraw: true, cfg: { remove_marks: false, pack_selections: { generate_illustrated_image: "anima" } } });
+    const hooks = new PathHooks();
+    await brain({ hooks }).call("redraw", { prompt: "x", image_path: "a.png", box: [0.1, 0.1, 0.5, 0.5] });
+    expect(hooks.ensured).toEqual(["anima_turbo"]);
+    expect(comfy.prompts.length).toBe(1);
+  });
+
   it("repaints a box, or the largest face with the detector made ready", async () => {
     const { comfy, brain } = setup({ canRedraw: true, cfg: { remove_marks: false } });
     let hooks = new PathHooks();
@@ -376,8 +384,8 @@ describe("redraw", () => {
     expect(JSON.stringify(prompt)).not.toContain("ComfyGenRemoveMarks"); // the rest of the image stays as it was
 
     hooks = new PathHooks();
-    out = await brain({ hooks }).call("redraw", { prompt: "1girl, smile", image_path: "a.png", strength: 1, style: "realistic" });
-    expect(hooks.ensured).toEqual(["detect-faces", "z_image_turbo"]);
+    out = await brain({ hooks }).call("redraw", { prompt: "1girl, smile", image_path: "a.png", strength: 1, model: "anima" });
+    expect(hooks.ensured).toEqual(["detect-faces", "anima"]);
     prompt = comfy.prompts.at(-1)!;
     expect(nodeOf(prompt, "ComfyGenRedrawRegion").inputs).toMatchObject({ box: "" });
     expect(nodeOf(prompt, "KSampler").inputs.denoise).toBe(1);
@@ -390,10 +398,8 @@ describe("redraw", () => {
     expect(await fail({ box: [0.5, 0.5, 0.4, 0.6] })).toMatch(/box is empty/);
     expect(await fail({ box: [0.1, 0.2] })).toMatch(/four numbers/);
     expect(await fail({ strength: 0.1 })).toMatch(/strength must be/);
-    expect(await fail({ style: "cartoon" })).toMatch(/style must be/);
+    expect(await fail({ model: "z_image_turbo" })).toMatch(/Unknown model "z_image_turbo" for redraw/); // illustrations only
     expect(await fail({}, brain({ canRedraw: false }))).toBe(REDRAW_UNAVAILABLE);
-    const flux = brain({ canRedraw: true, cfg: { pack_selections: { generate_realistic_image: "flux2klein" } } });
-    expect(await fail({ style: "realistic" }, flux)).toMatch(/can't redraw/);
     expect(((await brain().call("redraw", { prompt: "", image_path: "a.png" })) as Failed).message).toMatch(/required/);
     expect(comfy.prompts).toEqual([]);
   });

@@ -363,13 +363,11 @@ grey or coloured background in the prompt, never white.
 
 ### Redraw (2026-10-15)
 
-`redraw` repaints one part of an image and leaves every other pixel as it was: a mangled hand or
+`redraw` repaints one part of an illustration and leaves every other pixel as it was: a mangled hand or
 face, an expression, a small detail. Visual Novelist makes a sprite's expressions with it, so the
 body, outfit and pose stay identical across them. Arguments: the image, a prompt, an optional
 `box` (`[left, top, right, bottom]`, fractions of the image; none means the largest face),
-`strength` (0.3 to 1, default 0.9) and `style` (`illustrated`: Anima Turbo whatever the settings
-select, the user's call, 2026-10-15, as base Anima took 74 s live against Turbo's 11; `realistic`:
-the pack selected for that tool); hidden, `model` and `negative` (Scripted callers).
+and `strength` (0.3 to 1, default 0.9); hidden, `model` and `negative` (Scripted callers).
 
 - **The technique.** The pack's own generation graph, with its empty latent replaced by the image:
   VAE-encoded, a soft mask as the latent's noise mask (`SetLatentNoiseMask`), the model through
@@ -404,9 +402,11 @@ the pack selected for that tool); hidden, `model` and `negative` (Scripted calle
   installed a package on its own in the spike. Its model set (core `FACE_MODELS`) downloads from
   the start like background removal's; a call without a box waits for it like for a pack. No face
   found is an error naming the fix: pass a box.
-- **Which packs.** Those whose sampler is a KSampler fed by the empty latent (`canRedraw`): Anima,
-  Anima Turbo and Z-Image Turbo. Flux 2 Klein's custom sampler has no denoise; with it selected
-  for realistic images, `style: "realistic"` says so and names the packs that can.
+- **Which packs: illustrations only** (the user's call, 2026-10-15). A photograph has no art style
+  to drift, so `edit_image` serves it, and redraw on Z-Image Turbo was never tried. Redraw runs
+  Anima Turbo whatever the settings select (core `REDRAW_DEFAULT`; base Anima took 74 s live
+  against Turbo's 11, and the family downloads whole), or the Anima pack a scripted caller names.
+  `canRedraw` also requires a KSampler fed by the empty latent, the denoise the technique needs.
 - **No watermark or background step.** The image was cleaned when it was made, and the area keeps
   the rest of the image's pixels; a transparent input stays transparent anyway.
 

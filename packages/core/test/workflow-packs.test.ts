@@ -338,8 +338,8 @@ describe("redraw", () => {
   const builtin = builtinPacks();
   const pack = (name: string) => builtin.find((p) => p.name === name)!;
 
-  it("runs on the packs whose sampler has a denoise", () => {
-    expect(builtin.filter(canRedraw).map((p) => p.name).sort()).toEqual(["anima", "anima_turbo", "z_image_turbo"]);
+  it("runs on the illustration packs whose sampler has a denoise", () => {
+    expect(builtin.filter(canRedraw).map((p) => p.name).sort()).toEqual(["anima", "anima_turbo"]); // illustrations only
   });
 
   it("repaints the loaded image through a mask instead of drawing from an empty latent", () => {
@@ -378,18 +378,10 @@ describe("redraw", () => {
     expect(() => redrawWorkflow(pack("flux2klein").workflow, "a.png", { box: "", strength: 1, maxPixels: 1 })).toThrow(/can't redraw/);
   });
 
-  it("picks the selected pack for the style, or a named one", () => {
-    const selected = select(groupByTool(builtin), {});
-    expect((redrawPack(builtin, selected, undefined, undefined) as any).name).toBe("anima_turbo");
-    expect((redrawPack(builtin, selected, "realistic", undefined) as any).name).toBe("z_image_turbo");
-    expect((redrawPack(builtin, selected, "illustrated", "anima") as any).name).toBe("anima");
-    // Anima Turbo whatever the settings select for illustrations; a named model still wins
-    const base = select(groupByTool(builtin), { generate_illustrated_image: "anima" });
-    expect((redrawPack(builtin, base, "illustrated", undefined) as any).name).toBe("anima_turbo");
-    expect(redrawPack(builtin, selected, "cartoon", undefined)).toMatch(/style must be one of: illustrated, realistic/);
-    expect(redrawPack(builtin, selected, undefined, "flux2klein")).toMatch(/Unknown model "flux2klein" for redraw. Valid models: anima, anima_turbo, z_image_turbo/);
-    const flux = select(groupByTool(builtin), { generate_realistic_image: "flux2klein" });
-    expect(redrawPack(builtin, flux, "realistic", undefined)).toMatch(/The realistic model selected in settings \(.+\) can't redraw. Pick Z-Image/);
+  it("runs Anima Turbo, or the Anima pack a caller names", () => {
+    expect((redrawPack(builtin, undefined) as any).name).toBe("anima_turbo");
+    expect((redrawPack(builtin, "anima") as any).name).toBe("anima");
+    expect(redrawPack(builtin, "z_image_turbo")).toBe('Unknown model "z_image_turbo" for redraw. Valid models: anima, anima_turbo.');
   });
 
   it("the face detector is a model set every GPU keeps", () => {

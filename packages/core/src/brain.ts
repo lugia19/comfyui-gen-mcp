@@ -201,7 +201,7 @@ export class Brain {
     const strength = args.strength === undefined || args.strength === null ? REDRAW_STRENGTH : Number(args.strength);
     if (!Number.isFinite(strength) || strength < MIN_STRENGTH || strength > 1) return new Failed(`strength must be a number from ${MIN_STRENGTH} to 1.`);
     if (!this.canRedraw) return new Failed(REDRAW_UNAVAILABLE);
-    const rawPack = redrawPack(this.packs, Object.values(this.selected), args.style, args.model);
+    const rawPack = redrawPack(this.packs, args.model);
     if (typeof rawPack === "string") return new Failed(rawPack);
     const pack = prepare(rawPack, this.cfg);
     let loadValue: string;

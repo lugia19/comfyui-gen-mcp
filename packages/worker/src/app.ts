@@ -394,7 +394,7 @@ export class App {
         pack = chosen;
       }
       if (name === "redraw") {
-        const chosen = redrawPack(PACKS, selectedPacks(cfg), args.style, args.model);
+        const chosen = redrawPack(PACKS, args.model);
         if (typeof chosen === "string") return failResult(chosen);
         pack = chosen;
       }

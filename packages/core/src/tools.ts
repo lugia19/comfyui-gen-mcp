@@ -9,7 +9,7 @@
 //            come in through request_upload and the code-execution sandbox.
 
 import type { Config } from "./config.ts";
-import { canRedraw, family, groupByTool, packLoras, REDRAW_STYLES, select, TOOLS, type Pack } from "./packs.ts";
+import { canRedraw, family, groupByTool, packLoras, select, TOOLS, type Pack } from "./packs.ts";
 
 export type ImageMode = "paths" | "refs";
 export type ToolSpec = { name: string; description: string; inputSchema: Record<string, any> };
@@ -64,7 +64,6 @@ const REDRAW_PROPS = {
     description: "[left, top, right, bottom] as fractions (0 to 1) of the image's width and height. Leave it out to redraw the largest face.",
   },
   strength: { type: "number", minimum: 0.3, maximum: 1, default: 0.9, description: "How far the redrawn part may stray from what is there now." },
-  style: { type: "string", enum: Object.keys(REDRAW_STYLES), default: "illustrated", description: "The image's style: illustrated (drawn, anime; redrawn with Anima Turbo) or realistic (photographic)." },
 };
 
 export const REDRAW_SCHEMA_PATHS = {
@@ -149,9 +148,10 @@ export const UPLOAD_DESC =
   "edit.";
 
 const REDRAW_BODY =
-  "Redraw one part of an image and leave the rest untouched, pixel for pixel: fix a mangled hand or " +
-  "face, change an expression, change a small detail. The rest of the image keeps its exact look, " +
-  "which edit_image does not promise.\n\n" +
+  "Redraw one part of an illustration and leave the rest untouched, pixel for pixel: fix a mangled " +
+  "hand or face, change an expression, change a small detail. The rest of the image keeps its exact " +
+  "look and art style, which edit_image does not promise. For photographs and realistic images, use " +
+  "edit_image instead.\n\n" +
   "box is the area as [left, top, right, bottom] fractions of the image's width and height (0 to 1, " +
   "from the top left); leave it out to redraw the largest face. Measure the box with tooling if you " +
   "can (crop the image or lay a grid over it); otherwise estimate it, erring larger. The area is " +
@@ -234,7 +234,7 @@ export function toolSpecs(allPacks: Pack[], cfg: Config, imageMode: ImageMode): 
       specs.push({ name: "request_upload", description: UPLOAD_DESC, inputSchema: UPLOAD_SCHEMA });
     }
   }
-  if (selected.some(canRedraw)) {
+  if (allPacks.some(canRedraw)) {
     specs.push(imageMode === "paths"
       ? { name: "redraw", description: REDRAW_DESC_PATHS, inputSchema: REDRAW_SCHEMA_PATHS }
       : { name: "redraw", description: REDRAW_DESC_REFS, inputSchema: REDRAW_SCHEMA_REFS });

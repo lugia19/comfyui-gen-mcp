@@ -137,40 +137,28 @@ export function packFor(packs: Pack[], selected: Pack, model: unknown): Pack | s
   );
 }
 
-/** Whether redraw can run on *pack*: its sampler is a KSampler (it has a denoise) fed by the
- * pack's empty latent (workflow.ts redrawSampler). */
+/** The tool whose packs redraw: illustrations only (the user's call, 2026-10-15). A photo has no art
+ * style to drift, so edit_image serves it. */
+export const REDRAW_TOOL = "generate_illustrated_image";
+
+/** The pack redraw runs unless a scripted caller names another, whatever the settings select (the
+ * user's call, 2026-10-15): Anima Turbo, about 11 s against base Anima's 72. Its family downloads
+ * whole, so it is there wherever Anima is. */
+export const REDRAW_DEFAULT = "anima_turbo";
+
+/** Whether redraw can run on *pack*: an illustration pack whose sampler is a KSampler (it has a
+ * denoise) fed by the pack's empty latent (workflow.ts redrawSampler). */
 export function canRedraw(pack: Pack): boolean {
-  return redrawSampler(pack.workflow) !== null;
+  return pack.tool_name === REDRAW_TOOL && redrawSampler(pack.workflow) !== null;
 }
 
-/** The generation tool whose selected pack redraws each style. */
-export const REDRAW_STYLES: Record<string, string> = { illustrated: "generate_illustrated_image", realistic: "generate_realistic_image" };
-
-/** The pack a style redraws with whatever the settings select (the user's call, 2026-10-15): Anima
- * Turbo for illustrations, about 11 s against base Anima's 72. Its family downloads whole, so it is
- * there wherever Anima is. */
-export const REDRAW_DEFAULTS: Record<string, string> = { illustrated: "anima_turbo" };
-
-/** The pack a redraw call runs: the one a scripted caller names in the hidden `model`, else the
- * style's REDRAW_DEFAULTS pack, else the pack selected for *style*'s generation tool (*selected*:
- * one per tool). A string is the error to
- * answer with: an unknown style or model, or a selected model that can't redraw (no surprise
- * download of another). */
-export function redrawPack(packs: Pack[], selected: Pack[], style: unknown, model: unknown): Pack | string {
+/** The pack a redraw call runs: the one a scripted caller names in the hidden `model`, else
+ * REDRAW_DEFAULT. A string is the error to answer with. */
+export function redrawPack(packs: Pack[], model: unknown): Pack | string {
   const able = packs.filter(canRedraw);
   const name = typeof model === "string" ? model.trim() : "";
   if (name) return able.find((p) => p.name === name) ?? `Unknown model "${name}" for redraw. Valid models: ${able.map((p) => p.name).join(", ")}.`;
-  const key = style === undefined || style === null || style === "" ? "illustrated" : String(style);
-  const tool = REDRAW_STYLES[key];
-  if (!tool) return `style must be one of: ${Object.keys(REDRAW_STYLES).join(", ")}.`;
-  const preferred = able.find((p) => p.name === REDRAW_DEFAULTS[key] && p.tool_name === tool);
-  if (preferred) return preferred;
-  const pack = selected.find((p) => p.tool_name === tool);
-  if (!pack) return `No ${key} model is set up.`;
-  if (canRedraw(pack)) return pack;
-  const others = able.filter((p) => p.tool_name === tool).map((p) => p.display_name);
-  return `The ${key} model selected in settings (${pack.display_name}) can't redraw. ` +
-    (others.length ? `Pick ${others.join(" or ")} there, or use edit_image.` : "Use edit_image instead.");
+  return able.find((p) => p.name === REDRAW_DEFAULT) ?? able[0] ?? "No model here can redraw.";
 }
 
 /** *selected* and every other pack of their families, in *packs* order: a family downloads whole,
