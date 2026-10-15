@@ -64,5 +64,7 @@ Measure with Workers Logs `cpuTimeMs` when a change could move it (the appendix 
   ./...` in `packages/launcher` and `packages/tray`.
 - `uv run pytest` for the Modal app and the build step (CI runs Python 3.12 and 3.14).
 - `python3 scripts/check_pack_models.py` checks pack sizes and hashes against Hugging Face.
-- Local end to end: `npx wrangler dev` in `packages/worker` (with `.dev.vars` from the example), a
-  ComfyUI on localhost as the direct generator.
+- Local end to end: `npx wrangler dev` in `packages/worker` (with `.dev.vars` from the example) and
+  the agent from this branch paired to it (the bundle from `node packages/mcpb/build.mjs`, run with
+  `COMFY_GEN_HOME` pointing at a home whose ComfyUI is installed; on a CPU, `gpu: cpu`). Every GPU
+  runs our ComfyUI extension; there is no direct ComfyUI-by-URL generator any more.

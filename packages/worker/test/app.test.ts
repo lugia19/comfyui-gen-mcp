@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fromBase64, fromHex, OutputImage, refs, utf8 } from "@comfy-gen/core";
 import { png } from "../../core/test/fake-comfy.ts";
 import { LORA_CHUNK } from "../src/loras.ts";
-import { REQUEST_BUDGET, type App } from "../src/app.ts";
+import { PACKS, REQUEST_BUDGET, type App } from "../src/app.ts";
 import { offlineMessage, pausedMessage } from "../src/hooks.ts";
 import { cacheEntry } from "../src/store.ts";
 import * as updates from "../src/updates.ts";
@@ -20,16 +20,20 @@ async function mcp(app: App, method: string, params: unknown = {}, id = 1): Prom
   return [resp.status, text ? JSON.parse(text) : null];
 }
 
-/** Add a GPU at the end of the list (as the URL setup and the Modal build do). */
+/** Add a GPU at the end of the list (as the Modal build does). */
 const addGpu = async (app: App, gpu: Record<string, unknown>) => {
   const gpus = (await app.gpus()).filter((g) => g.id !== gpu.id);
   await app.store.updateSecrets({ gpus: [...gpus, { enabled: true, keep_warm_minutes: 5, ...gpu }] });
 };
 /** Whether a prompt had its images cleaned of signatures and watermarks. */
 const marked = (prompt: Record<string, any>) => Object.values<any>(prompt).some((n) => n.class_type === "ComfyGenRemoveMarks");
-const withGenerator = (app: App) => addGpu(app, { id: "url", kind: "url", name: "Your ComfyUI", base_url: COMFY, headers: { "X-Test": "1" } });
 const withModal = (app: App) =>
   addGpu(app, { id: "modal", kind: "modal", name: "Modal", base_url: COMFY, admin_url: ADMIN, headers: { "Modal-Key": "wk", "Modal-Secret": "ws" } });
+/** Modal with every model downloaded: a GPU that just answers (no admin API calls). */
+const withReadyModal = async (app: App) => {
+  await withModal(app);
+  await app.store.updateSetup({ seeded: [...PACKS.map((p) => p.name), "remove-marks"] });
+};
 
 async function login(app: App): Promise<Record<string, string>> {
   const resp = await app.handle(request("POST", "/api/login", { token: TOKEN }));
@@ -93,7 +97,7 @@ describe("MCP", () => {
 
   it("a scripted caller's hidden model picks the pack; one of another tool, or none, is a plain error", async () => {
     const { app, comfy } = world();
-    await withGenerator(app);
+    await withReadyModal(app);
     const call = (model: string) => mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x", model } });
     const unet = (i: number) => Object.values<any>(comfy.prompts[i]).find((n) => n.class_type === "UNETLoader").inputs.unet_name;
     for (const model of ["z_image_turbo", "nope"]) {
@@ -147,7 +151,7 @@ describe("MCP", () => {
 
   it("generate returns inline WebP and an image id; the WebP is stored in R2", async () => {
     const { app, net, comfy, bucket } = world();
-    await withGenerator(app);
+    await withReadyModal(app);
     const [, r] = await mcp(app, "tools/call", { name: "generate_realistic_image", arguments: { prompt: "a harbor" } });
     const [image, info] = r.result.content;
     expect([image.type, image.mimeType]).toEqual(["image", "image/webp"]);
@@ -158,13 +162,13 @@ describe("MCP", () => {
     expect(info.text).toContain(`https://${HOST}/img/${id}`);
     expect(bucket.objects.get(`img/${id}`)).toEqual({ data: comfy.viewBody, contentType: "image/webp" });
     const comfyCalls = net.calls.filter((c) => c[1].startsWith(COMFY));
-    expect(comfyCalls.every((c) => c[2]["X-Test"] === "1")).toBe(true); // generator headers on every call
+    expect(comfyCalls.every((c) => c[2]["Modal-Key"] === "wk")).toBe(true); // the GPU's headers on every call
     expect(comfyCalls.length).toBeLessThanOrEqual(REQUEST_BUDGET);
   });
 
   it("scripted callers get the result structured too, and the content is unchanged", async () => {
     const { app, comfy } = world();
-    await withGenerator(app);
+    await withReadyModal(app);
     comfy.viewBody = png(832, 1216);
     const [, r] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x", aspect_ratio: "832x1216" } });
     const id = r.result.content[1].text.split("image_id: ")[1].split("\n")[0];
@@ -180,7 +184,7 @@ describe("MCP", () => {
 
   it("large results are re-requested smaller", async () => {
     const { app, comfy } = world();
-    await withGenerator(app);
+    await withReadyModal(app);
     comfy.viewBody = new Uint8Array([...utf8("RIFF\x00\x00\x00\x00WEBP"), ...new Uint8Array(800_000)]);
     await mcp(app, "tools/call", { name: "generate_realistic_image", arguments: { prompt: "x" } });
     expect(comfy.calls.filter((c) => c[1] === "/view").map((c) => c[2]!.preview)).toEqual(["webp;90", "webp;75"]);
@@ -188,7 +192,7 @@ describe("MCP", () => {
 
   it("upload round trip, then edit by id", async () => {
     const { app, clock, comfy } = world();
-    await withGenerator(app);
+    await withReadyModal(app);
     let [, r] = await mcp(app, "tools/call", { name: "request_upload", arguments: { filename: "cat.png" } });
     const snippet: string = r.result.content[0].text;
     expect(snippet).toContain("comfy-gen-upload"); // its own User-Agent
@@ -212,7 +216,7 @@ describe("MCP", () => {
 
   it("edit by URL downloads and sizes the input", async () => {
     const { app, comfy } = world();
-    await withGenerator(app);
+    await withReadyModal(app);
     let [, r] = await mcp(app, "tools/call", { name: "edit_image", arguments: { prompt: "x", image: "https://images.example/a.png" } });
     expect(r.result.isError).toBe(false);
     expect(comfy.uploads.length).toBeGreaterThan(0); // the URL's bytes went to ComfyUI
@@ -241,7 +245,7 @@ describe("MCP", () => {
 
   it("uploads land in R2, not on a GPU", async () => {
     const { app, comfy, bucket } = world();
-    await withGenerator(app);
+    await withReadyModal(app);
     const [, r] = await mcp(app, "tools/call", { name: "request_upload", arguments: { filename: "cat.png" } });
     const token = r.result.content[0].text.split("/upload/")[1].split("'")[0];
     const up = await app.handle(request("POST", `/upload/${token}`, png(64, 48)));
@@ -254,7 +258,7 @@ describe("MCP", () => {
 
   it("fetch_result resumes", async () => {
     const { app, comfy } = world();
-    await withGenerator(app);
+    await withReadyModal(app);
     comfy.history = Array(200).fill("running"); // longer than one invocation's budget
     let [, r] = await mcp(app, "tools/call", { name: "generate_realistic_image", arguments: { prompt: "x" } });
     const txt: string = r.result.content[0].text;
@@ -280,7 +284,7 @@ describe("encrypted images", () => {
 
   it("with the setting on, new images are stored sealed; /img, HEAD and edits read them", async () => {
     const { app, comfy, bucket } = world();
-    await withGenerator(app);
+    await withReadyModal(app);
     await encrypt(app, true);
     expect((await body(await app.handle(request("GET", "/api/state", undefined, await login(app))))).encrypt_images).toBe(true);
     const id = await generate(app);
@@ -303,7 +307,7 @@ describe("encrypted images", () => {
 
   it("uploads are sealed too, and edits open them", async () => {
     const { app, comfy, bucket } = world();
-    await withGenerator(app);
+    await withReadyModal(app);
     await encrypt(app, true);
     const [, r] = await mcp(app, "tools/call", { name: "request_upload", arguments: { filename: "cat.png" } });
     const token = r.result.content[0].text.split("/upload/")[1].split("'")[0];
@@ -316,7 +320,7 @@ describe("encrypted images", () => {
 
   it("turned off, new images are plain and sealed ones still read; the key never changes", async () => {
     const { app, comfy, bucket } = world();
-    await withGenerator(app);
+    await withReadyModal(app);
     await encrypt(app, true);
     const key = (await app.fresh.secrets()).image_key;
     expect(key).toMatch(/^[0-9a-f]{64}$/);
@@ -341,7 +345,7 @@ describe("encrypted images", () => {
 
   it("a changed file, or one moved to another id, doesn't open: an error, not garbage", async () => {
     const { app, bucket } = world();
-    await withGenerator(app);
+    await withReadyModal(app);
     await encrypt(app, true);
     const id = await generate(app);
     const o = bucket.objects.get(`img/${id}`)!;
@@ -358,7 +362,7 @@ describe("encrypted images", () => {
 
   it("an isolate that cached the secrets before the key existed reads past its cache", async () => {
     const { app, clock } = world();
-    await withGenerator(app);
+    await withReadyModal(app);
     const before = await app.fresh.secrets();
     await encrypt(app, true);
     const id = await generate(app);
@@ -427,15 +431,18 @@ describe("settings API", () => {
     expect(resp.status).toBe(200);
   });
 
-  it("a direct generator is probed before saving", async () => {
-    const { app } = world();
+  it("a ComfyUI by URL (removed) is dropped from a stored list, and its setup route is gone", async () => {
+    const { app, comfy } = world();
+    await addGpu(app, { id: "url", kind: "url", name: "Your ComfyUI", base_url: COMFY, headers: {} });
+    await withReadyModal(app);
     const cookie = await login(app);
-    const bad = await app.handle(request("POST", "/api/setup/generator", { base_url: "https://nothing.example" }, cookie));
-    expect(bad.status).toBe(502);
-    expect(await app.gpus()).toEqual([]);
-    const ok = await app.handle(request("POST", "/api/setup/generator", { base_url: COMFY + "/" }, cookie));
-    expect((await body(ok)).system.comfyui_version).toBe("0.37.0");
-    expect(await app.gpus()).toEqual([{ id: "url", kind: "url", name: "Your ComfyUI", enabled: true, keep_warm_minutes: 5, base_url: COMFY, headers: {} }]);
+    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).gpus.map((g: any) => g.id)).toEqual(["modal"]);
+    const [, r] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x" } });
+    expect(r.result.content[0].type).toBe("image"); // on Modal
+    expect(comfy.prompts.length).toBe(1);
+    expect((await app.handle(request("POST", "/api/setup/generator", { base_url: COMFY }, cookie))).status).toBe(404);
+    await app.handle(request("PATCH", "/api/gpus/modal", { keep_warm_minutes: 6 }, cookie)); // any write drops it from storage
+    expect((await app.store.secrets()).gpus.map((g: any) => g.id)).toEqual(["modal"]);
   });
 
   it("build and callback", async () => {
@@ -576,15 +583,6 @@ describe("Modal models", () => {
     expect(comfy.prompts).toEqual([]);
   });
 
-  it("other generators never touch the admin API", async () => {
-    const { app, net, comfy } = world();
-    await withGenerator(app);
-    const [, r] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x" } });
-    expect(r.result.content[0].type).toBe("image");
-    expect(net.adminCalls).toEqual([]);
-    expect(marked(comfy.prompts[0])).toBe(false); // a ComfyUI by URL lacks our node
-  });
-
   it("removes signatures and watermarks on Modal once their models are there", async () => {
     const { app, net, comfy } = world();
     await withModal(app);
@@ -679,14 +677,6 @@ describe("LoRAs", () => {
     expect((await app.handle(request("GET", "/api/loras"))).status).toBe(401); // cookie required
   });
 
-  it("a ComfyUI by URL takes LoRAs by name: listed as a backend with no files", async () => {
-    const { app } = world();
-    await withGenerator(app);
-    const cookie = await login(app);
-    const listing = await body(await app.handle(request("GET", "/api/loras", undefined, cookie)));
-    expect(listing).toMatchObject({ backends: ["storage", "url"], files: {} });
-  });
-
   it("saving warns about LoRAs that are not uploaded", async () => {
     const { app, net, bucket } = world();
     await withModal(app);
@@ -712,7 +702,7 @@ describe("LoRAs", () => {
 describe("setup: storage and the answer", () => {
   it("without R2 the Worker runs, says storage is off, and spends no GPU time", async () => {
     const { app, net } = world({ noStorage: true });
-    await withGenerator(app);
+    await withReadyModal(app);
     const cookie = await login(app);
     expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).storage).toBe(false);
     // Connecting Claude works; a tool call explains, before touching the GPU.
@@ -1015,7 +1005,7 @@ describe("the PC path", () => {
 
   it("images outlive their GPU: a PC image opens and is edited on Modal while the PC is off", async () => {
     const { app, pc, comfy } = world();
-    await withGenerator(app);
+    await withReadyModal(app);
     await pair(app);
     const fox = png(64, 32);
     const girl = png(32, 64);
@@ -1052,7 +1042,7 @@ describe("the PC path", () => {
     const state = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
     expect(state.gpus[0]).toMatchObject({ online: true, paused: true }); // shown as paused, not offline
 
-    await withGenerator(app); // with another generator, it answers instead
+    await withReadyModal(app); // with another GPU, it answers instead
     const [, other] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } }, 2);
     expect(other.result.isError).toBe(false);
     expect(comfy.prompts.length).toBe(1);
@@ -1199,10 +1189,10 @@ describe("the GPU list", () => {
   it("calls go down the list: offline, paused or disabled GPUs are passed over; the order is the user's", async () => {
     const { app, relay, comfy } = world();
     const cookie = await login(app);
-    await withGenerator(app);
+    await withReadyModal(app);
     const b = await pairPc(app, cookie);
-    const a = await pairPc(app, cookie); // after the other PCs, before the URL: [b, a, url]
-    expect((await app.gpus()).map((g) => g.id)).toEqual([b.id, a.id, "url"]);
+    const a = await pairPc(app, cookie); // after the other PCs, before Modal: [b, a, modal]
+    expect((await app.gpus()).map((g) => g.id)).toEqual([b.id, a.id, "modal"]);
     await gen(app, 1);
     expect([relay(b.id).comfy.prompts.length, relay(a.id).comfy.prompts.length]).toEqual([1, 0]);
     relay(b.id).connected = false;
@@ -1210,25 +1200,25 @@ describe("the GPU list", () => {
     expect(relay(a.id).comfy.prompts.length).toBe(1);
     relay(a.id).paused = true;
     await gen(app, 3);
-    expect(comfy.prompts.length).toBe(1); // both PCs out: the ComfyUI by URL
+    expect(comfy.prompts.length).toBe(1); // both PCs out: Modal
     relay(b.id).connected = true;
     relay(a.id).paused = false;
     await app.handle(request("PATCH", `/api/gpus/${b.id}`, { enabled: false }, cookie));
-    await app.handle(request("PUT", "/api/gpus/order", { ids: ["url", a.id, b.id] }, cookie));
+    await app.handle(request("PUT", "/api/gpus/order", { ids: ["modal", a.id, b.id] }, cookie));
     await gen(app, 4);
-    expect(comfy.prompts.length).toBe(2); // the URL is first now
-    expect((await app.handle(request("PUT", "/api/gpus/order", { ids: ["url"] }, cookie))).status).toBe(400);
+    expect(comfy.prompts.length).toBe(2); // Modal is first now
+    expect((await app.handle(request("PUT", "/api/gpus/order", { ids: ["modal"] }, cookie))).status).toBe(400);
   });
 
   it("a GPU still downloading the pack hands the call to the next; the next call skips it", async () => {
     const { app, pc, comfy } = world();
     const cookie = await login(app);
-    await withGenerator(app);
+    await withReadyModal(app);
     await pairPc(app, cookie);
     pc.controls.ensure = () => [500, "The Anima model is downloading: 12% of 5.6 GB."];
     const [, first] = await gen(app, 1);
     expect(first.result.isError).toBe(false);
-    expect(comfy.prompts.length).toBe(1); // answered by the URL in the same call
+    expect(comfy.prompts.length).toBe(1); // answered by Modal in the same call
     pc.controlCalls.length = 0;
     await gen(app, 2);
     expect(pc.controlCalls.some(([op]) => op === "ensure")).toBe(false); // known to lack it: not asked
@@ -1237,7 +1227,7 @@ describe("the GPU list", () => {
   it("a fetch_result token names its GPU, and goes only there", async () => {
     const { app, pc, comfy } = world();
     const cookie = await login(app);
-    await withGenerator(app);
+    await withReadyModal(app);
     await pairPc(app, cookie);
     pc.comfy.history = Array(500).fill("running");
     const [, pending] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "slow" } });
@@ -1246,7 +1236,7 @@ describe("the GPU list", () => {
     pc.connected = false;
     const [, off] = await mcp(app, "tools/call", { name: "fetch_result", arguments: { request_token: token } }, 2);
     expect([off.result.isError, off.result.content[0].text]).toEqual([true, `Error: ${offlineMessage([{ name: "Your PC" } as any])}`]);
-    expect(comfy.calls).toEqual([]); // never asked the URL, which does not have the job
+    expect(comfy.calls).toEqual([]); // never asked Modal, which does not have the job
     pc.connected = true;
     pc.comfy.history = [];
     const [, done] = await mcp(app, "tools/call", { name: "fetch_result", arguments: { request_token: token } }, 3);

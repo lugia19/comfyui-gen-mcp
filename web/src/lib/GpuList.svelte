@@ -5,11 +5,10 @@
 
   // The Worker's GPUs, in priority order (design §2, "GPUs"): a call goes to the first that is
   // online, not paused and enabled, and has the model ready. Each PC pairs with its own link; Modal
-  // and a ComfyUI by URL are added by their own steps (the PC step shows a new PC's download and
-  // link). *gpus* is /api/state's list (with each one's live state); *refresh* reloads it.
+  // is added by its own step (the PC step shows a new PC's download and link). *gpus* is /api/state's list (with each one's live state); *refresh* reloads it.
   let { gpus, refresh } = $props()
 
-  const KIND = { pc: 'PC', modal: 'Modal', url: 'ComfyUI by URL' }
+  const KIND = { pc: 'PC', modal: 'Modal' }
   const task = new Task() // busy: the id of the GPU an action is running for
   let names = $state({}) // id -> the name being edited
 
@@ -24,7 +23,7 @@
   }
 
   function remove(g) {
-    const what = g.kind === 'pc' ? 'Its agent disconnects; pair it again with a new link.' : g.kind === 'modal' ? 'The Modal app stays deployed; deploy again to add it back.' : ''
+    const what = g.kind === 'pc' ? 'Its agent disconnects; pair it again with a new link.' : 'The Modal app stays deployed; deploy again to add it back.'
     if (confirm(`Remove ${g.name} from this Worker? ${what}`)) act(g.id, () => api('DELETE', `/gpus/${g.id}`))
   }
 
@@ -56,7 +55,6 @@
   function describe(g) {
     if (!g.enabled) return { text: 'Turned off', cls: 'muted' }
     if (g.kind === 'modal') return { text: 'Runs on demand', cls: 'ok' }
-    if (g.kind === 'url') return { text: g.base_url, cls: 'muted' }
     if (g.online && g.paused) return { text: 'Paused', cls: 'muted' }
     if (g.online) return { text: `Connected since ${since(g.since)}`, cls: 'ok' }
     return { text: g.seen ? 'Offline' : 'Waiting for its agent to pair', cls: 'muted' }
@@ -105,11 +103,9 @@
     {/if}
     <div class="row controls">
       <label class="check" title="Unticked, no images go to this GPU"><input type="checkbox" checked={g.enabled} onchange={(e) => patch(g, { enabled: e.currentTarget.checked })} /> Enabled</label>
-      {#if g.kind !== 'url'}
-        <label class="check">Keep warm
-          <input class="minutes" type="number" min="1" max="60" value={g.keep_warm_minutes} onchange={(e) => keepWarm(g, e)} /> min
-        </label>
-      {/if}
+      <label class="check">Keep warm
+        <input class="minutes" type="number" min="1" max="60" value={g.keep_warm_minutes} onchange={(e) => keepWarm(g, e)} /> min
+      </label>
       {#if g.kind !== 'pc'}<span class="spacer"></span>{@render trash(g)}{/if}
     </div>
     {#if g.kind === 'modal'}

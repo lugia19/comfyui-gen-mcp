@@ -198,7 +198,7 @@
         <h2>GPUs</h2>
         <GpuList gpus={info.gpus ?? []} {refresh} />
         <p class="muted">
-          To add a PC, Modal or a ComfyUI by URL, use
+          To add a PC or Modal, use
           <button type="button" class="link" onclick={onsetup}>the Setup tab</button>.
         </p>
       </section>

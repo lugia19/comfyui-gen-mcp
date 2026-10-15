@@ -16,7 +16,7 @@
   // The Worker's setup, one step at a time (design §8): log in, turn on storage (R2), then the
   // answer to "where should images be made?" (asked on the setup site, which the Deploy button
   // carried here as SETUP_MODE, or asked here), and only that answer's steps: the PC agent, Modal's
-  // deploy and models, or a ComfyUI by URL. Then connect Claude. Each step ticks itself from the
+  // deploy and models. Then connect Claude. Each step ticks itself from the
   // Worker's state and moves on by itself; steps already done are passed over.
   // Every page the user has to visit is a button; what they have to do is plain text, in order.
   // *onsettings*: opens the Settings tab, from the last step.
@@ -25,25 +25,21 @@
   const RELEASE = 'https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/'
   const MODAL_TOKENS = 'https://modal.com/settings/tokens'
   const MODAL_BILLING = 'https://modal.com/settings/usage' // "Manage payment details" is there
-  let showAdvanced = $state(false)
 
   // The answers, as the setup site words them.
   const MODES = {
     cloud: { title: 'In the cloud (Modal)' },
     pc: { title: 'On my PC' },
     both: { title: 'Both' },
-    url: { title: 'A ComfyUI by URL' },
   }
   let gpus = $derived(info.gpus ?? [])
   let modalGpu = $derived(gpus.find((g) => g.kind === 'modal'))
-  let urlGpu = $derived(gpus.find((g) => g.kind === 'url'))
   let pcs = $derived(gpus.filter((g) => g.kind === 'pc'))
   let mode = $derived(info.setup_mode ?? null)
   let storage = $derived(info.storage !== false)
   // A step shows for the answer, and for a GPU that already exists (an answer changed later only adds).
   let wantPc = $derived(mode === 'pc' || mode === 'both' || pcs.length > 0)
   let wantModal = $derived(mode === 'cloud' || mode === 'both' || Boolean(modalGpu) || Boolean(info.build && info.build !== info.update_build))
-  let wantUrl = $derived(mode === 'url' || Boolean(urlGpu))
   // Done once there is a PC and every PC has paired (a PC waiting to pair keeps the step open).
   let pcsReady = $derived(pcs.length > 0 && pcs.every((g) => g.seen))
   // A paused PC is set up but takes no images.
@@ -154,14 +150,6 @@
     }),
   )
 
-  // A ComfyUI URL
-  let directUrl = $state('')
-  const directTask = new Task()
-  function saveDirect(e) {
-    e.preventDefault()
-    directTask.run(async () => (await api('POST', '/setup/generator', { base_url: directUrl.trim() }), await refresh()))
-  }
-
   // Claude: claude.ai's "Add custom connector" dialog, opened with the name and URL filled in.
   let showUrl = $state(false) // the connector URL holds its secret: masked, as screenshots get shared
   const connectorCopy = new Copy()
@@ -208,7 +196,6 @@
     pc: { title: 'Set up your PC', short: 'PC', waiting: 'Waiting for your PC to pair.' },
     deploy: { title: 'Set up Modal', short: 'Modal', waiting: 'Waiting for Modal to be ready.' },
     models: { title: 'Download the models', short: 'Models', waiting: 'Waiting for Modal.' },
-    url: { title: 'Connect your ComfyUI', short: 'ComfyUI', waiting: 'Waiting for your ComfyUI.' },
     claude: { title: 'Connect Claude', short: 'Claude', waiting: 'Waiting for Claude to connect.' },
     finish: { title: "You're set", short: 'Done' },
   }
@@ -216,7 +203,6 @@
     const list = ['storage', 'mode']
     if (wantPc) list.push('pc')
     if (wantModal) list.push('deploy', 'models')
-    if (wantUrl) list.push('url')
     return [...list, 'claude', 'finish']
   })
   let done = $derived({
@@ -225,7 +211,6 @@
     pc: pcsReady,
     deploy: deployed && !modalError,
     models: modelsReady,
-    url: Boolean(urlGpu),
     claude: Boolean(info.claude_seen),
     finish: false, // where it ends: never ticked
   })
@@ -305,15 +290,6 @@
       <span><b>{MODES.pc.title}</b><br />
         <span class="muted">Free, on your own graphics card (NVIDIA, AMD on Linux, or a Mac with Apple silicon). The PC must be on.</span></span>
     </label>
-    {#if showAdvanced || mode === 'url'}
-      <label class="choice">
-        <input type="radio" name="mode" checked={mode === 'url'} disabled={modeTask.busy} onchange={() => choose('url')} />
-        <span><b>{MODES.url.title}</b><br />
-          <span class="muted">A ComfyUI you already run, reachable from the internet.</span></span>
-      </label>
-    {:else}
-      <button type="button" class="link" onclick={() => (showAdvanced = true)}>Advanced: a ComfyUI by URL</button>
-    {/if}
     {#if modeTask.error}<p class="err">{modeTask.error}</p>{/if}
     <details class="guide">
       <summary>Only using Claude Desktop, on the PC with the graphics card?</summary>
@@ -424,15 +400,6 @@
     {:else}
       <p>This comes after Modal is set up.</p>
     {/if}
-  {:else if current === 'url'}
-    <form onsubmit={saveDirect}>
-      <label for="url">Your ComfyUI's address</label>
-      <input id="url" type="url" bind:value={directUrl} placeholder="https://comfy.example.com" />
-      <p>It must be reachable from the internet.</p>
-      <button type="submit" disabled={directTask.busy || !directUrl.trim()}>{directTask.busy ? 'Checking…' : 'Use this ComfyUI'}</button>
-      {#if directTask.error}<p class="err">{directTask.error}</p>{/if}
-    </form>
-    {@render changeMode()}
   {:else if current === 'claude'}
     {#if !generatorReady}<p class="err">Finish the steps before this one first: Claude needs somewhere to make images.</p>{/if}
     <ol class="steps">

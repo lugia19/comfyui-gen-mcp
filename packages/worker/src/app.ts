@@ -62,7 +62,7 @@ export const SYNC_MAX_FILES = 20;
 const hmacKey = (s: Secrets) => fromHex(s.hmac_key);
 
 /** The answers to the setup's "where should images be made?" (design §8). */
-const SETUP_MODES = ["cloud", "pc", "both", "url"] as const;
+const SETUP_MODES = ["cloud", "pc", "both"] as const;
 type SetupMode = (typeof SETUP_MODES)[number];
 
 /** Storage (R2) isn't bound: R2 wasn't turned on in the account at the last build. The Setup page's
@@ -146,8 +146,8 @@ export class App {
   /**
    * GET /gpu/<id>: a PC's own settings page, relayed (design §9, "A page per PC"): the settings app,
    * which on this path talks to the PC through /api/gpus/<id>/machine. Logged out, the app (its
-   * login) whatever the id. Logged in: Modal or a ComfyUI by URL has no page of its own (to the
-   * GPU list); an unknown id is a 404.
+   * login) whatever the id. Logged in: Modal has no page of its own (to the GPU list); an unknown
+   * id is a 404.
    */
   private async gpuPage(req: Request, url: URL, id: string): Promise<Response> {
     const s = await this.store.secrets();
@@ -238,9 +238,10 @@ export class App {
 
   // ── GPUs ──────────────────────────────────────────────────────────
 
-  /** The GPU list, in priority order. */
+  /** The GPU list, in priority order. A ComfyUI by URL (removed 2026-10-15) is left out, and so
+   * dropped from storage by the next write. */
   async gpus(store: Store = this.fresh): Promise<Gpu[]> {
-    return (await store.secrets()).gpus ?? [];
+    return ((await store.secrets()).gpus ?? []).filter((g: Gpu) => g.kind === "pc" || g.kind === "modal");
   }
 
   private async saveGpus(gpus: Gpu[]): Promise<void> {
@@ -273,7 +274,7 @@ export class App {
   }
 
   /** Whether a GPU can take a call now. A PC: its agent connected and not paused (one Durable Object
-   * call, no waiting). Modal and a URL: always (Modal starts on the call). */
+   * call, no waiting). Modal: always (it starts on the call). */
   private async status(gpu: Gpu): Promise<GpuStatus> {
     if (gpu.kind !== "pc") return { online: true, paused: false, since: null, info: null };
     try {
@@ -300,9 +301,9 @@ export class App {
 
   /** Whether a GPU has a pack's models: true, false (downloading, or missing), or null when not
    * known yet (a PC that has not been asked). Modal's from its seed cache (downloads it finished), a
-   * PC's from its last ensure or models check. A ComfyUI by URL has what it has. */
+   * PC's from its last ensure or models check. */
   private ready(gpu: Gpu, setup: Record<string, any>, pack: Pack): boolean | null {
-    if (gpu.kind === "url" || !pack.models?.length) return true;
+    if (!pack.models?.length) return true;
     if (gpu.kind === "modal" && (setup.seeded ?? []).includes(pack.name)) return true;
     return setup.ready?.[gpu.id]?.[pack.name] ?? null;
   }
@@ -421,7 +422,8 @@ export class App {
           target.kind === "pc"
             ? new PcHooks(client, key, this.fetch, this.store, `${url.origin}/`, this.p.relays(target.id), target, images, onReady)
             : new WorkerHooks(client, key, this.fetch, this.admin(target), this.store, `${url.origin}/`, images, onReady);
-        // Only our ComfyUI extension has the mark-removal node: Modal's, and a PC agent's managed one.
+        // Our ComfyUI extension's mark-removal node: on Modal, and on a PC whose agent says so (one from
+        // before the node doesn't).
         const canRemoveMarks = target.kind === "modal" || (target.kind === "pc" && (await this.status(target)).info?.remove_marks === true);
         const outcome = await new Brain(PACKS, cfg, client, "refs", { hooks, canRemoveMarks }).call(name, args);
         tried.push(target);
@@ -505,8 +507,8 @@ export class App {
     return r.ok ? json(r.data) : error(r.message === offlineMessage([gpu]) ? 503 : 502, r.message);
   }
 
-  /** The one GPU of *kind* (Modal, or a ComfyUI by URL) set to *make*'s: replaced where it is in the
-   * list, else added at the end (a fallback behind the PCs). */
+  /** The one GPU of *kind* (Modal) set to *make*'s: replaced where it is in the list, else added at
+   * the end (a fallback behind the PCs). */
   private async putGpu(kind: Gpu["kind"], make: (old: Gpu | undefined) => Gpu): Promise<Gpu> {
     const gpus = await this.gpus();
     const old = gpus.find((g) => g.kind === kind);
@@ -538,7 +540,6 @@ export class App {
     if (sub === "/loras" || sub.startsWith("/loras/")) return this.loras(req, url, sub, s);
     if (sub === "/models" && req.method === "GET") return this.models(url);
     if (sub === "/models/seed" && req.method === "POST") return this.seedPack(req);
-    if (sub === "/setup/generator" && req.method === "POST") return this.setupGenerator(req);
     if (sub === "/setup/mode" && req.method === "POST") {
       const mode = (await bodyJson(req)).mode;
       if (!SETUP_MODES.includes(mode)) return error(400, `mode: one of ${SETUP_MODES.join(", ")}`);
@@ -577,7 +578,7 @@ export class App {
   private mode(setup: Record<string, any>): SetupMode | null {
     if ((SETUP_MODES as readonly string[]).includes(setup.mode)) return setup.mode;
     const site = this.p.env.SETUP_MODE ?? "";
-    if ((SETUP_MODES as readonly string[]).includes(site) && site !== "url") return site as SetupMode;
+    if ((SETUP_MODES as readonly string[]).includes(site)) return site as SetupMode;
     return null;
   }
 
@@ -784,8 +785,7 @@ export class App {
   /**
    * The LoRA files in storage and on each GPU, for the settings page: {backends: ["storage", gpu
    * ids…], gpus: [{id, name, kind}], files: {name: {backend: size}}, syncing: the agents' copies in
-   * progress, errors: {backend: message}, offline: PCs not connected now}. A ComfyUI reached by URL
-   * is listed with no files.
+   * progress, errors: {backend: message}, offline: PCs not connected now}.
    */
   private async loraListing() {
     const gpus = await this.gpus();
@@ -986,7 +986,7 @@ export class App {
     // The watermark removal's models download in the background, never listed (design §3).
     const packs = wantedPacks(await this.fresh.config()).filter((p) => p !== MARK_MODELS);
     const on: Record<string, any>[] = packs.map(() => ({}));
-    const gpus = (await this.gpus()).filter((g) => g.kind !== "url" && (!only || g.id === only));
+    const gpus = (await this.gpus()).filter((g) => !only || g.id === only);
     for (const gpu of gpus) {
       if (gpu.kind === "pc") {
         const r = (await this.status(gpu)).online ? await this.control(gpu, "models", { packs: packs.map(packNeeds) }) : null;
@@ -1025,25 +1025,13 @@ export class App {
       return this.controlResponse(gpu, await this.control(gpu, "download", { pack: packNeeds(pack) }));
     }
     const admin = this.admin(gpu);
-    if (!admin) return error(400, "a ComfyUI by URL downloads its own models");
+    if (!admin) return error(400, "this Modal has no admin API: deploy it again from the Setup tab");
     try {
       return json(await admin.seed(pack));
     } catch (e) {
       if (e instanceof modalAdmin.ModalAdminError) return error(502, e.message);
       throw e;
     }
-  }
-
-  /** A ComfyUI the Worker can reach directly (advanced; Modal is configured by the build). */
-  private async setupGenerator(req: Request): Promise<Response> {
-    const data = await bodyJson(req);
-    const baseUrl = String(data.base_url ?? "").trim().replace(/\/+$/, "");
-    const headers = data.headers && typeof data.headers === "object" && !Array.isArray(data.headers) ? data.headers : {};
-    if (!baseUrl.startsWith("https://") && !baseUrl.startsWith("http://")) return error(400, "base_url must be an http(s) URL");
-    const resp = await new FetchTransport(this.fetch, baseUrl, headers).request("GET", "/system_stats");
-    if (resp.status !== 200) return error(502, `ComfyUI did not answer at ${baseUrl}/system_stats (HTTP ${resp.status})`);
-    await this.putGpu("url", (old) => ({ id: "url", kind: "url", name: old?.name ?? "Your ComfyUI", enabled: true, keep_warm_minutes: DEFAULT_KEEP_WARM, base_url: baseUrl, headers }));
-    return json({ ok: true, system: resp.json().system ?? {} });
   }
 
   private async startBuild(req: Request, url: URL, s: Secrets): Promise<Response> {

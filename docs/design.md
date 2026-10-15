@@ -26,7 +26,7 @@ GPU is. Targets:
 | Component | Runs on | Job |
 |---|---|---|
 | Worker | Cloudflare Worker (TypeScript), free plan | The brain. MCP endpoint, settings and setup app, image route, config in a Durable Object, cron jobs, the GPU list, a relay per PC |
-| ComfyUI | Modal, PCs, a URL, or localhost | The generator. We ship no handler code: ComfyUI's own HTTP API is the interface |
+| ComfyUI | Modal, PCs, or localhost (the extension), always with our extension | The generator. We ship no handler code: ComfyUI's own HTTP API is the interface |
 | Modal app | User's Modal workspace | ComfyUI server on an L4, a Volume, a seed function, a small admin web endpoint |
 | Agent | GPU owner's PC: a Go launcher running a Node bundle | ComfyUI install and lifecycle, model downloads, idle stop, tray, a loopback settings page; relays the Worker's ComfyUI calls to local ComfyUI (§9) |
 | MCPB | Claude Desktop | A stdio shim that loads the latest bundle; one Claude Desktop process runs the local server (MCP, settings page, tray, ComfyUI lifecycle), the others relay to it |
@@ -74,7 +74,7 @@ new Node) is a new download; running it installs it over the old one.
 | Mode | Brain | Config | Generator | Settings UI |
 |---|---|---|---|---|
 | MCPB | local server | local JSON file | ComfyUI on localhost | localhost page |
-| Worker | Worker | State Durable Object | The GPU list: PCs through their agents, Modal, a ComfyUI by URL | Worker page |
+| Worker | Worker | State Durable Object | The GPU list: PCs through their agents, Modal | Worker page |
 
 Rule: an MCPB install and a Worker install are separate; a machine uses one or the other. The MCPB
 is for Claude Desktop only: it has no tunnel and no remote route, and remote use (claude.ai, mobile)
@@ -84,15 +84,17 @@ goes through a Worker, with the PC agent when the GPU is at home. The agent uses
 ### GPUs
 
 A Worker's GPUs are one list in priority order (`secrets.gpus`, decided 2026-10-01): any number of
-PCs, at most one Modal app and at most one ComfyUI by URL. Each is plain compute: images and LoRAs
-live in R2 (§4), so nothing depends on which GPU made an image. An entry is
-`{id, kind: "pc"|"modal"|"url", name, enabled, keep_warm_minutes}` plus, by kind, a PC's pairing
-secret, or Modal's and a URL's base URL and headers (Modal also its admin URL and cold start).
+PCs and at most one Modal app. Each is plain compute: images and LoRAs live in R2 (§4), so nothing
+depends on which GPU made an image. An entry is `{id, kind: "pc"|"modal", name, enabled,
+keep_warm_minutes}` plus, by kind, a PC's pairing secret, or Modal's base URL, headers, admin URL
+and cold start. A third kind, a ComfyUI by URL (id `url`), was removed on 2026-10-15 (§11): reading
+the list leaves a stored one out, so the next write drops it, and its `fetch_result` tokens answer
+"its GPU was removed".
 
 - **Adding:** a PC from the Setup page (`POST /api/gpus/pc`, which returns its pairing link; the
-  first PC's id is `pc`, later ones `pc-<random>`; it goes after the other PCs and before Modal and
-  the URL, so a later, smaller PC doesn't take over from the first: an 8 GB Mac did, 2026-10-02); Modal by its deploy's build callback (id
-  `modal`, added at the end); a URL from the advanced setup step (id `url`).
+  first PC's id is `pc`, later ones `pc-<random>`; it goes after the other PCs and before Modal, so
+  a later, smaller PC doesn't take over from the first: an 8 GB Mac did, 2026-10-02); Modal by its
+  deploy's build callback (id `modal`, added at the end).
 - **Managing** (`/api/gpus`): `PATCH /<id>` sets name, enabled and keep-warm; `PUT /order` the
   order; `POST /<id>/pair` a new pairing link; `POST /<id>/pause` pauses a PC; `DELETE /<id>`
   removes one (a PC's agent is disconnected). `/api/state` lists them with their live state, never
@@ -100,7 +102,7 @@ secret, or Modal's and a URL's base URL and headers (Modal also its admin URL an
 - **Routing:** a call goes to the first enabled GPU that is available (a PC: connected and not
   paused) and not known to lack the call's pack; readiness unknown (a PC not asked yet) is worth a
   try. A PC's readiness is kept per pack from its answers (`setup.ready`), Modal's from its seed
-  cache; a URL has what it has. With none ready, the first available one takes the call and starts
+  cache. With none ready, the first available one takes the call and starts
   the download. A GPU that turns out to be downloading hands the call to the next one in the same
   call. None available: the tools say which GPUs are offline or paused.
 - **`fetch_result` tokens** are `<gpuId>:<prompt_id>`: only that GPU has the job, so the call goes
@@ -308,11 +310,8 @@ them, on by default (`remove_marks`, §5):
   through unchanged and logs a warning.
 - **Where it runs.** Only where our extension runs (`BrainOptions.canRemoveMarks`):
   - Modal;
-  - a PC whose agent's hello says `remove_marks` (one using its own ComfyUI doesn't, nor an agent
-    from before the node);
-  - the extension without a `comfyui_url`.
-
-  A ComfyUI by URL never gets it.
+  - a PC whose agent's hello says `remove_marks` (an agent from before the node doesn't);
+  - the extension.
 - **Models.** The two files (260 MB, folder `comfy_gen`) are their own download set, core
   `MARK_MODELS` (in `packs/tools.json`), fetched in the background and never shown (the user's
   call, 2026-10-15: nothing to decide there). While the setting is on, they are seeded on Modal's
@@ -596,9 +595,8 @@ deploy form shows that variable filled in; the build (`deploy.py`) carries it ov
 copy; the Worker takes it as its answer. `bootstrap/` stays the answer-less template for old links.
 
 The Worker's page is the rest of the stepper: log in; **turn on storage** (below); **where should
-images be made?** (the answer: chosen on this page, stored in `setup.mode`, else `SETUP_MODE`;
-under Advanced, a ComfyUI
-URL); that answer's steps (Set up your PC; Deploy ComfyUI to Modal and its models; or the URL);
+images be made?** (the answer: chosen on this page, stored in `setup.mode`, else `SETUP_MODE`);
+that answer's steps (Set up your PC; Deploy ComfyUI to Modal and its models);
 connect Claude. Changing the answer only adds steps. Each step ticks itself from the Worker's state:
 the generator set, the models on the Volume, the PC connected, and Claude having connected (the
 first `tools/list` on the connector URL sets `claude_seen` in the `setup` key; a new URL clears
@@ -894,8 +892,8 @@ own page on the Worker, `/gpu/<id>`: the agent's own settings page, all of it, r
 list (Settings, GPUs) links to it with **Open its page** (a new tab). The agent's tray opens the
 Worker's Settings while connected, where most settings are (2026-10-15; until then it opened this
 page, its id from `GET /agent/whoami`, which stays for agents from before). The Worker serves the app on
-that path (the `ASSETS` binding, `/gpu/*` run first) after checking the id when logged in: Modal or
-a ComfyUI by URL goes to the GPU list, an unknown id is a 404, and a logged-out visitor gets the
+that path (the `ASSETS` binding, `/gpu/*` run first) after checking the id when logged in: Modal
+goes to the GPU list, an unknown id is a 404, and a logged-out visitor gets the
 login whatever the id. On that path the app (`api.js`) sends every call to
 `/api/gpus/<id>/machine/…`, which the Worker relays as a `machine` control op, path, query and a
 JSON body as text, unparsed; binary bodies (the agent page's own LoRA uploads) get 415, since LoRAs
@@ -1005,6 +1003,7 @@ Later: the ComfyUI client and the Modal app can become shared with Visual-Noveli
 | A PC's settings reachable from the Worker only through an allow-list (2026-10-02) | Guarded nothing: the Worker can already run code on the PC through each pack's `required_nodes`. Every setting is now on the PC's own page on the Worker; only pairing stays on the PC (§9, "A page per PC") |
 | The negative prompt against painted-in signatures (2026-10-15) | Didn't stop them on base Anima, and Anima Turbo skips the negative at CFG 1 |
 | Repainting a mark with the image's own model, or ready-made node packs (2026-10-15) | A diffusion inpaint per image costs seconds of GPU and loads another graph. The marks sit on flat colour near the corners, which LaMa fills well. Acly's LaMa node resizes the whole image to 512 and blurred it; Impact Pack's detailers were more machinery than one detector and one fill. Our own node crops each mark at full resolution |
+| A ComfyUI by URL as a GPU, and "Your own ComfyUI" for the agent and the extension (`comfyui_url`); removed 2026-10-15 | Every feature since the wait route needs our ComfyUI extension (the held wait, watermark removal; background removal needs our model folders), and each had to say "except there". What people wanted from their own ComfyUI, its models, the managed install already uses (other installs' folders are found and shared, §5). A stored URL GPU is left out of the list; a stored `comfyui_url` is dropped when the config loads, and the managed ComfyUI takes over |
 | comfy-cli for the local ComfyUI install | Needs git (a hard failure without it) and a second Python env just to run it, and caused the old extension's Windows bugs (spaces in `override.txt`, cp1252 crashes, a leaked `VIRTUAL_ENV`). What it abstracts, uv does: `--torch-backend auto` picks the CUDA wheels from the driver on every OS and the ROCm build by GPU architecture on Linux. The one gap, Intel Arc on Windows, is an explicit "intel" choice (`xpu`). AMD on Windows gets CPU wheels either way (comfy-cli installed DirectML but never launched with `--directml`). `local` downloads the pinned ComfyUI release, makes the venv with uv, installs node packages from the Comfy Registry API. Installs the old extension made with comfy-cli run as they are |
 
 ## 12. Phases

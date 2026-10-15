@@ -2,13 +2,14 @@
 // secrets as `gpus`. Each is plain compute; images and LoRAs live in R2.
 //   modal  the Modal app the build deployed: ComfyUI over HTTP, scaled to zero, cold starts
 //   pc     a PC running the agent, reached over its own Relay Durable Object (named after its id)
-//   url    a ComfyUI the Worker can reach directly (advanced)
+// Both run ComfyUI with our extension. A ComfyUI by URL (kind "url") was a third, removed 2026-10-15:
+// App.gpus drops a stored one.
 // A call goes to the first enabled GPU that is online, not paused, and has the call's pack ready;
 // if none has it ready, to the first that is available (which starts the download and says so).
 
 import { tokenUrlsafe } from "@comfy-gen/core";
 
-export type GpuKind = "modal" | "pc" | "url";
+export type GpuKind = "modal" | "pc";
 
 export type Gpu = {
   id: string;
@@ -16,7 +17,7 @@ export type Gpu = {
   name: string;
   enabled: boolean;
   keep_warm_minutes: number;
-  // modal and url
+  // modal
   base_url?: string;
   admin_url?: string | null;
   headers?: Record<string, string>;
