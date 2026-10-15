@@ -261,6 +261,7 @@ results stay as they are:
     `edit_image` and `fetch_result` ignore it. The pack's own settings, LoRA group and negative
     come with it (core `packFor`, in the Brain and, for routing, the Worker). It also works on
     the MCPB.
+  - On `redraw`, `model` names any pack that can redraw, and `negative` works as above.
 - **`_meta["comfy-gen/result"]`** on every tool result, beside the unchanged content blocks:
   - `{status: "done", images: [{image_id, url, width, height}]}`
   - `{status: "pending", request_token}`
@@ -359,6 +360,54 @@ grey or coloured background in the prompt, never white.
   the option again.
 - **Cost:** about 1.7 s per image on Modal's L4 and 1.2 s on the user's PC (live, v1.16.1, Anima
   Turbo portraits: 16.8 s against 15.1 s, and 10.4 s against 9.3 s). The spike's CPU took 35 to 54 s.
+
+### Redraw (2026-10-15)
+
+`redraw` repaints one part of an image and leaves every other pixel as it was: a mangled hand or
+face, an expression, a small detail. Visual Novelist makes a sprite's expressions with it, so the
+body, outfit and pose stay identical across them. Arguments: the image, a prompt, an optional
+`box` (`[left, top, right, bottom]`, fractions of the image; none means the largest face),
+`strength` (0.3 to 1, default 0.9) and `style` (`illustrated` or `realistic`: the pack selected
+for that generation tool); hidden, `model` and `negative` (Scripted callers).
+
+- **The technique.** The pack's own generation graph, with its empty latent replaced by the image:
+  VAE-encoded, a soft mask as the latent's noise mask (`SetLatentNoiseMask`), the model through
+  `DifferentialDiffusion` so the mask's edge blends, and the sampler's denoise set to the strength
+  (core `redrawWorkflow`). Then the result is pasted back through the mask at full resolution, so
+  the rest is pixel-identical (the VAE round trip would otherwise shift it), the image keeps its
+  size, and a transparent image its alpha (LoadImage's mask, put back). Anima has no inpainting
+  model or channels; this needs none.
+- **The whole image, the prompt for all of it; only the mask is repainted.** The image is sampled
+  at its own size (scaled down to the pack's budget if over), and the prompt describes the whole
+  picture: the prompt that made it, with the change written in (Visual Novelist swaps the
+  expression tags). About 8 s for a 1536×1024 image on Modal's L4 with Anima Turbo, 13 s per
+  sprite expression, 72 s with base Anima. At 0.9 expressions read clearly and identity holds
+  (Frenni's muzzle, a cutesexyrobutts human face); 0.8 barely changed them.
+- **Region mode, tried and dropped (the user's call, 2026-10-15).** Sampling a crop of 2× the box
+  at a megapixel with a prompt for the crop alone gave sharp fingers but wrong ones: bare hands on
+  an armoured knight from "a hand in a steel gauntlet", the hand left out with more context; 2
+  usable of 12 tries. The whole image with its own prompt knew she was a knight.
+- **The area.** A box is grown 1.5× and drawn as a rounded rectangle; a face, the detector's box
+  grown 1.2×, as an ellipse; both blurred by 4% of their shorter side (8% left the knight's
+  new hand half see-through; Frenni's expressions read the same at either). On the knight's mangled
+  hand (8 tries each): grown 1.15×, 2 drew a gauntlet and most left the hand out; 1.5×, 6 drew a
+  gauntleted hand; 2×, as many but more of the armour around it redrawn. A loose box works, so the
+  description says to measure the box with tooling where there is any, otherwise to estimate it
+  erring larger, and to call again with a larger box if the problem remains. In the spike a box
+  estimated by eye was within about 30 px of the measured one.
+- **Our nodes.** `ComfyGenRedrawRegion` (the area, its mask, the image to sample) and
+  `ComfyGenRedrawPaste` in our extension, so redraw runs where it does: Modal, the extension, and a
+  PC whose agent's hello says `redraw` (v1.17.0; older agents get a plain "needs a newer agent").
+- **The face detector.** deepghs' anime face detector v1.4 s (YOLOv8, MIT, 45 MB, `comfy_gen`
+  folder), run by onnxruntime directly (pinned, beside ultralytics), not through ultralytics: that
+  installed a package on its own in the spike. Its model set (core `FACE_MODELS`) downloads from
+  the start like background removal's; a call without a box waits for it like for a pack. No face
+  found is an error naming the fix: pass a box.
+- **Which packs.** Those whose sampler is a KSampler fed by the empty latent (`canRedraw`): Anima,
+  Anima Turbo and Z-Image Turbo. Flux 2 Klein's custom sampler has no denoise; with it selected
+  for realistic images, `style: "realistic"` says so and names the packs that can.
+- **No watermark or background step.** The image was cleaned when it was made, and the area keeps
+  the rest of the image's pixels; a transparent input stays transparent anyway.
 
 ### Waiting
 
@@ -876,7 +925,7 @@ a header and its chunks in one synchronous run, so messages never interleave.
 | `http` | Worker → agent | One ComfyUI request (method, path, params, headers, body); the agent calls its ComfyUI inside a job, so the idle stop waits |
 | `control` | Worker → agent | An agent operation: `pause` (`{paused}`, from the Setup page), `ensure` (start ComfyUI, install the pack's nodes, check or start its model downloads), `loras` (its files and the LoRA copies in progress), `models`, `download`, `sync` (start a LoRA sync), `lora_delete`, `status` |
 | `reply` | agent → Worker | `{id, status}` and the body |
-| `hello` | agent → Worker | On connecting, and again when paused or resumed: version, platform, GPU, ComfyUI state, `paused`, and what this agent's ComfyUI can do (`remove_marks`; absent on an agent from before it, so the Worker leaves that step out); the latest is kept with the socket for the settings page |
+| `hello` | agent → Worker | On connecting, and again when paused or resumed: version, platform, GPU, ComfyUI state, `paused`, and what this agent's ComfyUI can do (`remove_marks`, `remove_background`, `redraw`; absent on an agent from before each, so the Worker leaves that step out or says the agent needs updating); the latest is kept with the socket for the settings page |
 
 On the Worker, `RelayTransport` is core's `Transport` over the object's `request()`, so the
 ComfyUI client, held waits and the brain are unchanged. A call with no agent connected waits 10 s
@@ -1035,6 +1084,8 @@ Later: the ComfyUI client and the Modal app can become shared with Visual-Noveli
 | A PC's settings reachable from the Worker only through an allow-list (2026-10-02) | Guarded nothing: the Worker can already run code on the PC through each pack's `required_nodes`. Every setting is now on the PC's own page on the Worker; only pairing stays on the PC (§9, "A page per PC") |
 | The negative prompt against painted-in signatures (2026-10-15) | Didn't stop them on base Anima, and Anima Turbo skips the negative at CFG 1 |
 | Repainting a mark with the image's own model, or ready-made node packs (2026-10-15) | A diffusion inpaint per image costs seconds of GPU and loads another graph. The marks sit on flat colour near the corners, which LaMa fills well. Acly's LaMa node resizes the whole image to 512 and blurred it; Impact Pack's detailers were more machinery than one detector and one fill. Our own node crops each mark at full resolution |
+| `edit_image` for touch-ups, and an inpainting control model (2026-10-15) | Flux 2 Klein's edits changed 0.7 to 1% of a sprite's body pixels, lost Frenni's bear muzzle and shifted the style. kohya's Anima LLLite inpainting needs a custom node under a non-commercial licence; masked denoising on the pack's own graph was enough (§3, Redraw) |
+| Redrawing a crop around the area (2026-10-15) | With the whole character's prompt the crop got the body the prompt described (a bustier drawn into a face crop); with a prompt for the crop alone, the model lost what the crop didn't show (bare hands on an armoured knight): 2 usable of 12. Redraw samples the whole image with the prompt for all of it, and repaints only the mask (§3, Redraw) |
 | A ComfyUI by URL as a GPU, and "Your own ComfyUI" for the agent and the extension (`comfyui_url`); removed 2026-10-15 | Every feature since the wait route needs our ComfyUI extension (the held wait, watermark removal; background removal needs our model folders), and each had to say "except there". What people wanted from their own ComfyUI, its models, the managed install already uses (other installs' folders are found and shared, §5). A stored URL GPU is left out of the list; a stored `comfyui_url` is dropped when the config loads, and the managed ComfyUI takes over |
 | comfy-cli for the local ComfyUI install | Needs git (a hard failure without it) and a second Python env just to run it, and caused the old extension's Windows bugs (spaces in `override.txt`, cp1252 crashes, a leaked `VIRTUAL_ENV`). What it abstracts, uv does: `--torch-backend auto` picks the CUDA wheels from the driver on every OS and the ROCm build by GPU architecture on Linux. The one gap, Intel Arc on Windows, is an explicit "intel" choice (`xpu`). AMD on Windows gets CPU wheels either way (comfy-cli installed DirectML but never launched with `--directml`). `local` downloads the pinned ComfyUI release, makes the venv with uv, installs node packages from the Comfy Registry API. Installs the old extension made with comfy-cli run as they are |
 

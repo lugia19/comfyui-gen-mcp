@@ -696,3 +696,25 @@ RGBA, about 70% transparent, clean (a held mop included).
 On the user's PC (agent v1.16.1, its hello saying `remove_background`): 10.2 to 10.8 s with it
 against 9.0 to 9.4 s without, about 1.2 s; RGBA, 71 to 74% transparent.
 
+
+## v1.17.0: redraw (2026-10-15)
+
+A `redraw` tool (design §3, Redraw): repaint a box or the largest face of an image, the rest
+pixel-identical, through masked denoising on the pack's own graph and two nodes in our extension.
+The whole image is sampled with the prompt for all of it (the prompt that made it, with the change
+written in); only the mask, the box grown 1.5× or the face, is repainted. A first version also had
+a region mode (a crop around the box, a prompt for the crop): dropped before release, its results
+mostly wrong. The face detector is a model set downloaded from the start; onnxruntime is pinned
+beside ultralytics; the agent's hello says `redraw`.
+
+Spikes on Modal's L4 (scratchpad `expr/`, `redraw/`): sprite expressions at 0.9, about 13 s with
+Anima Turbo and 72 s with base Anima; a knight's mangled hand in a 1536×1024 scene, about 8 s,
+fixed in 6 of 8 tries with the box grown 1.5×, and in 4 of 4 with the node's own mask and its
+edge narrowed to 4% (at 8% the new hand came out half see-through). Verified before release on the
+scratchpad's CPU ComfyUI with the graph core builds (at half size, the 8% edge): the hand redrawn
+with no pixel changed outside the area; a face found and redrawn with the image's size and
+transparent frame kept; a picture without a face answered "No face found in this image: pass a box
+around it instead."
+
+Next: Visual Novelist makes expression variants with `redraw`: its sprite prompt with the
+expression swapped, no box.
