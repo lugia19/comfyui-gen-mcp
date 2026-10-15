@@ -322,17 +322,15 @@ export function redrawSampler(workflow: Workflow): { sampler: string; size: stri
 export type RedrawOptions = {
   /** "left,top,right,bottom" fractions of the image, or "" for the largest face. */
   box: string;
-  /** Sample the whole image (the prompt describes all of it), not a crop around the box. */
-  wholeImage: boolean;
   /** The sampler's denoise: how far the repainted part may stray from what is there. */
   strength: number;
-  /** The most pixels to sample (the pack's budget). */
+  /** The most pixels to sample (the pack's budget): a bigger image is sampled scaled down. */
   maxPixels: number;
 };
 
 /**
  * A copy of a (prepared: LoRAs spliced in) generation workflow that repaints part of the image
- * *loadValue* instead of drawing from nothing: its empty latent is replaced by the image, encoded,
+ * *loadValue* instead of drawing from nothing, the whole image sampled with the prompt for all of it: its empty latent is replaced by the image, encoded,
  * with REDRAW_REGION_NODE's mask as the latent's noise mask; the sampler denoises *strength* through
  * DifferentialDiffusion (the mask's soft edge blends instead of cutting); every SaveImage gets the
  * result pasted back into the original by REDRAW_PASTE_NODE, so the rest of the image is untouched,
@@ -350,7 +348,7 @@ export function redrawWorkflow(workflow: Workflow, loadValue: string, opts: Redr
   delete wf[size];
   wf[image] = node("LoadImage", TITLES.redrawImage, { image: loadValue });
   wf[region] = node(REDRAW_REGION_NODE, TITLES.redrawRegion, {
-    image: [image, 0], box: opts.box, whole_image: opts.wholeImage, max_pixels: Math.round(opts.maxPixels),
+    image: [image, 0], box: opts.box, max_pixels: Math.round(opts.maxPixels),
   });
   wf[encode] = node("VAEEncode", TITLES.redrawEncode, { pixels: [region, 0], vae });
   wf[mask] = node("SetLatentNoiseMask", TITLES.redrawMask, { samples: [encode, 0], mask: [region, 1] });

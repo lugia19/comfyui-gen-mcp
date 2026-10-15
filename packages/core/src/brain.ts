@@ -212,9 +212,7 @@ export class Brain {
       if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
       throw e;
     }
-    const wf = redrawWorkflow(pack.workflow, loadValue, {
-      box, wholeImage: args.whole_image === true, strength, maxPixels: pack.max_pixels ?? 1_048_576,
-    });
+    const wf = redrawWorkflow(pack.workflow, loadValue, { box, strength, maxPixels: pack.max_pixels ?? 1_048_576 });
     return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles, negative: String(args.negative ?? "") }), null);
   }
 

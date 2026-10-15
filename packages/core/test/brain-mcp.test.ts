@@ -359,7 +359,6 @@ describe("redraw", () => {
     expect(paths.inputSchema.required).toEqual(["prompt", "image_path"]);
     expect(refs.inputSchema.required).toEqual(["prompt", "image"]);
     for (const spec of [paths, refs]) {
-      expect(Object.keys(spec.inputSchema.properties)).not.toContain("whole_image"); // hidden: scripted callers
       expect(spec.description).toContain("fractions");
     }
   });
@@ -371,16 +370,16 @@ describe("redraw", () => {
     expect(out).toBeInstanceOf(Done);
     expect(hooks.ensured).toEqual(["anima_turbo"]);
     let prompt = comfy.prompts.at(-1)!;
-    expect(nodeOf(prompt, "ComfyGenRedrawRegion").inputs).toMatchObject({ box: "0.3,0.7,0.4,0.9", whole_image: false });
+    expect(nodeOf(prompt, "ComfyGenRedrawRegion").inputs).toMatchObject({ box: "0.3,0.7,0.4,0.9", max_pixels: 2359296 });
     expect(nodeOf(prompt, "KSampler").inputs.denoise).toBe(0.9);
     expect(nodeOf(prompt, "LoadImage").inputs.image).toBe("a.png [output]");
     expect(JSON.stringify(prompt)).not.toContain("ComfyGenRemoveMarks"); // the rest of the image stays as it was
 
     hooks = new PathHooks();
-    out = await brain({ hooks }).call("redraw", { prompt: "1girl, smile", image_path: "a.png", whole_image: true, strength: 1, style: "realistic" });
+    out = await brain({ hooks }).call("redraw", { prompt: "1girl, smile", image_path: "a.png", strength: 1, style: "realistic" });
     expect(hooks.ensured).toEqual(["detect-faces", "z_image_turbo"]);
     prompt = comfy.prompts.at(-1)!;
-    expect(nodeOf(prompt, "ComfyGenRedrawRegion").inputs).toMatchObject({ box: "", whole_image: true });
+    expect(nodeOf(prompt, "ComfyGenRedrawRegion").inputs).toMatchObject({ box: "" });
     expect(nodeOf(prompt, "KSampler").inputs.denoise).toBe(1);
   });
 

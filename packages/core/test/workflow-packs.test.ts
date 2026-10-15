@@ -345,7 +345,7 @@ describe("redraw", () => {
   it("repaints the loaded image through a mask instead of drawing from an empty latent", () => {
     const cfg = normalize({ pack_loras: { anima: [{ name: "style.safetensors", trigger: "@style" }] } });
     const prepared = prepare(pack("anima_turbo"), cfg);
-    const wf = redrawWorkflow(prepared.workflow, "sprite.png [input]", { box: "0.3,0.7,0.4,0.9", wholeImage: false, strength: 0.9, maxPixels: 2359296 });
+    const wf = redrawWorkflow(prepared.workflow, "sprite.png [input]", { box: "0.3,0.7,0.4,0.9", strength: 0.9, maxPixels: 2359296 });
     const node = (ref: [string, number]) => wf[ref[0]];
     const byClass = (c: string) => Object.values<any>(wf).filter((n) => n.class_type === c);
     expect(byClass("EmptyLatentImage")).toEqual([]); // the empty latent is gone
@@ -357,7 +357,7 @@ describe("redraw", () => {
     const encode = node(mask.inputs.samples);
     const region = node(encode.inputs.pixels);
     expect([region.class_type, mask.inputs.mask[0], mask.inputs.mask[1]]).toEqual([REDRAW_REGION_NODE, encode.inputs.pixels[0], 1]);
-    expect(region.inputs).toMatchObject({ box: "0.3,0.7,0.4,0.9", whole_image: false, max_pixels: 2359296 });
+    expect(region.inputs).toEqual({ image: region.inputs.image, box: "0.3,0.7,0.4,0.9", max_pixels: 2359296 });
     const load = node(region.inputs.image);
     expect([load.class_type, load.inputs.image]).toEqual(["LoadImage", "sprite.png [input]"]);
     expect(encode.inputs.vae).toEqual(byClass("VAEDecode")[0].inputs.vae);
@@ -375,7 +375,7 @@ describe("redraw", () => {
   });
 
   it("won't build on a pack that can't", () => {
-    expect(() => redrawWorkflow(pack("flux2klein").workflow, "a.png", { box: "", wholeImage: true, strength: 1, maxPixels: 1 })).toThrow(/can't redraw/);
+    expect(() => redrawWorkflow(pack("flux2klein").workflow, "a.png", { box: "", strength: 1, maxPixels: 1 })).toThrow(/can't redraw/);
   });
 
   it("picks the selected pack for the style, or a named one", () => {

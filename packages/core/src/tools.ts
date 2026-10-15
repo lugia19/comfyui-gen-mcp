@@ -55,7 +55,7 @@ export const EDIT_SCHEMA_REFS = {
 };
 
 const REDRAW_PROPS = {
-  prompt: { type: "string", description: "What goes inside the box, as tags, restating what the crop alone won't show." },
+  prompt: { type: "string", description: "The whole image's prompt, with the change written in." },
   box: {
     type: "array",
     items: { type: "number" },
@@ -63,7 +63,7 @@ const REDRAW_PROPS = {
     maxItems: 4,
     description: "[left, top, right, bottom] as fractions (0 to 1) of the image's width and height. Leave it out to redraw the largest face.",
   },
-  strength: { type: "number", minimum: 0.3, maximum: 1, default: 0.9, description: "How far the redrawn part may stray from what is there now; 1 for a broken area." },
+  strength: { type: "number", minimum: 0.3, maximum: 1, default: 0.9, description: "How far the redrawn part may stray from what is there now." },
   style: { type: "string", enum: Object.keys(REDRAW_STYLES), default: "illustrated", description: "The image's style: illustrated (drawn, anime) or realistic (photographic)." },
 };
 
@@ -154,12 +154,13 @@ const REDRAW_BODY =
   "which edit_image does not promise.\n\n" +
   "box is the area as [left, top, right, bottom] fractions of the image's width and height (0 to 1, " +
   "from the top left); leave it out to redraw the largest face. Measure the box with tooling if you " +
-  "can (crop the image or lay a grid over it); otherwise estimate it, erring larger: the area is " +
+  "can (crop the image or lay a grid over it); otherwise estimate it, erring larger. The area is " +
   "padded and its edge blended, so a loose box works where a tight one may miss.\n\n" +
-  "The prompt describes only what goes inside the box, written like generate_illustrated_image's " +
-  "prompts (tags for illustrations). The model sees little outside the box, so restate what it alone " +
-  "would not show: who it is, their outfit, the art style. For example, for a knight's broken hand: " +
-  "\"knight, full armor, gauntlets, armored hand, metal fingers, hand on belt\".\n\n" +
+  "The prompt describes the whole image, not only the area: the model repaints the area to fit the " +
+  "picture the prompt describes. If you made the image, reuse its prompt and change only what should " +
+  "differ (for another expression, swap the expression tags; for a broken hand, say what the hand is " +
+  "doing). Otherwise describe the whole image the way generate_illustrated_image's prompts are " +
+  "written.\n\n" +
   "strength is how far the result may stray from what is there: the default 0.9 keeps the pose and " +
   "colours; use 1 for an area that is broken. Look at the result: if the problem is still there, call " +
   "again, with a larger box or another wording. Returns a new image; the original is kept.";
