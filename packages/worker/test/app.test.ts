@@ -229,6 +229,20 @@ describe("MCP", () => {
     expect(Object.values<any>(comfy.prompts.at(-1)!).map((n) => n.class_type)).toContain("ComfyGenCutout"); // Modal has our node
   });
 
+  it("takes this Worker's own /img/ link as the image id, not a download", async () => {
+    const { app } = world();
+    await withReadyModal(app);
+    await app.store.updateSetup({ seeded: [...PACKS.map((p) => p.name), "remove-marks", "remove-background"].map(keyOf) });
+    const [, made] = await mcp(app, "tools/call", { name: "remove_background", arguments: { image: "https://images.example/a.png" } });
+    const { image_id, url } = structured(made).images[0];
+    expect(url).toMatch(new RegExp(`^https://[^/]+/img/${image_id}$`));
+    const [, r] = await mcp(app, "tools/call", { name: "remove_background", arguments: { image: url } });
+    expect(structured(r)).toMatchObject({ status: "done" });
+    // Another host's /img/ link is still a download (here one that doesn't exist).
+    const [, other] = await mcp(app, "tools/call", { name: "remove_background", arguments: { image: `https://elsewhere.example/img/${image_id}` } });
+    expect(structured(other)).toMatchObject({ status: "error", message: expect.stringContaining("Could not download") });
+  });
+
   it("redraw is listed and routed by its pack; a model that can't is answered before any GPU time", async () => {
     const { app, comfy } = world();
     await withReadyModal(app);

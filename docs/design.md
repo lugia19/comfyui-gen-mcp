@@ -268,7 +268,9 @@ results stay as they are:
 - **A hidden `remove_background` tool**, absent from `tools/list` (core `HIDDEN_TOOLS`) but served
   by the Worker and the MCPB. `image` (an id or an https URL; `image_path` on the MCPB) in, a new
   RGBA image id at the same size out: the same cut-out as `remove_background: true` on the other
-  tools (core `cutoutWorkflow`), nothing repainted, no prompt or model. Visual Novelist cuts out
+  tools (core `cutoutWorkflow`), nothing repainted, no prompt or model. On the Worker, every tool taking
+  an image reads its own `/img/<id>` links as the id (a Worker can't fetch its own workers.dev
+  address; v1.17.5). Visual Novelist cuts out
   its neutral expression's base with it, where a redraw would repaint the face. It needs the
   background models like the option does (retryable "being downloaded") and is routed to a GPU
   that has them; a GPU that can't remove backgrounds answers as the option does.

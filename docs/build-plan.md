@@ -763,3 +763,9 @@ On an opaque Anima Turbo sprite (1344×1792) it returned a new RGBA image id at 
 corners clear and the figure opaque, in 13.8 s on Modal and 5.1 s on the user's PC. The image's own
 `/img/` URL in place of its id fails (the Worker can't fetch its own workers.dev address), as it
 already did for `edit_image`; ids and outside public URLs work.
+
+## v1.17.5: the connector URL in Settings, own image links (2026-10-16)
+
+- Settings → Worker shows the connector URL (copy, show, replace), shared with Setup's Claude step.
+- The Worker reads its own `/img/<id>` links as image ids, so a result's link works wherever an
+  image is taken (`edit_image`, `redraw`, `remove_background`).
