@@ -7,7 +7,7 @@
 import {
   Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
   builtinPacks, isModelSet, wantedModelSets, fromHex, fromUtf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
-  withoutLora, tagLooseLoras, wantedLoras, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, BG_MODELS, HIDDEN_TOOLS, type Config, type Content, type Pack,
+  withoutLora, tagLooseLoras, wantedLoras, strengthIn, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, BG_MODELS, HIDDEN_TOOLS, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
@@ -352,7 +352,16 @@ export class App {
     const cfg = await this.store.config();
     const pack = selectedPacks(cfg).find((p) => p.tool_name === "generate_illustrated_image");
     const list = pack ? packLoras(pack, cfg) : [];
-    return json({ loras: list.map(({ name, trigger, strength, hidden }) => ({ name, trigger, strength, hidden })) });
+    // strength is the selected pack's; strengths has every pack of its group (a caller's `model`
+    // picks another, and Anima and Anima Turbo take LoRAs differently).
+    const group = PACKS.filter((p) => pack && p.lora_group === pack.lora_group);
+    const raw = new Map(((pack && cfg.pack_loras[pack.lora_group!]) || []).map((e: any) => [e.name, e]));
+    return json({
+      loras: list.map((e) => ({
+        name: e.name, trigger: e.trigger, strength: e.strength, hidden: e.hidden,
+        strengths: Object.fromEntries(group.map((p) => [p.name, strengthIn(raw.get(e.name) ?? e, p.name)])),
+      })),
+    });
   }
 
   /** The packs a scripted caller may name in the illustrated tool's hidden `model` argument, and

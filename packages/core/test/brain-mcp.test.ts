@@ -140,6 +140,23 @@ describe("brain", () => {
     expect(lora.inputs).toMatchObject({ lora_name: "style.safetensors", strength_model: 0.5 });
   });
 
+  it("each pack of a LoRA group takes its own strength, else the shared one", async () => {
+    const cfg = {
+      pack_loras: {
+        anima: [
+          { name: "style.safetensors", strength: 0.5, strengths: { anima_turbo: 0.8 } },
+          { name: "ink.safetensors", trigger: "@ink", strength: 1, strengths: { anima: 0.3 } },
+        ],
+      },
+    };
+    const { comfy, brain } = setup({ cfg });
+    const strengths = (i: number) => Object.fromEntries(Object.values<any>(comfy.prompts[i]).filter((n) => n.class_type === "LoraLoaderModelOnly").map((n) => [n.inputs.lora_name, n.inputs.strength_model]));
+    await brain().call("generate_illustrated_image", { prompt: "@ink x", model: "anima_turbo" });
+    await brain().call("generate_illustrated_image", { prompt: "@ink x", model: "anima" });
+    expect(strengths(0)).toEqual({ "style.safetensors": 0.8, "ink.safetensors": 1 }); // the trigger's too
+    expect(strengths(1)).toEqual({ "style.safetensors": 0.5, "ink.safetensors": 0.3 });
+  });
+
   it("a model of another tool, or none, is a plain error naming the valid ones", async () => {
     const { comfy, brain } = setup();
     for (const model of ["z_image_turbo", "nope"]) {

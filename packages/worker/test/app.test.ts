@@ -67,18 +67,20 @@ describe("MCP", () => {
     expect((await loras(s.mcp_secret, "POST")).status).toBe(405);
     expect(await body(await loras(s.mcp_secret))).toEqual({ loras: [] });
     await app.store.saveConfig({
+      pack_selections: { generate_illustrated_image: "anima" },
       pack_loras: {
         anima: [
-          { name: "ink.safetensors", trigger: "@ink", strength: 0.8 },
-          { name: "secret.safetensors", trigger: "@s", hidden: true },
+          { name: "ink.safetensors", trigger: "@ink", strength: 0.8, strengths: { anima_turbo: 0.5 } },
+          { name: "secret.safetensors", trigger: "@s", hidden: true, strengths: { anima: 0.6 } },
           { name: "off.safetensors", trigger: "@off", enabled: false },
         ],
       },
     });
+    // strength is the selected pack's (Anima); strengths every pack's, falling back to the shared one
     expect(await body(await loras(s.mcp_secret))).toEqual({
       loras: [
-        { name: "ink.safetensors", trigger: "@ink", strength: 0.8, hidden: false },
-        { name: "secret.safetensors", trigger: "@s", strength: 1, hidden: true },
+        { name: "ink.safetensors", trigger: "@ink", strength: 0.8, hidden: false, strengths: { anima: 0.8, anima_turbo: 0.5 } },
+        { name: "secret.safetensors", trigger: "@s", strength: 0.6, hidden: true, strengths: { anima: 0.6, anima_turbo: 1 } },
       ],
     });
   });

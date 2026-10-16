@@ -289,7 +289,9 @@ results stay as they are:
   `structuredContent` in v1.12.0, but Claude Code gives that to the model in place of the text
   blocks (seen 2026-10-13), which changed what Claude read. Clients don't show `_meta`.
 - **`GET /mcp/<secret>/loras`**, behind the same secret: `{loras: [{name, trigger, strength,
-  hidden}]}`. These are the switched-on LoRAs of the pack the illustrated tool uses, or `[]`.
+  hidden, strengths}]}`. These are the switched-on LoRAs of the pack the illustrated tool uses, or
+  `[]`. `strength` is that pack's; `strengths` (v1.19.0) has every pack of its LoRA group, for a
+  caller that names another `model` (Anima and Anima Turbo take LoRAs differently).
 - **`GET /mcp/<secret>/models`**, behind the same secret: `{models: [{name, display_name,
   selected}]}`. These are the packs backing `generate_illustrated_image`, in pack order;
   `selected` marks the one the settings page picked.
@@ -657,7 +659,12 @@ was trained for (`lora_group` on a pack; Anima and Anima Turbo share `anima`, th
 far; `packs/tools.json` names the groups, and the first is the default). `pack_loras` is keyed by
 group, and each entry is file, enabled, strength, trigger (it applies only when the prompt
 contains the trigger; no trigger means always), hidden (the trigger is not listed in the tool
-description); a switched-off LoRA is not loaded, advertised or warned about. With several groups,
+description); a switched-off LoRA is not loaded, advertised or warned about. **Strength per pack**
+(v1.19.0, the user's call: Anima and Anima Turbo take LoRAs differently): an entry may carry
+`strengths: {pack: n}`, and a pack's strength is its own there, else `strength` (core
+`strengthIn`; `packLoras` hands each pack its own, so generate, edit and redraw all use it, a
+scripted caller's `model` included). The page keeps the map only while the packs differ, and
+`strength` as the first pack's, so a config without it, or a version before it, reads the same. With several groups,
 the settings page shows a tab per group, an upload goes into the open tab's group, and a LoRA can
 be moved to another. A stored LoRA in no group (from before groups, or pushed from a PC) joins the
 default group switched off (`tagLoras`): the Worker on listing, saving and an upload's finish (which
@@ -706,8 +713,10 @@ and failing that the file waits in `loras-pending-delete.json` until ComfyUI sto
     model's state on each GPU (ready, downloading, missing with a Download button). Saving starts
     the downloads on every GPU, and a model picked but not saved says so (`GET /api/models` returns
     `{gpus, packs: [{…, on: {gpuId: status}}]}`; `?gpu=` for one; one poll serves every card).
-  - **LoRAs:** a row per file, with where it is (stored, each GPU, or copying) and its setup beside
-    it (which packs, strength, trigger, hidden); upload and delete. Packs sharing a settings key
+  - **LoRAs:** a table (v1.19.0) with column headers: file, Enabled, a strength column per pack of
+    the group (Anima, Anima Turbo), Trigger, Hidden, the size once, then a column per place
+    (Stored, each GPU) showing only ✓ or the copy's state, and delete; upload below. Narrower than
+    760 px, a card per file with each value labelled. Packs sharing a settings key
     share their LoRAs (Anima and Anima Turbo). A new trigger is the file name, with the `@` that
     Anima's artist tags use for packs whose styles are @tags. Every stored LoRA is copied to each
     GPU (§4, "LoRAs in R2").

@@ -785,3 +785,13 @@ After v1.17.5, live: an earlier result's own `/img/` link, passed as `image`, ga
 - Checked on the scratchpad's CPU ComfyUI: the cut-out graph saved a 672×504 RGBA WebP with the
   prompt in EXIF 0x0110, read back by `comfyPrompt`.
 
+## v1.19.0: a LoRA strength per model, the LoRA table (2026-10-16)
+
+- `pack_loras` entries may carry `strengths: {pack: n}` over the shared `strength` (core
+  `strengthIn`, `packLoras`): Anima and Anima Turbo take LoRAs differently. `/mcp/<secret>/loras`
+  adds `strengths`.
+- The settings page's LoRA list is a table with headers, a strength column per model, the size
+  once and one ✓ column per place; cards on phones. Checked in Chromium on the test world at
+  1400 px dark and 390 px light: a Turbo-only strength saved as `strengths`, one set back to equal
+  folded away, no horizontal scroll.
+

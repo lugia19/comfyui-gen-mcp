@@ -326,6 +326,22 @@ describe("packs and config", () => {
     expect(two.pack_loras.klein.map((e: any) => e.name)).toEqual(["y.safetensors"]);
   });
 
+  it("normalize keeps per-pack strengths as clamped numbers; packLoras gives each pack its own", () => {
+    const cfg = normalize({
+      pack_loras: {
+        anima: [
+          { name: "a.safetensors", strength: 0.5, strengths: { anima_turbo: 9, anima: "0.7", bad: "x", nope: null } },
+          { name: "b.safetensors", strengths: { anima_turbo: "" } }, // nothing usable: no map
+          { name: "c.safetensors", strengths: "junk" },
+        ],
+      },
+    });
+    expect(cfg.pack_loras.anima.map((e: any) => e.strengths)).toEqual([{ anima_turbo: 5, anima: 0.7 }, undefined, undefined]);
+    const of = (pack: string) => packLoras(builtin.find((p) => p.name === pack)!, cfg).map((e) => e.strength);
+    expect(of("anima")).toEqual([0.7, 1, 1]);
+    expect(of("anima_turbo")).toEqual([5, 1, 1]);
+  });
+
   it("a tool is described once: its routing line, the pack's guide (else the tool's), the shared tail", () => {
     for (const pack of builtin.filter((p) => p.tool_name !== "edit_image")) {
       const tool = TOOLS[pack.tool_name];

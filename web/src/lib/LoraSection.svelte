@@ -1,12 +1,15 @@
 <script>
+  import { strengthIn } from '../../../packages/core/src/config.ts'
   import { api, formatBytes } from './api.js'
   import { uploadLora } from './upload.js'
   import Icon from './Icon.svelte'
 
-  // One place for LoRAs: each file, where it is, and its setup beside it. A LoRA belongs to one
-  // group, the models it was trained for (Anima and Anima Turbo share theirs); with several groups,
-  // each is a tab. *cfg* is the page's working config: its pack_loras ({group: [{name, strength,
-  // trigger, hidden, enabled}]}) is edited in place and saved with the page. *groups* are the LoRA
+  // One place for LoRAs, a table: each file, its setup, its size and where it is. A LoRA belongs to
+  // one group, the models it was trained for (Anima and Anima Turbo share theirs); with several
+  // groups, each is a tab. *cfg* is the page's working config: its pack_loras ({group: [{name,
+  // strength, strengths?, trigger, hidden, enabled}]}) is edited in place and saved with the page.
+  // Each model of the group has its own strength column (they take LoRAs differently): strengths
+  // {pack: n}, folded back into plain strength while every model has the same. *groups* are the LoRA
   // groups that have models, [{id, title, packs, artistPrefix}], the first being where a LoRA
   // without a group goes. *listing* is null while loading, then
   //   {backends, gpus: [{id, name, kind}], files: {name: {backend: size}}, syncing: {name: {to, done,
@@ -145,10 +148,30 @@
     }
   }
 
-  // Where a file is, per listed backend: its size, a copy in progress, or missing.
+  // One model's strength. Another value than the others' keeps a strengths map (strength stays the
+  // first model's, what a version before per-model strengths reads); all equal, it is plain strength.
+  function setStrength(g, entry, pack, value) {
+    const n = Number(value)
+    if (value === '' || value === null || !Number.isFinite(n)) return // mid-typing
+    const packs = g.packs.map((p) => p.name)
+    const all = Object.fromEntries(packs.map((p) => [p, p === pack ? n : strengthIn(entry, p)]))
+    const values = Object.values(all)
+    entry.strength = all[packs[0]] ?? n
+    if (values.every((v) => v === values[0])) delete entry.strengths
+    else entry.strengths = all
+  }
+
+  // A file's size, once: its stored copy's, else any copy's.
+  const sizeOf = (name) => {
+    const at = files[name] ?? {}
+    const size = at.storage ?? Object.values(at)[0]
+    return size === undefined ? '' : formatBytes(size)
+  }
+
+  // Where a file is, per listed backend: there, a copy in progress, or missing.
   function mark(name, where) {
     const size = files[name]?.[where]
-    if (size !== undefined) return { ok: true, text: `✓ ${formatBytes(size)}` }
+    if (size !== undefined) return { ok: true, text: '✓' }
     const job = listing?.syncing?.[name]
     if (job && job.to === where) {
       if (job.error) return { err: true, text: `copy failed: ${job.error}` }
@@ -160,7 +183,17 @@
     return { err: groups.some((g) => entryOf(g, name)?.enabled), text: '—' }
   }
 
-  let packNames = $derived((group?.packs ?? []).map((p) => p.display_name).join(', '))
+  let packs = $derived(group?.packs ?? [])
+  let packNames = $derived(packs.map((p) => p.display_name).join(', '))
+  // The table's columns: file, enabled, a strength per model, trigger, hidden, size, each place,
+  // delete, and Move to… with tabs.
+  let columns = $derived(
+    [
+      'minmax(160px, 2fr)', 'auto', ...packs.map(() => 'minmax(84px, max-content)'), 'minmax(120px, 1fr)', 'auto', 'auto',
+      ...backends.map(() => 'auto'), '44px', ...(tabs ? ['auto'] : []),
+    ].join(' '),
+  )
+  const placeName = (b) => place(b) || 'This computer'
   // With one group (Anima's), no tabs: the section is that group's list.
   let tabs = $derived(groups.length > 1)
   let errors = $derived(Object.entries(listing?.errors ?? {}).map(([b, m]) => `${place(b) || b}: ${m}`))
@@ -177,7 +210,8 @@
 <p class="muted">
   {tabs ? 'A LoRA works only with the models it was trained for: each tab is one group of models. ' : ''}For {packNames}.
   Tick Enabled to use a LoRA. With a trigger it applies only when the prompt contains that word, and Claude is told
-  the trigger unless the LoRA is hidden; without one it always applies. Save to apply.
+  the trigger unless the LoRA is hidden; without one it always applies.{packs.length > 1 ? ' Strength is per model: they take LoRAs differently.' : ''}
+  Save to apply.
 </p>
 {#if has('storage')}
   <p class="muted">Uploads are kept in this Worker's storage and copied to each GPU from there.</p>
@@ -197,37 +231,61 @@
   <p class="muted">{backends.length ? 'None yet.' : 'None added yet.'}</p>
 {/if}
 
-{#each names as name (name)}
-  {@const entry = entryOf(group, name)}
-  <div class="file">
-    <div class="row head">
-      <b class="name">{name}</b>
-      {#each backends as where (where)}
-        {@const m = mark(name, where)}
-        <span class="place" class:ok={m.ok} class:err={m.err} class:muted={!m.ok && !m.err}>{#if place(where)}<b>{place(where)}</b>&nbsp;{/if}{m.text}</span>
-      {/each}
-      {#if files[name] && backends.length}
-        <button type="button" class="danger small icon-btn" onclick={() => remove(name)} disabled={!!progress || deleting !== null} title="Delete {name}" aria-label="Delete {name}">
-          {#if deleting === name}Deleting…{:else}<Icon name="trash" />{/if}
-        </button>
-      {/if}
+{#if names.length}
+  <div class="table" role="table" aria-label="LoRAs" style="grid-template-columns: {columns}">
+    <div class="tr th" role="row">
+      <span role="columnheader">File</span>
+      <span role="columnheader" class="center">Enabled</span>
+      {#each packs as p (p.name)}<span role="columnheader" title="Strength with {p.display_name}">{p.display_name}</span>{/each}
+      <span role="columnheader">Trigger</span>
+      <span role="columnheader" class="center">Hidden</span>
+      <span role="columnheader" class="num">Size</span>
+      {#each backends as where (where)}<span role="columnheader">{placeName(where)}</span>{/each}
+      <span role="columnheader" aria-label="Delete"></span>
+      {#if tabs}<span role="columnheader" aria-label="Group"></span>{/if}
     </div>
-    <div class="row pack">
-      <label class="use"><input type="checkbox" checked={!!entry?.enabled} onchange={(e) => toggle(group, name, e.currentTarget.checked)} /> Enabled</label>
-      {#if entry?.enabled}
-        <input class="strength" type="number" min="-5" max="5" step="0.1" bind:value={entry.strength} aria-label="Strength" title="Strength" />
-        <input class="trigger" type="text" bind:value={entry.trigger} placeholder="always on" aria-label="Trigger" title="Trigger word" />
-        <label class="hidden"><input type="checkbox" bind:checked={entry.hidden} /> Hidden</label>
-      {/if}
-      {#if tabs}
-        <select class="move" aria-label="Move to another group" value="" onchange={(e) => (move(name, e.currentTarget.value), (e.currentTarget.value = ''))}>
-          <option value="" disabled>Move to…</option>
-          {#each groups.filter((g) => g.id !== group.id) as g (g.id)}<option value={g.id}>{g.title}</option>{/each}
-        </select>
-      {/if}
-    </div>
+    {#each names as name (name)}
+      {@const entry = entryOf(group, name)}
+      <div class="tr" role="row">
+        <b class="name" role="cell">{name}</b>
+        <label class="use center" role="cell" data-label="Enabled"><input type="checkbox" checked={!!entry?.enabled} onchange={(e) => toggle(group, name, e.currentTarget.checked)} aria-label="Enabled" /></label>
+        {#each packs as p (p.name)}
+          <span role="cell" data-label="Strength, {p.display_name}" class:off={!entry?.enabled}>
+            {#if entry?.enabled}
+              <input class="strength" type="number" min="-5" max="5" step="0.1" value={strengthIn(entry, p.name)} oninput={(e) => setStrength(group, entry, p.name, e.currentTarget.value)} aria-label="Strength with {p.display_name}" />
+            {/if}
+          </span>
+        {/each}
+        <span role="cell" data-label="Trigger" class:off={!entry?.enabled}>
+          {#if entry?.enabled}<input class="trigger" type="text" bind:value={entry.trigger} placeholder="always on" aria-label="Trigger" />{/if}
+        </span>
+        <span role="cell" class="center" data-label="Hidden" class:off={!entry?.enabled}>
+          {#if entry?.enabled}<input type="checkbox" bind:checked={entry.hidden} aria-label="Hidden" />{/if}
+        </span>
+        <span role="cell" class="num muted" data-label="Size">{sizeOf(name)}</span>
+        {#each backends as where (where)}
+          {@const m = mark(name, where)}
+          <span role="cell" class="place" class:ok={m.ok} class:err={m.err} class:muted={!m.ok && !m.err} data-label={placeName(where)}>{m.text}</span>
+        {/each}
+        <span role="cell" class="del">
+          {#if files[name] && backends.length}
+            <button type="button" class="danger small icon-btn" onclick={() => remove(name)} disabled={!!progress || deleting !== null} title="Delete {name}" aria-label="Delete {name}">
+              {#if deleting === name}…{:else}<Icon name="trash" />{/if}
+            </button>
+          {/if}
+        </span>
+        {#if tabs}
+          <span role="cell">
+            <select class="move" aria-label="Move to another group" value="" onchange={(e) => (move(name, e.currentTarget.value), (e.currentTarget.value = ''))}>
+              <option value="" disabled>Move to…</option>
+              {#each groups.filter((g) => g.id !== group.id) as g (g.id)}<option value={g.id}>{g.title}</option>{/each}
+            </select>
+          </span>
+        {/if}
+      </div>
+    {/each}
   </div>
-{/each}
+{/if}
 
 {#if progress}
   <p>
@@ -248,21 +306,34 @@
 {#each errors as e}<p class="err">{e}</p>{/each}
 
 <style>
-  .file { border-top: 1px solid var(--border); padding: 8px 0; }
-  .head { gap: 4px 14px; }
-  .head button { margin-top: 0; }
-  .head .icon-btn { padding: 4px 8px; }
-  .name { flex: 1; overflow-wrap: anywhere; min-width: 160px; }
+  /* A grid table: the rows share the header's columns (display: contents). Every cell stretches to
+   * its row's height, so the row lines meet, and centres what it holds. */
+  .table { display: grid; column-gap: 14px; margin-top: 8px; }
+  .tr { display: contents; }
+  .tr > * { display: flex; align-items: center; min-height: 40px; padding: 6px 0; border-top: 1px solid var(--border); min-width: 0; margin: 0; }
+  .th > * { border-top: 0; min-height: 0; padding-top: 0; font-size: 0.85rem; color: var(--muted); font-weight: 600; white-space: nowrap; }
+  .name { overflow-wrap: anywhere; }
+  .num { justify-content: flex-end; }
+  .center { justify-content: center; }
   .place { white-space: nowrap; }
-  .pack { margin: 4px 0 0 4px; flex-wrap: nowrap; }
-  .use { display: flex; gap: 6px; align-items: center; margin: 0; font-weight: normal; min-width: 130px; }
-  .pack .strength { width: 72px; }
-  .pack .trigger { width: 150px; }
-  .hidden { display: flex; gap: 4px; align-items: center; margin: 0; font-weight: normal; white-space: nowrap; }
+  .use { font-weight: normal; }
+  .tr input[type='checkbox'] { margin: 0; }
+  .strength, .trigger { width: 100%; margin: 0; }
+  .del button { margin: 0; padding: 4px 8px; }
+  .move { width: auto; margin: 0; }
   progress { width: 100%; }
   .upload { display: inline-block; margin-top: 10px; font-weight: normal; }
   .tabs { margin: 0 0 8px; flex-wrap: wrap; }
-  .move { width: auto; margin: 0 0 0 auto; }
   .upload input { display: none; }
-  @media (max-width: 560px) { .pack { flex-wrap: wrap; } }
+  /* Narrow: a card per file, each value on its own labelled line. */
+  @media (max-width: 760px) {
+    .table { display: block; }
+    .tr { display: block; border-top: 1px solid var(--border); padding: 8px 0; }
+    .tr.th { display: none; }
+    .tr > * { border-top: 0; min-height: 34px; padding: 2px 0; justify-content: space-between; }
+    .tr > [data-label]::before { content: attr(data-label); color: var(--muted); font-size: 0.85rem; font-weight: normal; margin-right: 12px; }
+    .tr > .off { display: none; }
+    .strength { width: 90px; }
+    .trigger { width: 60%; }
+  }
 </style>

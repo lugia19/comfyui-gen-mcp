@@ -7,8 +7,10 @@
 //
 //   pack_selections   {tool_name: pack_name}
 //   pack_settings     {family: {artist_list: string, max_pixels: number}}
-//   pack_loras        {lora group: [{name, strength, trigger, hidden, enabled}]}: a LoRA belongs to
-//                     one group (the models it was trained for), and is on or off in it
+//   pack_loras        {lora group: [{name, strength, strengths?, trigger, hidden, enabled}]}: a LoRA
+//                     belongs to one group (the models it was trained for), and is on or off in it;
+//                     strengths {pack: n} overrides strength for that pack (Anima and Anima Turbo
+//                     take LoRAs differently)
 //   keep_warm_minutes integer, how long an idle ComfyUI stays up (the extension's; on a Worker each
 //                     GPU in its list has its own)
 //   remove_marks      boolean, default on: clean the signatures and watermarks some artist styles
@@ -20,7 +22,15 @@ export const DEFAULT_KEEP_WARM_MINUTES = 5;
 const KEEP_WARM_MAX = 60;
 export const LORA_STRENGTH_MAX = 5;
 
-export type LoraEntry = { name: string; strength: number; trigger: string; hidden: boolean; enabled: boolean };
+export type LoraEntry = {
+  name: string;
+  strength: number;
+  /** Per pack of the group, where it differs from `strength` (v1.19.0). */
+  strengths?: Record<string, number>;
+  trigger: string;
+  hidden: boolean;
+  enabled: boolean;
+};
 
 export type Config = {
   pack_selections: Record<string, string>;
@@ -93,6 +103,23 @@ function strengthOf(value: unknown): number {
   return Number.isFinite(n) ? n : 1;
 }
 
+const clampStrength = (value: unknown) => Math.max(-LORA_STRENGTH_MAX, Math.min(LORA_STRENGTH_MAX, strengthOf(value)));
+
+/** An entry's per-pack strengths, cleaned: numbers only (or numeric strings), clamped; null when none
+ * are left. Pack names aren't checked here (the packs aren't known): an unknown one is unused. */
+function strengthsOf(value: unknown): Record<string, number> | null {
+  if (!isPlainObject(value)) return null;
+  const out: Record<string, number> = {};
+  for (const [pack, v] of Object.entries(value)) {
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : NaN;
+    if (pack && Number.isFinite(n)) out[pack] = clampStrength(n);
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** The strength of a LoRA *entry* in *pack*: its own value there, else the entry's strength. */
+export const strengthIn = (entry: Pick<LoraEntry, "strength" | "strengths">, pack: string): number => entry.strengths?.[pack] ?? entry.strength;
+
 /** Every LoRA file some pack is set up to use (switched on in its group). */
 export const wantedLoras = (cfg: Config): string[] =>
   [...new Set(Object.values(cfg.pack_loras).flat().filter((l) => l.enabled !== false).map((l) => l.name as string))];
@@ -128,17 +155,19 @@ function loraGroups(val: Record<string, unknown>): Record<string, LoraEntry[]> {
   );
 }
 
-/** A group's LoRA list, cleaned: entries without a name are dropped; strength is clamped to
- * ±LORA_STRENGTH_MAX; an entry is on unless it says enabled: false. Everything downstream reads
- * this shape. */
+/** A group's LoRA list, cleaned: entries without a name are dropped; strength (and each per-pack
+ * one) is clamped to ±LORA_STRENGTH_MAX; an entry is on unless it says enabled: false. Everything
+ * downstream reads this shape. */
 function loraEntries(list: unknown): LoraEntry[] {
   if (!Array.isArray(list)) return [];
   const out: LoraEntry[] = [];
   for (const e of list) {
     if (!isPlainObject(e) || typeof e.name !== "string" || !e.name.trim()) continue;
+    const strengths = strengthsOf(e.strengths);
     out.push({
       name: e.name.trim(),
-      strength: Math.max(-LORA_STRENGTH_MAX, Math.min(LORA_STRENGTH_MAX, strengthOf(e.strength))),
+      strength: clampStrength(e.strength),
+      ...(strengths ? { strengths } : {}),
       trigger: typeof e.trigger === "string" ? e.trigger.trim() : "",
       hidden: e.hidden === true,
       enabled: e.enabled !== false,

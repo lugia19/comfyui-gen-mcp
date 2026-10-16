@@ -7,7 +7,7 @@
 
 import { PACK_FILES, TOOL_FILE } from "../packs/index.ts";
 import { isPlainObject } from "./bytes.ts";
-import { SETTINGS_SCHEMA, tagLoras, type Config, type LoraEntry } from "./config.ts";
+import { SETTINGS_SCHEMA, strengthIn, tagLoras, type Config, type LoraEntry } from "./config.ts";
 import { injectLoras, nodesTitled, redrawSampler, TITLES, withBackgroundRemoval, withMarkRemoval } from "./workflow.ts";
 
 export type Pack = Record<string, any> & {
@@ -190,10 +190,12 @@ export function supportsLoras(pack: Pack): boolean {
 }
 
 /** The pack's switched-on LoRAs, from its group's list in a normalized config (config.ts cleans
- * the entries). */
+ * the entries), each with `strength` this pack's own (its `strengths` entry, else the shared one). */
 export function packLoras(pack: Pack, cfg: Config): LoraEntry[] {
   if (!pack.lora_group) return [];
-  return ((cfg.pack_loras?.[pack.lora_group] ?? []) as LoraEntry[]).filter((e) => e.enabled !== false);
+  return ((cfg.pack_loras?.[pack.lora_group] ?? []) as LoraEntry[])
+    .filter((e) => e.enabled !== false)
+    .map((e) => ({ ...e, strength: strengthIn(e, pack.name) }));
 }
 
 
