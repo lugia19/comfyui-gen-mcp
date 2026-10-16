@@ -756,3 +756,10 @@ and a redraw plus cut in 28.5 s.
   changed packs download. A call before that finishes may get one retryable "being downloaded".
 - **Hidden `remove_background` tool** for scripted callers (design §3): an image in, its cut-out
   as a new image id out. Not in `tools/list`.
+
+After v1.17.4, live: Modal's redeploy re-seeded every wanted pack under its new key in about
+1.5 s, downloading nothing (all files present). `tools/list` doesn't show `remove_background`.
+On an opaque Anima Turbo sprite (1344×1792) it returned a new RGBA image id at the same size,
+corners clear and the figure opaque, in 13.8 s on Modal and 5.1 s on the user's PC. The image's own
+`/img/` URL in place of its id fails (the Worker can't fetch its own workers.dev address), as it
+already did for `edit_image`; ids and outside public URLs work.
