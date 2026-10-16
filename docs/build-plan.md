@@ -731,3 +731,13 @@ After v1.17.0, live through the connector (Anima Turbo unless said):
 
 Next: Visual Novelist makes expression variants with `redraw`: its sprite prompt with the
 expression swapped, no box.
+
+## v1.17.3: cleaner cut-outs (2026-10-16)
+
+`remove_background` left a white contour around sprites over dark scenes. Background removal now
+runs RMBG 2.0 (replacing Lucida) and our `ComfyGenCutout` node: enclosed background gaps cleared by
+isnet-anime, the mask shrunk 2 px past the images' light ring, edge colours cleaned of the
+background's (design §3). The `remove-background` model set holds both files; the agent's hello says
+`cutout`, and older agents keep ComfyUI's plain join. The spike compared 8 variants and then the
+full stacks on 7 sprites (scratchpad `cutout/`); the real graph on the scratchpad's CPU ComfyUI
+matched it, every result RGBA at the input's size.

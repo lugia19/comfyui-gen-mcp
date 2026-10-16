@@ -192,9 +192,9 @@ function maxPixels(pack: Pack, cfg: Config): number | null {
 
 /** A copy of *pack* with the user's LoRAs spliced in and resolution budget applied; with
  * *removeMarks* its images cleaned of signatures and watermarks before they are saved, and with
- * *removeBackground* saved with a transparent background. LoRA failures are logged and the pack
+ * *removeBackground* saved with a transparent background (cleaned by our node with *cutout*). LoRA failures are logged and the pack
  * served without them rather than taking the tool down. */
-export function prepare(pack: Pack, cfg: Config, { removeMarks = false, removeBackground = false } = {}): Pack {
+export function prepare(pack: Pack, cfg: Config, { removeMarks = false, removeBackground = false, cutout = false } = {}): Pack {
   const out = structuredClone(pack);
   const ls = packLoras(out, cfg);
   if (ls.length) {
@@ -207,7 +207,7 @@ export function prepare(pack: Pack, cfg: Config, { removeMarks = false, removeBa
   const budget = maxPixels(out, cfg);
   if (budget !== null) out.max_pixels = budget;
   if (removeMarks) withMarkRemoval(out.workflow);
-  if (removeBackground) withBackgroundRemoval(out.workflow);
+  if (removeBackground) withBackgroundRemoval(out.workflow, { cutout });
   return out;
 }
 

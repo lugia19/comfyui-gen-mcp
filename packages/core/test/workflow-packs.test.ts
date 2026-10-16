@@ -5,7 +5,7 @@ import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize, tagLoras } from "../src/config.ts";
 import { BG_MODELS, builtinPacks, canRedraw, DEFAULT_LORA_GROUP, FACE_MODELS, MARK_MODELS, redrawPack, wantedModelSets, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
 import { describe as describeTool } from "../src/tools.ts";
-import { BACKGROUND_MODEL, buildPrompt, calcDimensions, injectLoras, redrawWorkflow, withBackgroundRemoval, REDRAW_PASTE_NODE, REDRAW_REGION_NODE, REMOVE_MARKS_NODE, withImages, type Workflow } from "../src/workflow.ts";
+import { BACKGROUND_MODEL, CUTOUT_NODE, buildPrompt, calcDimensions, injectLoras, redrawWorkflow, withBackgroundRemoval, REDRAW_PASTE_NODE, REDRAW_REGION_NODE, REMOVE_MARKS_NODE, withImages, type Workflow } from "../src/workflow.ts";
 
 const smallWorkflow = (): Workflow => ({
   "1": { class_type: "UNETLoader", inputs: { unet_name: "m.safetensors" }, _meta: { title: "cg:model" } },
@@ -262,7 +262,20 @@ describe("packs and config", () => {
       expect(node(remove.inputs.bg_removal_model).inputs).toEqual({ bg_removal_name: BACKGROUND_MODEL });
       expect(JSON.stringify(prepare(pack, normalize({})).workflow)).not.toContain("RemoveBackground");
     }
-    expect(BG_MODELS.models.map((m) => [m.subfolder, m.filename])).toEqual([["background_removal", BACKGROUND_MODEL]]);
+    expect(BG_MODELS.models.map((m) => [m.subfolder, m.filename])).toEqual([["background_removal", BACKGROUND_MODEL], ["comfy_gen", "isnet-anime.onnx"]]);
+  });
+
+  it("with the cut-out node, RemoveBackground's mask goes to it and it saves the RGBA image", () => {
+    for (const pack of builtin) {
+      const wf = prepare(pack, normalize({}), { removeMarks: true, removeBackground: true, cutout: true }).workflow;
+      const save = Object.values<any>(wf).find((n) => n.class_type === "SaveImage");
+      const cut = wf[save.inputs.images[0]];
+      expect([cut.class_type, cut._meta.title]).toEqual([CUTOUT_NODE, "cg:cutout"]);
+      expect(wf[cut.inputs.image[0]].class_type).toBe(REMOVE_MARKS_NODE); // the cleaned image
+      const remove = wf[cut.inputs.mask[0]];
+      expect([remove.class_type, remove.inputs.image]).toEqual(["RemoveBackground", cut.inputs.image]);
+      expect(JSON.stringify(wf)).not.toContain("JoinImageWithAlpha");
+    }
   });
 
   it("normalize cleans LoRA entries and caps keep-warm", () => {

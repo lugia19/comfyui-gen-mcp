@@ -41,11 +41,18 @@
     "display_name": "Background removal",
     "models": [
       {
-        "url": "https://huggingface.co/Comfy-Org/BiRefNet/resolve/25511f8787e51912e1480706b4e47b8f467fbf72/background_removal/lucida.safetensors",
+        "url": "https://huggingface.co/1038lab/RMBG-2.0/resolve/1cd4787601caeb4c8e826dba7ea8e2163b5208df/model.safetensors",
         "subfolder": "background_removal",
-        "filename": "lucida.safetensors",
+        "filename": "rmbg-2.0.safetensors",
         "size_bytes": 884878856,
-        "sha256": "a43e3dd84cbe84db76bd2015ef8f7034c9503c50d9b56fa2155803b69bd2f408"
+        "sha256": "566ed80c3d95f87ada6864d4cbe2290a1c5eb1c7bb0b123e984f60f76b02c3a7"
+      },
+      {
+        "url": "https://huggingface.co/skytnt/anime-seg/resolve/493cb60893f47441b26ec4fb9a306bce9e342982/isnetis.onnx",
+        "subfolder": "comfy_gen",
+        "filename": "isnet-anime.onnx",
+        "size_bytes": 176069933,
+        "sha256": "f15622d853e8260172812b657053460e20806f04b9e05147d49af7bed31a6e99"
       }
     ]
   },

@@ -1013,6 +1013,11 @@ describe("the PC path", () => {
     expect(r.result.content[0].type).toBe("image");
     expect(Object.values<any>(pc.comfy.prompts[0]).some((n) => n.class_type === "JoinImageWithAlpha")).toBe(true);
     expect(pc.controlCalls.some(([op, a]) => op === "ensure" && a.pack.name === "remove-background")).toBe(true);
+    // an agent with the cut-out node gets it in place of ComfyUI's two
+    pc.cutout = true;
+    await call();
+    expect(Object.values<any>(pc.comfy.prompts[1]).map((n) => n.class_type)).toContain("ComfyGenCutout");
+    expect(Object.values<any>(pc.comfy.prompts[1]).map((n) => n.class_type)).not.toContain("JoinImageWithAlpha");
   });
 
   it("redraws on a PC whose agent can, and says why on one that can't", async () => {

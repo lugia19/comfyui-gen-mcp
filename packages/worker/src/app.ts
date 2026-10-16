@@ -432,7 +432,7 @@ export class App {
         const info = target.kind === "pc" ? (await this.status(target)).info : null;
         const can = (feature: string) => target.kind === "modal" || info?.[feature] === true;
         const outcome = await new Brain(PACKS, cfg, client, "refs", {
-          hooks, canRemoveMarks: can("remove_marks"), canRemoveBackground: can("remove_background"), canRedraw: can("redraw"),
+          hooks, canRemoveMarks: can("remove_marks"), canRemoveBackground: can("remove_background"), canRedraw: can("redraw"), canCutout: can("cutout"),
         }).call(name, args);
         tried.push(target);
         if (outcome.kind === "failed" && downloading && name !== "fetch_result") {

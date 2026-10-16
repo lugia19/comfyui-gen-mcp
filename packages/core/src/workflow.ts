@@ -54,6 +54,7 @@ export const TITLES = {
   background: "cg:remove background",
   backgroundAlpha: "cg:background alpha",
   backgroundJoin: "cg:background join",
+  cutout: "cg:cutout",
   redrawImage: "cg:redraw image",
   redrawRegion: "cg:redraw region",
   redrawEncode: "cg:redraw encode",
@@ -234,21 +235,33 @@ export function withMarkRemoval(workflow: Workflow): void {
   }
 }
 
-// The background removal model (core packs.ts BG_MODELS): Lucida, BiRefNet tuned on illustrations.
-export const BACKGROUND_MODEL = "lucida.safetensors";
+// The background removal model (core packs.ts BG_MODELS): RMBG 2.0 (BiRefNet, like Lucida before it,
+// which it replaced: a slightly better subject, a white headdress on white kept).
+export const BACKGROUND_MODEL = "rmbg-2.0.safetensors";
+/** Our extension's node that turns the background removal's mask into the cleaned RGBA image. */
+export const CUTOUT_NODE = "ComfyGenCutout";
 
-/** Make every SaveImage of *workflow* save its image with the background transparent, with ComfyUI's
- * own nodes: the model finds the subject (a mask, 1 = subject), inverted it is the part to clear,
- * and JoinImageWithAlpha makes it transparent (an RGBA image, which SaveImage keeps). After
- * withMarkRemoval, so the marks are filled first. */
-export function withBackgroundRemoval(workflow: Workflow): void {
+/** Make every SaveImage of *workflow* save its image with the background transparent. ComfyUI's own
+ * nodes find the subject (RemoveBackground: a mask, 1 = subject); with *cutout* our ComfyGenCutout
+ * makes the RGBA image from it, cleaned (enclosed background gaps cleared, the light ring around
+ * the lineart shrunk away, edge colours freed of the background's), else InvertMask and
+ * JoinImageWithAlpha make it as it is (a PC agent from before the node). After withMarkRemoval, so
+ * the marks are filled first. */
+export function withBackgroundRemoval(workflow: Workflow, { cutout = false } = {}): void {
   let nextId = nextNodeId(workflow);
   for (const node of Object.values(workflow)) {
     if (node.class_type !== "SaveImage" || !Array.isArray(node.inputs?.images)) continue;
-    const [model, remove, invert, join] = [nextId++, nextId++, nextId++, nextId++].map(String);
     const image = node.inputs.images;
+    const [model, remove] = [nextId++, nextId++].map(String);
     workflow[model] = { inputs: { bg_removal_name: BACKGROUND_MODEL }, class_type: "LoadBackgroundRemovalModel", _meta: { title: TITLES.backgroundModel } };
     workflow[remove] = { inputs: { bg_removal_model: [model, 0], image }, class_type: "RemoveBackground", _meta: { title: TITLES.background } };
+    if (cutout) {
+      const cut = String(nextId++);
+      workflow[cut] = { inputs: { image, mask: [remove, 0] }, class_type: CUTOUT_NODE, _meta: { title: TITLES.cutout } };
+      node.inputs.images = [cut, 0];
+      continue;
+    }
+    const [invert, join] = [nextId++, nextId++].map(String);
     workflow[invert] = { inputs: { mask: [remove, 0] }, class_type: "InvertMask", _meta: { title: TITLES.backgroundAlpha } };
     workflow[join] = { inputs: { image, alpha: [invert, 0] }, class_type: "JoinImageWithAlpha", _meta: { title: TITLES.backgroundJoin } };
     node.inputs.images = [join, 0];

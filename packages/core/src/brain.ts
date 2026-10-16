@@ -92,7 +92,7 @@ export async function uploadInput(client: ComfyUIClient, data: Uint8Array, key: 
 /** *canRemoveMarks*: the GPU's ComfyUI has our extension's mark-removal node, so the remove_marks
  * setting can apply. *canRemoveBackground*: it can take the background removal model (a PC agent
  * from before v1.16.0 lacks its folder). */
-export type BrainOptions = { hooks?: Hooks; waitS?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean };
+export type BrainOptions = { hooks?: Hooks; waitS?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean; canCutout?: boolean };
 
 export const BACKGROUND_UNAVAILABLE =
   "Background removal needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that, or without remove_background.";
@@ -115,6 +115,7 @@ export class Brain {
   private canRemoveMarks: boolean;
   private canRemoveBackground: boolean;
   private canRedraw: boolean;
+  private canCutout: boolean;
   private packs: Pack[];
   // Raw selected packs by tool. They are prepared (LoRAs, budget) only when called, so a request
   // pays for one pack, not all of them.
@@ -128,6 +129,7 @@ export class Brain {
     this.canRemoveMarks = opts.canRemoveMarks ?? false;
     this.canRemoveBackground = opts.canRemoveBackground ?? false;
     this.canRedraw = opts.canRedraw ?? false;
+    this.canCutout = opts.canCutout ?? false;
     this.packs = packs;
     this.specs = toolSpecs(packs, this.cfg, imageMode);
     this.selected = Object.fromEntries(select(groupByTool(packs), this.cfg.pack_selections).map((p) => [p.tool_name, p]));
@@ -152,7 +154,7 @@ export class Brain {
     const aspect = String(args.aspect_ratio || "square");
     const removeBackground = args.remove_background === true;
     if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
-    const pack = prepare(rawPack, this.cfg, { removeMarks: await this.marksReady(), removeBackground });
+    const pack = prepare(rawPack, this.cfg, { removeMarks: await this.marksReady(), removeBackground, cutout: this.canCutout });
     const wf = buildPrompt(pack.workflow, prompt, {
       aspectRatio: aspect,
       maxPixels: pack.max_pixels ?? 1_048_576,
@@ -176,7 +178,7 @@ export class Brain {
     if (!prompt || !first) return new Failed("prompt and an image are required.");
     const removeBackground = args.remove_background === true;
     if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
-    const pack = prepare(this.selected.edit_image, this.cfg, { removeMarks: await this.marksReady(), removeBackground });
+    const pack = prepare(this.selected.edit_image, this.cfg, { removeMarks: await this.marksReady(), removeBackground, cutout: this.canCutout });
     const images: ResolvedImage[] = [];
     try {
       // Before uploads: a local ComfyUI may not be running yet.
@@ -218,7 +220,7 @@ export class Brain {
     const wf = redrawWorkflow(pack.workflow, loadValue, { box, strength, maxPixels: pack.max_pixels ?? 1_048_576, keepAlpha: !removeBackground });
     // The background cut from the pasted result, not before: a redraw reaching into an already
     // transparent part samples the colours left under it and gets the old edge pasted back.
-    if (removeBackground) withBackgroundRemoval(wf);
+    if (removeBackground) withBackgroundRemoval(wf, { cutout: this.canCutout });
     return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles, negative: String(args.negative ?? "") }), null);
   }
 

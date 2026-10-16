@@ -49,7 +49,7 @@ class PathHooks extends Hooks {
   }
 }
 
-function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean } = {}) {
+function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean; canCutout?: boolean } = {}) {
   const comfy = new FakeComfy();
   const client = fastClient(comfy, { coldStartS: 60, requestBudget: opts.budget ?? null });
   const brain = (o: typeof opts = {}) =>
@@ -59,6 +59,7 @@ function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: nu
       canRemoveMarks: o.canRemoveMarks ?? opts.canRemoveMarks,
       canRemoveBackground: o.canRemoveBackground ?? opts.canRemoveBackground,
       canRedraw: o.canRedraw ?? opts.canRedraw,
+      canCutout: o.canCutout ?? opts.canCutout,
     });
   return { comfy, client, brain };
 }
@@ -399,9 +400,12 @@ describe("redraw", () => {
     const prompt = comfy.prompts.at(-1)!;
     expect(nodeOf(prompt, "JoinImageWithAlpha")).toBeDefined();
     expect(nodeOf(prompt, "ComfyGenRedrawPaste").inputs.alpha).toBeUndefined();
+    await brain({ hooks: new PathHooks(), canCutout: true }).call("redraw", { prompt: "x", image_path: "a.png", remove_background: true });
+    const cut = nodeOf(comfy.prompts.at(-1)!, "ComfyGenCutout");
+    expect(comfy.prompts.at(-1)![cut.inputs.image[0]].class_type).toBe("ComfyGenRedrawPaste"); // cut after the paste
     const out = await brain({ canRemoveBackground: false }).call("redraw", { prompt: "x", image_path: "a.png", remove_background: true });
     expect((out as Failed).message).toBe(BACKGROUND_UNAVAILABLE);
-    expect(comfy.prompts.length).toBe(1);
+    expect(comfy.prompts.length).toBe(2);
     expect(toolSpecs(BUILTIN, normalize({}), "refs").find((s) => s.name === "redraw")!.inputSchema.properties.remove_background.type).toBe("boolean");
   });
 

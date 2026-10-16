@@ -335,16 +335,38 @@ transparent background (stickers, sprites, cut-outs). It is a visible option, of
 description tells Claude to use it only when the user wants transparency, and to ask for a plain
 grey or coloured background in the prompt, never white.
 
-- **ComfyUI's own nodes.** 0.37.0 has background removal built in. `prepare` (`withBackgroundRemoval`)
-  routes each SaveImage's image through LoadBackgroundRemovalModel → RemoveBackground (the subject's
-  mask) → InvertMask → JoinImageWithAlpha, after the watermark step. SaveImage keeps the RGBA, and
-  `/view?preview=webp;90` keeps the alpha in the WebP the tools return and R2 stores.
-- **The model: Lucida** (`lucida.safetensors`, 885 MB, Comfy-Org's packaging pinned by commit, folder
-  `background_removal`). It is BiRefNet HR fine-tuned on illustrations (ToonOut). Against BiRefNet
-  general on our sprites it clears enclosed gaps (inside a ponytail's loop, between a twintail and
-  the face) where general keeps the old background. But it turns white-on-white parts semi-
-  transparent (a maid's white headdress on a white background): no per-pixel alpha fix separates
-  those from the background, so the caller picks a non-white background instead.
+- **ComfyUI's own nodes, then ours.** 0.37.0 has background removal built in. `prepare`
+  (`withBackgroundRemoval`) routes each SaveImage's image through LoadBackgroundRemovalModel →
+  RemoveBackground (the subject's mask) → our `ComfyGenCutout` (v1.17.3), after the watermark step.
+  SaveImage keeps the RGBA, and `/view?preview=webp;90` keeps the alpha in the WebP the tools return
+  and R2 stores. A PC agent from before the node (no `cutout` in its hello) gets InvertMask →
+  JoinImageWithAlpha, the mask as it is.
+- **The model: RMBG 2.0** (`rmbg-2.0.safetensors`, 885 MB, BRIA's BiRefNet, folder
+  `background_removal`; v1.17.3). briaai's own repository is gated, so it comes from the ungated
+  `1038lab/RMBG-2.0` mirror, pinned by commit. Its licence is CC BY-NC 4.0, non-commercial, which
+  the user accepted: nothing here is commercial. Its tensors match Lucida's (v1.16.0 to v1.17.2) key
+  for key, so ComfyUI's node loads it unchanged. Over Lucida it gives a slightly better subject and
+  keeps a white headdress on white solid, where Lucida turned it see-through.
+- **The cleanup (`ComfyGenCutout`).** Over a dark scene, every model's cut-out showed a white
+  contour (the user's report, 2026-10-16). The spike (7 sprites on white and grey, 2026-10-16) found
+  two causes:
+  - *A light ring.* The generated images have a 1 px ring lighter than the background just outside
+    the lineart, and every model's soft edge keeps a sliver of it; cleaning colours alone turns it
+    white. The mask is shrunk by 2 px (the lineart is thick enough not to show it), then each
+    partly transparent pixel's colour is freed of the background's, `F = B + (C − B) / α`, against
+    the background colour B measured where the mask is clear.
+  - *Enclosed background.* BiRefNet models (Lucida, RMBG 2.0) segment "the object" and fill
+    background enclosed by the silhouette (the white strips between a maid's twintails and her
+    face). isnet-anime (`isnet-anime.onnx`, skytnt/anime-seg, Apache-2.0, 176 MB, run by
+    onnxruntime, folder `comfy_gen`) cuts those out. Patches the base keeps and isnet clears are
+    labelled; one whose median colour is within 0.12 of the background's takes isnet's alpha, grown
+    4 px so its rim goes too (gaps measured 0.01 to 0.05, a cream inner ear 0.25). Per pixel, not
+    per patch, it left a ring around each gap.
+
+  A background that isn't plain gets only the shrink. Tried and dropped: per-pixel colour keying
+  (it ate white parts), rembg's alpha matting (it filled gaps grey, ~10 s), and isnet as the base
+  (fine, but RMBG 2.0's edges looked better to the user). White on white still loses (the user's
+  call: pathological); a mid-grey background is safest.
 - **Downloaded from the start** (the user's call, 2026-10-15: the option is on every call, so the
   first sticker shouldn't wait for 885 MB). The model set (core `BG_MODELS`, with the watermark
   removal's in `wantedModelSets`) is seeded with Modal's deploy and every save, sent to online PCs on
@@ -358,8 +380,10 @@ grey or coloured background in the prompt, never white.
 - **Edits.** LoadImage keeps only the colours of a transparent image (its alpha goes to a mask the
   edit packs don't use), so an edit fills the background back in; the description says to pass
   the option again.
-- **Cost:** about 1.7 s per image on Modal's L4 and 1.2 s on the user's PC (live, v1.16.1, Anima
-  Turbo portraits: 16.8 s against 15.1 s, and 10.4 s against 9.3 s). The spike's CPU took 35 to 54 s.
+- **Cost:** about 1.7 s per image on Modal's L4 and 1.2 s on the user's PC with Lucida (live, v1.16.1,
+  Anima Turbo portraits: 16.8 s against 15.1 s, and 10.4 s against 9.3 s). RMBG 2.0 is the same
+  architecture; isnet adds about 1.5 s on CPU. The scratchpad CPU ComfyUI took about 20 s per
+  image for the whole v1.17.3 cut-out.
 
 ### Redraw (2026-10-15)
 
@@ -1093,6 +1117,7 @@ Later: the ComfyUI client and the Modal app can become shared with Visual-Noveli
 | Repainting a mark with the image's own model, or ready-made node packs (2026-10-15) | A diffusion inpaint per image costs seconds of GPU and loads another graph. The marks sit on flat colour near the corners, which LaMa fills well. Acly's LaMa node resizes the whole image to 512 and blurred it; Impact Pack's detailers were more machinery than one detector and one fill. Our own node crops each mark at full resolution |
 | `edit_image` for touch-ups, and an inpainting control model (2026-10-15) | Flux 2 Klein's edits changed 0.7 to 1% of a sprite's body pixels, lost Frenni's bear muzzle and shifted the style. kohya's Anima LLLite inpainting needs a custom node under a non-commercial licence; masked denoising on the pack's own graph was enough (§3, Redraw) |
 | Redrawing a crop around the area (2026-10-15) | With the whole character's prompt the crop got the body the prompt described (a bustier drawn into a face crop); with a prompt for the crop alone, the model lost what the crop didn't show (bare hands on an armoured knight): 2 usable of 12. Redraw samples the whole image with the prompt for all of it, and repaints only the mask (§3, Redraw) |
+| Lucida for background removal (v1.16.0 to v1.17.2), and fixes that only cleaned its edge colours (2026-10-16) | A white contour over dark scenes, from a light ring in the images that any soft mask keeps, and enclosed background kept between hair and face; RMBG 2.0 with isnet-anime's gaps, a 2 px shrink and colour cleanup won on all 7 test sprites (§3, Background removal) |
 | A ComfyUI by URL as a GPU, and "Your own ComfyUI" for the agent and the extension (`comfyui_url`); removed 2026-10-15 | Every feature since the wait route needs our ComfyUI extension (the held wait, watermark removal; background removal needs our model folders), and each had to say "except there". What people wanted from their own ComfyUI, its models, the managed install already uses (other installs' folders are found and shared, §5). A stored URL GPU is left out of the list; a stored `comfyui_url` is dropped when the config loads, and the managed ComfyUI takes over |
 | comfy-cli for the local ComfyUI install | Needs git (a hard failure without it) and a second Python env just to run it, and caused the old extension's Windows bugs (spaces in `override.txt`, cp1252 crashes, a leaked `VIRTUAL_ENV`). What it abstracts, uv does: `--torch-backend auto` picks the CUDA wheels from the driver on every OS and the ROCm build by GPU architecture on Linux. The one gap, Intel Arc on Windows, is an explicit "intel" choice (`xpu`). AMD on Windows gets CPU wheels either way (comfy-cli installed DirectML but never launched with `--directml`). `local` downloads the pinned ComfyUI release, makes the venv with uv, installs node packages from the Comfy Registry API. Installs the old extension made with comfy-cli run as they are |
 
