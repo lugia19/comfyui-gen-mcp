@@ -451,6 +451,12 @@ and `strength` (0.3 to 1, default 0.9); hidden, `model` and `negative` (Scripted
   So the order is sprite → redraw → cut: the paste then gets no alpha, and `withBackgroundRemoval`
   cuts the pasted result, as on the generate tools. The description says to redraw the opaque
   version of a transparent sprite.
+- **Sprite sheets: base → redraw → edit → cut** (how Visual Novelist does it, 2026-10-16). Every
+  expression is a `redraw` of the clean opaque base. A pose (`edit_image`, hands, arms) comes after
+  it, then `remove_background` (the hidden tool) or the option on the last call. Redrawing after
+  the edit has Anima repaint the edit model's pixels, and it extended them (extra fingers at the
+  mask's edge). One open risk: an edit that moves the head can blur the expression, since nothing
+  re-checks the face after it.
 
 ### Waiting
 
