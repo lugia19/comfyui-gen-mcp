@@ -817,3 +817,12 @@ After v1.19.0, live: with `2xbj` set to `strengths: {anima: 0.7, anima_turbo: 0.
   inverted crop pasted back changed only the grown box and its soft edge, the output at the
   input's size.
 
+
+After v1.20.0, live: the first Modal call after the release took 1212 s, Modal answering "no
+upstreams available" meanwhile (no container up; most likely the redeploy rebuilding the image,
+since the extension changed; Modal's logs weren't reachable to confirm). Then normal again. One
+hand on a full-body Anima Turbo sprite (box [0.70, 0.52, 0.82, 0.66], about 160×250 px):
+whole-image vs area redraw, Modal 20.3 s vs 11.2 s, PC 25.9 s vs 5.5 s. Modal's two came out
+alike (an open gloved hand, no longer on the hip); on the PC the whole-image one was a claw and
+the area one garbled. One sample, and the hand wasn't a small detail by the description's rule:
+no case for "area" yet, which stays the opt-in last resort.
