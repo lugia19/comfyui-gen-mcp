@@ -30,11 +30,12 @@ def test_the_watermark_removal_models_pass_validation():
     assert [m["subfolder"] for m in validate_models(marks["models"])] == ["comfy_gen", "comfy_gen"]
 
 
-def test_the_background_removal_model_passes_validation():
-    # Seeded at its first use (core packs.ts BG_MODELS), into ComfyUI's own background_removal folder.
+def test_the_background_removal_models_pass_validation():
+    # Seeded from the start (core packs.ts BG_MODELS): RMBG 2.0 into ComfyUI's own background_removal
+    # folder, isnet-anime into our node's.
     bg = json.loads((PACKS / "tools.json").read_text())["remove_background"]
     validate_pack_name(bg["name"])
-    assert [m["subfolder"] for m in validate_models(bg["models"])] == ["background_removal"]
+    assert [m["subfolder"] for m in validate_models(bg["models"])] == ["background_removal", "comfy_gen"]
 
 
 def test_validation_keeps_known_keys_and_normalizes_the_hash():
