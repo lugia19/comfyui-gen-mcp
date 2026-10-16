@@ -194,10 +194,11 @@ export class FakeNet {
     if (!this.adminUp) return new Response("cold", { status: 503 });
     this.adminCalls.push([method, path, body]);
     if (method === "POST" && path === "/seed") {
-      this.seedState[body.pack] = { state: "queued", done: 0, total: 1 };
-      return jsonResp({ started: true, ...this.seedState[body.pack] });
+      const name = packName(body.pack);
+      this.seedState[name] = { state: "queued", done: 0, total: 1 };
+      return jsonResp({ started: true, ...this.seedState[name] });
     }
-    if (method === "GET" && path.startsWith("/seed/")) return jsonResp(this.seedState[path.split("/").at(-1)!] ?? { state: "missing" });
+    if (method === "GET" && path.startsWith("/seed/")) return jsonResp(this.seedState[packName(path.split("/").at(-1)!)] ?? { state: "missing" });
     if (method === "POST" && path === "/idle") return jsonResp({ seconds: body.seconds });
     if (method === "GET" && path === "/loras") return jsonResp(this.loras);
     if (method === "POST" && path === "/loras/fetch") {
@@ -283,3 +284,6 @@ export function request(method: string, path: string, body?: unknown, headers: R
   else if (body !== undefined) payload = JSON.stringify(body);
   return new Request(base + path, { method, headers, body: payload });
 }
+
+/** A seed record's pack name: the Worker sends seedKeys (name-fingerprint); the fake keeps names. */
+export const packName = (key: string) => key.replace(/-[0-9a-f]{8}$/, "");

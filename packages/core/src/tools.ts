@@ -184,7 +184,11 @@ export const REDRAW_DESC_REFS =
 
 // Tools defined here rather than by a generation pack. A pack whose tool_name is one of these (the
 // edit packs back edit_image) is data for that tool, not a tool of its own.
-export const STATIC_TOOLS = new Set(["edit_image", "fetch_result", "request_upload"]);
+export const STATIC_TOOLS = new Set(["edit_image", "fetch_result", "request_upload", "remove_background"]);
+
+// Tools served to scripted callers only: never in tools/list, so Claude doesn't see them (design §3,
+// Scripted callers). remove_background cuts an existing image's background out, nothing repainted.
+export const HIDDEN_TOOLS = new Set(["remove_background"]);
 
 // The end of every generation tool's description.
 const GENERATION_TAIL =

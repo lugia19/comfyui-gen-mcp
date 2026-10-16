@@ -268,6 +268,17 @@ export function withBackgroundRemoval(workflow: Workflow, { cutout = false } = {
   }
 }
 
+/** The graph of the hidden remove_background tool: the image *loadValue* as it is, its background
+ * cut out (withBackgroundRemoval, with our cleanup where the GPU has it), saved. */
+export function cutoutWorkflow(loadValue: string, { cutout = false } = {}): Workflow {
+  const wf: Workflow = {
+    "1": { inputs: { image: loadValue }, class_type: "LoadImage", _meta: { title: TITLES.image } },
+    "2": { inputs: { images: ["1", 0], filename_prefix: outputName() }, class_type: "SaveImage", _meta: { title: "Save Image" } },
+  };
+  withBackgroundRemoval(wf, { cutout });
+  return wf;
+}
+
 /**
  * *workflow* (an edit's, built for one image) with *count* images: [workflow, per image its
  * LoadImage and scale node ids]. The first image's nodes are the ones titled cg:image… (load,

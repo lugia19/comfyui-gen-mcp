@@ -7,7 +7,7 @@
 import {
   Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
   builtinPacks, isModelSet, wantedModelSets, fromHex, fromUtf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
-  withoutLora, tagLooseLoras, wantedLoras, packFor, redrawPack, withFamilies, type Config, type Content, type Pack,
+  withoutLora, tagLooseLoras, wantedLoras, packFor, redrawPack, seedKey, withFamilies, BG_MODELS, HIDDEN_TOOLS, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
@@ -304,7 +304,7 @@ export class App {
    * PC's from its last ensure or models check. */
   private ready(gpu: Gpu, setup: Record<string, any>, pack: Pack): boolean | null {
     if (!pack.models?.length) return true;
-    if (gpu.kind === "modal" && (setup.seeded ?? []).includes(pack.name)) return true;
+    if (gpu.kind === "modal" && (setup.seeded ?? []).includes(seedKey(pack))) return true;
     return setup.ready?.[gpu.id]?.[pack.name] ?? null;
   }
 
@@ -374,7 +374,7 @@ export class App {
     if (sub !== undefined) return error(404, "not found");
     const cfg = await this.store.config(); // one config for every GPU: Claude sees one tool list
     const specs = new Brain(PACKS, cfg, null as unknown as ComfyUIClient, "refs").specs;
-    const served = new Set(specs.map((spec) => spec.name));
+    const served = new Set([...specs.map((spec) => spec.name), ...HIDDEN_TOOLS]);
     const key = hmacKey(s);
 
     const call = async (name: string, args: Record<string, any>): Promise<[Content[], boolean, Record<string, any>?]> => {
@@ -393,6 +393,7 @@ export class App {
         if (typeof chosen === "string") return failResult(chosen);
         pack = chosen;
       }
+      if (name === "remove_background") pack = BG_MODELS; // routed to a GPU that has the model
       if (name === "redraw") {
         const chosen = redrawPack(PACKS, args.model);
         if (typeof chosen === "string") return failResult(chosen);

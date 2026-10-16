@@ -741,3 +741,18 @@ background's (design §3). The `remove-background` model set holds both files; t
 `cutout`, and older agents keep ComfyUI's plain join. The spike compared 8 variants and then the
 full stacks on 7 sprites (scratchpad `cutout/`); the real graph on the scratchpad's CPU ComfyUI
 matched it, every result RGBA at the input's size.
+
+After v1.17.3, live: on the user's PC the cut-out adds about 1.6 s. Modal failed every cut-out
+("rmbg-2.0.safetensors not in ['lucida.safetensors']"): the Worker and Modal kept their record of
+the old set's seed by name, so the new files never downloaded. Seeded by hand through the admin
+API (about 20 s), Modal then gave a white-background cut in 23.1 s, a grey one in 19.3 to 29.1 s,
+and a redraw plus cut in 28.5 s.
+
+## v1.17.4: seeds keyed by content, a hidden `remove_background` (2026-10-16)
+
+- **Seed records keyed by content.** `setup.seeded` and Modal's `seed:<pack>` now use core
+  `seedKey` (name plus an FNV-1a hash of the files, design §2). Every key is new once, so the
+  release's Modal redeploy re-seeds every wanted pack; files already present are skipped, so only
+  changed packs download. A call before that finishes may get one retryable "being downloaded".
+- **Hidden `remove_background` tool** for scripted callers (design §3): an image in, its cut-out
+  as a new image id out. Not in `tools/list`.

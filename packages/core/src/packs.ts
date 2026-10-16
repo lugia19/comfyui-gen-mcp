@@ -67,6 +67,22 @@ export function wantedModelSets(cfg: Config): Pack[] {
   return cfg.remove_marks ? [MARK_MODELS, BG_MODELS, FACE_MODELS] : [BG_MODELS, FACE_MODELS];
 }
 
+/** The name a GPU records *pack*'s finished download under (Modal's admin state, the Worker's
+ * setup.seeded): its name and a fingerprint of its files, so a pack whose files change counts as
+ * not downloaded (v1.17.3 changed remove-background's under the same name, and Modal kept the old
+ * ones). FNV-1a over each file's folder, name and hash, sorted. */
+export function seedKey(pack: Pick<Pack, "name" | "models">): string {
+  const cached = seedKeys.get(pack);
+  if (cached) return cached;
+  const lines = (pack.models ?? []).map((m) => `${m.subfolder}/${m.filename}:${m.sha256 ?? m.size_bytes ?? ""}`).sort().join("\n");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < lines.length; i++) h = Math.imul(h ^ lines.charCodeAt(i), 0x01000193) >>> 0;
+  const key = `${pack.name}-${h.toString(16).padStart(8, "0")}`;
+  seedKeys.set(pack, key);
+  return key;
+}
+const seedKeys = new WeakMap<object, string>();
+
 /** *packLoras* with every one of *names* in a group: *group* when it is a LoRA group (the one an
  * upload was made for), else the default. Null if every name had one. See config.ts tagLoras. */
 export function tagLooseLoras(packLoras: Record<string, LoraEntry[]>, names: Iterable<string>, group?: unknown): Record<string, LoraEntry[]> | null {

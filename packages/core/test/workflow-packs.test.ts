@@ -3,7 +3,7 @@ import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize, tagLoras } from "../src/config.ts";
-import { BG_MODELS, builtinPacks, canRedraw, DEFAULT_LORA_GROUP, FACE_MODELS, MARK_MODELS, redrawPack, wantedModelSets, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
+import { BG_MODELS, builtinPacks, canRedraw, seedKey, DEFAULT_LORA_GROUP, FACE_MODELS, MARK_MODELS, redrawPack, wantedModelSets, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
 import { describe as describeTool } from "../src/tools.ts";
 import { BACKGROUND_MODEL, CUTOUT_NODE, buildPrompt, calcDimensions, injectLoras, redrawWorkflow, withBackgroundRemoval, REDRAW_PASTE_NODE, REDRAW_REGION_NODE, REMOVE_MARKS_NODE, withImages, type Workflow } from "../src/workflow.ts";
 
@@ -417,5 +417,16 @@ describe("redraw", () => {
     expect(FACE_MODELS.models.map((m) => [m.subfolder, m.filename])).toEqual([["comfy_gen", "face_detect_v1.4_s.onnx"]]);
     expect(wantedModelSets(normalize({ remove_marks: false })).map((p) => p.name)).toEqual(["remove-background", "detect-faces"]);
     expect(wantedModelSets(normalize({})).map((p) => p.name)).toContain("detect-faces");
+  });
+});
+
+describe("seed keys", () => {
+  it("name a pack's files: the same files, the same key; a changed file, a new one", () => {
+    const pack = { name: "remove-background", models: [{ url: "u", subfolder: "background_removal", filename: "a.safetensors", sha256: "aa" }] };
+    const key = seedKey(pack);
+    expect(key).toMatch(/^remove-background-[0-9a-f]{8}$/);
+    expect(seedKey(structuredClone(pack))).toBe(key);
+    expect(seedKey({ ...pack, models: [{ ...pack.models[0], sha256: "bb" }] })).not.toBe(key);
+    expect(seedKey({ ...pack, models: [...pack.models, { url: "v", subfolder: "comfy_gen", filename: "b.onnx", sha256: "cc" }] })).not.toBe(key);
   });
 });

@@ -75,6 +75,17 @@ describe("MCP route", () => {
     expect((await call("anima"))._meta["comfy-gen/result"].message).not.toContain("Unknown model");
   });
 
+  it("serves the hidden remove_background tool to scripted callers without listing it", async () => {
+    const w = world();
+    const listed = await (await w.local(w.cfg().mcp_path, rpc("tools/list"))).json();
+    expect(listed.result.tools.map((t: any) => t.name)).not.toContain("remove_background");
+    const call = async (args: object) =>
+      (await (await w.local(w.cfg().mcp_path, rpc("tools/call", { name: "remove_background", arguments: args }))).json()).result;
+    expect((await call({}))._meta["comfy-gen/result"]).toMatchObject({ status: "error", message: "an image is required." });
+    // With an image it gets as far as the model check: the stub home has no background model.
+    expect((await call({ image_path: "/tmp/sprite.png" }))._meta["comfy-gen/result"].message).toContain("Background removal model is downloading");
+  });
+
   it("ignores a stored custom workflow (the feature was removed)", async () => {
     const w = world();
     saveConfig(w.p.config, { ...w.cfg(), custom_workflow: { workflow: { "1": { class_type: "EmptyImage", inputs: {} } } } });

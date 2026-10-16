@@ -435,3 +435,29 @@ describe("redraw", () => {
     expect((out as Failed).message).toContain("No face found in this image: pass a box around it instead.");
   });
 });
+
+describe("the hidden remove_background tool", () => {
+  const classes = (prompt: Record<string, any>) => Object.values<any>(prompt).map((n) => n.class_type);
+
+  it("cuts the stored image's background out, nothing repainted, and is never listed", async () => {
+    const { comfy, brain } = setup({ canRemoveBackground: true, canCutout: true });
+    const hooks = new PathHooks();
+    const out = await brain({ hooks }).call("remove_background", { image_path: "a.png" });
+    expect(out).toBeInstanceOf(Done);
+    expect(hooks.ensured).toEqual(["remove-background"]);
+    const prompt = comfy.prompts.at(-1)!;
+    expect(classes(prompt).sort()).toEqual(["ComfyGenCutout", "LoadBackgroundRemovalModel", "LoadImage", "RemoveBackground", "SaveImage"]);
+    expect(Object.values<any>(prompt).find((n) => n.class_type === "LoadImage").inputs.image).toBe("a.png [output]");
+    // without our node: ComfyUI's plain join
+    await brain({ hooks: new PathHooks(), canCutout: false }).call("remove_background", { image_path: "a.png" });
+    expect(classes(comfy.prompts.at(-1)!)).toContain("JoinImageWithAlpha");
+    for (const mode of ["paths", "refs"] as const) expect(names(toolSpecs(BUILTIN, normalize({}), mode))).not.toContain("remove_background");
+  });
+
+  it("answers a bad call or a GPU that can't before any GPU time", async () => {
+    const { comfy, brain } = setup({ canRemoveBackground: true });
+    expect(((await brain().call("remove_background", {})) as Failed).message).toBe("an image is required.");
+    expect(((await brain({ canRemoveBackground: false }).call("remove_background", { image: "x" })) as Failed).message).toBe(BACKGROUND_UNAVAILABLE);
+    expect(comfy.prompts).toEqual([]);
+  });
+});

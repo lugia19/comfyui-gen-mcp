@@ -2,7 +2,7 @@
 // models onto the Volume, read the progress, set keep-warm, list, fetch and delete LoRAs. Same proxy
 // token as ComfyUI. LoRAs come from R2: the Volume downloads them from the Worker's storage links.
 
-import type { Pack } from "@comfy-gen/core";
+import { seedKey, type Pack } from "@comfy-gen/core";
 import type { Fetch } from "./platform.ts";
 import type { Store } from "./store.ts";
 
@@ -52,12 +52,13 @@ export class ModalAdmin {
     throw new ModalAdminError(`The Modal app answered HTTP ${resp.status}: ${text.slice(0, 200)}`, resp.status);
   }
 
+  /** Start *pack*'s download, recorded under its seedKey (a new one when its files change). */
   seed(pack: Pack): Promise<any> {
-    return this.call("POST", "/seed", { pack: pack.name, models: pack.models });
+    return this.call("POST", "/seed", { pack: seedKey(pack), models: pack.models });
   }
 
-  status(packName: string): Promise<any> {
-    return this.call("GET", `/seed/${packName}`);
+  status(pack: Pack): Promise<any> {
+    return this.call("GET", `/seed/${seedKey(pack)}`);
   }
 
   /** LoRA file name -> size on the Volume. */
@@ -79,14 +80,15 @@ export class ModalAdmin {
   }
 }
 
-// Packs known to be fully on the Volume, in the setup key, so a ready pack costs no admin call.
+// Packs known to be fully on the Volume, in the setup key by seedKey (their files: a pack whose
+// files change downloads again), so a ready pack costs no admin call.
 
 /** The pack's seed state: {state: done|queued|downloading|failed|missing, done, total, error}. */
 export async function packStatus(admin: ModalAdmin, store: Store, pack: Pack): Promise<Record<string, any>> {
   const seeded: string[] = (await store.setup()).seeded ?? [];
-  if (seeded.includes(pack.name)) return { state: "done" };
-  const status = await admin.status(pack.name);
-  if (status?.state === "done") await store.updateSetup({ seeded: [...new Set([...seeded, pack.name])].sort() });
+  if (seeded.includes(seedKey(pack))) return { state: "done" };
+  const status = await admin.status(pack);
+  if (status?.state === "done") await store.updateSetup({ seeded: [...new Set([...seeded, seedKey(pack)])].sort() });
   return status;
 }
 
@@ -95,7 +97,7 @@ export async function seedMissing(admin: ModalAdmin, store: Store, packs: Pack[]
   const seeded: string[] = (await store.setup()).seeded ?? [];
   const warnings: string[] = [];
   for (const pack of packs) {
-    if (seeded.includes(pack.name) || !pack.models?.length) continue;
+    if (seeded.includes(seedKey(pack)) || !pack.models?.length) continue;
     try {
       await admin.seed(pack);
     } catch (e) {

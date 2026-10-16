@@ -15,7 +15,7 @@ import { UnknownTool } from "./mcp.ts";
 import { BG_MODELS, FACE_MODELS, groupByTool, MARK_MODELS, packFor, prepare, redrawPack, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
 import * as refs from "./refs.ts";
-import { buildPrompt, redrawWorkflow, withBackgroundRemoval, withImages, type Workflow } from "./workflow.ts";
+import { buildPrompt, cutoutWorkflow, redrawWorkflow, withBackgroundRemoval, withImages, type Workflow } from "./workflow.ts";
 
 // A tool call answers within this, counted from its start. claude.ai gives up at 300 s (S8), but a
 // claude.ai connector used from Claude Code gave up at about 183 s (2026-10-01: a cold Modal edit
@@ -141,6 +141,7 @@ export class Brain {
     if (name === "fetch_result") return this.fetch(args);
     if (name === "edit_image" && "edit_image" in this.selected) return this.edit(args);
     if (name === "redraw" && this.specs.some((s) => s.name === "redraw")) return this.redraw(args);
+    if (name === "remove_background") return this.removeBackground(args); // hidden: scripted callers
     if (name in this.selected && !STATIC_TOOLS.has(name)) {
       const pack = packFor(this.packs, this.selected[name], args.model); // a scripted caller's hidden `model`
       return typeof pack === "string" ? new Failed(pack) : this.generate(pack, args);
@@ -222,6 +223,22 @@ export class Brain {
     // transparent part samples the colours left under it and gets the old edge pasted back.
     if (removeBackground) withBackgroundRemoval(wf, { cutout: this.canCutout });
     return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles, negative: String(args.negative ?? "") }), null);
+  }
+
+  /** The hidden remove_background tool: *image* as stored, its background cut out, nothing repainted. */
+  private async removeBackground(args: Record<string, any>): Promise<Outcome> {
+    const image = String(args.image_path || args.image || "").trim();
+    if (!image) return new Failed("an image is required.");
+    if (!this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
+    let loadValue: string;
+    try {
+      await this.ensureAll(BG_MODELS, []); // before the upload, as for edits
+      [loadValue] = await this.hooks.resolveImage(image);
+    } catch (e) {
+      if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
+      throw e;
+    }
+    return this.run(BG_MODELS, cutoutWorkflow(loadValue, { cutout: this.canCutout }), null);
   }
 
   /** Make *pack* ready, after the model sets the call also needs (*extra*): a call that asked for a

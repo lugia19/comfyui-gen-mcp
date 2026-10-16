@@ -4,14 +4,16 @@ import { png } from "../../core/test/fake-comfy.ts";
 import { LORA_CHUNK } from "../src/loras.ts";
 import { PACKS, REQUEST_BUDGET, type App } from "../src/app.ts";
 import { offlineMessage, pausedMessage } from "../src/hooks.ts";
-import { BACKGROUND_UNAVAILABLE, REDRAW_UNAVAILABLE } from "@comfy-gen/core";
+import { BACKGROUND_UNAVAILABLE, MODEL_SETS, REDRAW_UNAVAILABLE, seedKey } from "@comfy-gen/core";
 import { cacheEntry } from "../src/store.ts";
 import * as updates from "../src/updates.ts";
 import golden from "../../core/test/golden.json" with { type: "json" };
 import { makeSession, sessionOk } from "../src/auth.ts";
 import * as auth from "../src/auth.ts";
-import { ADMIN, COMFY, HOST, TOKEN, request, sha256Hex, world } from "./world.ts";
+import { ADMIN, COMFY, HOST, TOKEN, packName, request, sha256Hex, world } from "./world.ts";
 
+/** A pack's or model set's download record name (core seedKey), by its name. */
+const keyOf = (name: string) => seedKey([...PACKS, ...MODEL_SETS].find((p) => p.name === name)!);
 const secretsOf = (app: App) => app.store.secrets();
 
 async function mcp(app: App, method: string, params: unknown = {}, id = 1): Promise<[number, any]> {
@@ -33,7 +35,7 @@ const withModal = (app: App) =>
 /** Modal with every model downloaded: a GPU that just answers (no admin API calls). */
 const withReadyModal = async (app: App) => {
   await withModal(app);
-  await app.store.updateSetup({ seeded: [...PACKS.map((p) => p.name), "remove-marks"] });
+  await app.store.updateSetup({ seeded: [...PACKS.map((p) => p.name), "remove-marks"].map(keyOf) });
 };
 
 async function login(app: App): Promise<Record<string, string>> {
@@ -213,6 +215,18 @@ describe("MCP", () => {
 
     clock.t += 3600; // the link expires
     expect((await app.handle(request("POST", `/upload/${token}`, png()))).status).toBe(403);
+  });
+
+  it("remove_background is served to scripted callers but never listed", async () => {
+    const { app, comfy } = world();
+    await withReadyModal(app);
+    await app.store.updateSetup({ seeded: [...PACKS.map((p) => p.name), "remove-marks", "remove-background"].map(keyOf) });
+    const [, list] = await mcp(app, "tools/list", {});
+    expect(list.result.tools.map((t: any) => t.name)).not.toContain("remove_background");
+    const [, r] = await mcp(app, "tools/call", { name: "remove_background", arguments: { image: "https://images.example/a.png" } });
+    expect(r.result.content[0].type).toBe("image");
+    expect(structured(r)).toMatchObject({ status: "done", images: [{ image_id: expect.any(String) }] });
+    expect(Object.values<any>(comfy.prompts.at(-1)!).map((n) => n.class_type)).toContain("ComfyGenCutout"); // Modal has our node
   });
 
   it("redraw is listed and routed by its pack; a model that can't is answered before any GPU time", async () => {
@@ -488,7 +502,7 @@ describe("settings API", () => {
     // The selected packs and the rest of their families (Anima beside Anima Turbo).
     // And the watermark and background removal models and the face detector (the setting is on by
     // default; the options are on every call).
-    expect(seeds.map((c) => c[2].pack).sort()).toEqual(["anima", "anima_turbo", "detect-faces", "flux2klein_edit", "remove-background", "remove-marks", "z_image_turbo"]);
+    expect(seeds.map((c) => packName(c[2].pack)).sort()).toEqual(["anima", "anima_turbo", "detect-faces", "flux2klein_edit", "remove-background", "remove-marks", "z_image_turbo"]);
     expect(seeds.every((c) => c[2].models.length)).toBe(true);
   });
 
@@ -528,6 +542,18 @@ describe("Modal models", () => {
     expect((await app.gpus())[0].kind).toBe("modal");
   });
 
+  it("a pack recorded under its old files downloads again", async () => {
+    const { app, net } = world();
+    await withModal(app);
+    // as v1.17.3 left it: remove-background done by name, under Lucida
+    await app.store.updateSetup({ seeded: [...PACKS.map((p) => p.name), "remove-marks"].map(keyOf).concat("remove-background") });
+    const [, r] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x", remove_background: true } });
+    expect(structured(r)).toMatchObject({ status: "error", retryable: true });
+    const seeds = net.adminCalls.filter((c) => c[1] === "/seed").map((c) => c[2].pack);
+    expect(seeds).toContain(keyOf("remove-background")); // the new files, under their own key
+    expect(keyOf("remove-background")).toMatch(/^remove-background-[0-9a-f]{8}$/);
+  });
+
   it("the models page reports and remembers ready packs", async () => {
     const { app, net } = world();
     await withModal(app);
@@ -540,7 +566,7 @@ describe("Modal models", () => {
     expect(models.packs[0].size).toBeGreaterThan(5e9);
     net.adminCalls = [];
     await app.handle(request("GET", "/api/models", undefined, cookie));
-    expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["/seed/anima", "/seed/flux2klein_edit", "/seed/z_image_turbo"]); // anima_turbo is recorded
+    expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["anima", "flux2klein_edit", "z_image_turbo"].map((n) => `/seed/${keyOf(n)}`)); // anima_turbo is recorded
     expect(models.packs.map((p: any) => p.name)).not.toContain("remove-marks"); // downloads in the background, never listed
     const retry = await app.handle(request("POST", "/api/models/seed", { pack: "flux2klein_edit", gpu: "modal" }, cookie));
     expect((await body(retry)).started).toBe(true);
@@ -550,14 +576,14 @@ describe("Modal models", () => {
     const { app, net } = world();
     await withModal(app);
     const cookie = await login(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit", "remove-marks", "remove-background", "detect-faces"] });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit", "remove-marks", "remove-background", "detect-faces"].map(keyOf) });
     const cfg = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
     const resp = await app.handle(request("PUT", "/api/config", { config: cfg }, cookie));
     expect((await body(resp)).warnings).toEqual([]);
     expect(net.adminCalls).toEqual([]); // nothing changed
     cfg.pack_selections = { generate_realistic_image: "flux2klein_9b" };
     await app.handle(request("PUT", "/api/config", { config: cfg }, cookie));
-    expect(net.adminCalls.filter((c) => c[1] === "/seed").map((c) => c[2].pack)).toEqual(["flux2klein_9b"]);
+    expect(net.adminCalls.filter((c) => c[1] === "/seed").map((c) => packName(c[2].pack))).toEqual(["flux2klein_9b"]);
     // Keep-warm belongs to the GPU: setting Modal's applies it on Modal at once.
     const patched = await body(await app.handle(request("PATCH", "/api/gpus/modal", { keep_warm_minutes: 15 }, cookie)));
     expect([patched.gpu.keep_warm_minutes, patched.warnings]).toEqual([15, []]);
@@ -568,7 +594,7 @@ describe("Modal models", () => {
   it("a generation waits for its models", async () => {
     const { app, net, comfy } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["remove-marks"] });
+    await app.store.updateSetup({ seeded: ["remove-marks"].map(keyOf) });
     const args = { name: "generate_illustrated_image", arguments: { prompt: "x" } };
     let [, r] = await mcp(app, "tools/call", args);
     expect(r.result.isError).toBe(true);
@@ -591,7 +617,7 @@ describe("Modal models", () => {
   it("a model only a hidden argument names downloads like the selected one", async () => {
     const { app, net, comfy } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["anima_turbo"] }); // as before families downloaded whole
+    await app.store.updateSetup({ seeded: ["anima_turbo"].map(keyOf) }); // as before families downloaded whole
     const [, r] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x", model: "anima" } });
     expect(structured(r)).toMatchObject({ status: "error", retryable: true, message: expect.stringContaining("Anima model is being downloaded") });
     expect(net.seedState.anima.state).toBe("queued");
@@ -615,7 +641,7 @@ describe("Modal models", () => {
   it("removes signatures and watermarks on Modal once their models are there", async () => {
     const { app, net, comfy } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["anima_turbo"] });
+    await app.store.updateSetup({ seeded: ["anima_turbo"].map(keyOf) });
     const call = () => mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x" } });
     let [, r] = await call();
     expect(r.result.content[0].type).toBe("image"); // still downloading: this image goes out as it is
@@ -710,7 +736,7 @@ describe("LoRAs", () => {
     const { app, net, bucket } = world();
     await withModal(app);
     const cookie = await login(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"] });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"].map(keyOf) });
     await bucket.put("lora/here.safetensors", new Uint8Array(1));
     net.loras = { "here.safetensors": 1 };
     const cfg = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
@@ -913,7 +939,7 @@ describe("the PC path", () => {
   it("one config serves every GPU; saving applies it to the PC too; keep-warm is the PC's own", async () => {
     const { app, pc } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"] });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"].map(keyOf) });
     const { cookie } = await pair(app);
     const state = async () => body(await app.handle(request("GET", "/api/state", undefined, cookie)));
     const cfg = { ...(await state()).config, pack_settings: { anima: { artist_list: "@one_artist" } } };
@@ -943,7 +969,7 @@ describe("the PC path", () => {
   it("warns only about LoRAs that are not in storage, whatever the GPUs hold", async () => {
     const { app, net, pc, bucket } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"] });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"].map(keyOf) });
     const { cookie } = await pair(app);
     await bucket.put("lora/stored.safetensors", new Uint8Array(1));
     net.loras = { "modal.safetensors": 1 };
@@ -1058,7 +1084,7 @@ describe("the PC path", () => {
     const { app, pc, comfy } = world();
     await withModal(app);
     await pair(app);
-    await app.store.updateSetup({ seeded: ["anima"], ready: { pc: { anima: false, anima_turbo: true } } });
+    await app.store.updateSetup({ seeded: ["anima"].map(keyOf), ready: { pc: { anima: false, anima_turbo: true } } });
     const gen = (model: string) => mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x", model } });
     await gen("anima");
     expect([pc.comfy.prompts.length, comfy.prompts.length]).toEqual([0, 1]);
@@ -1203,7 +1229,7 @@ describe("the PC path", () => {
   it("shows each GPU's LoRA files and model downloads, and learns which packs a PC has", async () => {
     const { app, pc, net } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"] });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"].map(keyOf) });
     const { cookie } = await pair(app);
     net.loras = { "both.safetensors": 7 };
     pc.controls.loras = () => [200, { files: { "mine.safetensors": 123, "both.safetensors": 7 }, syncing: { "x.safetensors": { to: "pc", done: 1, total: 2 } } }];

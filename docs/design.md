@@ -102,7 +102,10 @@ the list leaves a stored one out, so the next write drops it, and its `fetch_res
 - **Routing:** a call goes to the first enabled GPU that is available (a PC: connected and not
   paused) and not known to lack the call's pack; readiness unknown (a PC not asked yet) is worth a
   try. A PC's readiness is kept per pack from its answers (`setup.ready`), Modal's from its seed
-  cache. With none ready, the first available one takes the call and starts
+  cache (`setup.seeded`). Both that cache and Modal's own record of a finished seed are keyed by
+  core `seedKey`: the pack's name plus a hash of its files' names and hashes, so changing a pack's
+  files makes it count as not seeded (v1.17.4; name-only keys kept v1.17.3's new background models
+  from ever reaching Modal). With none ready, the first available one takes the call and starts
   the download. A GPU that turns out to be downloading hands the call to the next one in the same
   call. None available: the tools say which GPUs are offline or paused.
 - **`fetch_result` tokens** are `<gpuId>:<prompt_id>`: only that GPU has the job, so the call goes
@@ -262,6 +265,13 @@ results stay as they are:
     come with it (core `packFor`, in the Brain and, for routing, the Worker). It also works on
     the MCPB.
   - On `redraw`, `model` names any pack that can redraw, and `negative` works as above.
+- **A hidden `remove_background` tool**, absent from `tools/list` (core `HIDDEN_TOOLS`) but served
+  by the Worker and the MCPB. `image` (an id or an https URL; `image_path` on the MCPB) in, a new
+  RGBA image id at the same size out: the same cut-out as `remove_background: true` on the other
+  tools (core `cutoutWorkflow`), nothing repainted, no prompt or model. Visual Novelist cuts out
+  its neutral expression's base with it, where a redraw would repaint the face. It needs the
+  background models like the option does (retryable "being downloaded") and is routed to a GPU
+  that has them; a GPU that can't remove backgrounds answers as the option does.
 - **`_meta["comfy-gen/result"]`** on every tool result, beside the unchanged content blocks:
   - `{status: "done", images: [{image_id, url, width, height}]}`
   - `{status: "pending", request_token}`
@@ -1118,6 +1128,7 @@ Later: the ComfyUI client and the Modal app can become shared with Visual-Noveli
 | `edit_image` for touch-ups, and an inpainting control model (2026-10-15) | Flux 2 Klein's edits changed 0.7 to 1% of a sprite's body pixels, lost Frenni's bear muzzle and shifted the style. kohya's Anima LLLite inpainting needs a custom node under a non-commercial licence; masked denoising on the pack's own graph was enough (§3, Redraw) |
 | Redrawing a crop around the area (2026-10-15) | With the whole character's prompt the crop got the body the prompt described (a bustier drawn into a face crop); with a prompt for the crop alone, the model lost what the crop didn't show (bare hands on an armoured knight): 2 usable of 12. Redraw samples the whole image with the prompt for all of it, and repaints only the mask (§3, Redraw) |
 | Lucida for background removal (v1.16.0 to v1.17.2), and fixes that only cleaned its edge colours (2026-10-16) | A white contour over dark scenes, from a light ring in the images that any soft mask keeps, and enclosed background kept between hair and face; RMBG 2.0 with isnet-anime's gaps, a 2 px shrink and colour cleanup won on all 7 test sprites (§3, Background removal) |
+| Seed records keyed by pack name only (to v1.17.3) | Changing a pack's files under the same name kept both records at "done", so Modal never fetched v1.17.3's background models; keys now carry a hash of the files (`seedKey`, §2) |
 | A ComfyUI by URL as a GPU, and "Your own ComfyUI" for the agent and the extension (`comfyui_url`); removed 2026-10-15 | Every feature since the wait route needs our ComfyUI extension (the held wait, watermark removal; background removal needs our model folders), and each had to say "except there". What people wanted from their own ComfyUI, its models, the managed install already uses (other installs' folders are found and shared, §5). A stored URL GPU is left out of the list; a stored `comfyui_url` is dropped when the config loads, and the managed ComfyUI takes over |
 | comfy-cli for the local ComfyUI install | Needs git (a hard failure without it) and a second Python env just to run it, and caused the old extension's Windows bugs (spaces in `override.txt`, cp1252 crashes, a leaked `VIRTUAL_ENV`). What it abstracts, uv does: `--torch-backend auto` picks the CUDA wheels from the driver on every OS and the ROCm build by GPU architecture on Linux. The one gap, Intel Arc on Windows, is an explicit "intel" choice (`xpu`). AMD on Windows gets CPU wheels either way (comfy-cli installed DirectML but never launched with `--directml`). `local` downloads the pinned ComfyUI release, makes the venv with uv, installs node packages from the Comfy Registry API. Installs the old extension made with comfy-cli run as they are |
 
