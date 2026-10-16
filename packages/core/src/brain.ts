@@ -15,7 +15,7 @@ import { UnknownTool } from "./mcp.ts";
 import { BG_MODELS, FACE_MODELS, groupByTool, MARK_MODELS, packFor, prepare, redrawPack, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
 import * as refs from "./refs.ts";
-import { buildPrompt, redrawWorkflow, withImages, type Workflow } from "./workflow.ts";
+import { buildPrompt, redrawWorkflow, withBackgroundRemoval, withImages, type Workflow } from "./workflow.ts";
 
 // A tool call answers within this, counted from its start. claude.ai gives up at 300 s (S8), but a
 // claude.ai connector used from Claude Code gave up at about 183 s (2026-10-01: a cold Modal edit
@@ -201,18 +201,24 @@ export class Brain {
     const strength = args.strength === undefined || args.strength === null ? REDRAW_STRENGTH : Number(args.strength);
     if (!Number.isFinite(strength) || strength < MIN_STRENGTH || strength > 1) return new Failed(`strength must be a number from ${MIN_STRENGTH} to 1.`);
     if (!this.canRedraw) return new Failed(REDRAW_UNAVAILABLE);
+    const removeBackground = args.remove_background === true;
+    if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
     const rawPack = redrawPack(this.packs, args.model);
     if (typeof rawPack === "string") return new Failed(rawPack);
     const pack = prepare(rawPack, this.cfg);
     let loadValue: string;
     try {
-      await this.ensureAll(pack, box ? [] : [FACE_MODELS]); // before the upload, as for edits
+      // before the upload, as for edits
+      await this.ensureAll(pack, [...(box ? [] : [FACE_MODELS]), ...(removeBackground ? [BG_MODELS] : [])]);
       [loadValue] = await this.hooks.resolveImage(image);
     } catch (e) {
       if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
       throw e;
     }
-    const wf = redrawWorkflow(pack.workflow, loadValue, { box, strength, maxPixels: pack.max_pixels ?? 1_048_576 });
+    const wf = redrawWorkflow(pack.workflow, loadValue, { box, strength, maxPixels: pack.max_pixels ?? 1_048_576, keepAlpha: !removeBackground });
+    // The background cut from the pasted result, not before: a redraw reaching into an already
+    // transparent part samples the colours left under it and gets the old edge pasted back.
+    if (removeBackground) withBackgroundRemoval(wf);
     return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles, negative: String(args.negative ?? "") }), null);
   }
 

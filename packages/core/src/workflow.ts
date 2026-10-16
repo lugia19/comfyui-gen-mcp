@@ -324,6 +324,9 @@ export type RedrawOptions = {
   box: string;
   /** The sampler's denoise: how far the repainted part may stray from what is there. */
   strength: number;
+  /** Whether the result keeps the source's transparency (LoadImage's mask). Off when the result's
+   * background is cut afterwards (withBackgroundRemoval makes a fresh alpha from an RGB image). */
+  keepAlpha?: boolean;
   /** The most pixels to sample (the pack's budget): a bigger image is sampled scaled down. */
   maxPixels: number;
 };
@@ -358,7 +361,7 @@ export function redrawWorkflow(workflow: Workflow, loadValue: string, opts: Redr
     if (save.class_type !== "SaveImage" || !Array.isArray(save.inputs?.images)) continue;
     const paste = String(nextId++);
     wf[paste] = node(REDRAW_PASTE_NODE, TITLES.redrawPaste, {
-      original: [image, 0], redrawn: save.inputs.images, region: [region, 2], alpha: [image, 1],
+      original: [image, 0], redrawn: save.inputs.images, region: [region, 2], ...(opts.keepAlpha === false ? {} : { alpha: [image, 1] }),
     });
     save.inputs.images = [paste, 0];
   }

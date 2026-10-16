@@ -726,6 +726,8 @@ After v1.17.0, live through the connector (Anima Turbo unless said):
   the sword fixed cleanly by Turbo in 11.2 s.
 - Since then (v1.17.1): redraw is for illustrations only (no `style`; photos go to `edit_image`),
   and runs Anima Turbo unless `model` names the other Anima pack, whatever the settings select.
+- v1.17.2: `remove_background` on redraw, cut after the paste. Visual Novelist's sprite → cut →
+  redraw broke where the area reached a transparent part; sprite → redraw → cut doesn't.
 
 Next: Visual Novelist makes expression variants with `redraw`: its sprite prompt with the
 expression swapped, no box.

@@ -391,6 +391,20 @@ describe("redraw", () => {
     expect(nodeOf(prompt, "KSampler").inputs.denoise).toBe(1);
   });
 
+  it("cuts the background after the redraw when asked, waiting for its model", async () => {
+    const { comfy, brain } = setup({ canRedraw: true, canRemoveBackground: true, cfg: { remove_marks: false } });
+    const hooks = new PathHooks();
+    await brain({ hooks }).call("redraw", { prompt: "x", image_path: "a.png", remove_background: true });
+    expect(hooks.ensured).toEqual(["detect-faces", "remove-background", "anima_turbo"]);
+    const prompt = comfy.prompts.at(-1)!;
+    expect(nodeOf(prompt, "JoinImageWithAlpha")).toBeDefined();
+    expect(nodeOf(prompt, "ComfyGenRedrawPaste").inputs.alpha).toBeUndefined();
+    const out = await brain({ canRemoveBackground: false }).call("redraw", { prompt: "x", image_path: "a.png", remove_background: true });
+    expect((out as Failed).message).toBe(BACKGROUND_UNAVAILABLE);
+    expect(comfy.prompts.length).toBe(1);
+    expect(toolSpecs(BUILTIN, normalize({}), "refs").find((s) => s.name === "redraw")!.inputSchema.properties.remove_background.type).toBe("boolean");
+  });
+
   it("answers a bad call before any GPU time", async () => {
     const { comfy, brain } = setup({ canRedraw: true });
     const fail = async (args: Record<string, any>, b = brain()) => ((await b.call("redraw", { prompt: "x", image_path: "a.png", ...args })) as Failed).message;

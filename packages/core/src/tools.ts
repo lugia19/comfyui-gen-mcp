@@ -66,15 +66,25 @@ const REDRAW_PROPS = {
   strength: { type: "number", minimum: 0.3, maximum: 1, default: 0.9, description: "How far the redrawn part may stray from what is there now." },
 };
 
+const REDRAW_BACKGROUND_PROP = {
+  type: "boolean",
+  default: false,
+  description:
+    "true to return the image with a transparent background, as on the generate tools. To redraw a " +
+    "transparent sprite, redraw its opaque version and pass this, rather than redrawing the cut-out: " +
+    "an area reaching into the transparent parts comes out wrong. The background should be plain grey " +
+    "or coloured, not white.",
+};
+
 export const REDRAW_SCHEMA_PATHS = {
   type: "object",
-  properties: { image_path: { type: "string" }, ...REDRAW_PROPS },
+  properties: { image_path: { type: "string" }, ...REDRAW_PROPS, remove_background: REDRAW_BACKGROUND_PROP },
   required: ["prompt", "image_path"],
 };
 
 export const REDRAW_SCHEMA_REFS = {
   type: "object",
-  properties: { image: { type: "string", description: "An image id, or a public https URL." }, ...REDRAW_PROPS },
+  properties: { image: { type: "string", description: "An image id, or a public https URL." }, ...REDRAW_PROPS, remove_background: REDRAW_BACKGROUND_PROP },
   required: ["prompt", "image"],
 };
 

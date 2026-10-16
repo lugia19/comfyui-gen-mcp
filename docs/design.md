@@ -407,8 +407,14 @@ and `strength` (0.3 to 1, default 0.9); hidden, `model` and `negative` (Scripted
   Anima Turbo whatever the settings select (core `REDRAW_DEFAULT`; base Anima took 74 s live
   against Turbo's 11, and the family downloads whole), or the Anima pack a scripted caller names.
   `canRedraw` also requires a KSampler fed by the empty latent, the denoise the technique needs.
-- **No watermark or background step.** The image was cleaned when it was made, and the area keeps
-  the rest of the image's pixels; a transparent input stays transparent anyway.
+- **No watermark step:** the image was cleaned when it was made. A transparent input keeps its
+  alpha (LoadImage's mask, put back).
+- **Background removal on request, after the paste** (`remove_background`, v1.17.2). Visual
+  Novelist's sprite → cut background → redraw went wrong where the area reached a transparent part:
+  the model sampled the colours left under it, and the old alpha was pasted back over the new edge.
+  So the order is sprite → redraw → cut: the paste then gets no alpha, and `withBackgroundRemoval`
+  cuts the pasted result, as on the generate tools. The description says to redraw the opaque
+  version of a transparent sprite.
 
 ### Waiting
 

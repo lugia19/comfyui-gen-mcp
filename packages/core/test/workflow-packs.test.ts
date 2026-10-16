@@ -5,7 +5,7 @@ import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize, tagLoras } from "../src/config.ts";
 import { BG_MODELS, builtinPacks, canRedraw, DEFAULT_LORA_GROUP, FACE_MODELS, MARK_MODELS, redrawPack, wantedModelSets, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
 import { describe as describeTool } from "../src/tools.ts";
-import { BACKGROUND_MODEL, buildPrompt, calcDimensions, injectLoras, redrawWorkflow, REDRAW_PASTE_NODE, REDRAW_REGION_NODE, REMOVE_MARKS_NODE, withImages, type Workflow } from "../src/workflow.ts";
+import { BACKGROUND_MODEL, buildPrompt, calcDimensions, injectLoras, redrawWorkflow, withBackgroundRemoval, REDRAW_PASTE_NODE, REDRAW_REGION_NODE, REMOVE_MARKS_NODE, withImages, type Workflow } from "../src/workflow.ts";
 
 const smallWorkflow = (): Workflow => ({
   "1": { class_type: "UNETLoader", inputs: { unet_name: "m.safetensors" }, _meta: { title: "cg:model" } },
@@ -372,6 +372,22 @@ describe("redraw", () => {
     // buildPrompt fills it like a generation, with no size to set
     const built = buildPrompt(wf, "smile", { loraToggles: prepared.lora_toggles });
     expect(Object.values<any>(built).find((n) => n._meta?.title === "cg:prompt").inputs.text).toBe("smile");
+  });
+
+  it("with the background cut, the cut comes after the paste, from a fresh alpha", () => {
+    const pack = prepare(builtin.find((p) => p.name === "anima_turbo")!, normalize({}));
+    const wf = redrawWorkflow(pack.workflow, "a.png", { box: "", strength: 0.9, maxPixels: 2359296, keepAlpha: false });
+    withBackgroundRemoval(wf);
+    const node = (ref: [string, number]) => wf[ref[0]];
+    const save = Object.values<any>(wf).find((n) => n.class_type === "SaveImage");
+    const join = node(save.inputs.images);
+    expect(join.class_type).toBe("JoinImageWithAlpha");
+    const paste = node(join.inputs.image);
+    expect(paste.class_type).toBe(REDRAW_PASTE_NODE);
+    expect(paste.inputs.alpha).toBeUndefined(); // the source's alpha is not put back
+    expect(node(node(join.inputs.alpha).inputs.mask).inputs.image).toEqual(join.inputs.image); // RemoveBackground sees the paste
+    const plain = redrawWorkflow(pack.workflow, "a.png", { box: "", strength: 0.9, maxPixels: 2359296 });
+    expect(Object.values<any>(plain).find((n) => n.class_type === REDRAW_PASTE_NODE).inputs.alpha).toBeDefined();
   });
 
   it("won't build on a pack that can't", () => {
