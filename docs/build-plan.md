@@ -785,6 +785,13 @@ After v1.17.5, live: an earlier result's own `/img/` link, passed as `image`, ga
 - Checked on the scratchpad's CPU ComfyUI: the cut-out graph saved a 672×504 RGBA WebP with the
   prompt in EXIF 0x0110, read back by `comfyPrompt`.
 
+After v1.18.0, live, on Modal and on the user's PC (times Modal / PC):
+- base Anima generation 127.5 s / 55.5 s, its WebP's EXIF naming `anima-base-v1.0`; redrawn with no
+  `model`, it ran base Anima (75.5 s / 41.8 s), its result again `anima-base-v1.0`;
+- Anima Turbo generation and its redraw stayed on Turbo (16.7 s / 10.0 s for the redraw);
+- an `edit_image` result (no Anima model in its prompt) redrew on Turbo, the fallback;
+- the embedded prompt is 2.5 to 3 KB of EXIF per image (2 to 3% of an 80 to 120 KB WebP).
+
 ## v1.19.0: a LoRA strength per model, the LoRA table (2026-10-16)
 
 - `pack_loras` entries may carry `strengths: {pack: n}` over the shared `strength` (core
@@ -794,4 +801,8 @@ After v1.17.5, live: an earlier result's own `/img/` link, passed as `image`, ga
   once and one ✓ column per place; cards on phones. Checked in Chromium on the test world at
   1400 px dark and 390 px light: a Turbo-only strength saved as `strengths`, one set back to equal
   folded away, no horizontal scroll.
+
+After v1.19.0, live: with `2xbj` set to `strengths: {anima: 0.7, anima_turbo: 0.4}` for the test
+(the config restored after), `/loras` reported both, and the generations' embedded prompts showed
+`strength_model` 0.4 on Anima Turbo and 0.7 on Anima.
 
