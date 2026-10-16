@@ -7,6 +7,9 @@
   // The agent's link to a Worker: paste the pairing link from the Worker's settings page, see the
   // connection, unpair.
   let { info, refresh } = $props()
+  // The Worker's settings are for after this PC's own setup: until ComfyUI is installed here, the
+  // next thing to do is on this page.
+  let installed = $derived(Boolean(info.comfyui?.state) && info.comfyui.state !== 'not_installed')
 
   let worker = $derived(info.worker)
   let link = $state('')
@@ -68,19 +71,23 @@
     </p>
     {#if worker.error}<p class="err">{worker.error}</p>{/if}
     {#if worker.paused}
-      <p><b>Paused:</b> not taking image requests. Take them again from the Comfy-Gen tray icon.</p>
+      <p><b>Paused:</b> this PC makes no images now. To resume, use the Comfy-Gen tray icon.</p>
     {/if}
-    <p>Claude makes images on this PC through your Worker while it is connected.</p>
-    <p><OpenButton href="{worker.url}/#settings" label="Open your Worker's settings" /></p>
-    <p class="muted">Models, styles and LoRAs are set there, for all your GPUs alike.</p>
+    <p>While this PC is connected, Claude makes images on it through your Worker.</p>
+    {#if installed}
+      <p><OpenButton href="{worker.url}/#settings" label="Open your Worker's settings" /></p>
+      <p class="muted">You choose models, styles and LoRAs there. They apply to all your GPUs.</p>
+    {:else}
+      <p><b>Next:</b> install ComfyUI below. Then you can finish on your Worker's page.</p>
+    {/if}
     <p>
-      <b>Don't also install the Claude Desktop extension on this PC:</b> two don't fit on one graphics card. Claude Desktop
-      can use your Worker instead.
+      <b>Do not also install the Claude Desktop extension on this PC.</b> One graphics card is not enough for both. Claude
+      Desktop can use your Worker instead.
     </p>
   {:else}
     <p>
-      On your Worker's page, in <b>Set up your PC</b>, click <b>Copy link</b>, then paste the link here: it pairs by itself.
-      (No link there? Click <b>Add a PC</b> first.)
+      On your Worker's page, go to <b>Set up your PC</b> and click <b>Copy link</b>. Paste the link below. It pairs by itself.
+      If there is no link, click <b>Add a PC</b> first.
     </p>
   {/if}
   <form onsubmit={pair}>

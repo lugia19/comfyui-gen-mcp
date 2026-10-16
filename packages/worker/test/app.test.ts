@@ -946,6 +946,10 @@ describe("the PC path", () => {
     const [first] = await gpus();
     expect(first).toMatchObject({ id: "pc", kind: "pc", name: "Your PC", link, online: true, info: { gpu: "nvidia" }, seen: expect.any(Number) });
     expect(first).not.toHaveProperty("secret");
+    // Its ComfyUI as the hello says: the setup's PC step waits until it is installed.
+    Object.assign(pc, { comfyui: "not_installed", installing: true });
+    expect((await gpus())[0].info).toMatchObject({ comfyui: "not_installed", installing: true });
+    Object.assign(pc, { comfyui: "running", installing: false });
     pc.connected = false; // offline for a moment: still seen, not a pairing to do
     expect((await gpus())[0].seen).toBe(first.seen);
     pc.connected = true;

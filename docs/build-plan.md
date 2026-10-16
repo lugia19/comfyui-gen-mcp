@@ -826,3 +826,23 @@ whole-image vs area redraw, Modal 20.3 s vs 11.2 s, PC 25.9 s vs 5.5 s. Modal's 
 alike (an open gloved hand, no longer on the hip); on the PC the whole-image one was a claw and
 the area one garbled. One sample, and the hand wasn't a small detail by the description's rule:
 no case for "area" yet, which stays the opt-in last resort.
+
+## v1.20.1: setup polish from a test run, and the negative split (2026-10-16)
+
+- A caller's `negative` is added after the pack's new `negative_fixed` (Anima, Anima Turbo:
+  quality, watermark, signature), replacing only `sepia, mask, black face, scaled face`.
+- The build log starts open and stays open across polls.
+- Walkthroughs show every sub-step at once in setup steps, on the site and the Worker; one Next
+  per step, **One step at a time** to walk them.
+- The Worker's PC step waits until ComfyUI is installed (the agent re-sends its hello on ComfyUI
+  state changes; `installing` in it), with a progress line per PC and **My PC is set up, continue**
+  for older agents. The agent's page offers the Worker's settings only after the install.
+- The site's claude.ai account is optional ("Or another AI service that supports MCP tools").
+- Plain English throughout setup, a translate hint on the site, guide text matched to the page
+  (**Paste the command here**; the agent's button now reads **Install ComfyUI**).
+- Checked in Chromium on the test world (the fake agent's hello now carries `comfyui` and
+  `installing`) and the site served locally: accounts go on without claude.ai; Deploy shows six
+  sub-steps and four screenshots with no walkthrough Next; the PC step showed "Now click Install
+  ComfyUI", then "installing ComfyUI…", then moved on to Modal by itself; the build log stayed
+  open over 9 s of polls and stayed closed when closed by hand; the agent page's settings button
+  appeared only with ComfyUI installed.

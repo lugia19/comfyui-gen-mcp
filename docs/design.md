@@ -255,8 +255,10 @@ results stay as they are:
 - **Hidden arguments** on the generate tools, absent from the schemas and descriptions:
   - `aspect_ratio` as `"WxH"` is that exact size when it fits the pack's budget (sides of 256 or
     more, rounded to multiples of 64), and otherwise only the shape.
-  - `negative` replaces the text of the pack's `cg:negative` node (Anima's). Packs without one
-    ignore it.
+  - `negative` goes into the pack's `cg:negative` node (Anima's). Packs without one ignore it.
+    Since v1.20.1 it is added after the pack's `negative_fixed` tags (quality, watermark,
+    signature: always wanted), replacing only the rest of the default (`sepia, mask, black face,
+    scaled face`). A pack without `negative_fixed` takes the caller's text alone.
   - `model`, a pack name (`anima`, `anima_turbo`), runs that pack in place of the one the
     settings page picked. That lets the owner use Anima in claude.ai and Anima Turbo in Visual
     Novelist at once. It must back the tool called: any other name, or one of another tool, is
@@ -814,7 +816,30 @@ The PC step follows the pairing in order: with no PC, only **Add a PC**; with on
 the agent's download for this browser's system (the others one click away) and how to run it
 unsigned, then the pairing link and **Copy link**; once paired, the GPU list and **Add another
 PC**. The last step's button, where Next would be, is **Go to settings**. The build log is a line
-of status with the log folded under **Details**.
+of status with the log under **Details**, open from the start and left to the user (v1.20.1: a
+bound `open` was reset by every poll, closing it).
+
+**From a tester with little English (v1.20.1).** Their notes: Next for every trivial sub-step,
+earlier sub-steps hidden, too much going back and forth between the Worker's page and the agent's,
+and the agent's page offering the Worker's settings before the PC was set up. So:
+- **Every walkthrough shows whole** in a setup step, on the site and the Worker alike
+  (`tour-core.js` `everything`): each screenshot in the column above its own steps, nothing
+  hidden, and one Next for the step. **One step at a time** walks them as before. The step isn't
+  split while it shows whole (`hasShot()` false), so the screenshots aren't pinned on top of each
+  other.
+- **The PC step waits for a ready PC**, not just a paired one: paired, and its hello saying
+  ComfyUI is installed (`comfyui` not `not_installed`, `installing` false). The agent sends its
+  hello again when ComfyUI's state changes. The step lists each PC's progress (waiting to pair,
+  click **Install ComfyUI**, installing, ready), and **My PC is set up, continue** lets anyone with
+  an older agent through. The agent's page shows **Open your Worker's settings** only once ComfyUI
+  is installed; until then it says to install it first.
+- **claude.ai is optional** on the site's accounts step: "A claude.ai account (optional)", any app
+  with MCP tools will do; no box to tick.
+- **Plain wording** on the site, the Worker setup and the agent's page: one action per sentence,
+  short common words, button and field names in bold as they read on screen (the walkthrough's
+  "Modal command" box is **Paste the command here**; the agent's button says **Install ComfyUI**).
+  Instructions stay HTML, never in screenshots, and the site says the browser can translate it
+  (`lang="en"`).
 
 **Storage is a step, not a prerequisite.** R2 needs a checkout with a card on file, which can't
 be automated, and a Deploy button on an account without R2 used to fail (wrangler's error 10042).

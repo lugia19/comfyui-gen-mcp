@@ -68,9 +68,9 @@
     !local ? []
     : [
         ...(agent && !pcPage
-          ? [{ title: 'Pair with your Worker', done: info.worker.state === 'connected', hint: !info.worker.paired ? "Paste the pairing link from your Worker's page below." : info.worker.state === 'refused' ? 'The Worker refused this link: paste a new one below.' : 'Waiting for the Worker to accept the connection.' }]
+          ? [{ title: 'Pair with your Worker', done: info.worker.state === 'connected', hint: !info.worker.paired ? "Copy the pairing link from your Worker's page. Paste it below." : info.worker.state === 'refused' ? 'The Worker refused this link. Paste a new link below.' : 'Waiting for the Worker to accept the connection.' }]
           : []),
-        { title: 'Install ComfyUI', done: installed, hint: 'Choose your graphics card below, add a models folder if you keep models somewhere else, and click Install. It takes a few minutes.' },
+        { title: 'Install ComfyUI', done: installed, hint: 'Choose your graphics card below. Then click Install ComfyUI. It takes a few minutes.' },
       ],
   )
 
@@ -152,10 +152,10 @@
   {:else if agent && pcPage}
     <!-- The PC's page through the Worker: its machine settings, unfolded; pairing stays on the PC. -->
     {#if pcTrouble}<p class="err">{pcTrouble}</p>{/if}
-    <Checklist items={checklist} done="Ask Claude for an image, on claude.ai or the phone app: it is made on this PC." />
+    <Checklist items={checklist} done="Ask Claude for an image on claude.ai or in the phone app. The image is made on this PC." />
     <LocalSetup {info} {refresh} />
   {:else if agent}
-    <Checklist items={checklist} done="Ask Claude for an image, on claude.ai or the phone app: it is made on this PC. You can close this page: the agent keeps running, with its icon in the tray." />
+    <Checklist items={checklist} done="Ask Claude for an image on claude.ai or in the phone app. The image is made on this PC. You can close this page. The agent keeps running, with its icon in the tray." />
     <AgentWorker {info} {refresh} />
     {#if info.worker.state === 'connected' && info.comfyui.state !== 'not_installed'}
       <!-- Managed from the Worker's page now (Setup, Set up your PC, Manage ComfyUI); kept here for when

@@ -42,6 +42,8 @@
     .button.secondary { background: transparent; color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
     .button.small { padding: 5px 12px; font-weight: 500; margin: 4px 0; }
     .wz-checks .acct { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+    /* No box to tick: lined up with the ticked ones (20px box + 12px gap), in a dashed frame. */
+    .wz-checks li.optional .acct { padding: 12px 14px 12px 46px; border: 1px dashed var(--border); border-radius: 10px; }
     .tag { display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--accent); color: var(--accent-text); vertical-align: 2px; }
     .tag.green { background: var(--ok); color: var(--bg); }
 
@@ -101,6 +103,7 @@
       <div class="head"><span class="num">1</span><h2>How will you use it?</h2></div>
       <div class="body">
         <p class="lede">Lets Claude make and edit images, on your own accounts. A few questions, then only the steps you need.</p>
+        <p class="muted">Not comfortable in English? Your browser can translate this page.</p>
         <div class="cards">
           <button class="card best" type="button" data-answer="worker">
             <b>claude.ai, on the web and your phone</b> <span class="tag">Recommended</span>
@@ -138,7 +141,7 @@
         <div class="cards">
           <button class="card best" type="button" data-answer="cloud">
             <b>In the cloud (Modal)</b> <span class="tag">Recommended for most people</span>
-            <span class="d">No graphics card needed. Pay per second of use; Modal gives $30 free each month.</span>
+            <span class="d">No graphics card needed. You pay for each second of use. Modal gives you $30 free each month.</span>
           </button>
           <button class="card best" type="button" data-answer="both">
             <b>Both</b> <span class="tag green">If you have a powerful graphics card</span>
@@ -146,7 +149,7 @@
           </button>
           <button class="card" type="button" data-answer="pc">
             <b>On my PC</b>
-            <span class="d">Free, on your own graphics card (NVIDIA, AMD on Linux, or a Mac with Apple silicon). The PC must be on.</span>
+            <span class="d">Free. Uses your own graphics card (NVIDIA, AMD on Linux, or a Mac with Apple silicon). The PC must be on.</span>
           </button>
         </div>
       </div>
@@ -155,8 +158,9 @@
     <li class="step" data-step="accounts" data-short="Accounts">
       <div class="head"><span class="num">3</span><h2>The accounts you need</h2></div>
       <div class="body">
-        <p>Make each one you don't have yet, then tick it. Make the GitHub one first: Cloudflare and Modal let you sign up with it
-          (<b>Continue with GitHub</b>), so there are fewer passwords.</p>
+        <p>Create each account you don't have yet. Then tick its box.</p>
+        <p>Create the GitHub account first. Cloudflare and Modal can then sign you up with it (<b>Continue with GitHub</b>), so
+          you need fewer passwords.</p>
         <ul class="wz-checks">
           <li><label class="acct"><input type="checkbox" data-tick="github"> <span>A GitHub account</span>
             <a class="button secondary small" href="https://github.com/signup" target="_blank" rel="noopener">Sign up at GitHub</a></label></li>
@@ -165,8 +169,9 @@
           <li data-where="cloud both"><label class="acct"><input type="checkbox" data-tick="modal"> <span>A Modal account</span>
             <a class="button secondary small" href="https://modal.com/signup" target="_blank" rel="noopener">Sign up at Modal</a></label></li>
           <li data-where="pc both"><label class="acct"><input type="checkbox" data-tick="pc"> <span>A PC with an NVIDIA graphics card (AMD on Linux) or a Mac with Apple silicon</span></label></li>
-          <li><label class="acct"><input type="checkbox" data-tick="claude"> <span>A claude.ai account</span>
-            <a class="button secondary small" href="https://claude.ai" target="_blank" rel="noopener">Open claude.ai</a></label></li>
+          <li class="optional"><div class="acct"><span>A claude.ai account (optional)<br>
+            <small class="muted">Or another AI service that supports MCP tools.</small></span>
+            <a class="button secondary small" href="https://claude.ai" target="_blank" rel="noopener">Open claude.ai</a></div></li>
         </ul>
         <details class="guide" id="costs">
           <summary>What does it cost?</summary>
@@ -184,22 +189,24 @@
     <li class="step" data-step="deploy" data-short="Deploy">
       <div class="head"><span class="num">4</span><h2>Deploy your Worker</h2></div>
       <div class="body">
-        <p>Your Worker is your own copy of Comfy-Gen, in your Cloudflare account. The first time, Cloudflare also needs to
-          connect to your GitHub, so you click this button twice: the steps below show when.</p>
+        <p>Your Worker is your own copy of Comfy-Gen. It runs in your Cloudflare account.</p>
+        <p>The first time, Cloudflare must also connect to your GitHub account. So you click this button two times. The steps
+          below show when.</p>
         <a class="button" id="deploy" target="_blank" rel="noopener" href="https://deploy.workers.cloudflare.com/?url=https://github.com/lugia19/comfyui-gen-mcp/tree/main/bootstrap">Deploy to Cloudflare</a>
         <div data-guide="deploy">
           <ol>
-            <li>Under <b>Git account</b>, click <b>New GitHub connection</b>. GitHub asks to <b>Install &amp; Authorize</b>
-              Cloudflare Workers and Pages: keep <b>All repositories</b> (the deploy creates a new repository) and click it.</li>
-            <li>Cloudflare then opens its own <b>Select a repository</b> page. Ignore it: close that tab.</li>
-            <li>Back here, click <b>Deploy to Cloudflare</b> again. Your GitHub account is in the <b>Git account</b> list now:
-              pick it and click <b>Deploy</b>.</li>
+            <li>Under <b>Git account</b>, click <b>New GitHub connection</b>.</li>
+            <li>GitHub asks to install Cloudflare Workers and Pages. Keep <b>All repositories</b> selected. Click
+              <b>Install &amp; Authorize</b>.</li>
+            <li>Cloudflare opens a page called <b>Select a repository</b>. You do not need it. Close that tab.</li>
+            <li>Come back here. Click <b>Deploy to Cloudflare</b> again. Under <b>Git account</b>, choose your GitHub account.
+              Click <b>Deploy</b>.</li>
           </ol>
         </div>
         <details class="guide">
           <summary>GitHub shows a settings page instead of Install &amp; Authorize?</summary>
-          <p>Cloudflare's app is already installed on that GitHub account, from an earlier try, and that way it never reaches
-            Cloudflare. Remove it, then start again from the first step: on GitHub, open
+          <p>This means Cloudflare's app is already on your GitHub account, from an earlier try. Remove it, then start again
+            from the first step. On GitHub, open
             <a href="https://github.com/settings/installations" target="_blank" rel="noopener">Settings → Applications → Installed GitHub Apps</a>,
             then <b>Cloudflare Workers and Pages → Configure</b>, and <b>Uninstall</b> at the bottom.</p>
           <p class="muted">That also disconnects any other Cloudflare project that builds from this GitHub account, until it is connected again.</p>
@@ -212,12 +219,12 @@
       <div class="body">
         <div data-guide="open-worker">
           <ol>
-            <li>In the Cloudflare tab, the build runs for about a minute.</li>
-            <li>When it shows <b>Success</b>, reload the page and click <b>Visit</b> (top right). That's your Worker, at
-              <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>: bookmark it.</li>
+            <li>In the Cloudflare tab, wait about one minute for the build.</li>
+            <li>When you see <b>Success</b>, reload the page. Click <b>Visit</b> (top right). This opens your Worker, at
+              <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>. Save it as a bookmark.</li>
           </ol>
         </div>
-        <p>Closed the Cloudflare tab? Open your Workers here, click <b>comfy-gen</b>, then <b>Visit</b>:</p>
+        <p>Did you close the Cloudflare tab? Open your Workers with this button. Click <b>comfy-gen</b>, then <b>Visit</b>.</p>
         <a class="button secondary" href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noopener">Open Workers &amp; Pages in Cloudflare</a>
       </div>
     </li>
@@ -225,15 +232,16 @@
     <li class="step" data-step="finish" data-short="Finish">
       <div class="head"><span class="num">6</span><h2>Finish on your Worker's page</h2></div>
       <div class="body">
-        <p>Bookmark your Worker's page: it takes it from here, one step at a time, each with a button to the page you need.
-          You can close this setup page and the Cloudflare tab now.</p>
+        <p>Save your Worker's page as a bookmark. It guides you through the rest, one step at a time. Each step has a button
+          to the page you need.</p>
+        <p>You can close this setup page and the Cloudflare tab now.</p>
         <ol>
           <li>Log in with Cloudflare.</li>
           <li>Turn on storage in Cloudflare.</li>
           <li data-where="cloud">Connect your Modal account.</li>
           <li data-where="pc">Install the Comfy-Gen agent on your PC.</li>
           <li data-where="both">Install the Comfy-Gen agent on your PC, then connect your Modal account.</li>
-          <li>Add it to claude.ai.</li>
+          <li>Connect it to claude.ai (or another AI app that supports MCP tools).</li>
         </ol>
         <p class="muted">Updates install themselves.</p>
       </div>

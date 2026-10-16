@@ -236,6 +236,8 @@ export class FakeRelay implements RelayStub {
   redraw = false; // its hello says its ComfyUI has our redraw nodes (v1.17.0)
   cutout = false; // its hello says its ComfyUI has our cut-out node (v1.17.3)
   redrawArea = false; // its hello says its redraw node crops for prompt_scope "area" (v1.20.0)
+  comfyui = "running"; // its ComfyUI's state, as its hello reports it
+  installing = false; // its hello says ComfyUI is being installed (v1.20.1)
 
   async request(req: RelayRequest): Promise<RelayReply> {
     if (!this.connected) return { status: 503, body: utf8("offline"), offline: true };
@@ -253,7 +255,7 @@ export class FakeRelay implements RelayStub {
   }
 
   async status(): Promise<RelayStatus> {
-    return { connected: this.connected, since: this.connected ? 1000 : null, info: this.connected ? { version: "t", gpu: "nvidia", paused: this.paused, remove_marks: this.removeMarks, remove_background: this.removeBackground, redraw: this.redraw, cutout: this.cutout, redraw_area: this.redrawArea } : null };
+    return { connected: this.connected, since: this.connected ? 1000 : null, info: this.connected ? { version: "t", gpu: "nvidia", paused: this.paused, remove_marks: this.removeMarks, remove_background: this.removeBackground, redraw: this.redraw, cutout: this.cutout, redraw_area: this.redrawArea, comfyui: this.comfyui, installing: this.installing } : null };
   }
 
   async drop(): Promise<void> {

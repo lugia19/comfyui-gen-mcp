@@ -99,6 +99,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
       secret: cfg.secret,
       handle,
       hello: () => ({ version: opts.version, platform: process.platform, gpu: machine.comfy.install?.gpu ?? cfg.gpu ?? null, comfyui: machine.comfy.state, paused,
+        installing: machine.install.state === "running", // ComfyUI being installed now (v1.20.1)
         // What this agent's ComfyUI can do. An agent without a flag predates it (or, before v1.16.0,
         // used a ComfyUI of the user's own): the Worker leaves the step out.
         remove_marks: true, // our extension's mark-removal node
@@ -111,6 +112,17 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     });
     client.start();
   };
+
+  // ComfyUI's state and its install, re-sent to the Worker when they change: its setup page waits for
+  // this PC to have ComfyUI installed, and shows where it is meanwhile (v1.20.1).
+  let lastState = "";
+  setInterval(() => {
+    const now = `${machine.comfy.state}/${machine.install.state}`;
+    if (now !== lastState) {
+      lastState = now;
+      client?.refreshHello();
+    }
+  }, 2000).unref();
 
   const app = new AgentApp({
     version: opts.version,

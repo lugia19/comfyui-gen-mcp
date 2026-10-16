@@ -46,6 +46,17 @@ export function shown(guide, pos) {
   }))
 }
 
+// Every view with all of its steps, numbered across the guide: the walkthrough shown whole, which
+// the setup wizards open with (each step's actions at once, nothing hidden; Next goes on to the
+// next step). [{ view, steps: [{ n, html, current: true, mark }] }].
+export function everything(guide) {
+  let n = 0
+  return guide.views.map((view) => ({
+    view,
+    steps: view.steps.map((step) => ({ n: ++n, html: step.html, current: true, mark: view.size ? marker(step, view.size) : null })),
+  }))
+}
+
 // The badge's anchor: the middle of the box's edge on the badge's side, or `at`.
 export function marker(step, [w, h]) {
   if (!step.box && !step.at) return null

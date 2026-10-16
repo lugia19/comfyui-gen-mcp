@@ -21,6 +21,9 @@ export type Pack = Record<string, any> & {
   /** The LoRA group the pack takes LoRAs from (a LoRA fits the models it was trained for: Anima and
    * Anima Turbo share "anima"); none: no LoRAs. */
   lora_group?: string;
+  /** Negative tags that always apply (quality and the like): a caller's `negative` is added to
+   * these, replacing only the rest of the cg:negative node's default (Anima's sepia, mask...). */
+  negative_fixed?: string;
   models: { url: string; subfolder: string; filename: string; size_bytes?: number; sha256?: string }[];
   /** ComfyUI API format; the nodes we fill in are found by title (workflow.ts TITLES). */
   workflow: Record<string, any>;
@@ -98,6 +101,7 @@ export function validate(pack: unknown, source = "pack"): Pack {
   if (pack.lora_group !== undefined && !(String(pack.lora_group) in LORA_GROUPS)) {
     throw new Error(`${source}: unknown LoRA group ${pack.lora_group} (packs/tools.json)`);
   }
+  if (pack.negative_fixed !== undefined && typeof pack.negative_fixed !== "string") throw new Error(`${source}: negative_fixed must be a string`);
   // The nodes we fill in, by title: one prompt, at least one seed; a model loader for LoRAs.
   const wf = isPlainObject(pack.workflow) ? (pack.workflow as Record<string, any>) : {};
   const count = (title: string) => nodesTitled(wf, title).length;

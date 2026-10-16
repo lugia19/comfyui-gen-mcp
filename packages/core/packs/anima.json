@@ -7,6 +7,7 @@
   "is_default": false,
   "default_artist_list": "@cutesexyrobutts, @shuuko \\(s h uuko\\), @nyantcha, @bone nigi",
   "lora_group": "anima",
+  "negative_fixed": "worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, watermark, signature",
   "models": [
     {
       "filename": "anima-base-v1.0.safetensors",

@@ -130,7 +130,7 @@
         <button class="secondary" onclick={() => action('stop')} disabled={acting}>{task.busy === 'stop' ? 'Stopping…' : 'Stop'}</button>
       {/if}
     </div>
-    <p class="muted">It stops by itself after the keep-warm time without images, to free the GPU.</p>
+    <p class="muted">When it makes no images for the keep-warm time, it stops by itself. This frees the GPU.</p>
   {/if}
 </section>
 
@@ -138,7 +138,7 @@
   <section>
     <h2>{comfy.state === 'not_installed' ? 'Install ComfyUI' : 'Reinstall ComfyUI'}</h2>
     <p>
-      ComfyUI is the program that makes the images: a few GB.
+      ComfyUI is the program that makes the images. It needs a few GB.
       {#if info.detected_gpu}This {remote ? 'PC' : 'computer'} has: <b>{GPU_LABELS[info.detected_gpu] || info.detected_gpu}</b>.{/if}
     </p>
     {#each info.gpus as g (g)}
@@ -160,10 +160,10 @@
       {/if}
       <label for="extra-first">Another models folder (optional)</label>
       <input id="extra-first" type="text" bind:value={extraDir} placeholder={examplePath} disabled={install.state === 'running'} />
-      <p class="muted">If you keep models somewhere else, such as a ComfyUI that isn't listed above, its models folder, so nothing is downloaded twice.</p>
+      <p class="muted">Do you keep models in another folder, for example another ComfyUI that is not listed above? Type that models folder here. Then nothing is downloaded twice.</p>
     {/if}
     <button class:secondary={comfy.state !== 'not_installed'} onclick={startInstall} disabled={install.state === 'running' || installTask.busy}>
-      {install.state === 'running' ? 'Installing…' : comfy.state === 'not_installed' ? 'Install' : 'Reinstall'}
+      {install.state === 'running' ? 'Installing…' : comfy.state === 'not_installed' ? 'Install ComfyUI' : 'Reinstall'}
     </button>
     {#if installTask.error}<p class="err">{installTask.error}</p>{/if}
     {#if install.state !== 'idle'}

@@ -43,7 +43,8 @@
     Working on it: this takes {takes}.
   {/if}
 </p>
-<details class="guide" open={status === 'stopped' && outcome !== 'success'}>
+<!-- Open from the start and left to the user: a bound open was reset on every poll, closing it. -->
+<details class="guide" open>
   <summary>Details</summary>
   <pre bind:this={pre}>{lines.join('\n') || '…'}</pre>
 </details>

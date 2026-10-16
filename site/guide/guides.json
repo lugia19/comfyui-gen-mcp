@@ -10,7 +10,7 @@
     "alt": "Cloudflare's deploy form, with no Git account yet",
     "steps": [
      {
-      "html": "In Cloudflare's form, under <b>Git account</b>, click <b>New GitHub connection</b>.",
+      "html": "In Cloudflare's form, find <b>Git account</b>. Click <b>New GitHub connection</b>.",
       "box": [
        218,
        145,
@@ -30,7 +30,7 @@
     "alt": "GitHub asking to install and authorize Cloudflare Workers and Pages",
     "steps": [
      {
-      "html": "GitHub asks to install Cloudflare Workers and Pages. Keep <b>All repositories</b>: the deploy creates a new repository.",
+      "html": "GitHub asks to install Cloudflare Workers and Pages. Keep <b>All repositories</b> selected.",
       "box": [
        80,
        282,
@@ -60,7 +60,7 @@
     "alt": "Cloudflare's own Select a repository page",
     "steps": [
      {
-      "html": "Cloudflare then opens its own <b>Select a repository</b> page. Ignore it: close this tab.",
+      "html": "Cloudflare opens a page called <b>Select a repository</b>. You do not need it. Close this tab.",
       "box": [
        218,
        52,
@@ -80,7 +80,7 @@
     "alt": "The deploy form with a GitHub account picked, the project name, SETUP_MODE and the Deploy button",
     "steps": [
      {
-      "html": "Click <b>Deploy to Cloudflare</b> on this page again. Under <b>Git account</b>, pick your GitHub account: it's in the list now. Leave everything else as it is.",
+      "html": "Go back to this setup page. Click <b>Deploy to Cloudflare</b> again. Under <b>Git account</b>, choose your GitHub account. Do not change anything else.",
       "box": [
        218,
        140,
@@ -90,7 +90,7 @@
       "side": "left"
      },
      {
-      "html": "Click <b>Deploy</b>. Keep that tab open: the next step happens there.",
+      "html": "Click <b>Deploy</b>. Keep this tab open. You do the next step in it.",
       "box": [
        671,
        443,
@@ -114,7 +114,7 @@
     "alt": "The finished build in Cloudflare, with its green tick",
     "steps": [
      {
-      "html": "The build runs for about a minute. When it shows a green tick (<b>Success</b>), reload the page.",
+      "html": "Wait about one minute for the build. When you see a green tick (<b>Success</b>), reload the page.",
       "box": [
        28,
        48,
@@ -134,7 +134,7 @@
     "alt": "The Worker's page in the Cloudflare dashboard, with its Visit button",
     "steps": [
      {
-      "html": "Click <b>Visit</b> (top right). That's your Worker, at <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>: bookmark it. You can close the Cloudflare tab then.",
+      "html": "Click <b>Visit</b> (top right). This opens your Worker, at <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>. Save it as a bookmark. Then you can close the Cloudflare tab.",
       "box": [
        914,
        71,
@@ -158,7 +158,7 @@
     "alt": "Cloudflare's Create Token page, filled in, with the Continue to summary button",
     "steps": [
      {
-      "html": "Everything is filled in. Only if your Cloudflare login also has other accounts (an employer's, say): change <b>All accounts</b> to your own.",
+      "html": "Everything is already filled in. Only if your Cloudflare login has more than one account (for example, one from work): change <b>All accounts</b> to your own account.",
       "box": [
        216,
        567,
@@ -168,7 +168,7 @@
       "side": "down"
      },
      {
-      "html": "Scroll down and click <b>Continue to summary</b>.",
+      "html": "Scroll down. Click <b>Continue to summary</b>.",
       "box": [
        502,
        1040,
@@ -208,7 +208,7 @@
     "alt": "The new token, shown once, with its copy button",
     "steps": [
      {
-      "html": "Copy the token with the button at its end, and paste it below. You can close Cloudflare's tab then.",
+      "html": "Click the copy button at the end of the token. Paste it in the box below. Then you can close the Cloudflare tab.",
       "box": [
        615,
        135,
@@ -232,7 +232,7 @@
     "alt": "R2's page before it is turned on, with the Add R2 subscription to my account button",
     "steps": [
      {
-      "html": "Click <b>Add R2 subscription to my account</b>. It's $0 due; if the account has no card, it asks for one first. Then you can close Cloudflare's tab.",
+      "html": "Click <b>Add R2 subscription to my account</b>. It costs $0. If your account has no card, Cloudflare asks you to add one first. Then you can close the Cloudflare tab.",
       "box": [
        619,
        27,
@@ -256,7 +256,7 @@
     "alt": "The Cloudflare dashboard's sidebar, with Manage account open",
     "steps": [
      {
-      "html": "In the Cloudflare dashboard's sidebar, open <b>Manage account</b>…",
+      "html": "In the Cloudflare dashboard, open <b>Manage account</b> in the left menu.",
       "box": [
        20,
        405,
@@ -266,7 +266,7 @@
       "side": "right"
      },
      {
-      "html": "…then <b>Billing</b>.",
+      "html": "Then open <b>Billing</b>.",
       "box": [
        42,
        477,
@@ -286,7 +286,7 @@
     "alt": "Cloudflare's billing page, on Billable usage",
     "steps": [
      {
-      "html": "Open <b>Billable usage</b>…",
+      "html": "Open <b>Billable usage</b>.",
       "box": [
        125,
        10,
@@ -296,7 +296,7 @@
       "side": "down"
      },
      {
-      "html": "…then <b>Budget alerts</b>.",
+      "html": "Then open <b>Budget alerts</b>.",
       "box": [
        882,
        75,
@@ -316,7 +316,7 @@
     "alt": "Cloudflare's default $10 budget alert",
     "steps": [
      {
-      "html": "Cloudflare made a $10 alert already. To change the amount, click the pencil. It only emails you: it never stops anything.",
+      "html": "Cloudflare already made a $10 alert. To change the amount, click the pencil icon. The alert only sends you an email. It never stops anything.",
       "box": [
        374,
        106,
@@ -340,7 +340,7 @@
     "alt": "Modal's Usage & billing settings, with Manage payment details",
     "steps": [
      {
-      "html": "In Modal, open <b>Settings → Usage &amp; billing</b> and click <b>Manage payment details</b> to add a card.",
+      "html": "In Modal, open <b>Settings → Usage &amp; billing</b>. Click <b>Manage payment details</b> and add a card.",
       "box": [
        774,
        24,
@@ -374,7 +374,7 @@
       "side": "down"
      },
      {
-      "html": "Click <b>Edit spend limit</b>: past the free credits, Modal stops all work at that amount. At $0 you never pay past them.",
+      "html": "Click <b>Edit spend limit</b>. After the free credits, Modal stops all work at this amount. With $0, you never pay more than the free credits.",
       "box": [
        57,
        553,
@@ -398,7 +398,7 @@
     "alt": "Modal's API tokens settings, with the New Token button",
     "steps": [
      {
-      "html": "On Modal's <b>API tokens</b> page (<b>Settings → API tokens &amp; service users</b>), click <b>New Token</b>.",
+      "html": "Open Modal's <b>API tokens</b> page (<b>Settings → API tokens &amp; service users</b>). Click <b>New Token</b>.",
       "box": [
        1141,
        24,
@@ -438,7 +438,7 @@
     "alt": "The new token, inside a modal token set command",
     "steps": [
      {
-      "html": "Modal shows the token once, inside a command. Copy the whole command (hover it for the copy button) and paste it into <b>Modal command</b> on your Worker's page. You can close Modal's tab then.",
+      "html": "Modal shows the token only once, inside a command. Copy the whole command (move the mouse over it to see the copy button). On your Worker's page, paste it into the box <b>Paste the command here</b>. Then you can close the Modal tab.",
       "box": [
        425,
        321,
@@ -462,7 +462,7 @@
     "alt": "claude.ai's Customize, on Connectors",
     "steps": [
      {
-      "html": "In claude.ai, click <b>Customize</b> in the sidebar.",
+      "html": "In claude.ai, click <b>Customize</b> in the left menu.",
       "box": [
        8,
        184,
@@ -492,7 +492,7 @@
     "alt": "The Add menu, with Add custom connector",
     "steps": [
      {
-      "html": "Click <b>Add</b>…",
+      "html": "Click <b>Add</b>.",
       "box": [
        1041,
        75,
@@ -502,7 +502,7 @@
       "side": "up"
      },
      {
-      "html": "…then <b>Add custom connector</b>.",
+      "html": "Then click <b>Add custom connector</b>.",
       "box": [
        956,
        113,
@@ -522,7 +522,7 @@
     "alt": "The Add custom connector dialog, empty",
     "steps": [
      {
-      "html": "Name it Comfy-Gen.",
+      "html": "For the name, type Comfy-Gen.",
       "box": [
        396,
        304,
@@ -532,7 +532,7 @@
       "side": "right"
      },
      {
-      "html": "Paste your connector URL (<b>Copy URL</b> on your Worker's page copies it).",
+      "html": "Paste your connector URL. (On your Worker's page, <b>Copy URL</b> copies it.)",
       "box": [
        396,
        378,
@@ -562,7 +562,7 @@
     "alt": "The dialog's second page, with No sign-in picked",
     "steps": [
      {
-      "html": "Scroll down and click <b>Add</b>.",
+      "html": "Scroll down. Click <b>Add</b>.",
       "at": [
        640,
        822
@@ -604,7 +604,7 @@
     "alt": "A new chat's + menu",
     "steps": [
      {
-      "html": "In a chat, click <b>+</b>…",
+      "html": "In a chat, click <b>+</b>.",
       "box": [
        73,
        75,
@@ -624,7 +624,7 @@
     "alt": "The Connectors submenu, with the connector turned on",
     "steps": [
      {
-      "html": "…open <b>Connectors</b>…",
+      "html": "Open <b>Connectors</b>.",
       "box": [
        76,
        284,
@@ -634,7 +634,7 @@
       "side": "left"
      },
      {
-      "html": "…and turn your connector on.",
+      "html": "Turn your connector on.",
       "box": [
        504,
        243,
@@ -644,7 +644,7 @@
       "side": "right"
      },
      {
-      "html": "Ask for an image. The first time, Claude asks to allow the tool: choose <b>Always allow</b>."
+      "html": "Ask for an image. The first time, Claude asks if it may use the tool. Choose <b>Always allow</b>."
      }
     ]
    }
@@ -661,7 +661,7 @@
     "alt": "The agent's page, with the Pairing link field and the Pair button",
     "steps": [
      {
-      "html": "The agent's page opens in your browser. Paste the pairing link into <b>Pairing link</b> (<b>Copy link</b> on your Worker's page copies it). It pairs by itself; if not, click <b>Pair</b>.",
+      "html": "The agent's page opens in your browser. Paste the pairing link into <b>Pairing link</b>. (On your Worker's page, <b>Copy link</b> copies it.) It pairs by itself. If it does not, click <b>Pair</b>.",
       "box": [
        65,
        33,

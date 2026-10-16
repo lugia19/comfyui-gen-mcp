@@ -109,7 +109,9 @@ describe("brain", () => {
   it("a hidden negative reaches the illustrated pack, and the tool schemas don't show it", async () => {
     const { comfy, brain } = setup();
     await brain().call("generate_illustrated_image", { prompt: "x", negative: "lowres" });
-    expect(Object.values<any>(comfy.prompts[0]).find((n) => n._meta?.title === "cg:negative").inputs.text).toBe("lowres");
+    // the pack's always-on tags first, the caller's after them
+    const anima = BUILTIN.find((p) => p.name === "anima_turbo")!;
+    expect(Object.values<any>(comfy.prompts[0]).find((n) => n._meta?.title === "cg:negative").inputs.text).toBe(`${anima.negative_fixed}, lowres`);
     for (const mode of ["refs", "paths"] as const) {
       expect(JSON.stringify(toolSpecs(BUILTIN, normalize({}), mode))).not.toContain("negative");
       // Nor the hidden model: no tool takes a property of that name.

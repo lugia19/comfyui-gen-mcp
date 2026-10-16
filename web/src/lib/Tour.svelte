@@ -1,7 +1,7 @@
 <script>
   import { getContext, onDestroy, onMount } from 'svelte'
   import { GUIDE, loadGuides } from './api.js'
-  import { concat, next, number, prev, safe, shown, start, total } from '../../../site/guide/tour-core.js'
+  import { concat, everything, next, number, prev, safe, shown, start, total } from '../../../site/guide/tour-core.js'
   import '../../../site/guide/tour.css'
 
   // A walkthrough from the setup site's guides.json (the same as the site's tour.js draws): the guides
@@ -18,15 +18,17 @@
   let guide = $state(null)
   let failed = $state(false)
   let pos = $state(start())
-  let all = $state(false)
+  // In a setup step every action shows at once (the Wizard's Next then goes on to the next step);
+  // "One step at a time" walks them. Elsewhere it walks them from the start.
+  let all = $state(mode === 'wizard')
 
   const wizard = mode === 'wizard' ? getContext('wizard') : null
   const api = {
     next: () => go(next(guide, pos)),
     prev: () => go(prev(guide, pos)),
-    atStart: () => !prev(guide, pos),
-    atEnd: () => !next(guide, pos),
-    hasShot: () => Boolean(view?.image),
+    atStart: () => all || !prev(guide, pos),
+    atEnd: () => all || !next(guide, pos),
+    hasShot: () => !all && Boolean(view?.image), // all at once: the screenshots sit in the column
   }
 
   onMount(() => {
@@ -42,7 +44,7 @@
   let live = $derived(Boolean(guide) && !failed)
 
   $effect(() => {
-    shot = live && Boolean(view?.image)
+    shot = live && !all && Boolean(view?.image)
     at = live ? number(guide, pos) : failed ? null : undefined
     // The Wizard follows the walkthrough: registered while it shows, told of every move.
     if (wizard) {
@@ -62,7 +64,7 @@
 
 <svelte:window onkeydown={mode === 'overlay' ? key : undefined} />
 
-{#snippet stage()}
+{#snippet stage(view = guide.views[pos.v], steps = shown(guide, pos))}
   <div class="tour-stage">
     {#if view.image}
       <a class="tour-shot" href={GUIDE + view.image} target="_blank" rel="noopener" title="Open full size">
@@ -82,6 +84,16 @@
   </div>
 {/snippet}
 
+{#snippet whole()}
+  {#each everything(guide) as { view: v, steps: ss }}
+    {@render stage(v, ss)}
+    <ol class="tour-steps" start={ss[0].n}>
+      {#each ss as s (s.n)}<li>{@html safe(s.html)}</li>{/each}
+    </ol>
+  {/each}
+  <div class="tour-nav"><button type="button" class="tour-toggle" onclick={() => (all = false)}>One step at a time</button></div>
+{/snippet}
+
 {#snippet text()}
   <p class="wz-count">Step {number(guide, pos)} of {total(guide)}</p>
   <ol class="tour-steps" start={steps[0].n}>
@@ -97,13 +109,8 @@
     {:else}
       <button type="button" class="tour-next" onclick={() => go(end ? start() : next(guide, pos))}>{end ? 'Start over' : 'Next'}</button>
     {/if}
-    <button type="button" class="tour-toggle" onclick={() => (all = !all)}>{all ? 'Hide' : 'Show'} all steps</button>
+    <button type="button" class="tour-toggle" onclick={() => (all = true)}>Show all steps</button>
   </div>
-  {#if all}
-    <ol class="tour-all">
-      {#each guide.views.flatMap((v) => v.steps) as s}<li>{@html safe(s.html)}</li>{/each}
-    </ol>
-  {/if}
 {/snippet}
 
 {#if mode === 'overlay'}
@@ -125,8 +132,12 @@
   </div>
 {:else if live}
   <div class="tour" data-guide={Array.isArray(ids) ? ids.join(' ') : ids}>
-    {@render stage()}
-    {@render text()}
+    {#if all}
+      {@render whole()}
+    {:else}
+      {@render stage()}
+      {@render text()}
+    {/if}
   </div>
 {:else}
   {@render children?.()}

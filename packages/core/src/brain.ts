@@ -176,7 +176,7 @@ export class Brain {
       aspectRatio: aspect,
       maxPixels: pack.max_pixels ?? 1_048_576,
       loraToggles: pack.lora_toggles,
-      negative: String(args.negative ?? ""),
+      negative: String(args.negative ?? ""), negativeFixed: pack.negative_fixed,
     });
     return this.run(pack, wf, removeBackground ? [BG_MODELS] : []);
   }
@@ -243,7 +243,7 @@ export class Brain {
     // The background cut from the pasted result, not before: a redraw reaching into an already
     // transparent part samples the colours left under it and gets the old edge pasted back.
     if (removeBackground) withBackgroundRemoval(wf, { cutout: this.canCutout });
-    return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles, negative: String(args.negative ?? "") }), null);
+    return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles, negative: String(args.negative ?? ""), negativeFixed: pack.negative_fixed }), null);
   }
 
   /** The hidden remove_background tool: *image* as stored, its background cut out, nothing repainted. */

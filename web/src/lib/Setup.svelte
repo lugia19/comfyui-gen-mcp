@@ -41,8 +41,24 @@
   // A step shows for the answer, and for a GPU that already exists (an answer changed later only adds).
   let wantPc = $derived(mode === 'pc' || mode === 'both' || pcs.length > 0)
   let wantModal = $derived(mode === 'cloud' || mode === 'both' || Boolean(modalGpu) || Boolean(info.build && info.build !== info.update_build))
-  // Done once there is a PC and every PC has paired (a PC waiting to pair keeps the step open).
+  // Every PC has paired (a PC waiting to pair keeps the step open).
   let pcsReady = $derived(pcs.length > 0 && pcs.every((g) => g.seen))
+  // Where each PC is in its own setup, from its agent's latest hello (re-sent when ComfyUI's state
+  // changes, v1.20.1): the step waits for ComfyUI to be installed on every PC, so the user finishes
+  // there before going on. An older agent, or one not running, may not say: "My PC is set up,
+  // continue" lets the step go on regardless.
+  const pcStage = (g) =>
+    !g.seen ? 'pair' : !g.online || !g.info ? 'unknown' : g.info.installing ? 'installing' : g.info.comfyui === 'not_installed' ? 'install' : 'ready'
+  let pcStages = $derived(pcs.map(pcStage))
+  let pcsConfirmed = $state(false)
+  let pcsSetUp = $derived(pcsReady && (pcsConfirmed || pcStages.every((s) => s === 'ready')))
+  const PC_WAITING = {
+    pair: 'Waiting for your PC to pair.',
+    unknown: 'Waiting for your PC. Is the Comfy-Gen agent running?',
+    install: 'Waiting for ComfyUI to be installed on your PC.',
+    installing: 'ComfyUI is being installed on your PC.',
+  }
+  let pcWaiting = $derived(PC_WAITING[['pair', 'unknown', 'install', 'installing'].find((s) => pcStages.includes(s))] ?? PC_WAITING.pair)
   // A paused PC is set up but takes no images.
   let allPaused = $derived(pcs.length > 0 && pcs.every((g) => g.paused))
 
@@ -88,11 +104,11 @@
   // The agent for this browser's system first; what each needs to run an app that isn't signed yet.
   const AGENTS = [
     { os: 'windows', label: 'Windows', file: 'comfy-gen-agent-windows.exe',
-      run: 'Windows may say it protected your PC: click More info, then Run anyway.' },
+      run: 'Windows may say that it protected your PC. If it does, click More info. Then click Run anyway.' },
     { os: 'mac', label: 'macOS (Apple silicon)', file: 'comfy-gen-agent-macos.zip',
-      run: 'Unzip it and open it. The first time, macOS blocks it: click Done, open System Settings → Privacy & Security, click Open Anyway, then Open Anyway again.' },
+      run: 'Unzip it and open it. The first time, macOS blocks it. Click Done. Open System Settings → Privacy & Security. Click Open Anyway. Then click Open Anyway again.' },
     { os: 'linux', label: 'Linux', file: 'comfy-gen-agent-linux',
-      run: 'Make it executable (chmod +x comfy-gen-agent-linux), then run it.' },
+      run: 'Make it executable with chmod +x comfy-gen-agent-linux. Then run it.' },
   ]
   const ua = navigator.userAgent
   const thisOs = /Windows/.test(ua) ? 'windows' : /Mac/.test(ua) ? 'mac' : /Linux|X11/.test(ua) ? 'linux' : 'windows'
@@ -201,7 +217,7 @@
   let done = $derived({
     storage,
     mode: Boolean(mode),
-    pc: pcsReady,
+    pc: pcsSetUp,
     deploy: deployed && !modalError,
     models: modelsReady,
     claude: Boolean(info.claude_seen),
@@ -211,7 +227,7 @@
   // and the models once Modal is up (they download by themselves).
   let wizardSteps = $derived(
     steps.map((id) => ({
-      id, ...STEP[id], done: done[id],
+      id, ...STEP[id], ...(id === 'pc' ? { waiting: pcWaiting } : {}), done: done[id],
       canLeave: id === 'models' ? deployed : done[id],
       skip: done[id] || (id === 'models' && deployed),
     })),
@@ -244,16 +260,16 @@
     {#if storage}
       <p>Storage is on.</p>
     {:else}
-      <p>Your images are kept in your own Cloudflare account. It's free up to 10 GB; Cloudflare asks for a card once to turn it on.</p>
+      <p>Your images are saved in your own Cloudflare account. It is free up to 10 GB. Cloudflare asks for a card one time to turn it on.</p>
       <ol class="steps">
         <li><OpenButton href={r2Url} label="Open Cloudflare storage" onopen={() => (r2Opened = true)} /></li>
         <li>
           <Tour ids={['r2']} mode="wizard">
-            Click <b>Add R2 subscription to my account</b>. It costs $0; Cloudflare asks for a card if it has none.
+            Click <b>Add R2 subscription to my account</b>. It costs $0. If Cloudflare has no card for you, it asks for one.
           </Tour>
         </li>
         <li>
-          Close Cloudflare's tab and come back to this one: it checks by itself (about a minute) and moves on.
+          Close the Cloudflare tab and come back to this tab. This page checks by itself and moves on. This takes about a minute.
           <div class="row">
             <button class="secondary" onclick={checkStorage} disabled={storageChecking}>
               {storageTask.busy ? 'Starting…' : storageChecking ? 'Checking…' : 'Check now'}
@@ -271,35 +287,52 @@
     <label class="choice">
       <input type="radio" name="mode" checked={mode === 'cloud'} disabled={modeTask.busy} onchange={() => choose('cloud')} />
       <span><b>{MODES.cloud.title}</b> <span class="tag">Recommended for most people</span><br />
-        <span class="muted">No graphics card needed. Pay per second of use; Modal gives $30 free each month.</span></span>
+        <span class="muted">No graphics card needed. You pay only for the seconds you use. Modal gives you $30 free each month.</span></span>
     </label>
     <label class="choice">
       <input type="radio" name="mode" checked={mode === 'both'} disabled={modeTask.busy} onchange={() => choose('both')} />
       <span><b>{MODES.both.title}</b> <span class="tag green">If you have a powerful graphics card</span><br />
-        <span class="muted">Your PC when it's on, the cloud when it's off.</span></span>
+        <span class="muted">Uses your PC when it is on. Uses the cloud when your PC is off.</span></span>
     </label>
     <label class="choice">
       <input type="radio" name="mode" checked={mode === 'pc'} disabled={modeTask.busy} onchange={() => choose('pc')} />
       <span><b>{MODES.pc.title}</b><br />
-        <span class="muted">Free, on your own graphics card (NVIDIA, AMD on Linux, or a Mac with Apple silicon). The PC must be on.</span></span>
+        <span class="muted">Free. Uses your own graphics card: NVIDIA, AMD on Linux, or a Mac with Apple silicon. The PC must be on.</span></span>
     </label>
     {#if modeTask.error}<p class="err">{modeTask.error}</p>{/if}
     <details class="guide">
       <summary>Only using Claude Desktop, on the PC with the graphics card?</summary>
-      <p>The Claude Desktop extension does it all on that PC, with no accounts:</p>
+      <p>The Claude Desktop extension does everything on that PC. You need no accounts.</p>
       <ol class="steps">
-        <li><a class="button" href="{RELEASE}Comfy-Gen-MCP.mcpb">Download the extension</a><br />Open the file: Claude Desktop installs it.</li>
-        <li>Open its settings page from the Comfy-Gen tray icon, and install ComfyUI there.</li>
+        <li><a class="button" href="{RELEASE}Comfy-Gen-MCP.mcpb">Download the extension</a><br />Open the file. Claude Desktop installs it.</li>
+        <li>Click the Comfy-Gen tray icon and open its settings page. Click <b>Install ComfyUI</b> there.</li>
         <li>Ask Claude Desktop for an image.</li>
       </ol>
-      <p><b>Use the extension or a Worker's agent on a PC, never both:</b> two don't fit on one graphics card.</p>
+      <p><b>On one PC, use the extension or the Comfy-Gen agent. Never use both.</b> One graphics card is not enough for two.</p>
     </details>
   {:else if current === 'pc'}
-    {#if pcsReady && allPaused}<p class="err">{pcs.length > 1 ? 'Every PC is' : 'This PC is'} paused: it won't take images until resumed (here or from its tray icon).</p>{/if}
+    {#if pcs.some((g) => g.seen)}
+      <ul class="pc-progress">
+        {#each pcs as g, i (g.id)}
+          <li>
+            <b>{g.name}:</b>
+            {#if pcStages[i] === 'pair'}waiting for the agent to pair.
+            {:else if pcStages[i] === 'unknown'}paired. Waiting for the agent. Is the Comfy-Gen agent running on this PC?
+            {:else if pcStages[i] === 'install'}paired. Now click <b>Install ComfyUI</b> on the agent's page.
+            {:else if pcStages[i] === 'installing'}installing ComfyUI…
+            {:else}<span class="ok">ready ✓</span>{/if}
+          </li>
+        {/each}
+      </ul>
+      {#if pcsReady && !pcsSetUp}
+        <p class="muted">Already installed on your PC? <button type="button" class="link" onclick={() => (pcsConfirmed = true)}>My PC is set up, continue</button></p>
+      {/if}
+    {/if}
+    {#if pcsReady && allPaused}<p class="err">{pcs.length > 1 ? 'Every PC is' : 'This PC is'} paused. It makes no images until you resume it. Resume it here or from its tray icon.</p>{/if}
     {#if pairing}
       <ol class="steps">
         <li>
-          On {pcs.length > 1 ? 'the new PC' : 'the PC with the graphics card'}, download the Comfy-Gen agent and open it.
+          On {pcs.length > 1 ? 'the new PC' : 'the PC with the graphics card'}, download the Comfy-Gen agent. Then open it.
           <div class="row">
             <a class="button" href="{RELEASE}{agent.file}">Download for {agent.label}</a>
             {#each AGENTS.filter((a) => a.os !== agentOs) as other (other.os)}
@@ -312,19 +345,19 @@
           Copy this pairing link:
           <div class="row"><code>{pairing.link}</code></div>
           <div class="row"><button type="button" onclick={() => linkCopy.copy(pairing.link)}>{linkCopy.done ? 'Copied' : 'Copy link'}</button></div>
-          <Tour ids={['agent-pair']} mode="wizard">Paste it into <b>Pairing link</b> on the agent's page: it pairs by itself.</Tour>
+          <Tour ids={['agent-pair']} mode="wizard">On the agent's page, paste it into <b>Pairing link</b>. It pairs by itself.</Tour>
         </li>
-        <li>On the agent's page, install ComfyUI. This page moves on once the PC is paired.</li>
+        <li>On the agent's page, click <b>Install ComfyUI</b>. This page moves on when it is installed.</li>
       </ol>
-      <p class="muted">The pairing link works like a password. <button type="button" class="link" onclick={removePairing}>Remove {pairing.name}</button></p>
+      <p class="muted">Keep the pairing link secret, like a password. <button type="button" class="link" onclick={removePairing}>Remove {pairing.name}</button></p>
     {:else if pcs.length}
       <GpuList {gpus} {refresh} />
       <div class="row">
         <button type="button" class="secondary" onclick={addPc} disabled={addTask.busy}>{addTask.busy ? 'Adding…' : 'Add another PC'}</button>
       </div>
-      <p class="muted">Images are made on the first one in this list that's available.</p>
+      <p class="muted">Images are made on the first PC in this list that is available.</p>
     {:else}
-      <p>A small program on your PC, the Comfy-Gen agent, connects it to this page. Nothing to open on your network.</p>
+      <p>A small program on your PC connects it to this page. It is called the Comfy-Gen agent. You do not need to change your network or router.</p>
       <div class="row">
         <button type="button" onclick={addPc} disabled={addTask.busy}>{addTask.busy ? 'Adding…' : 'Add a PC'}</button>
       </div>
@@ -335,20 +368,20 @@
     {#if modalError && !building}
       <div class="failed">
         {#if needsCard}
-          <p><b>Modal needs a card on file before it runs anything.</b> The free $30 a month is still used first.</p>
+          <p><b>Modal needs a card before it runs anything.</b> Modal still uses the free $30 each month first.</p>
           <ol class="steps">
             <li><OpenButton href={MODAL_BILLING} label="Add a card in Modal" onopen={() => (billingOpened = true)} /></li>
             <li>Click <b>Manage payment details</b> and add the card.</li>
-            <li>Close Modal's tab and come back to this one: it tries again by itself.
+            <li>Close the Modal tab and come back to this tab. This page tries again by itself.
               <div class="row"><button class="secondary" onclick={() => deploy(false)} disabled={buildTask.busy}>{buildTask.busy ? 'Starting…' : 'Try again now'}</button></div>
             </li>
           </ol>
         {:else}
           <p><b>Modal refused it:</b> {modalError}</p>
-          <p>If the token is the problem, paste a new one below. Otherwise fix it in Modal, then try again.</p>
+          <p>If the problem is the token, paste a new one below. If not, fix the problem in Modal. Then try again.</p>
           <button onclick={() => deploy(false)} disabled={buildTask.busy}>{buildTask.busy ? 'Starting…' : 'Try again'}</button>
         {/if}
-        {#if deployed}<p class="muted">The last setup that worked keeps running meanwhile.</p>{/if}
+        {#if deployed}<p class="muted">Until then, your last working setup keeps running.</p>{/if}
       </div>
     {/if}
     {#if building}
@@ -356,17 +389,17 @@
     {:else if deployed && !modalError}
       <p>Modal is ready.</p>
     {:else if !needsCard}
-      <p>Images are made on Modal, a cloud GPU service, in your own account. New accounts get $30 of free use each month.</p>
+      <p>Images are made on Modal, in your own Modal account. Modal is a cloud service with graphics cards. Modal gives you $30 free each month.</p>
       <ol class="steps">
         <li>No Modal account yet? <OpenButton secondary small href="https://modal.com/signup" label="Sign up at Modal" /></li>
         <li>
           <OpenButton href={MODAL_TOKENS} label="Open Modal's API tokens" /><br />
           <Tour ids={['modal-token']} mode="wizard">
-            Click <b>New Token</b>, then <b>Create token</b>, and copy the command Modal shows. You can close Modal's tab then.
+            Click <b>New Token</b>. Then click <b>Create token</b>. Copy the command that Modal shows. Then you can close the Modal tab.
           </Tour>
         </li>
         <li>
-          <label for="mcmd">Paste the command here: the setup starts by itself.</label>
+          <label for="mcmd">Paste the command here. The setup starts by itself.</label>
           <input id="mcmd" type="text" bind:value={modalCommand} oninput={splitCommand} placeholder="modal token set --token-id ak-… --token-secret as-…" autocomplete="off" disabled={buildTask.busy} />
           {#if buildTask.busy}<p>Starting…</p>{/if}
           {#if buildTask.error}<p class="err">{buildTask.error}</p>{/if}
@@ -388,23 +421,23 @@
     {@render changeMode()}
   {:else if current === 'models'}
     {#if deployed}
-      <p>The models are downloading into your Modal account (about 23 GB, a few minutes). You can go on meanwhile.</p>
+      <p>The models are downloading into your Modal account. They are about 23 GB and take a few minutes. You can go to the next step now.</p>
       <Models gpu="modal" onchange={(p) => (packs = p)} />
     {:else}
-      <p>This comes after Modal is set up.</p>
+      <p>Set up Modal first.</p>
     {/if}
   {:else if current === 'claude'}
-    {#if !generatorReady}<p class="err">Finish the steps before this one first: Claude needs somewhere to make images.</p>{/if}
+    {#if !generatorReady}<p class="err">Finish the steps before this one first. Claude needs a place to make images.</p>{/if}
     <ol class="steps">
       <li>
         <OpenButton href={addConnector} label="Add to claude.ai" /><br />
-        It opens claude.ai's <b>Add custom connector</b> with everything filled in: click <b>Add</b>, then <b>Connect</b>.
-        Keep claude.ai open: the next step is there.
+        This opens <b>Add custom connector</b> on claude.ai, already filled in. Click <b>Add</b>. Then click <b>Connect</b>.
+        Keep claude.ai open. You do the next step there.
       </li>
       <li>
         <Tour ids={['claude-chat']} mode="wizard">
-          In a chat, click <b>+</b> → <b>Connectors</b>, turn Comfy-Gen on, and ask for an image. Choose <b>Always allow</b> when
-          Claude asks. This page moves on once Claude connects.
+          In a chat, click <b>+</b>, then <b>Connectors</b>. Turn on Comfy-Gen. Ask Claude for an image. When Claude asks, click
+          <b>Always allow</b>. This page moves on when Claude connects.
         </Tour>
       </li>
     </ol>
@@ -412,16 +445,16 @@
       <summary>Add it by hand, or in another app</summary>
       <p>Your connector URL:</p>
       <ConnectorUrl {info} {refresh} />
-      <p>In claude.ai, open <b>Customize → Connectors</b>, click <b>Add custom connector</b>, name it, paste the URL, then
-        <b>Add</b> and <b>Connect</b>.</p>
+      <p>In claude.ai, open <b>Customize → Connectors</b>. Click <b>Add custom connector</b>. Type a name and paste the URL.
+        Click <b>Add</b>, then <b>Connect</b>.</p>
     </details>
   {:else if current === 'finish'}
-    <p>Ask Claude for an image in a new chat, with Comfy-Gen turned on, for example:</p>
+    <p>Open a new chat and turn on Comfy-Gen. Ask Claude for an image. For example:</p>
     <p><i>"Draw a lighthouse on a cliff at dusk, in watercolor."</i></p>
     <OpenButton href="https://claude.ai/new" label="Open a new chat" />
-    <p>Then ask for a change ("make it stormy"), or attach an image to edit.</p>
-    <p class="muted">Models, styles, LoRAs and your GPUs are in Settings. If Claude ever says the tools aren't connected, open
-      Comfy-Gen in claude.ai's <b>Customize → Connectors</b> and click <b>Disconnect</b>, then <b>Connect</b>.</p>
+    <p>Then ask for a change, like "make it stormy". You can also attach an image to edit.</p>
+    <p class="muted">Models, styles, LoRAs and your GPUs are in Settings. If Claude says the tools are not connected: in claude.ai,
+      open <b>Customize → Connectors</b> and click Comfy-Gen. Click <b>Disconnect</b>, then <b>Connect</b>.</p>
   {/if}
 </Wizard>
 {/if}

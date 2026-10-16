@@ -98,7 +98,8 @@ export type BuildOptions = {
   loraToggles?: LoraToggle[] | null;
   rng?: Rng;
   outputName?: string; // the save nodes' filename_prefix; a new one per call by default
-  negative?: string; // replaces the cg:negative node's text when not blank (a hidden argument, like "WxH")
+  negative?: string; // a caller's negative (hidden argument): with negativeFixed, the cg:negative node's text when not blank
+  negativeFixed?: string; // the pack's always-on negative tags, kept before the caller's
 };
 
 /** A call's own output name, `comfy-gen/<12 hex>`: ComfyUI saves it as output/comfy-gen/<hex>_00001_.webp (withWebpSave).
@@ -118,7 +119,11 @@ export function buildPrompt(workflow: Workflow, promptText: string, opts: BuildO
   if (!promptNode) throw new Error(`the workflow has no node titled ${TITLES.prompt}`);
   wf[promptNode].inputs.text = promptText;
   const negative = opts.negative?.trim();
-  if (negative) for (const id of nodesTitled(wf, TITLES.negative)) wf[id].inputs.text = negative;
+  if (negative) {
+    // The fixed tags stay (quality, watermark...); the caller's replace the rest of the default.
+    const fixed = opts.negativeFixed?.trim();
+    for (const id of nodesTitled(wf, TITLES.negative)) wf[id].inputs.text = fixed ? `${fixed}, ${negative}` : negative;
+  }
 
   const name = opts.outputName ?? outputName();
   for (const node of Object.values(wf)) {

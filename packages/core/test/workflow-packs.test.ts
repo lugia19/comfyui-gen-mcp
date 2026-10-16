@@ -63,6 +63,14 @@ describe("workflow", () => {
     expect(anima.workflow["12"]._meta.title).toBe("cg:negative");
     expect(buildPrompt(anima.workflow, "x", { negative: " lowres, extra fingers " })["12"].inputs.text).toBe("lowres, extra fingers");
     expect(buildPrompt(anima.workflow, "x", { negative: "  " })["12"].inputs.text).toBe(own);
+    // With the pack's fixed tags: those stay, the caller's replace only the situational rest (mask...).
+    const fixed = anima.negative_fixed!;
+    for (const tag of fixed.split(", ")) expect(own).toContain(tag); // the default holds every fixed tag
+    expect(own).toContain("mask");
+    const text = buildPrompt(anima.workflow, "x", { negative: "sepia", negativeFixed: fixed })["12"].inputs.text;
+    expect(text).toBe(`${fixed}, sepia`);
+    expect(text).not.toContain("mask");
+    expect(buildPrompt(anima.workflow, "x", { negativeFixed: fixed })["12"].inputs.text).toBe(own); // no negative: the default
     expect(buildPrompt(anima.workflow, "x")["12"].inputs.text).toBe(own);
     // A pack without the node ignores it.
     const flux = builtinPacks().find((p) => p.name === "flux2klein")!;
