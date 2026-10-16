@@ -106,7 +106,7 @@ def test_only_mark_sized_boxes_count():
 
 import pytest
 
-from comfy_gen_modal.comfy_node import NO_FACE, grow, parse_box, sample_size
+from comfy_gen_modal.comfy_node import NO_FACE, crop_for, grow, parse_box, sample_size
 
 
 def test_a_box_is_fractions_of_the_image():
@@ -128,6 +128,18 @@ def test_the_image_is_sampled_at_its_size_in_steps_of_16():
     assert sample_size(4000, 3000, 2359296) == (1776, 1328)  # over: scaled down
     assert sample_size(1530, 1021, 2359296) == (1536, 1024)
     assert sample_size(500, 400, 2359296) == (496, 400)  # never scaled up
+
+
+def test_an_area_crop_is_a_square_around_it_kept_inside_the_image():
+    assert crop_for([700, 500, 800, 600], 1536, 1024) == [650, 450, 850, 650]  # 2x the box's side
+    assert crop_for([0, 0, 100, 50], 1536, 1024) == [0, 0, 200, 200]  # at a corner: moved in
+    assert crop_for([1400, 900, 1536, 1024], 1536, 1024) == [1264, 752, 1536, 1024]
+    assert crop_for([0, 0, 1000, 900], 1536, 1024) == [0, 0, 1536, 1024]  # bigger than the image: all of it
+
+
+def test_an_area_is_sampled_up_to_the_region_size():
+    assert sample_size(200, 200, 1048576, scale_up=True) == (1024, 1024)
+    assert sample_size(272, 160, 1048576, scale_up=True) == (1328, 784)
 
 
 def test_the_no_face_message_points_at_the_box():
@@ -178,6 +190,25 @@ def test_the_region_node_samples_the_image_with_its_mask():
     assert float(region["mask"][100, 100]) == 0
     sample, mask, region = redraw_region(image, "0.322,0.718,0.423,0.864", 786432)  # over budget: smaller
     assert sample.shape == (1, 720, 1088, 3) and region["mask"].shape == (1024, 1536)
+
+
+def test_area_only_samples_a_crop_scaled_up_and_pastes_it_back_in_place():
+    torch = pytest.importorskip("torch")
+    from comfy_gen_modal.comfy_node import redraw_paste, redraw_region
+
+    image = torch.rand(1, 1024, 1536, 3)
+    sample, mask, region = redraw_region(image, "0.45,0.45,0.5,0.5", 2359296, area_only=True)
+    x0, y0, x1, y1 = region["crop"]
+    assert (x1 - x0, y1 - y0) == (231, 231)  # 2x the grown box (76.8 x 51.2 px grown 1.5x), square
+    assert sample.shape == (1, 1024, 1024, 3) and mask.shape == (1, 1024, 1024)  # scaled up to 1 MP
+    out = redraw_paste(image, torch.zeros(1, 1024, 1024, 3), region)
+    m = region["mask"]
+    assert out.shape == image.shape
+    assert torch.equal(out[0][m == 0], image[0][m == 0])  # outside the mask: untouched, crop or not
+    assert float(out[0, 486, 729].max()) < 0.01  # the box's centre: the redraw, in its place
+    # Without area_only the region covers the whole image, as before.
+    sample, mask, region = redraw_region(image, "0.45,0.45,0.5,0.5", 2359296)
+    assert region["crop"] == [0, 0, 1536, 1024] and sample.shape == (1, 1024, 1536, 3)
 
 
 def test_faces_come_from_the_detector_output_largest_first():

@@ -5,7 +5,7 @@ import { withPrompt } from "../../core/test/metadata-fixtures.ts";
 import { LORA_CHUNK } from "../src/loras.ts";
 import { PACKS, REQUEST_BUDGET, type App } from "../src/app.ts";
 import { offlineMessage, pausedMessage } from "../src/hooks.ts";
-import { BACKGROUND_UNAVAILABLE, MODEL_SETS, REDRAW_UNAVAILABLE, seedKey } from "@comfy-gen/core";
+import { BACKGROUND_UNAVAILABLE, MODEL_SETS, REDRAW_AREA_UNAVAILABLE, REDRAW_UNAVAILABLE, seedKey } from "@comfy-gen/core";
 import { cacheEntry } from "../src/store.ts";
 import * as updates from "../src/updates.ts";
 import golden from "../../core/test/golden.json" with { type: "json" };
@@ -1095,6 +1095,15 @@ describe("the PC path", () => {
     expect(Object.values<any>(pc.comfy.prompts[0]).some((n) => n.class_type === "ComfyGenRedrawPaste")).toBe(true);
     // no box: the face detector made ready with the pack
     expect(pc.controlCalls.filter(([op]) => op === "ensure").map(([, a]) => a.pack.name)).toEqual(["detect-faces", "anima_turbo"]);
+    // prompt_scope "area" needs an agent whose node crops (v1.20.0)
+    const area = () => mcp(app, "tools/call", { name: "redraw", arguments: { prompt: "a hand", image: "https://images.example/a.png", box: [0.4, 0.6, 0.5, 0.7], prompt_scope: "area" } });
+    [, r] = await area();
+    expect(r.result.content[0].text).toContain(REDRAW_AREA_UNAVAILABLE);
+    expect(pc.comfy.prompts.length).toBe(1);
+    pc.redrawArea = true;
+    [, r] = await area();
+    expect(r.result.content[0].type).toBe("image");
+    expect(Object.values<any>(pc.comfy.prompts[1]).find((n) => n.class_type === "ComfyGenRedrawRegion").inputs.area_only).toBe(true);
   });
 
   it("generates on the PC when it is online, on Modal when it is not", async () => {

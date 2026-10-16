@@ -806,3 +806,14 @@ After v1.19.0, live: with `2xbj` set to `strengths: {anima: 0.7, anima_turbo: 0.
 (the config restored after), `/loras` reported both, and the generations' embedded prompts showed
 `strength_model` 0.4 on Anima Turbo and 0.7 on Anima.
 
+## v1.20.0: redraw's opt-in area prompt (2026-10-16)
+
+- `prompt_scope: "area"` on redraw (default `"image"`): the region node's optional `area_only`
+  samples a crop around the area at a megapixel with a prompt for the area alone, pasted back
+  through the same mask. Strict guidance in the description (a last resort for small details a
+  normal redraw left blurry). The agent's hello says `redraw_area`; older PC agents get a "newer
+  agent" error.
+- Checked on the scratchpad's CPU ComfyUI: the node takes the optional input, and an
+  inverted crop pasted back changed only the grown box and its soft edge, the output at the
+  input's size.
+

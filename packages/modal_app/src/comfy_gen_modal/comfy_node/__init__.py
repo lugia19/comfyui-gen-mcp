@@ -24,9 +24,10 @@ remove_marks setting is on (core packs.ts).
 ComfyGenRedrawRegion and ComfyGenRedrawPaste (nodes): the redraw tool (core workflow.ts
 redrawWorkflow). The first picks what to repaint (a caller's box, or the largest face the anime face
 detector finds, models/comfy_gen/FACE_DETECTOR, run by onnxruntime), builds its soft mask, and hands
-the sampler the whole image (the prompt describes all of it); the second puts the result back
-through the mask, so every other pixel stays as it was and the image keeps its size and
-transparency.
+the sampler the whole image (the prompt describes all of it), or with area_only a crop around the
+area scaled to about a megapixel (the prompt describes only the area: more pixels for a small
+detail, no knowledge of the rest); the second puts the result back through the mask, so every other
+pixel stays as it was and the image keeps its size and transparency.
 
 ComfyGenCutout (node): turns ComfyUI's background removal (RMBG 2.0) into the RGBA image, cleaned:
 background enclosed by the silhouette (which BiRefNet models keep) cleared where isnet-anime
@@ -294,6 +295,10 @@ FACE_GROW = 1.2  # a found face, grown: the redrawn ellipse takes in the chin an
 # too much around it).
 BOX_GROW = 1.5
 DEFAULT_PIXELS = 1024 * 1024
+# area_only: the crop is a square this many times the grown area's longer side (some surroundings
+# to continue from), sampled at REGION_PIXELS, scaled up when smaller: the point of the mode.
+CONTEXT = 2.0
+REGION_PIXELS = 1024 * 1024
 # The mask's soft edge (Gaussian sigma): this share of the grown area's shorter side. DifferentialDiffusion
 # already eases the repaint into the edge; 0.08 left the knight's new hand half see-through.
 FEATHER_SHARE = 0.04
@@ -324,10 +329,28 @@ def grow(box, factor):
     return [cx - hw, cy - hh, cx + hw, cy + hh]
 
 
-def sample_size(width, height, pixels):
+def crop_for(box, width, height):
+    """area_only's crop, [x0, y0, x1, y1] in pixels: a square of CONTEXT times *box*'s longer side
+    around it, kept inside the image (moved in from an edge before it is cut)."""
+    x0, y0, x1, y1 = box
+    side = CONTEXT * max(x1 - x0, y1 - y0)
+
+    def span(c, limit):
+        s = min(side, limit)
+        lo = min(max(c - s / 2, 0), limit - s)
+        return int(round(lo)), int(round(lo + s))
+
+    cx0, cx1 = span((x0 + x1) / 2, width)
+    cy0, cy1 = span((y0 + y1) / 2, height)
+    return [cx0, cy0, cx1, cy1]
+
+
+def sample_size(width, height, pixels, scale_up=False):
     """(w, h) to sample a *width* x *height* image at: its own size, or *pixels* in area when it is
-    bigger, the sides rounded to multiples of SIDE_STEP."""
-    s = min(1.0, (pixels / (width * height)) ** 0.5)
+    bigger (or, with *scale_up*, smaller), the sides rounded to multiples of SIDE_STEP."""
+    s = (pixels / (width * height)) ** 0.5
+    if not scale_up:
+        s = min(1.0, s)
     return tuple(max(SIDE_STEP, round(side * s / SIDE_STEP) * SIDE_STEP) for side in (width, height))
 
 
@@ -412,10 +435,10 @@ def largest_face(image):
     return boxes[0]
 
 
-def redraw_region(image, box_text, max_pixels):
+def redraw_region(image, box_text, max_pixels, area_only=False):
     """(sample, mask, region) for the first image of a batch: the image to sample (all of it, scaled
-    down to *max_pixels* if over), its mask, and what ComfyGenRedrawPaste needs to put the result
-    back."""
+    down to *max_pixels* if over; with *area_only* a crop around the area, scaled to REGION_PIXELS
+    either way), its mask, and what ComfyGenRedrawPaste needs to put the result back."""
     import torch
 
     height, width = image.shape[1:3]
@@ -423,10 +446,14 @@ def redraw_region(image, box_text, max_pixels):
     face = box is None
     box = grow(largest_face(image[0]) if face else box, FACE_GROW if face else BOX_GROW)
     full = shape_mask(height, width, box, ellipse=face)
-    sw, sh = sample_size(width, height, max_pixels)
-    sample = resize(image[:1, ..., :3], sw, sh)
-    mask = resize(full[None, ..., None], sw, sh)[..., 0]
-    return sample, mask, {"mask": full.to(torch.float32)}
+    x0, y0, x1, y1 = crop = crop_for(box, width, height) if area_only else [0, 0, width, height]
+    if area_only:
+        sw, sh = sample_size(x1 - x0, y1 - y0, min(REGION_PIXELS, max_pixels), scale_up=True)
+    else:
+        sw, sh = sample_size(width, height, max_pixels)
+    sample = resize(image[:1, y0:y1, x0:x1, :3], sw, sh)
+    mask = resize(full[None, y0:y1, x0:x1, None], sw, sh)[..., 0]
+    return sample, mask, {"crop": crop, "mask": full.to(torch.float32)}
 
 
 def redraw_paste(original, redrawn, region, alpha=None):
@@ -436,9 +463,10 @@ def redraw_paste(original, redrawn, region, alpha=None):
     import torch
 
     out = original[:1, ..., :3].clone()
-    part = resize(redrawn[:1, ..., :3].to(out), out.shape[2], out.shape[1])
-    m = region["mask"][..., None].to(out)
-    out = out * (1 - m) + part * m
+    x0, y0, x1, y1 = region.get("crop") or [0, 0, out.shape[2], out.shape[1]]
+    part = resize(redrawn[:1, ..., :3].to(out), x1 - x0, y1 - y0)
+    m = region["mask"][y0:y1, x0:x1, None].to(out)
+    out[:, y0:y1, x0:x1] = out[:, y0:y1, x0:x1] * (1 - m) + part * m
     if alpha is not None and tuple(alpha.shape[-2:]) == tuple(out.shape[1:3]) and float(alpha.max()) > 0:
         out = torch.cat([out, (1 - alpha[:1, ..., None]).to(out)], dim=-1)
     return out
@@ -452,7 +480,9 @@ class ComfyGenRedrawRegion:
                 "image": ("IMAGE",),
                 "box": ("STRING", {"default": ""}),
                 "max_pixels": ("INT", {"default": DEFAULT_PIXELS, "min": 65536, "max": 16777216}),
-            }
+            },
+            # Optional, so a graph without it (before v1.20.0) samples the whole image as it did.
+            "optional": {"area_only": ("BOOLEAN", {"default": False})},
         }
 
     RETURN_TYPES = ("IMAGE", "MASK", "CG_REGION")
@@ -460,8 +490,8 @@ class ComfyGenRedrawRegion:
     FUNCTION = "run"
     CATEGORY = "comfy-gen"
 
-    def run(self, image, box="", max_pixels=DEFAULT_PIXELS):
-        return redraw_region(image, box, max_pixels)
+    def run(self, image, box="", max_pixels=DEFAULT_PIXELS, area_only=False):
+        return redraw_region(image, box, max_pixels, area_only)
 
 
 class ComfyGenRedrawPaste:

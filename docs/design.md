@@ -427,6 +427,16 @@ and `strength` (0.3 to 1, default 0.9); hidden, `model` and `negative` (Scripted
   at a megapixel with a prompt for the crop alone gave sharp fingers but wrong ones: bare hands on
   an armoured knight from "a hand in a steel gauntlet", the hand left out with more context; 2
   usable of 12 tries. The whole image with its own prompt knew she was a knight.
+- **Back as an opt-in: `prompt_scope: "area"` (v1.20.0, the user's call).** Its one strength is
+  resolution: a small detail is sampled at many times the pixels the whole-image pass gives it. The
+  default stays `"image"`, and the description tells Claude when `"area"` is allowed: only after a
+  normal redraw of that area left it blurry, only for a detail at most about a tenth of the image's
+  width and height, with the prompt rewritten for the area alone, never for faces in a portrait or
+  anything that must match its surroundings. Our region node takes an optional `area_only`: the
+  crop (2× the grown area's longer side, kept inside the image) is sampled at a megapixel, scaled up
+  when smaller, and pasted back through the same mask as the whole-image mode. Without the input
+  (every default call, and older graphs) nothing changes. A PC agent says `redraw_area` in its
+  hello; an older one's node would ignore the input, so the call answers "needs a newer agent".
 - **The area.** A box is grown 1.5× and drawn as a rounded rectangle; a face, the detector's box
   grown 1.2×, as an ellipse; both blurred by 4% of their shorter side (8% left the knight's
   new hand half see-through; Frenni's expressions read the same at either). On the knight's mangled

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { roundHalfEven } from "../src/bytes.ts";
-import { BACKGROUND_UNAVAILABLE, Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pending, REDRAW_UNAVAILABLE, redrawBox, type ResolvedImage } from "../src/brain.ts";
+import { BACKGROUND_UNAVAILABLE, Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pending, REDRAW_AREA_UNAVAILABLE, REDRAW_UNAVAILABLE, redrawBox, type ResolvedImage } from "../src/brain.ts";
 import { ComfyUIError, STILL_STARTING } from "../src/comfyui.ts";
 import { McpHandler, PROTOCOL_VERSIONS, RESULT_META, UnknownTool, type ToolCall } from "../src/mcp.ts";
 import { builtinPacks, type Pack } from "../src/packs.ts";
@@ -50,7 +50,7 @@ class PathHooks extends Hooks {
   }
 }
 
-function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean; canCutout?: boolean } = {}) {
+function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean; canCutout?: boolean; canRedrawArea?: boolean } = {}) {
   const comfy = new FakeComfy();
   const client = fastClient(comfy, { coldStartS: 60, requestBudget: opts.budget ?? null });
   const brain = (o: typeof opts = {}) =>
@@ -61,6 +61,7 @@ function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: nu
       canRemoveBackground: o.canRemoveBackground ?? opts.canRemoveBackground,
       canRedraw: o.canRedraw ?? opts.canRedraw,
       canCutout: o.canCutout ?? opts.canCutout,
+      canRedrawArea: o.canRedrawArea ?? opts.canRedrawArea,
     });
   return { comfy, client, brain };
 }
@@ -406,6 +407,21 @@ describe("redraw", () => {
     expect(await run({ image_path: "base.webp", model: "anima_turbo" })).toEqual(["anima_turbo", "anima-turbo-v1.0.safetensors"]);
     expect(await run({ image_path: "edit.webp" })).toEqual(["anima_turbo", "anima-turbo-v1.0.safetensors"]); // an edit model's image
     expect(await run({ image_path: "upload.png" })).toEqual(["anima_turbo", "anima-turbo-v1.0.safetensors"]); // no metadata
+  });
+
+  it("prompt_scope \"area\" crops where the GPU can; any other value is an error", async () => {
+    const { comfy, brain } = setup({ canRedraw: true, cfg: { remove_marks: false } });
+    const region = () => Object.values<any>(comfy.prompts.at(-1)!).find((n) => n.class_type === "ComfyGenRedrawRegion").inputs;
+    const args = { prompt: "a hand", image_path: "a.png", box: [0.4, 0.6, 0.5, 0.7] };
+    expect(await brain().call("redraw", { ...args, prompt_scope: "area" })).toEqual(new Failed(REDRAW_AREA_UNAVAILABLE));
+    expect(comfy.prompts.length).toBe(0);
+    await brain({ canRedrawArea: true }).call("redraw", { ...args, prompt_scope: "area" });
+    expect(region().area_only).toBe(true);
+    await brain({ canRedrawArea: true }).call("redraw", args); // the default: the whole image, the graph as before
+    expect(region()).not.toHaveProperty("area_only");
+    expect(await brain().call("redraw", { ...args, prompt_scope: "crop" })).toEqual(new Failed('prompt_scope must be "image" (the default) or "area".'));
+    const spec = toolSpecs(BUILTIN, normalize({}), "refs").find((s) => s.name === "redraw")!;
+    expect(spec.inputSchema.properties.prompt_scope).toMatchObject({ enum: ["image", "area"], default: "image" });
   });
 
   it("repaints a box, or the largest face with the detector made ready", async () => {

@@ -99,13 +99,20 @@ export async function uploadInput(client: ComfyUIClient, data: Uint8Array, key: 
 /** *canRemoveMarks*: the GPU's ComfyUI has our extension's mark-removal node, so the remove_marks
  * setting can apply. *canRemoveBackground*: it can take the background removal model (a PC agent
  * from before v1.16.0 lacks its folder). */
-export type BrainOptions = { hooks?: Hooks; waitS?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean; canCutout?: boolean };
+export type BrainOptions = {
+  hooks?: Hooks; waitS?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean; canCutout?: boolean;
+  /** redraw's prompt_scope "area": the GPU's extension crops (a PC agent from before v1.20.0 doesn't). */
+  canRedrawArea?: boolean;
+};
 
 export const BACKGROUND_UNAVAILABLE =
   "Background removal needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that, or without remove_background.";
 
 export const REDRAW_UNAVAILABLE =
   "Redrawing needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that.";
+
+export const REDRAW_AREA_UNAVAILABLE =
+  "prompt_scope \"area\" needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that, or without prompt_scope.";
 
 // Redraw's strength: the sampler's denoise. 0.9 changed expressions clearly and kept identity in
 // the spikes (0.8 barely changed them); below 0.3 nothing visible changes.
@@ -123,6 +130,7 @@ export class Brain {
   private canRemoveBackground: boolean;
   private canRedraw: boolean;
   private canCutout: boolean;
+  private canRedrawArea: boolean;
   private packs: Pack[];
   // Raw selected packs by tool. They are prepared (LoRAs, budget) only when called, so a request
   // pays for one pack, not all of them.
@@ -137,6 +145,7 @@ export class Brain {
     this.canRemoveBackground = opts.canRemoveBackground ?? false;
     this.canRedraw = opts.canRedraw ?? false;
     this.canCutout = opts.canCutout ?? false;
+    this.canRedrawArea = opts.canRedrawArea ?? false;
     this.packs = packs;
     this.specs = toolSpecs(packs, this.cfg, imageMode);
     this.selected = Object.fromEntries(select(groupByTool(packs), this.cfg.pack_selections).map((p) => [p.tool_name, p]));
@@ -210,7 +219,10 @@ export class Brain {
     if (box instanceof Failed) return box;
     const strength = args.strength === undefined || args.strength === null ? REDRAW_STRENGTH : Number(args.strength);
     if (!Number.isFinite(strength) || strength < MIN_STRENGTH || strength > 1) return new Failed(`strength must be a number from ${MIN_STRENGTH} to 1.`);
+    const scope = args.prompt_scope === undefined || args.prompt_scope === null || args.prompt_scope === "" ? "image" : args.prompt_scope;
+    if (scope !== "image" && scope !== "area") return new Failed('prompt_scope must be "image" (the default) or "area".');
     if (!this.canRedraw) return new Failed(REDRAW_UNAVAILABLE);
+    if (scope === "area" && !this.canRedrawArea) return new Failed(REDRAW_AREA_UNAVAILABLE);
     const removeBackground = args.remove_background === true;
     if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
     // Unnamed, the model that drew the image when its metadata says (mixing models doesn't work).
@@ -227,7 +239,7 @@ export class Brain {
       if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
       throw e;
     }
-    const wf = redrawWorkflow(pack.workflow, loadValue, { box, strength, maxPixels: pack.max_pixels ?? 1_048_576, keepAlpha: !removeBackground });
+    const wf = redrawWorkflow(pack.workflow, loadValue, { box, strength, maxPixels: pack.max_pixels ?? 1_048_576, keepAlpha: !removeBackground, areaOnly: scope === "area" });
     // The background cut from the pasted result, not before: a redraw reaching into an already
     // transparent part samples the colours left under it and gets the old edge pasted back.
     if (removeBackground) withBackgroundRemoval(wf, { cutout: this.canCutout });

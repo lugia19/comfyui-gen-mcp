@@ -64,6 +64,12 @@ const REDRAW_PROPS = {
     description: "[left, top, right, bottom] as fractions (0 to 1) of the image's width and height. Leave it out to redraw the largest face.",
   },
   strength: { type: "number", minimum: 0.3, maximum: 1, default: 0.9, description: "How far the redrawn part may stray from what is there now." },
+  prompt_scope: {
+    type: "string",
+    enum: ["image", "area"],
+    default: "image",
+    description: "Leave this out: \"image\" is right for nearly every redraw. \"area\" is a last resort with strict conditions, set out in the description; never use it on a first try.",
+  },
 };
 
 const REDRAW_BACKGROUND_PROP = {
@@ -171,6 +177,16 @@ const REDRAW_BODY =
   "differ (for another expression, swap the expression tags; for a broken hand, say what the hand is " +
   "doing). Otherwise describe the whole image the way generate_illustrated_image's prompts are " +
   "written.\n\n" +
+  "prompt_scope: leave it out. The default redraws with the whole picture in view, which is what keeps " +
+  "the result consistent; use it for every expression change, face, pose fix and ordinary repair. " +
+  "\"area\" crops out just the area and draws it on its own at higher resolution, blind to the rest " +
+  "of the image, so it often clashes with it (wrong colours, lighting, scale or style). Use \"area\" " +
+  "only when all of these hold: (1) a normal redraw of that same area was already tried and the result " +
+  "is still blurry or garbled for lack of detail; (2) the area is a small detail of a large image, at " +
+  "most about a tenth of its width and height (a hand in a full-body picture, jewellery, small text, a " +
+  "distant face); (3) the prompt is rewritten to describe only what is inside the area. Never use it " +
+  "for faces or expressions in a portrait, or for anything that has to match its surroundings. Look " +
+  "at the result, and go back to the default if it doesn't fit.\n\n" +
   "strength is how far the result may stray from what is there: the default 0.9 keeps the pose and " +
   "colours; use 1 for an area that is broken. Look at the result: if the problem is still there, call " +
   "again, with a larger box or another wording. Returns a new image; the original is kept.";

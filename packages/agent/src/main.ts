@@ -105,6 +105,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
         remove_background: true, // the background_removal model folder (v1.16.0)
         redraw: true, // our extension's redraw nodes (v1.17.0)
         cutout: true, // our extension's cut-out cleanup node (v1.17.3)
+        redraw_area: true, // its redraw node crops for prompt_scope "area" (v1.20.0)
       }),
       onOpen: () => void sync.sync(),
     });

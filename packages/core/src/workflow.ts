@@ -371,6 +371,9 @@ export type RedrawOptions = {
   keepAlpha?: boolean;
   /** The most pixels to sample (the pack's budget): a bigger image is sampled scaled down. */
   maxPixels: number;
+  /** Sample only a crop around the area, scaled to about a megapixel (the prompt describes just the
+   * area): redraw's prompt_scope "area". Off, the node gets no such input, as before v1.20.0. */
+  areaOnly?: boolean;
 };
 
 /**
@@ -393,7 +396,7 @@ export function redrawWorkflow(workflow: Workflow, loadValue: string, opts: Redr
   delete wf[size];
   wf[image] = node("LoadImage", TITLES.redrawImage, { image: loadValue });
   wf[region] = node(REDRAW_REGION_NODE, TITLES.redrawRegion, {
-    image: [image, 0], box: opts.box, max_pixels: Math.round(opts.maxPixels),
+    image: [image, 0], box: opts.box, max_pixels: Math.round(opts.maxPixels), ...(opts.areaOnly ? { area_only: true } : {}),
   });
   wf[encode] = node("VAEEncode", TITLES.redrawEncode, { pixels: [region, 0], vae });
   wf[mask] = node("SetLatentNoiseMask", TITLES.redrawMask, { samples: [encode, 0], mask: [region, 1] });
