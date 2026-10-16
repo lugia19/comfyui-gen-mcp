@@ -769,3 +769,7 @@ already did for `edit_image`; ids and outside public URLs work.
 - Settings → Worker shows the connector URL (copy, show, replace), shared with Setup's Claude step.
 - The Worker reads its own `/img/<id>` links as image ids, so a result's link works wherever an
   image is taken (`edit_image`, `redraw`, `remove_background`).
+
+After v1.17.5, live: an earlier result's own `/img/` link, passed as `image`, gave a cut-out
+(`remove_background`, 14.3 s, RGBA at the same size) and an edit of that same image (`edit_image`,
+34.5 s), where v1.17.4 answered "HTTP 404".
