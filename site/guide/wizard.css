@@ -29,7 +29,6 @@
 /* One step. Without a screenshot: a centered column. */
 .wz-step { box-sizing: border-box; max-width: 880px; margin: 0 auto; padding: 24px 20px 40px; }
 .wz-step > h2.wz-title, .wz-step .wz-title { font-size: 1.5rem; margin: 0 0 14px; }
-.wz-step .wz-count { color: var(--muted); font-size: 0.9rem; margin: 0 0 4px; }
 
 /* With one: the column sits on the right; the screenshot's stage is pinned to the rest of the window. */
 .wz-split { max-width: none; width: var(--wz-side); margin: 0 0 0 auto; min-height: calc(100dvh - var(--wz-top)); display: flex; flex-direction: column; }

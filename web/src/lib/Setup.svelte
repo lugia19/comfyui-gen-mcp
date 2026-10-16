@@ -10,7 +10,9 @@
   import GpuList from './GpuList.svelte'
   import Models from './Models.svelte'
   import OpenButton from './OpenButton.svelte'
-  import Tour from './Tour.svelte'
+  import Walk from './Walk.svelte'
+  import WalkGuide from './WalkGuide.svelte'
+  import WalkStep from './WalkStep.svelte'
   import Wizard from './Wizard.svelte'
   import { Copy, onReturn, Task } from './task.svelte.js'
 
@@ -248,6 +250,19 @@
   let firstAfterMode = $derived(steps[steps.indexOf('mode') + 1])
 </script>
 
+{#snippet typedToken()}
+  <details class="guide">
+    <summary>{deployed ? 'Use a new Modal token' : 'Or type the token ID and secret'}</summary>
+    <form onsubmit={deployTyped}>
+      <label for="mid">Token ID</label>
+      <input id="mid" type="text" bind:value={modalId} placeholder="ak-…" autocomplete="off" />
+      <label for="msec">Token secret</label>
+      <input id="msec" type="password" bind:value={modalSecret} placeholder="as-…" autocomplete="off" />
+      <button type="submit" disabled={buildTask.busy || !modalId.trim() || !modalSecret.trim()}>{buildTask.busy ? 'Starting…' : 'Set up Modal'}</button>
+    </form>
+  </details>
+{/snippet}
+
 {#snippet changeMode()}
   {#if mode && current === firstAfterMode}
     <p class="muted">Images are made: {MODES[mode]?.title ?? mode}. <button type="button" class="link" onclick={() => (current = 'mode')}>Change</button></p>
@@ -261,22 +276,23 @@
       <p>Storage is on.</p>
     {:else}
       <p>Your images are saved in your own Cloudflare account. It is free up to 10 GB. Cloudflare asks for a card one time to turn it on.</p>
-      <ol class="steps">
-        <li><OpenButton href={r2Url} label="Open Cloudflare storage" onopen={() => (r2Opened = true)} /></li>
-        <li>
-          <Tour ids={['r2']} mode="wizard">
-            Click <b>Add R2 subscription to my account</b>. It costs $0. If Cloudflare has no card for you, it asks for one.
-          </Tour>
-        </li>
-        <li>
+      <Walk>
+        <WalkStep>
+          Open the storage page in Cloudflare.
+          {#snippet controls()}<OpenButton href={r2Url} label="Open Cloudflare storage" onopen={() => (r2Opened = true)} />{/snippet}
+        </WalkStep>
+        <WalkGuide ids={['r2']}>
+          Click <b>Add R2 subscription to my account</b>. It costs $0. If Cloudflare has no card for you, it asks for one.
+        </WalkGuide>
+        <WalkStep>
           Close the Cloudflare tab and come back to this tab. This page checks by itself and moves on. This takes about a minute.
-          <div class="row">
+          {#snippet controls()}
             <button class="secondary" onclick={checkStorage} disabled={storageChecking}>
               {storageTask.busy ? 'Starting…' : storageChecking ? 'Checking…' : 'Check now'}
             </button>
-          </div>
-        </li>
-      </ol>
+          {/snippet}
+        </WalkStep>
+      </Walk>
       {#if storageTask.error}<p class="err">{storageTask.error}</p>{/if}
       {#if storageChecked}<p class="err">Storage still isn't on. Add the R2 subscription in Cloudflare, then come back here.</p>{/if}
       {#if storageBuild}
@@ -330,25 +346,29 @@
     {/if}
     {#if pcsReady && allPaused}<p class="err">{pcs.length > 1 ? 'Every PC is' : 'This PC is'} paused. It makes no images until you resume it. Resume it here or from its tray icon.</p>{/if}
     {#if pairing}
-      <ol class="steps">
-        <li>
+      <Walk>
+        <WalkStep>
           On {pcs.length > 1 ? 'the new PC' : 'the PC with the graphics card'}, download the Comfy-Gen agent. Then open it.
-          <div class="row">
-            <a class="button" href="{RELEASE}{agent.file}">Download for {agent.label}</a>
-            {#each AGENTS.filter((a) => a.os !== agentOs) as other (other.os)}
-              <button type="button" class="link" onclick={() => (agentOs = other.os)}>{other.label}</button>
-            {/each}
-          </div>
-          <p>{agent.run}</p>
-        </li>
-        <li>
-          Copy this pairing link:
-          <div class="row"><code>{pairing.link}</code></div>
-          <div class="row"><button type="button" onclick={() => linkCopy.copy(pairing.link)}>{linkCopy.done ? 'Copied' : 'Copy link'}</button></div>
-          <Tour ids={['agent-pair']} mode="wizard">On the agent's page, paste it into <b>Pairing link</b>. It pairs by itself.</Tour>
-        </li>
-        <li>On the agent's page, click <b>Install ComfyUI</b>. This page moves on when it is installed.</li>
-      </ol>
+          {#snippet controls()}
+            <div class="row">
+              <a class="button" href="{RELEASE}{agent.file}">Download for {agent.label}</a>
+              {#each AGENTS.filter((a) => a.os !== agentOs) as other (other.os)}
+                <button type="button" class="link" onclick={() => (agentOs = other.os)}>{other.label}</button>
+              {/each}
+            </div>
+            <p>{agent.run}</p>
+          {/snippet}
+        </WalkStep>
+        <WalkStep>
+          Copy this pairing link.
+          {#snippet controls()}
+            <div class="row"><code>{pairing.link}</code></div>
+            <div class="row"><button type="button" onclick={() => linkCopy.copy(pairing.link)}>{linkCopy.done ? 'Copied' : 'Copy link'}</button></div>
+          {/snippet}
+        </WalkStep>
+        <WalkGuide ids={['agent-pair']}>On the agent's page, paste it into <b>Pairing link</b>. It pairs by itself.</WalkGuide>
+        <WalkStep>On the agent's page, click <b>Install ComfyUI</b>. This page moves on when it is installed.</WalkStep>
+      </Walk>
       <p class="muted">Keep the pairing link secret, like a password. <button type="button" class="link" onclick={removePairing}>Remove {pairing.name}</button></p>
     {:else if pcs.length}
       <GpuList {gpus} {refresh} />
@@ -369,13 +389,19 @@
       <div class="failed">
         {#if needsCard}
           <p><b>Modal needs a card before it runs anything.</b> Modal still uses the free $30 each month first.</p>
-          <ol class="steps">
-            <li><OpenButton href={MODAL_BILLING} label="Add a card in Modal" onopen={() => (billingOpened = true)} /></li>
-            <li>Click <b>Manage payment details</b> and add the card.</li>
-            <li>Close the Modal tab and come back to this tab. This page tries again by itself.
-              <div class="row"><button class="secondary" onclick={() => deploy(false)} disabled={buildTask.busy}>{buildTask.busy ? 'Starting…' : 'Try again now'}</button></div>
-            </li>
-          </ol>
+          <Walk>
+            <WalkStep>
+              Open the billing page in Modal.
+              {#snippet controls()}<OpenButton href={MODAL_BILLING} label="Add a card in Modal" onopen={() => (billingOpened = true)} />{/snippet}
+            </WalkStep>
+            <WalkStep>Click <b>Manage payment details</b> and add the card.</WalkStep>
+            <WalkStep>
+              Close the Modal tab and come back to this tab. This page tries again by itself.
+              {#snippet controls()}
+                <button class="secondary" onclick={() => deploy(false)} disabled={buildTask.busy}>{buildTask.busy ? 'Starting…' : 'Try again now'}</button>
+              {/snippet}
+            </WalkStep>
+          </Walk>
         {:else}
           <p><b>Modal refused it:</b> {modalError}</p>
           <p>If the problem is the token, paste a new one below. If not, fix the problem in Modal. Then try again.</p>
@@ -390,34 +416,31 @@
       <p>Modal is ready.</p>
     {:else if !needsCard}
       <p>Images are made on Modal, in your own Modal account. Modal is a cloud service with graphics cards. Modal gives you $30 free each month.</p>
-      <ol class="steps">
-        <li>No Modal account yet? <OpenButton secondary small href="https://modal.com/signup" label="Sign up at Modal" /></li>
-        <li>
-          <OpenButton href={MODAL_TOKENS} label="Open Modal's API tokens" /><br />
-          <Tour ids={['modal-token']} mode="wizard">
-            Click <b>New Token</b>. Then click <b>Create token</b>. Copy the command that Modal shows. Then you can close the Modal tab.
-          </Tour>
-        </li>
-        <li>
-          <label for="mcmd">Paste the command here. The setup starts by itself.</label>
-          <input id="mcmd" type="text" bind:value={modalCommand} oninput={splitCommand} placeholder="modal token set --token-id ak-… --token-secret as-…" autocomplete="off" disabled={buildTask.busy} />
-          {#if buildTask.busy}<p>Starting…</p>{/if}
-          {#if buildTask.error}<p class="err">{buildTask.error}</p>{/if}
-        </li>
-      </ol>
+      <Walk>
+        <WalkStep>
+          No Modal account yet? Sign up first.
+          {#snippet controls()}<OpenButton secondary small href="https://modal.com/signup" label="Sign up at Modal" />{/snippet}
+        </WalkStep>
+        <WalkStep>
+          Open the API tokens page in Modal.
+          {#snippet controls()}<OpenButton href={MODAL_TOKENS} label="Open Modal's API tokens" />{/snippet}
+        </WalkStep>
+        <WalkGuide ids={['modal-token']}>
+          Click <b>New Token</b>. Then click <b>Create token</b>. Copy the command that Modal shows. Then you can close the Modal tab.
+        </WalkGuide>
+        <WalkStep>
+          Paste the command here. The setup starts by itself.
+          {#snippet controls()}
+            <input id="mcmd" type="text" aria-label="The Modal command" bind:value={modalCommand} oninput={splitCommand} placeholder="modal token set --token-id ak-… --token-secret as-…" autocomplete="off" disabled={buildTask.busy} />
+            {#if buildTask.busy}<p>Starting…</p>{/if}
+            {@render typedToken()}
+          {/snippet}
+        </WalkStep>
+      </Walk>
+      {#if buildTask.error}<p class="err">{buildTask.error}</p>{/if}
     {/if}
-    {#if !building && (deployed || !needsCard)}
-      <details class="guide">
-        <summary>{deployed ? 'Use a new Modal token' : 'Or type the token ID and secret'}</summary>
-        <form onsubmit={deployTyped}>
-          <label for="mid">Token ID</label>
-          <input id="mid" type="text" bind:value={modalId} placeholder="ak-…" autocomplete="off" />
-          <label for="msec">Token secret</label>
-          <input id="msec" type="password" bind:value={modalSecret} placeholder="as-…" autocomplete="off" />
-          <button type="submit" disabled={buildTask.busy || !modalId.trim() || !modalSecret.trim()}>{buildTask.busy ? 'Starting…' : 'Set up Modal'}</button>
-        </form>
-      </details>
-    {/if}
+    <!-- A new token once Modal is set up (the steps above have it while they show). -->
+    {#if !building && deployed && (needsCard || !modalError)}{@render typedToken()}{/if}
     {@render changeMode()}
   {:else if current === 'models'}
     {#if deployed}
@@ -428,19 +451,17 @@
     {/if}
   {:else if current === 'claude'}
     {#if !generatorReady}<p class="err">Finish the steps before this one first. Claude needs a place to make images.</p>{/if}
-    <ol class="steps">
-      <li>
-        <OpenButton href={addConnector} label="Add to claude.ai" /><br />
-        This opens <b>Add custom connector</b> on claude.ai, already filled in. Click <b>Add</b>. Then click <b>Connect</b>.
-        Keep claude.ai open. You do the next step there.
-      </li>
-      <li>
-        <Tour ids={['claude-chat']} mode="wizard">
-          In a chat, click <b>+</b>, then <b>Connectors</b>. Turn on Comfy-Gen. Ask Claude for an image. When Claude asks, click
-          <b>Always allow</b>. This page moves on when Claude connects.
-        </Tour>
-      </li>
-    </ol>
+    <Walk>
+      <WalkStep>
+        Click <b>Add to claude.ai</b>. This opens <b>Add custom connector</b> on claude.ai, already filled in. Click <b>Add</b>.
+        Then click <b>Connect</b>. Keep claude.ai open. You do the next step there.
+        {#snippet controls()}<OpenButton href={addConnector} label="Add to claude.ai" />{/snippet}
+      </WalkStep>
+      <WalkGuide ids={['claude-chat']}>
+        In a chat, click <b>+</b>, then <b>Connectors</b>. Turn on Comfy-Gen. Ask Claude for an image. When Claude asks, click
+        <b>Always allow</b>. This page moves on when Claude connects.
+      </WalkGuide>
+    </Walk>
     <details class="guide">
       <summary>Add it by hand, or in another app</summary>
       <p>Your connector URL:</p>

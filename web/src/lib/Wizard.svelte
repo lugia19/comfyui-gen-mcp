@@ -5,8 +5,8 @@
   // The Worker's setup as a wizard (wizard.css, as on the setup site): a bar of the steps, then one
   // step filling the window. *steps*: [{ id, title, short, done, canLeave, waiting }], where
   // *waiting* says what a step that can't be left yet waits for. *current* (bindable): the step
-  // shown. The children render the current step's content; a walkthrough in it (Tour mode "wizard")
-  // puts its screenshot on the left and is driven by Back / Next here. Next leaves a step only once
+  // shown. The children render the current step's content; the steps in it (a Walk)
+  // are walked by Back / Next here, its screenshot pinned on the left. Next leaves a step only once
   // it is done: its state is the proof. A step that turns done while it shows moves on by itself.
   // Moving on passes over steps marked *skip* (nothing to do there: already done, or optional); Back
   // and the bar still open them. *end* ({ label, onclick }, optional): the last step's button, where

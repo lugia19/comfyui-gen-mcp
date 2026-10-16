@@ -784,7 +784,7 @@ step is through. On the site that means a question answered, every account ticke
 walkthrough walked to its end, remembered once done; on the Worker's page it is the step's real
 state (storage on, the PC paired, Modal deployed, Claude connected), with "Waiting for …" under a
 disabled Next. The models step lets you go on while they download. The
-login page sits beside the token walkthrough the same way. Without JavaScript the site is still
+login page sits beside the token walkthrough the same way, with its own Back / Next. Without JavaScript the site is still
 the long page with every step open; a walkthrough that can't load falls back to its plain steps
 and holds nothing.
 
@@ -802,7 +802,7 @@ needed, the Modal card was a step of its own, and filled-in fields still waited 
 - Every page to visit is a button (`OpenButton`): R2, Modal's sign-up, tokens
   (`modal.com/settings/tokens`) and billing (`modal.com/settings/usage`), claude.ai. What to do is
   a numbered list (`ol.steps`) of plain sentences, each with its button or field; grey is only for
-  optional detail. Fields show at once; the walkthroughs stay beside them as pictures.
+  optional detail. Since v1.20.2 a walkthrough's steps are items of that same list (below).
 - **The card is checked by the deploy.** Modal has no API that says whether a card is on file, so
   there is no card step: a deploy refused for it shows **Add a card in Modal**, and retries when
   the user comes back.
@@ -822,11 +822,16 @@ bound `open` was reset by every poll, closing it).
 **From a tester with little English (v1.20.1).** Their notes: Next for every trivial sub-step,
 earlier sub-steps hidden, too much going back and forth between the Worker's page and the agent's,
 and the agent's page offering the Worker's settings before the PC was set up. So:
-- **Every walkthrough shows whole** in a setup step, on the site and the Worker alike
-  (`tour-core.js` `everything`): each screenshot in the column above its own steps, nothing
-  hidden, and one Next for the step. **One step at a time** walks them as before. The step isn't
-  split while it shows whole (`hasShot()` false), so the screenshots aren't pinned on top of each
-  other.
+- **One list per page, walked with Next (v1.20.2, the user's design).** v1.20.1 showed each
+  walkthrough whole; what was wrong was the nesting: on the Worker a walkthrough sat inside one
+  item of the page's numbered list, with its own 1, 2, 3. Now the page's steps and the
+  walkthrough's are one list (`Walk.svelte` with `WalkStep` and `WalkGuide`; `tour-core.js`
+  `steps` and `stageAt`), every step always listed. Next moves which one is current (red) and the
+  screenshot; a click on a step goes to it. A step's buttons and fields show only while it is
+  current; errors, progress and alternative routes (typing the token, adding the connector by
+  hand) stay outside the list. A step of the page's own shows the nearest screenshot: the one
+  before it with its markers done, else the next one bare. The site walks its walkthroughs the
+  same way (the Deploy button stays above the list, as two of its steps use it).
 - **The PC step waits for a ready PC**, not just a paired one: paired, and its hello saying
   ComfyUI is installed (`comfyui` not `not_installed`, `installing` false). The agent sends its
   hello again when ComfyUI's state changes. The step lists each PC's progress (waiting to pair,

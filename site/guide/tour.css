@@ -1,10 +1,9 @@
 /* The walkthroughs (tour-core.js), on the setup site and the Worker's page alike: a screenshot with
-   numbered markers, the steps so far, Back / Next. Uses the page's --bg, --text, --muted, --border,
+   numbered markers, every step listed with the current one in red, Back / Next. Uses the page's --bg, --text, --muted, --border,
    --accent and --accent-text. In the setup wizard (wizard.css) the screenshot's stage fills the
    left of the window and the wizard's own Back / Next drive the walkthrough. */
 .tour { --tour-red: #e5191b; --tour-text: #c81e1e; margin: 10px 0 14px; outline: none; }
-@media (prefers-color-scheme: dark) { .tour, .tour-pop { --tour-text: #ff7b72; } }
-.tour-pop { --tour-red: #e5191b; --tour-text: #c81e1e; }
+@media (prefers-color-scheme: dark) { .tour { --tour-text: #ff7b72; } }
 .tour:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; }
 
 /* The stage centers the screenshot; the shot shrink-wraps its image, so the markers' percentages
@@ -35,8 +34,14 @@
 
 .tour-count { color: var(--muted); font-size: 0.9rem; }
 .tour-steps { margin: 10px 0 6px; }
-.tour-steps li.done { color: var(--muted); }
-.tour-steps li.current { color: var(--tour-text); font-weight: 600; }
+/* Every step listed: the ones before the current one muted, the current one red; a click goes to it.
+   The Worker's pages (Walk.svelte) list the page's own steps and the walkthrough's in its `ol.steps`;
+   a step's buttons and fields show only while it is current. */
+.tour-steps li, .walk > li > .walk-text { cursor: pointer; }
+.tour-steps li.done, .walk > li.done { color: var(--muted); }
+.tour-steps li.current, .walk > li.current > .walk-text { color: var(--tour-text); font-weight: 600; }
+.walk > li.current::before { background: var(--tour-red); border-color: var(--tour-red); color: #fff; }
+.walk-controls { margin-top: 8px; }
 .tour-nav { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
 .tour-nav button {
   font: inherit; font-weight: 600; margin: 0; padding: 7px 16px; border-radius: 8px; cursor: pointer;
@@ -44,26 +49,4 @@
 }
 .tour-nav button.tour-prev { background: none; color: var(--text); border-color: var(--border); font-weight: normal; }
 .tour-nav button:disabled { opacity: 0.45; cursor: default; }
-.tour-nav button.tour-toggle { background: none; border: 0; padding: 0; color: var(--accent); font-weight: normal; font-size: 0.9rem; margin-left: auto; text-decoration: underline; }
-.tour-all { color: var(--muted); }
 
-/* An optional walkthrough ("Show me where"), over the whole window: the screenshot left, its steps right. */
-.tour-pop {
-  position: fixed; inset: 0; z-index: 50; background: var(--bg); color: var(--text);
-  display: grid; grid-template-columns: minmax(0, 1fr) var(--wz-side, 420px);
-}
-/* div. outranks the wizard's pinned stage (wizard.css), which the overlay may sit inside. */
-div.tour-pop > .tour-stage { position: static; padding: 20px; min-height: 0; border: 0; background: none; }
-div.tour-pop > .tour-stage img { max-height: calc(100dvh - 40px); width: auto; }
-.tour-pop > .tour-side { border-left: 1px solid var(--border); padding: 20px; overflow-y: auto; }
-.tour-pop .tour-close { float: right; margin: 0; }
-.tour-pop .tour-count { display: none; } /* the count sits above the steps */
-@media (max-width: 860px) {
-  .tour-pop { display: block; overflow-y: auto; }
-  div.tour-pop > .tour-stage img { max-height: none; }
-  .tour-pop > .tour-side { border-left: 0; }
-}
-
-/* Outside the wizard the counter sits in the nav; inside, above the steps. */
-.tour .wz-count { display: none; }
-.wz-step .tour .wz-count { display: block; }

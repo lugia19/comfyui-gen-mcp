@@ -2,7 +2,9 @@
   import { onMount } from 'svelte'
   import { api, TOKEN_TEMPLATE_URL } from './api.js'
   import OpenButton from './OpenButton.svelte'
-  import Tour from './Tour.svelte'
+  import Walk from './Walk.svelte'
+  import WalkGuide from './WalkGuide.svelte'
+  import WalkStep from './WalkStep.svelte'
 
   // The first login is a Cloudflare token (it proves the Worker is yours); it then sets a password,
   // and later logins use that. The token stays the way back in, should the password be forgotten.
@@ -74,23 +76,26 @@
       The first time, a Cloudflare token proves this Worker is yours. After this you set a password for next time.
     {/if}
   </p>
-  <ol class="steps">
-    <li><OpenButton href={TOKEN_TEMPLATE_URL} label="Open Cloudflare's token page" /><br />Everything is filled in there.</li>
-    <li>
-      <Tour ids={['cf-token']} bind:shot>
-        Click <b>Continue to summary</b>, then <b>Create Token</b>, and copy the token: you can close Cloudflare's tab then. (If your Cloudflare login also has
-        other accounts, an employer's say, first change <b>All accounts</b> to your own.)
-      </Tour>
-    </li>
-    <li>
-      <form onsubmit={submit}>
-        <label for="token">Paste the token here: it logs you in.</label>
-        <input id="token" type="password" bind:value={token} oninput={tokenInput} placeholder="cfut_…" autocomplete="off" disabled={busy} />
-        <button type="submit" disabled={busy || !token.trim()}>{busy ? 'Checking…' : 'Log in'}</button>
-        {#if error}<p class="err">{error}</p>{/if}
-      </form>
-    </li>
-  </ol>
+  <Walk bind:shot>
+    <WalkStep>
+      Open the token page in Cloudflare.
+      {#snippet controls()}<OpenButton href={TOKEN_TEMPLATE_URL} label="Open Cloudflare's token page" />{/snippet}
+    </WalkStep>
+    <WalkGuide ids={['cf-token']}>
+      Click <b>Continue to summary</b>. Then click <b>Create Token</b>. Copy the token. Then you can close the Cloudflare tab. If your
+      Cloudflare login has other accounts too, like an employer's, first change <b>All accounts</b> to your own account.
+    </WalkGuide>
+    <WalkStep>
+      Paste the token here. It logs you in.
+      {#snippet controls()}
+        <form onsubmit={submit}>
+          <input id="token" type="password" aria-label="The Cloudflare token" bind:value={token} oninput={tokenInput} placeholder="cfut_…" autocomplete="off" disabled={busy} />
+          <button type="submit" disabled={busy || !token.trim()}>{busy ? 'Checking…' : 'Log in'}</button>
+        </form>
+      {/snippet}
+    </WalkStep>
+  </Walk>
+  {#if error}<p class="err">{error}</p>{/if}
   <p class="muted">This browser stays logged in for a year.</p>
 </section>
 {/if}

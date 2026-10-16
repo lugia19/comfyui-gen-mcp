@@ -1,5 +1,5 @@
 The walkthroughs: step-by-step guides with numbered markers over screenshots, on the setup site
-(`site/index.html`, through `tour.js`) and the Worker's page (`web/src/lib/Tour.svelte`, which loads
+(`site/index.html`, through `tour.js`) and the Worker's pages (`web/src/lib/WalkGuide.svelte`, which loads
 `guides.json` and the images from the published site). Both draw them the same way: `tour-core.js`
 holds the logic, `tour.css` the look. Fixing a guide needs no release: the Worker's page picks up
 `main` once Pages publishes it.
@@ -20,11 +20,12 @@ holds the logic, `tour.css` the look. Fixing a guide needs no release: the Worke
   the PNG here and give the view its `image`, `size` and each step's `box` or `at` and `side`.
 - Each guide's element keeps its plain steps inside, shown without JavaScript, when `guides.json`
   doesn't load, or when a screenshot is missing.
-- In the setup wizards (`wizard.css`) a walkthrough's screenshot is pinned to the left of the
-  window and the wizard's Next walks it: the site's `tour.js` puts `tour` (`next`, `prev`,
-  `atStart`, `atEnd`, `hasShot`) on the element and fires `tourchange`; the Worker's `Tour.svelte`
-  registers the same with its `Wizard`. `data-guide="a b"` (or `ids={['a', 'b']}`) walks several
-  guides as one.
+- Every step is listed, always; Next moves which one is current (red) and the screenshot. In the
+  setup wizards (`wizard.css`) the screenshot is pinned to the left of the window and the wizard's
+  Next walks the list: the site's `tour.js` puts `tour` (`next`, `prev`, `atStart`, `atEnd`,
+  `hasShot`) on the element and fires `tourchange`; on the Worker a `WalkGuide`'s steps are items
+  of the page's own list (`Walk.svelte`), which registers the same with its `Wizard`.
+  `data-guide="a b"` (or `ids={['a', 'b']}`) walks several guides as one.
 - `npm test` checks the file: every image exists at its `size`, every box fits, the text is allowed.
 
 The screenshots come from the v1.9.0 dry run, cropped and with every private detail blurred (emails,

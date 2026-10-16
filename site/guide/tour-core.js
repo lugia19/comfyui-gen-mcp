@@ -1,13 +1,10 @@
-// The walkthroughs' logic, shared by the setup site (tour.js) and the Worker's page (Tour.svelte):
-// where Next and Prev go, which steps show, where the markers sit. No DOM here.
+// The walkthroughs' logic, shared by the setup site (tour.js) and the Worker's pages (Walk.svelte):
+// a guide's steps as list items, what the screenshot shows, where the markers sit. No DOM here.
 //
 // A guide (site/guide/guides.json) is { views: [{ image, size: [w, h], alt, steps: [{ html, box?, at?, side? }] }] }.
 // Coordinates are in the image's pixels: `box` [x, y, w, h] outlines the target, `at` [x, y] points
 // at it without an outline, `side` is where the numbered badge sits (left, right, up, down). A view
 // with `image: null` has no screenshot yet: its steps show as text.
-
-// A position is { v, s }: view v, step s within it.
-export const start = () => ({ v: 0, s: 0 })
 
 // Several guides walked as one (a wizard step with two, Modal's card then its token): their views
 // in order. Guides missing from guides.json are skipped; none at all gives null.
@@ -16,45 +13,23 @@ export function concat(all, ids) {
   return views.length ? { views } : null
 }
 
-export function next(guide, { v, s }) {
-  if (s + 1 < guide.views[v].steps.length) return { v, s: s + 1 }
-  if (v + 1 < guide.views.length) return { v: v + 1, s: 0 }
+// A guide's steps as items of one list: [{ view, html, mark }], the marker in percent of the image
+// (null for a step without one). A step's number is its place in the page's list.
+export const steps = (guide) =>
+  guide.views.flatMap((view) => view.steps.map((step) => ({ view, html: step.html, mark: view.size ? marker(step, view.size) : null })))
+
+// What the screenshot shows while item *at* of a list is current, where some items are walkthrough
+// steps ({ view, mark }) and others the page's own (no view): the current step's view with its
+// markers so far, the current one boxed; for one of the page's items, the view before it with its
+// markers done, else the one after it, bare; null when the list has none.
+// { view, marks: [{ n, mark, current }] }.
+export function stageAt(items, at) {
+  const marks = (view, upTo, cur) =>
+    items.flatMap((it, i) => (it.view === view && it.mark && i <= upTo ? [{ n: i + 1, mark: it.mark, current: i === cur }] : []))
+  if (items[at]?.view) return { view: items[at].view, marks: marks(items[at].view, at, at) }
+  for (let i = at - 1; i >= 0; i--) if (items[i].view) return { view: items[i].view, marks: marks(items[i].view, at, -1) }
+  for (let i = at + 1; i < items.length; i++) if (items[i].view) return { view: items[i].view, marks: [] }
   return null
-}
-
-export function prev(guide, { v, s }) {
-  if (s > 0) return { v, s: s - 1 }
-  if (v > 0) return { v: v - 1, s: guide.views[v - 1].steps.length - 1 }
-  return null
-}
-
-export const total = (guide) => guide.views.reduce((n, view) => n + view.steps.length, 0)
-
-// The step's number across the guide, from 1.
-export const number = (guide, { v, s }) => guide.views.slice(0, v).reduce((n, view) => n + view.steps.length, 0) + s + 1
-
-// The current view's steps up to the current one, each with its number, `current` and its marker in
-// percent of the image (null for a step without one).
-export function shown(guide, pos) {
-  const view = guide.views[pos.v]
-  const first = number(guide, { v: pos.v, s: 0 })
-  return view.steps.slice(0, pos.s + 1).map((step, i) => ({
-    n: first + i,
-    html: step.html,
-    current: i === pos.s,
-    mark: view.size ? marker(step, view.size) : null,
-  }))
-}
-
-// Every view with all of its steps, numbered across the guide: the walkthrough shown whole, which
-// the setup wizards open with (each step's actions at once, nothing hidden; Next goes on to the
-// next step). [{ view, steps: [{ n, html, current: true, mark }] }].
-export function everything(guide) {
-  let n = 0
-  return guide.views.map((view) => ({
-    view,
-    steps: view.steps.map((step) => ({ n: ++n, html: step.html, current: true, mark: view.size ? marker(step, view.size) : null })),
-  }))
 }
 
 // The badge's anchor: the middle of the box's edge on the badge's side, or `at`.

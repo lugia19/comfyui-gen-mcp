@@ -1,7 +1,7 @@
-// The walkthroughs: tour-core.js's positions, and site/guide/guides.json against its screenshots.
+// The walkthroughs: tour-core.js's list and screenshot, and site/guide/guides.json against its screenshots.
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { concat, marker, next, number, prev, safe, shown, start, total } from '../../site/guide/tour-core.js'
+import { concat, marker, safe, stageAt, steps } from '../../site/guide/tour-core.js'
 
 const dir = new URL('../../site/guide/', import.meta.url)
 const guides = JSON.parse(readFileSync(new URL('guides.json', dir), 'utf8'))
@@ -14,30 +14,29 @@ const g = {
   ],
 }
 
-describe('tour positions', () => {
-  it('walks forward across views and stops at the end', () => {
-    const seen = []
-    for (let p = start(); p; p = next(g, p)) seen.push([p.v, p.s, number(g, p)])
-    expect(seen).toEqual([[0, 0, 1], [0, 1, 2], [1, 0, 3]])
-    expect(total(g)).toBe(3)
+describe('tour list', () => {
+  it('lists a guide\'s steps across views, with their markers', () => {
+    expect(steps(g).map((s) => [s.html, s.view === g.views[0], s.mark?.side ?? null])).toEqual([['one', true, 'left'], ['two', true, 'up'], ['three', false, null]])
   })
 
-  it('walks back to the previous view’s last step', () => {
-    expect(prev(g, { v: 1, s: 0 })).toEqual({ v: 0, s: 1 })
-    expect(prev(g, { v: 0, s: 1 })).toEqual({ v: 0, s: 0 })
-    expect(prev(g, start())).toBeNull()
+  it('shows the current step\'s view with its markers so far', () => {
+    const items = steps(g)
+    expect(stageAt(items, 0).marks.map((m) => [m.n, m.current])).toEqual([[1, true]])
+    expect(stageAt(items, 1).marks.map((m) => [m.n, m.current])).toEqual([[1, false], [2, true]])
+    expect(stageAt(items, 2)).toEqual({ view: g.views[1], marks: [] })
   })
 
-  it('shows the view’s steps up to the current one', () => {
-    expect(shown(g, { v: 0, s: 0 }).map((s) => [s.n, s.current])).toEqual([[1, true]])
-    expect(shown(g, { v: 0, s: 1 }).map((s) => [s.n, s.current])).toEqual([[1, false], [2, true]])
-    expect(shown(g, { v: 1, s: 0 })).toEqual([{ n: 3, html: 'three', current: true, mark: null }])
+  it("shows the page's own items beside the nearest view: the one before, else the one after", () => {
+    const items = [{}, ...steps(g).slice(0, 2), {}]
+    expect(stageAt(items, 0)).toEqual({ view: g.views[0], marks: [] }) // before any: the next, bare
+    expect(stageAt(items, 2).marks.map((m) => m.n)).toEqual([2, 3]) // numbered by their place in the list
+    expect(stageAt(items, 3).marks.map((m) => [m.n, m.current])).toEqual([[2, false], [3, false]]) // after: done
+    expect(stageAt([{}, {}], 1)).toBeNull()
   })
 
   it('walks several guides as one, skipping missing ones', () => {
     const two = concat({ a: g, b: { views: [{ image: null, steps: [{ html: 'four' }] }] } }, ['a', 'missing', 'b'])
-    expect(total(two)).toBe(4)
-    expect(number(two, { v: 2, s: 0 })).toBe(4)
+    expect(steps(two).map((s) => s.html)).toEqual(['one', 'two', 'three', 'four'])
     expect(concat({ a: g }, ['missing'])).toBeNull()
   })
 

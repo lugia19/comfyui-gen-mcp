@@ -398,7 +398,7 @@
     "alt": "Modal's API tokens settings, with the New Token button",
     "steps": [
      {
-      "html": "Open Modal's <b>API tokens</b> page (<b>Settings → API tokens &amp; service users</b>). Click <b>New Token</b>.",
+      "html": "Click <b>New Token</b>.",
       "box": [
        1141,
        24,
@@ -438,7 +438,7 @@
     "alt": "The new token, inside a modal token set command",
     "steps": [
      {
-      "html": "Modal shows the token only once, inside a command. Copy the whole command (move the mouse over it to see the copy button). On your Worker's page, paste it into the box <b>Paste the command here</b>. Then you can close the Modal tab.",
+      "html": "Modal shows the token only once, inside a command. Copy the whole command (move the mouse over it to see the copy button). Then you can close the Modal tab.",
       "box": [
        425,
        321,

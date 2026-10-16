@@ -846,3 +846,19 @@ no case for "area" yet, which stays the opt-in last resort.
   ComfyUI", then "installing ComfyUI…", then moved on to Modal by itself; the build log stayed
   open over 9 s of polls and stayed closed when closed by hand; the agent page's settings button
   appeared only with ComfyUI installed.
+
+## v1.20.2: one step list per page, walked with Next (2026-10-16)
+
+- The Worker's walkthroughs no longer nest inside one item of a page's list: the page's steps and
+  the walkthrough's are one numbered list (`Walk`, `WalkStep`, `WalkGuide` replace `Tour`), on the
+  login page, Storage, Set up your PC, Set up Modal (and its card box) and Connect Claude.
+- Every step is always listed; Next (and a click) moves the current, red step and the screenshot;
+  a step's buttons and fields show only while it is current. The site's walkthroughs walk the same
+  way; the show-all toggle is gone.
+- `tour-core.js` lost its positions for a flat list (`steps`, `stageAt`); the guide text no longer
+  repeats the page's own steps (`modal-token`).
+- Checked in Chromium on the test world, with guides and with guides.json answering 404: no list
+  inside a list on any page; the numbers match the markers; the Modal paste field appears only on
+  item 6 (of 6), the Copy link button only on item 2; Next at a step's last item is the setup
+  step's ("Next: Set up your PC", disabled until storage is on); the fallback is one item. The
+  site's Deploy list: six items, Next moved the red step and the screenshot, a click went back.
