@@ -210,3 +210,71 @@ def test_the_detector_finds_frenni():
     node._face_session[:] = [onnxruntime.InferenceSession(model, providers=["CPUExecutionProvider"])]
     image = torch.from_numpy(np.asarray(Image.open(picture).convert("RGB"), dtype=np.float32) / 255)
     assert node.largest_face(image) == pytest.approx([522, 183, 760, 405], abs=6)
+
+
+# ── Cut-outs: the cleanup's steps on synthetic images (numpy and scipy, where installed) ──
+
+
+def _sprite():
+    """A grey square subject with a black 3 px outline and a 1 px light ring outside it, on a plain
+    light-grey background; an enclosed background-coloured hole and an enclosed pink patch inside."""
+    np = pytest.importorskip("numpy")
+    rgb = np.full((60, 60, 3), 0.8, np.float32)
+    rgb[10:50, 10:50] = 0.0  # outline
+    rgb[13:47, 13:47] = 0.4  # body
+    rgb[9, 9:51] = rgb[50, 9:51] = rgb[9:51, 9] = rgb[9:51, 50] = 0.9  # the light ring
+    rgb[20:26, 20:26] = 0.8  # hole: background colour
+    rgb[32:38, 32:38] = (1.0, 0.7, 0.7)  # pink: subject
+    alpha = np.zeros((60, 60), np.float32)
+    alpha[9:51, 9:51] = 0.3  # the ring kept a little
+    alpha[10:50, 10:50] = 1.0  # the base model fills everything inside, hole included
+    return rgb, alpha
+
+
+def test_enclosed_background_is_cleared_and_coloured_patches_kept():
+    pytest.importorskip("scipy")
+    from comfy_gen_modal.comfy_node import background_colour, clear_gaps
+
+    rgb, alpha = _sprite()
+    second = alpha.copy()
+    second[20:26, 20:26] = 0  # isnet clears the hole
+    second[32:38, 32:38] = 0  # and, wrongly, the pink patch
+    colour = background_colour(rgb, alpha)
+    out = clear_gaps(rgb, alpha, second, colour)
+    assert out[22, 22] == 0  # the hole: background
+    assert out[34, 34] == 1  # pink: not the background's colour, kept
+
+
+def test_the_cutout_drops_the_light_ring_and_cleans_edge_colours():
+    pytest.importorskip("scipy")
+    from comfy_gen_modal.comfy_node import SHRINK, cutout
+
+    np = pytest.importorskip("numpy")
+    rgb, alpha = _sprite()
+    out_rgb, out_alpha = cutout(rgb, alpha)
+    assert out_alpha[9, 30] == 0  # the ring: gone
+    assert out_alpha[10 + SHRINK, 30] == 1 and out_alpha[10 + SHRINK - 1, 30] < 1  # opaque from SHRINK px further in
+    soft = (out_alpha > 0) & (out_alpha < 1)
+    assert not soft.any() or (np.abs(out_rgb[soft] - 0.8) > 0.05).all()  # no background left in edge colours
+
+
+def test_a_busy_background_only_shrinks():
+    pytest.importorskip("scipy")
+    from comfy_gen_modal.comfy_node import background_colour, cutout
+
+    np = pytest.importorskip("numpy")
+    rgb, alpha = _sprite()
+    rgb[alpha < 0.02] = np.random.default_rng(0).random((int((alpha < 0.02).sum()), 3))  # a scene, not a plain background
+    assert background_colour(rgb, alpha) is None
+    out_rgb, out_alpha = cutout(rgb, alpha)
+    assert np.array_equal(out_rgb, rgb) and out_alpha[22, 22] == 1  # colours as they were; no gap clearing
+
+
+def test_the_node_never_fails_without_isnet():
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("scipy")
+    from comfy_gen_modal.comfy_node import ComfyGenCutout
+
+    rgb, alpha = _sprite()
+    (out,) = ComfyGenCutout().run(torch.from_numpy(rgb)[None], torch.from_numpy(alpha)[None])
+    assert out.shape == (1, 60, 60, 4)

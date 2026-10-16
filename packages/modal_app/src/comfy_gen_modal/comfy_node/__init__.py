@@ -28,8 +28,14 @@ the sampler the whole image (the prompt describes all of it); the second puts th
 through the mask, so every other pixel stays as it was and the image keeps its size and
 transparency.
 
+ComfyGenCutout (node): turns ComfyUI's background removal (RMBG 2.0) into the RGBA image, cleaned:
+background enclosed by the silhouette (which BiRefNet models keep) cleared where isnet-anime
+(models/comfy_gen/ISNET) disagrees and the patch is the background's colour, the mask shrunk past
+the light ring generated images have around their lineart, and the edge colours cleaned of the
+background's.
+
 Loaded by ComfyUI from custom_nodes/, where it can import `server`. The nodes' heavy imports
-(torch, ultralytics, spandrel, onnxruntime) are inside them: tests import this module without ComfyUI.
+(torch, ultralytics, spandrel, onnxruntime, scipy) are inside them: tests import this module without ComfyUI.
 """
 
 import asyncio
@@ -471,15 +477,157 @@ class ComfyGenRedrawPaste:
         return (redraw_paste(original, redrawn, region, alpha),)
 
 
+# ── Cut-outs: the background removal's mask, cleaned ──────────────────────────────────────────
+
+ISNET = "isnet-anime.onnx"  # skytnt/anime-seg (Apache-2.0), in MARK_FOLDER: the second opinion on gaps
+ISNET_SIZE = 1024
+# A plain background: the median colour of what the mask clears, its pixels within this of it.
+PLAIN_SPREAD = 0.05
+# A patch the base model keeps and isnet clears is background (hair-enclosed gaps, which BiRefNet
+# models fill) when its median colour is within this of the background's; the user's sprites
+# measured 0.01 to 0.05 for such gaps, 0.25 for a cream inner ear.
+GAP_DISTANCE = 0.12
+GAP_GROW = 4  # a cleared patch's rim goes too: the shading next to the hair, else a ring stays
+# The generated images have a ring lighter than the background just outside the lineart, and every
+# mask's soft edge keeps a sliver of it (a white contour over dark scenes): the mask shrinks by this
+# many pixels, which thick anime lineart doesn't miss.
+SHRINK = 2
+MIN_ALPHA = 0.05  # decontamination's floor: below it the colour would blow up for no visible gain
+
+_isnet = []
+
+
+def isnet_alpha(rgb):
+    """isnet-anime's subject alpha for *rgb* (H, W, 3 float 0-1 numpy), at its size (rembg's
+    dis_anime preprocessing)."""
+    import numpy as np
+    from PIL import Image
+
+    if not _isnet:
+        import folder_paths
+        import onnxruntime
+
+        path = folder_paths.get_full_path(MARK_FOLDER, ISNET)
+        if not path:
+            raise FileNotFoundError(f"models/{MARK_FOLDER}/{ISNET} is missing")
+        _isnet.append(onnxruntime.InferenceSession(path, providers=["CPUExecutionProvider"]))
+    height, width = rgb.shape[:2]
+    im = Image.fromarray((rgb * 255).round().astype(np.uint8)).resize((ISNET_SIZE, ISNET_SIZE), Image.LANCZOS)
+    x = np.asarray(im, np.float32)
+    x = x / max(float(x.max()), 1e-6) - np.array([0.485, 0.456, 0.406], np.float32)
+    session = _isnet[0]
+    pred = session.run(None, {session.get_inputs()[0].name: x.transpose(2, 0, 1)[None]})[0][0, 0]
+    pred = (pred - pred.min()) / max(float(pred.max() - pred.min()), 1e-6)
+    out = Image.fromarray((pred * 255).astype(np.uint8)).resize((width, height), Image.LANCZOS)
+    return np.asarray(out, np.float32) / 255
+
+
+def background_colour(rgb, alpha):
+    """The plain background's colour: the median of what *alpha* clears; None when there is too
+    little of it or it isn't plain."""
+    import numpy as np
+
+    clear = rgb[alpha < 0.02]
+    if len(clear) < 100:
+        return None
+    colour = np.median(clear, axis=0)
+    spread = np.median(np.abs(clear - colour), axis=0).max()
+    return colour if spread <= PLAIN_SPREAD else None
+
+
+def clear_gaps(rgb, alpha, second, colour):
+    """*alpha* with the background-coloured patches it keeps and *second* clears taken from
+    *second*, each with its rim."""
+    import numpy as np
+    from scipy import ndimage
+
+    labels, count = ndimage.label((alpha > 0.5) & (second < 0.5))
+    if not count:
+        return alpha
+    distance = np.abs(rgb - colour).max(axis=2)
+    medians = np.asarray(ndimage.median(distance, labels, index=np.arange(1, count + 1)))
+    gaps = np.isin(labels, np.arange(1, count + 1)[medians < GAP_DISTANCE])
+    if not gaps.any():
+        return alpha
+    gaps = ndimage.binary_dilation(gaps, iterations=GAP_GROW)
+    out = alpha.copy()
+    out[gaps] = np.minimum(alpha[gaps], second[gaps])
+    return out
+
+
+def shrink(alpha, px=SHRINK):
+    """*alpha* pulled in by *px* pixels all round."""
+    from scipy import ndimage
+
+    return ndimage.grey_erosion(alpha, size=(2 * px + 1, 2 * px + 1)) if px else alpha
+
+
+def decontaminate(rgb, alpha, colour):
+    """*rgb* with the background's share taken out of the colour of every partly transparent pixel."""
+    import numpy as np
+
+    out = rgb.copy()
+    soft = (alpha > 0) & (alpha < 1)
+    out[soft] = np.clip(colour + (rgb[soft] - colour) / np.maximum(alpha[soft, None], MIN_ALPHA), 0, 1)
+    return out
+
+
+def cutout(rgb, alpha, second=None):
+    """(rgb, alpha) for one image: *alpha* (the base model's) with enclosed background gaps cleared
+    by *second* (isnet's, when there is one), shrunk, and the edge colours cleaned of the background.
+    On a background that isn't plain, only the shrink."""
+    colour = background_colour(rgb, alpha)
+    if colour is not None and second is not None:
+        alpha = clear_gaps(rgb, alpha, second, colour)
+    alpha = shrink(alpha)
+    if colour is not None:
+        rgb = decontaminate(rgb, alpha, colour)
+    return rgb, alpha
+
+
+def cutout_batch(images, masks):
+    """RGBA images (B, H, W, 4) from *images* and RemoveBackground's subject *masks* (B, H, W)."""
+    import numpy as np
+    import torch
+
+    out = []
+    for i, image in enumerate(images):
+        rgb = image[..., :3].cpu().numpy().astype(np.float32)
+        alpha = masks[min(i, len(masks) - 1)].cpu().numpy().astype(np.float32)
+        try:
+            second = isnet_alpha(rgb)
+        except Exception as e:  # no second opinion: the rest still runs
+            logging.warning(f"[comfy-gen] cut-out without isnet: {type(e).__name__}: {e}")
+            second = None
+        rgb, alpha = cutout(rgb, alpha, second)
+        out.append(torch.from_numpy(np.concatenate([rgb, alpha[..., None]], axis=2)))
+    return torch.stack(out).to(images.dtype)
+
+
+class ComfyGenCutout:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"image": ("IMAGE",), "mask": ("MASK",)}}
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "run"
+    CATEGORY = "comfy-gen"
+
+    def run(self, image, mask):
+        return (cutout_batch(image, mask),)
+
+
 NODE_CLASS_MAPPINGS = {
     "ComfyGenRemoveMarks": ComfyGenRemoveMarks,
     "ComfyGenRedrawRegion": ComfyGenRedrawRegion,
     "ComfyGenRedrawPaste": ComfyGenRedrawPaste,
+    "ComfyGenCutout": ComfyGenCutout,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "ComfyGenRemoveMarks": "Remove signatures and watermarks (Comfy-Gen)",
     "ComfyGenRedrawRegion": "Redraw: region and mask (Comfy-Gen)",
     "ComfyGenRedrawPaste": "Redraw: paste back (Comfy-Gen)",
+    "ComfyGenCutout": "Cut-out: clean the background removal (Comfy-Gen)",
 }
 
 
