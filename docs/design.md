@@ -690,7 +690,8 @@ and failing that the file waits in `loras-pending-delete.json` until ComfyUI sto
   a working copy with one Save, in a footer that shows only while something differs from the last
   save, naming what; Discard restores it, and leaving the page or the tab asks first. Everything
   else acts at once and never shows there: uploads and deletes, downloads, the GPU list (rename,
-  order, keep-warm, pause), and the Worker section (image encryption, the password, the account).
+  order, keep-warm, pause), and the Worker section (the connector URL to copy, show or replace, as
+  on Setup's Claude step; image encryption; the password; the account).
 - The extension's page is the same, for its one computer, at its usual width. `#settings` opens
   the page directly.
 

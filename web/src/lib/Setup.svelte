@@ -6,12 +6,13 @@
   import { onDestroy, onMount } from 'svelte'
   import { api } from './api.js'
   import BuildLog from './BuildLog.svelte'
+  import ConnectorUrl from './ConnectorUrl.svelte'
   import GpuList from './GpuList.svelte'
   import Models from './Models.svelte'
   import OpenButton from './OpenButton.svelte'
   import Tour from './Tour.svelte'
   import Wizard from './Wizard.svelte'
-  import { Copy, masked, onReturn, Task } from './task.svelte.js'
+  import { Copy, onReturn, Task } from './task.svelte.js'
 
   // The Worker's setup, one step at a time (design §8): log in, turn on storage (R2), then the
   // answer to "where should images be made?" (asked on the setup site, which the Deploy button
@@ -151,18 +152,10 @@
   )
 
   // Claude: claude.ai's "Add custom connector" dialog, opened with the name and URL filled in.
-  let showUrl = $state(false) // the connector URL holds its secret: masked, as screenshots get shared
-  const connectorCopy = new Copy()
   let generatorReady = $derived(storage && gpus.some((g) => g.kind !== 'pc' || g.online))
   let addConnector = $derived(
     `https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=Comfy-Gen&connectorUrl=${encodeURIComponent(info.connector_url || '')}`,
   )
-
-  async function rotate() {
-    if (!confirm('Make a new connector URL? The old one stops working, so you will need to add the new one in claude.ai.')) return
-    await api('POST', '/setup/rotate-connector')
-    await refresh()
-  }
 
   // Waiting on something outside this page: a PC pairing, Claude adding the connector.
   let timer = null
@@ -418,15 +411,9 @@
     <details class="guide">
       <summary>Add it by hand, or in another app</summary>
       <p>Your connector URL:</p>
-      <div class="row"><code>{showUrl ? info.connector_url : masked(info.connector_url)}</code></div>
-      <div class="row">
-        <button onclick={() => connectorCopy.copy(info.connector_url)}>{connectorCopy.done ? 'Copied' : 'Copy URL'}</button>
-        <button class="secondary" onclick={() => (showUrl = !showUrl)}>{showUrl ? 'Hide' : 'Show'}</button>
-      </div>
+      <ConnectorUrl {info} {refresh} />
       <p>In claude.ai, open <b>Customize → Connectors</b>, click <b>Add custom connector</b>, name it, paste the URL, then
         <b>Add</b> and <b>Connect</b>.</p>
-      <p class="muted">The URL works like a password: anyone with it can make images with your setup.
-        <button type="button" class="link" onclick={rotate}>Make a new URL</button></p>
     </details>
   {:else if current === 'finish'}
     <p>Ask Claude for an image in a new chat, with Comfy-Gen turned on, for example:</p>

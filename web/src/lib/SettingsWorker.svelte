@@ -1,6 +1,7 @@
 <script>
   import { untrack } from 'svelte'
   import { api, imagesUrl } from './api.js'
+  import ConnectorUrl from './ConnectorUrl.svelte'
   import SetPassword from './SetPassword.svelte'
   import { Task } from './task.svelte.js'
 
@@ -21,6 +22,12 @@
 </script>
 
 <div class="cols">
+  <section>
+    <h2>Connector URL</h2>
+    <p class="muted">Add it to claude.ai or any MCP client; scripts like Visual Novelist call it too.</p>
+    <ConnectorUrl {info} {refresh} />
+  </section>
+
   <section>
     <h2>Images in storage</h2>
     {#if info.storage}
