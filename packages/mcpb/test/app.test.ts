@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest";
 import { loadConfig, Machine, ModelLocator, paths, saveConfig, type LocalComfy } from "@comfy-gen/local";
 import { LocalApp, wantedPacks, type Services } from "../src/server/app.ts";
 import { LocalHooks, STILL_STARTING_HERE } from "../src/server/hooks.ts";
-import { ComfyUIClient, type Pack, type Transport } from "@comfy-gen/core";
+import { builtinPacks, ComfyUIClient, redrawPackFor, type Pack, type Transport } from "@comfy-gen/core";
+import { withPrompt } from "../../core/test/metadata-fixtures.ts";
 
 const PORT = 9247;
 
@@ -191,6 +192,19 @@ describe("settings API", () => {
     expect(names()).not.toContain("remove-marks");
     await put({ remove_marks: true });
     expect(w.downloaded).toEqual(["remove-marks"]); // switched on: they start at once
+  });
+});
+
+describe("reading an image's metadata", () => {
+  it("reads a local file's bytes for redraw's model; never downloads a URL for it", async () => {
+    const hooks = new LocalHooks({} as unknown as Machine, new ComfyUIClient({} as Transport), "http://127.0.0.1:9247/");
+    const dir = mkdtempSync(join(tmpdir(), "mcpb-meta-"));
+    const file = join(dir, "comfy-gen_00001_.webp");
+    writeFileSync(file, withPrompt("webpAnima"));
+    expect(redrawPackFor(await hooks.imageBytes(`saved_path: ${file}`), builtinPacks())).toBe("anima");
+    expect(await hooks.imageBytes("https://example.com/a.webp")).toBeNull();
+    expect(await hooks.imageBytes("relative/a.webp")).toBeNull();
+    expect(await hooks.imageBytes(join(dir, "missing.webp"))).toBeNull();
   });
 });
 

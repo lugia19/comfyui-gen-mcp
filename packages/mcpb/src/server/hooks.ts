@@ -50,6 +50,14 @@ export class LocalHooks extends Hooks {
     }
   }
 
+  /** A local image file's bytes (its metadata says which model drew it), else null: URLs aren't
+   * downloaded for this. */
+  async imageBytes(arg: string): Promise<Uint8Array | null> {
+    const path = localPath(arg);
+    if (!path || !existsSync(path) || !statSync(path).isFile() || statSync(path).size > MAX_IMAGE_BYTES) return null;
+    return new Uint8Array(readFileSync(path));
+  }
+
   async resolveImage(arg: string): Promise<ResolvedImage> {
     let a = arg.trim().replace(/^saved_path:\s*/i, "").replace(/^(["'])(.*)\1$/, "$2");
     if (ANNOTATED.test(a)) return [a, null];
@@ -85,4 +93,13 @@ export class LocalHooks extends Hooks {
   private upload(data: Uint8Array, source: string): Promise<ResolvedImage> {
     return uploadInput(this.client, data, createHash("sha256").update(data).digest("hex").slice(0, 16), source, MAX_IMAGE_BYTES);
   }
+}
+
+/** The absolute path an image argument names (a saved_path, a file:// URL, ~/...), or null. */
+function localPath(arg: string): string | null {
+  let a = arg.trim().replace(/^saved_path:\s*/i, "").replace(/^(["'])(.*)\1$/, "$2");
+  if (/^https?:\/\//i.test(a) || ANNOTATED.test(a)) return null;
+  if (/^file:\/\//i.test(a)) a = fileURLToPath(a);
+  if (a === "~" || a.startsWith("~/") || a.startsWith("~\\")) a = join(homedir(), a.slice(1));
+  return isAbsolute(a) ? resolve(a) : null;
 }

@@ -773,3 +773,15 @@ already did for `edit_image`; ids and outside public URLs work.
 After v1.17.5, live: an earlier result's own `/img/` link, passed as `image`, gave a cut-out
 (`remove_background`, 14.3 s, RGBA at the same size) and an edit of that same image (`edit_image`,
 34.5 s), where v1.17.4 answered "HTTP 404".
+
+## v1.18.0: the prompt in every image, and redraw keeps the image's model (2026-10-16)
+
+- Outputs are saved by ComfyUI's built-in SaveAnimatedWEBP (core `withWebpSave`), quality 90,
+  which embeds the API prompt in EXIF as ComfyUI's docs describe; the Worker and the MCPB fetch
+  the file as it is. Inline cap 1.4 MB (was 700 KB). Saved files are WebP on every path.
+- Redraw without `model` reads the image's prompt (core `metadata.ts`: a PNG's text chunk or a
+  WebP's EXIF) and runs the pack whose diffusion model is in it, else Anima Turbo. The Worker does
+  it before routing for stored images; the MCPB for local files.
+- Checked on the scratchpad's CPU ComfyUI: the cut-out graph saved a 672×504 RGBA WebP with the
+  prompt in EXIF 0x0110, read back by `comfyPrompt`.
+

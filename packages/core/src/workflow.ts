@@ -101,7 +101,7 @@ export type BuildOptions = {
   negative?: string; // replaces the cg:negative node's text when not blank (a hidden argument, like "WxH")
 };
 
-/** A call's own output name, `comfy-gen/<12 hex>`: ComfyUI saves it as output/comfy-gen/<hex>_00001_.png.
+/** A call's own output name, `comfy-gen/<12 hex>`: ComfyUI saves it as output/comfy-gen/<hex>_00001_.webp (withWebpSave).
  * Two ComfyUIs sharing an output folder (Modal containers on one Volume, as during a redeploy)
  * each count from 00001 per prefix, so a shared prefix would let one overwrite the other's image
  * before it is read. */
@@ -266,6 +266,24 @@ export function withBackgroundRemoval(workflow: Workflow, { cutout = false } = {
     workflow[join] = { inputs: { image, alpha: [invert, 0] }, class_type: "JoinImageWithAlpha", _meta: { title: TITLES.backgroundJoin } };
     node.inputs.images = [join, 0];
   }
+}
+
+/** ComfyUI's built-in WebP saver, which every output goes through (withWebpSave). */
+export const WEBP_SAVE = "SaveAnimatedWEBP";
+export const WEBP_QUALITY = 90;
+
+/** Make every SaveImage of *workflow* save a WebP instead: ComfyUI's SaveAnimatedWEBP writes the
+ * prompt into the file's EXIF as its docs describe (tag 0x0110, `prompt:{json}`), so the copy we
+ * serve and store carries the graph that made it (a PNG's text chunks would be lost converting it).
+ * With one image Pillow writes a plain still WebP, alpha kept; `fps` means nothing then. Last,
+ * just before submitting: the splices above find their SaveImage by class. */
+export function withWebpSave(workflow: Workflow): Workflow {
+  for (const node of Object.values(workflow)) {
+    if (node.class_type !== "SaveImage") continue;
+    node.class_type = WEBP_SAVE;
+    node.inputs = { images: node.inputs.images, filename_prefix: node.inputs.filename_prefix, fps: 6, lossless: false, quality: WEBP_QUALITY, method: "default" };
+  }
+  return workflow;
 }
 
 /** The graph of the hidden remove_background tool: the image *loadValue* as it is, its background

@@ -5,7 +5,10 @@ import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize, tagLoras } from "../src/config.ts";
 import { BG_MODELS, builtinPacks, canRedraw, seedKey, DEFAULT_LORA_GROUP, FACE_MODELS, MARK_MODELS, redrawPack, wantedModelSets, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
 import { describe as describeTool } from "../src/tools.ts";
-import { BACKGROUND_MODEL, CUTOUT_NODE, buildPrompt, calcDimensions, injectLoras, redrawWorkflow, withBackgroundRemoval, REDRAW_PASTE_NODE, REDRAW_REGION_NODE, REMOVE_MARKS_NODE, withImages, type Workflow } from "../src/workflow.ts";
+import { OutputImage } from "../src/comfyui.ts";
+import { previewImage } from "../src/results.ts";
+import { FakeComfy, fastClient } from "./fake-comfy.ts";
+import { BACKGROUND_MODEL, CUTOUT_NODE, buildPrompt, calcDimensions, injectLoras, redrawWorkflow, withBackgroundRemoval, REDRAW_PASTE_NODE, REDRAW_REGION_NODE, REMOVE_MARKS_NODE, withImages, withWebpSave, WEBP_SAVE, type Workflow } from "../src/workflow.ts";
 
 const smallWorkflow = (): Workflow => ({
   "1": { class_type: "UNETLoader", inputs: { unet_name: "m.safetensors" }, _meta: { title: "cg:model" } },
@@ -131,6 +134,26 @@ describe("workflow", () => {
 
   it("injectLoras without a cg:model node throws", () => {
     expect(() => injectLoras({ "1": { class_type: "UNETLoader", inputs: {} } }, [{ name: "a" }])).toThrow(/cg:model/);
+  });
+});
+
+describe("WebP saves", () => {
+  it("swaps every SaveImage for ComfyUI's WebP saver, prefix and image kept", () => {
+    const wf: Workflow = {
+      "1": { class_type: "LoadImage", inputs: { image: "a.png" } },
+      "2": { class_type: "SaveImage", inputs: { images: ["1", 0], filename_prefix: "comfy-gen-x" } },
+    };
+    withWebpSave(wf);
+    expect(wf["1"].class_type).toBe("LoadImage");
+    expect(wf["2"]).toMatchObject({ class_type: WEBP_SAVE, inputs: { images: ["1", 0], filename_prefix: "comfy-gen-x", lossless: false, quality: 90, method: "default" } });
+  });
+
+  it("fetches a saved WebP as it is, and asks ComfyUI to convert anything else", async () => {
+    const comfy = new FakeComfy();
+    const client = fastClient(comfy);
+    await previewImage(client, new OutputImage("a.webp", "", "output"));
+    await previewImage(client, new OutputImage("a.png", "", "output"));
+    expect(comfy.calls.filter((c) => c[1] === "/view").map((c) => c[2]!.preview)).toEqual([undefined, "webp;90"]);
   });
 });
 

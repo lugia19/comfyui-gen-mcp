@@ -7,6 +7,7 @@ import { builtinPacks, type Pack } from "../src/packs.ts";
 import { toolSpecs } from "../src/tools.ts";
 import { normalize } from "../src/config.ts";
 import { FakeComfy, fastClient, png } from "./fake-comfy.ts";
+import { withPrompt } from "./metadata-fixtures.ts";
 import { failResult, renderOutcome } from "../src/results.ts";
 
 const BUILTIN = builtinPacks();
@@ -372,6 +373,24 @@ describe("redraw", () => {
     expect(comfy.prompts.length).toBe(1);
   });
 
+  it("runs the model that drew the image when its metadata says, unless one is named", async () => {
+    const { comfy, brain } = setup({ canRedraw: true, cfg: { remove_marks: false } });
+    class Drawn extends PathHooks {
+      async imageBytes(arg: string) {
+        return arg.startsWith("base") ? withPrompt("webpAnima") : arg.startsWith("edit") ? withPrompt("webpKlein") : null;
+      }
+    }
+    const run = async (args: Record<string, unknown>) => {
+      const hooks = new Drawn();
+      await brain({ hooks }).call("redraw", { prompt: "x", box: [0.1, 0.1, 0.5, 0.5], ...args });
+      return [hooks.ensured.at(-1), nodeOf(comfy.prompts.at(-1)!, "UNETLoader").inputs.unet_name];
+    };
+    expect(await run({ image_path: "base.webp" })).toEqual(["anima", "anima-base-v1.0.safetensors"]);
+    expect(await run({ image_path: "base.webp", model: "anima_turbo" })).toEqual(["anima_turbo", "anima-turbo-v1.0.safetensors"]);
+    expect(await run({ image_path: "edit.webp" })).toEqual(["anima_turbo", "anima-turbo-v1.0.safetensors"]); // an edit model's image
+    expect(await run({ image_path: "upload.png" })).toEqual(["anima_turbo", "anima-turbo-v1.0.safetensors"]); // no metadata
+  });
+
   it("repaints a box, or the largest face with the detector made ready", async () => {
     const { comfy, brain } = setup({ canRedraw: true, cfg: { remove_marks: false } });
     let hooks = new PathHooks();
@@ -446,7 +465,7 @@ describe("the hidden remove_background tool", () => {
     expect(out).toBeInstanceOf(Done);
     expect(hooks.ensured).toEqual(["remove-background"]);
     const prompt = comfy.prompts.at(-1)!;
-    expect(classes(prompt).sort()).toEqual(["ComfyGenCutout", "LoadBackgroundRemovalModel", "LoadImage", "RemoveBackground", "SaveImage"]);
+    expect(classes(prompt).sort()).toEqual(["ComfyGenCutout", "LoadBackgroundRemovalModel", "LoadImage", "RemoveBackground", "SaveAnimatedWEBP"]);
     expect(Object.values<any>(prompt).find((n) => n.class_type === "LoadImage").inputs.image).toBe("a.png [output]");
     // without our node: ComfyUI's plain join
     await brain({ hooks: new PathHooks(), canCutout: false }).call("remove_background", { image_path: "a.png" });

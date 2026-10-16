@@ -7,12 +7,12 @@
 import {
   Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
   builtinPacks, isModelSet, wantedModelSets, fromHex, fromUtf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
-  withoutLora, tagLooseLoras, wantedLoras, packFor, redrawPack, seedKey, withFamilies, BG_MODELS, HIDDEN_TOOLS, type Config, type Content, type Pack,
+  withoutLora, tagLooseLoras, wantedLoras, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, BG_MODELS, HIDDEN_TOOLS, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
 import { newPcId, newPcName, splitToken, DEFAULT_KEEP_WARM, PC_KEEP_WARM, type Gpu } from "./gpus.ts";
-import { offlineMessage, pausedMessage, PcHooks, WorkerHooks } from "./hooks.ts";
+import { offlineMessage, pausedMessage, PcHooks, storedImageId, WorkerHooks } from "./hooks.ts";
 import * as loras from "./loras.ts";
 import * as modalAdmin from "./modal-admin.ts";
 import { withUserAgent, type Bucket, type Fetch, type Platform } from "./platform.ts";
@@ -395,6 +395,13 @@ export class App {
       }
       if (name === "remove_background") pack = BG_MODELS; // routed to a GPU that has the model
       if (name === "redraw") {
+        // Unnamed, the model that drew a stored image (its embedded prompt), as Brain decides it:
+        // passed on as `model`, so the call is routed to a GPU with that pack.
+        if (!args.model) {
+          const id = storedImageId(String(args.image ?? ""), url.origin);
+          const model = id ? redrawPackFor(await this.images.get(id).catch(() => null), PACKS) : null;
+          if (model) args = { ...args, model };
+        }
         const chosen = redrawPack(PACKS, args.model);
         if (typeof chosen === "string") return failResult(chosen);
         pack = chosen;

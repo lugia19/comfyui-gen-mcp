@@ -48,7 +48,7 @@ describe("ComfyUIClient", () => {
     const { comfy, client } = setup();
     await client.submit(WF);
     comfy.history = ["running", "running", "done"];
-    expect(await client.wait("p1", 60)).toEqual([new OutputImage("comfy-gen_00001_.png", "", "output")]);
+    expect(await client.wait("p1", 60)).toEqual([new OutputImage("comfy-gen_00001_.webp", "", "output")]);
   });
 
   it("wait times out with null", async () => {
@@ -123,7 +123,7 @@ describe("held wait (/comfy-gen/wait)", () => {
     const { comfy, client } = held();
     await client.submit(WF);
     comfy.history = ["running", "done"];
-    expect(await client.wait("p1", 240)).toEqual([new OutputImage("comfy-gen_00001_.png", "", "output")]);
+    expect(await client.wait("p1", 240)).toEqual([new OutputImage("comfy-gen_00001_.webp", "", "output")]);
     expect(waits(comfy).map((c) => c[2])).toEqual([{ timeout: String(HELD_WAIT_S) }, { timeout: String(HELD_WAIT_S) }]);
     expect(comfy.calls.some((c) => c[1].startsWith("/history") || c[1] === "/queue")).toBe(false);
   });

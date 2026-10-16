@@ -81,7 +81,7 @@ export class WorkerHooks extends Hooks {
     arg = arg.trim();
     if (arg.startsWith("https://") || arg.startsWith("http://")) {
       // This Worker's own image link is read as its id: a Worker can't fetch its own workers.dev URL.
-      const own = this.ownImageId(arg);
+      const own = ownImageId(arg, new URL(this.settingsUrl).origin);
       if (own === null) return this.fromUrl(arg);
       arg = own;
     }
@@ -95,18 +95,6 @@ export class WorkerHooks extends Hooks {
     const data = await this.images.get(id);
     if (!data) throw new ComfyUIError(`There is no image ${id}: it was deleted after a year, or the id is mistyped.`);
     return uploadInput(this.client, data, id, `Image ${id}`, MAX_IMAGE_BYTES);
-  }
-
-  /** The id in *url* when it is this Worker's `/img/<id>` link, else null. */
-  private ownImageId(url: string): string | null {
-    let u: URL;
-    try {
-      u = new URL(url);
-    } catch {
-      return null;
-    }
-    const m = /^\/img\/([^/]+)$/.exec(u.pathname);
-    return m && u.origin === new URL(this.settingsUrl).origin ? decodeURIComponent(m[1]) : null;
   }
 
   private async fromUrl(url: string): Promise<ResolvedImage> {
@@ -182,5 +170,28 @@ export class PcHooks extends WorkerHooks {
       throw new ComfyUIError(result.message, { retryable: DOWNLOADING.test(result.message) });
     }
     await this.onReady(pack.name, true);
+  }
+}
+
+/** The image id in *url* when it is this Worker's (*origin*) `/img/<id>` link, else null. */
+export function ownImageId(url: string, origin: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  const m = /^\/img\/([^/]+)$/.exec(u.pathname);
+  return m && u.origin === origin ? decodeURIComponent(m[1]) : null;
+}
+
+/** The stored image an image argument names (an id, or this Worker's own link), or null. */
+export function storedImageId(arg: string, origin: string): string | null {
+  arg = arg.trim();
+  if (/^https?:\/\//.test(arg)) return ownImageId(arg, origin);
+  try {
+    return refs.imageIdIn(arg);
+  } catch {
+    return null;
   }
 }

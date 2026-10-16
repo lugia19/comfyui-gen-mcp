@@ -264,7 +264,10 @@ results stay as they are:
     `edit_image` and `fetch_result` ignore it. The pack's own settings, LoRA group and negative
     come with it (core `packFor`, in the Brain and, for routing, the Worker). It also works on
     the MCPB.
-  - On `redraw`, `model` names any pack that can redraw, and `negative` works as above.
+  - On `redraw`, `model` names any pack that can redraw, and `negative` works as above. Leave it
+    out unless sure which model drew the image: unnamed, redraw reads that from the image's
+    embedded prompt (v1.18.0), and a redraw by another model than the image's mixes two styles,
+    which doesn't work. Name one only for an image without metadata whose model you know.
 - **A hidden `remove_background` tool**, absent from `tools/list` (core `HIDDEN_TOOLS`) but served
   by the Worker and the MCPB. `image` (an id or an https URL; `image_path` on the MCPB) in, a new
   RGBA image id at the same size out: the same cut-out as `remove_background: true` on the other
@@ -440,8 +443,14 @@ and `strength` (0.3 to 1, default 0.9); hidden, `model` and `negative` (Scripted
   found is an error naming the fix: pass a box.
 - **Which packs: illustrations only** (the user's call, 2026-10-15). A photograph has no art style
   to drift, so `edit_image` serves it, and redraw on Z-Image Turbo was never tried. Redraw runs
-  Anima Turbo whatever the settings select (core `REDRAW_DEFAULT`; base Anima took 74 s live
-  against Turbo's 11, and the family downloads whole), or the Anima pack a scripted caller names.
+  the model that drew the image, read from the prompt the image carries (core `redrawPackFor`:
+  the UNETLoader's file in it, matched to a pack that can redraw; v1.18.0), since a redraw by
+  another model mixes two styles. Without that (an upload, an outside image, an edit model's or a
+  cut-out's output), Anima Turbo whatever the settings select (core `REDRAW_DEFAULT`; base Anima
+  took 74 s live against Turbo's 11, and the family downloads whole). A scripted caller's `model`
+  wins. The Worker reads a stored image (an id or its own link) before routing and passes the
+  model on, so the call goes to a GPU with that pack; the MCPB reads local files; URLs are not
+  downloaded for it.
   `canRedraw` also requires a KSampler fed by the empty latent, the denoise the technique needs.
 - **No watermark step:** the image was cleaned when it was made. A transparent input keeps its
   alpha (LoadImage's mask, put back).
@@ -573,12 +582,22 @@ workflows already run ComfyUI themselves.
 - **Results are inline WebP.** claude.ai does not support `resource_link` (it shows "Resource links
   are not currently supported" and the model sees only the name and URL), while inline
   `ImageContent` is shown to the user and seen by the model, WebP included (S2, S2c). Every result
-  carries the image inline as base64. The Worker fetches `/view?filename=...&preview=webp;90`,
-  where ComfyUI converts with PIL before sending (about 0.1 s on the generator, nothing in the
-  Worker), and base64s it with the runtime's native encoder (about 3 ms of Worker CPU per MB,
-  appendix). If the WebP comes back over about 700 KB, the Worker asks again at quality 75. Those
-  bytes are also what it stores in R2 (one `put`, about 1 ms of CPU). The MCPB does the same
-  against its local ComfyUI, without storing.
+  carries the image inline as base64. Outputs are saved as WebP by ComfyUI itself (v1.18.0: core
+  `withWebpSave` turns every SaveImage into its built-in SaveAnimatedWEBP, quality 90, just before
+  submitting; one image makes a plain still WebP, alpha kept), and fetched from `/view` as they
+  are. The Worker base64s them with the runtime's native encoder (about 3 ms of Worker CPU per MB,
+  appendix). Over 1.4 MB (700 KB before v1.18.0, doubled for the metadata), the Worker asks again
+  for `/view`'s `preview=webp;75` conversion, which drops the metadata. Those bytes are also what
+  it stores in R2 (one `put`, about 1 ms of CPU). The MCPB does the same against its local
+  ComfyUI, without storing; its saved_paths are those WebPs.
+- **The prompt travels in the file** (v1.18.0, the user's call). SaveAnimatedWEBP writes ComfyUI's
+  metadata as its docs describe (docs.comfy.org, workflow metadata): the API prompt in EXIF tag
+  0x0110 as `prompt:{json}`, `extra_pnginfo` entries from 0x010F down. We submit API prompts, so
+  there is no UI `workflow`; ComfyUI builds the graph from the prompt when one is dropped on it.
+  `/view`'s own WebP conversion had dropped the PNG's text chunks, so stored images carried none
+  before. Anyone with an image's link can read its prompt, as with any ComfyUI PNG. Redraw reads
+  it to pick its model (Redraw, above). The route considered first, our extension converting with
+  the metadata copied, needed a new agent on every PC; the built-in node needs nothing.
 - **Image URLs.** `/img/<id>` streams the stored image from R2 (no GPU involved; about 0 ms of
   CPU). Each result's text block carries the image id and this URL for the user. No
   `resource_link`.

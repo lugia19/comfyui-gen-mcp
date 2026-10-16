@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fromBase64, fromHex, OutputImage, refs, utf8 } from "@comfy-gen/core";
 import { png } from "../../core/test/fake-comfy.ts";
+import { withPrompt } from "../../core/test/metadata-fixtures.ts";
 import { LORA_CHUNK } from "../src/loras.ts";
 import { PACKS, REQUEST_BUDGET, type App } from "../src/app.ts";
 import { offlineMessage, pausedMessage } from "../src/hooks.ts";
@@ -159,7 +160,7 @@ describe("MCP", () => {
     const [image, info] = r.result.content;
     expect([image.type, image.mimeType]).toEqual(["image", "image/webp"]);
     expect(fromBase64(image.data)).toEqual(comfy.viewBody);
-    expect(comfy.calls.find((c) => c[1] === "/view")![2]!.preview).toBe("webp;90");
+    expect(comfy.calls.find((c) => c[1] === "/view")![2]!.preview).toBeUndefined(); // the saved WebP as it is, metadata kept
     const id = info.text.split("image_id: ")[1].split("\n")[0];
     expect(id).toMatch(refs.IMAGE_ID);
     expect(info.text).toContain(`https://${HOST}/img/${id}`);
@@ -188,9 +189,9 @@ describe("MCP", () => {
   it("large results are re-requested smaller", async () => {
     const { app, comfy } = world();
     await withReadyModal(app);
-    comfy.viewBody = new Uint8Array([...utf8("RIFF\x00\x00\x00\x00WEBP"), ...new Uint8Array(800_000)]);
+    comfy.viewBody = new Uint8Array([...utf8("RIFF\x00\x00\x00\x00WEBP"), ...new Uint8Array(1_500_000)]);
     await mcp(app, "tools/call", { name: "generate_realistic_image", arguments: { prompt: "x" } });
-    expect(comfy.calls.filter((c) => c[1] === "/view").map((c) => c[2]!.preview)).toEqual(["webp;90", "webp;75"]);
+    expect(comfy.calls.filter((c) => c[1] === "/view").map((c) => c[2]!.preview)).toEqual([undefined, "webp;75"]);
   });
 
   it("upload round trip, then edit by id", async () => {
@@ -241,6 +242,25 @@ describe("MCP", () => {
     // Another host's /img/ link is still a download (here one that doesn't exist).
     const [, other] = await mcp(app, "tools/call", { name: "remove_background", arguments: { image: `https://elsewhere.example/img/${image_id}` } });
     expect(structured(other)).toMatchObject({ status: "error", message: expect.stringContaining("Could not download") });
+  });
+
+  it("redraw without a model runs the one that drew the stored image, by id or own link", async () => {
+    const { app, comfy } = world();
+    await withReadyModal(app);
+    const unet = () => Object.values<any>(comfy.prompts.at(-1)!).find((n) => n.class_type === "UNETLoader").inputs.unet_name;
+    const store = async (bytes: Uint8Array) => {
+      comfy.viewBody = bytes; // what the GPU saved: a WebP carrying its prompt, or not
+      const [, r] = await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x" } });
+      return structured(r).images[0];
+    };
+    const base = await store(withPrompt("webpAnima"));
+    const plain = await store(withPrompt("webpPlain"));
+    for (const image of [base.image_id, base.url]) {
+      await mcp(app, "tools/call", { name: "redraw", arguments: { prompt: "x", image, box: [0.1, 0.1, 0.5, 0.5] } });
+      expect(unet()).toBe("anima-base-v1.0.safetensors");
+    }
+    await mcp(app, "tools/call", { name: "redraw", arguments: { prompt: "x", image: plain.image_id, box: [0.1, 0.1, 0.5, 0.5] } });
+    expect(unet()).toBe("anima-turbo-v1.0.safetensors");
   });
 
   it("redraw is listed and routed by its pack; a model that can't is answered before any GPU time", async () => {

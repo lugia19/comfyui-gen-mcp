@@ -12,10 +12,11 @@ import { ComfyUIClient, ComfyUIError, type OutputImage } from "./comfyui.ts";
 import { normalize, type Config } from "./config.ts";
 import { imageSize, sniffMime } from "./images.ts";
 import { UnknownTool } from "./mcp.ts";
+import { redrawPackFor } from "./metadata.ts";
 import { BG_MODELS, FACE_MODELS, groupByTool, MARK_MODELS, packFor, prepare, redrawPack, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
 import * as refs from "./refs.ts";
-import { buildPrompt, cutoutWorkflow, redrawWorkflow, withBackgroundRemoval, withImages, type Workflow } from "./workflow.ts";
+import { buildPrompt, cutoutWorkflow, redrawWorkflow, withBackgroundRemoval, withImages, withWebpSave, type Workflow } from "./workflow.ts";
 
 // A tool call answers within this, counted from its start. claude.ai gives up at 300 s (S8), but a
 // claude.ai connector used from Claude Code gave up at about 183 s (2026-10-01: a cold Modal edit
@@ -74,6 +75,12 @@ export class Hooks {
   /** Turn an edit_image argument into [LoadImage value, [width, height] or null]. */
   async resolveImage(_arg: string): Promise<ResolvedImage> {
     throw new ComfyUIError("Editing images is not available here.");
+  }
+
+  /** An image argument's bytes when they are at hand without a download (a stored id, a local
+   * file), else null. Read for the metadata only (redraw's model): never throws for a bad one. */
+  async imageBytes(_arg: string): Promise<Uint8Array | null> {
+    return null;
   }
 }
 
@@ -206,7 +213,9 @@ export class Brain {
     if (!this.canRedraw) return new Failed(REDRAW_UNAVAILABLE);
     const removeBackground = args.remove_background === true;
     if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
-    const rawPack = redrawPack(this.packs, args.model);
+    // Unnamed, the model that drew the image when its metadata says (mixing models doesn't work).
+    const model = args.model || redrawPackFor(await this.hooks.imageBytes(image).catch(() => null), this.packs);
+    const rawPack = redrawPack(this.packs, model);
     if (typeof rawPack === "string") return new Failed(rawPack);
     const pack = prepare(rawPack, this.cfg);
     let loadValue: string;
@@ -268,7 +277,7 @@ export class Brain {
     let promptId: string;
     try {
       if (extra) await this.ensureAll(pack, extra);
-      promptId = await this.client.submit(wf);
+      promptId = await this.client.submit(withWebpSave(wf));
     } catch (e) {
       if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
       throw e;

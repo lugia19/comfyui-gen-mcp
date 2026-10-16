@@ -26,7 +26,7 @@ export function png(w = 64, h = 48): Uint8Array {
   return concat([head, new Uint8Array([8, 2, 0, 0, 0, 0, 0, 0, 0])]);
 }
 
-export const OUTPUT = { filename: "comfy-gen_00001_.png", subfolder: "", type: "output" };
+export const OUTPUT = { filename: "comfy-gen_00001_.webp", subfolder: "", type: "output" };
 
 export const json = (data: unknown, status = 200) => new Response(status, utf8(JSON.stringify(data)));
 

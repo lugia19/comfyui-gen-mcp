@@ -1,9 +1,10 @@
 // Tool results, shared by every frontend: finished images as inline MCP image blocks, errors, and
 // the value scripted callers read (design §3, Scripted callers).
 //
-// Inline WebP: claude.ai shows inline images and ignores resource_link (S2, S2c). ComfyUI converts
-// on the way out (/view?preview=webp;90), so the brain's host only base64s the bytes. The Worker
-// also stores those same bytes as the image's copy in R2.
+// Inline WebP: claude.ai shows inline images and ignores resource_link (S2, S2c). Outputs are saved
+// as WebP by ComfyUI itself (workflow.ts withWebpSave), with the prompt in their EXIF, and fetched
+// as they are, so the brain's host only base64s the bytes. The Worker also stores those same bytes
+// as the image's copy in R2.
 
 import { toBase64 } from "./bytes.ts";
 import type { Outcome } from "./brain.ts";
@@ -13,14 +14,15 @@ import type { Content } from "./mcp.ts";
 
 export const PREVIEW = "webp;90";
 export const PREVIEW_SMALLER = "webp;75";
-export const MAX_INLINE_BYTES = 700_000;
+export const MAX_INLINE_BYTES = 1_400_000;
 
 export const textBlock = (s: string): Content => ({ type: "text", text: s });
 
-/** The image as WebP: quality 90, or 75 when that is over MAX_INLINE_BYTES. Throws ComfyUIError if
- * ComfyUI cannot serve it. */
+/** The image as WebP: the saved file when it is one (prompt metadata included), else ComfyUI's
+ * conversion at quality 90; either way quality 75, without metadata, when over MAX_INLINE_BYTES.
+ * Throws ComfyUIError if ComfyUI cannot serve it. */
 export async function previewImage(client: ComfyUIClient, image: OutputImage): Promise<Uint8Array> {
-  let resp: Response = await client.view(image, PREVIEW);
+  let resp: Response = await client.view(image, image.filename.toLowerCase().endsWith(".webp") ? undefined : PREVIEW);
   if (resp.content.length > MAX_INLINE_BYTES) resp = await client.view(image, PREVIEW_SMALLER);
   return resp.content;
 }
