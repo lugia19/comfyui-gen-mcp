@@ -94,6 +94,10 @@
     }
     .form small { display: block; font-weight: 400; margin-top: 4px; }
     .form .bad { color: #dc2626; }
+    .form [hidden] { display: none; }
+    .form details { margin: 0 0 14px; }
+    .form details summary { cursor: pointer; color: var(--muted); font-size: 0.93rem; }
+    .form details label { margin-top: 8px; }
   </style>
   <link rel="stylesheet" href="guide/tour.css">
   <link rel="stylesheet" href="guide/wizard.css">
@@ -217,9 +221,12 @@
             <input id="sub" autocomplete="off" spellcheck="false" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?">
             <small class="muted">Your account has no workers.dev address yet. Every Worker in it gets one under this
               name, and it is hard to change later. Lowercase letters, digits and dashes.</small></label>
-          <label>Worker name
-            <input id="wname" value="comfy-gen" autocomplete="off" spellcheck="false" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"></label>
-          <p class="muted">Its address: <code id="addr"></code></p>
+          <p>Your Worker's address will be <code id="addr"></code>.</p>
+          <details>
+            <summary>Use another name</summary>
+            <label>Worker name
+              <input id="wname" value="comfy-gen" autocomplete="off" spellcheck="false" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"></label>
+          </details>
           <button class="button" id="create-btn" type="submit">Create my Worker</button>
           <p id="create-msg" role="status"></p>
         </form>
