@@ -73,8 +73,9 @@
     })
 
   // Storage: R2 is turned on by hand (a checkout with a card on file), then a check rebuilds the
-  // Worker, which binds the bucket once R2 is on (the build checks). Coming back to this tab after
-  // opening R2 checks by itself.
+  // Worker, which binds the bucket once R2 is on (the build checks). A Worker made by the setup site
+  // instead answers at once ({storage}) and uploads itself again with the bucket: the new version
+  // serves within seconds. Coming back to this tab after opening R2 checks by itself.
   const storageTask = new Task()
   let storageBuild = $state(false) // a check started here: show its log
   let storageChecked = $state(false) // that build finished
@@ -87,9 +88,17 @@
     if (storageChecking) return
     storageChecked = false
     storageTask.run(async () => {
-      await api('POST', '/setup/storage')
-      storageBuild = true
-      await refresh()
+      const r = await api('POST', '/setup/storage')
+      if (!('storage' in r)) {
+        storageBuild = true
+        return void (await refresh())
+      }
+      if (!r.storage) return void (storageChecked = true)
+      for (let i = 0; i < 15; i++) {
+        await refresh()
+        if (info.storage !== false) return
+        await new Promise((ok) => setTimeout(ok, 2000))
+      }
     })
   }
 

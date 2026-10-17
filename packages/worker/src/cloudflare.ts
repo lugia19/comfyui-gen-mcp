@@ -48,6 +48,13 @@ export async function discover(fetch: Fetch, token: string, host: string): Promi
   throw new CloudflareError(`The token cannot see a Worker named ${script}. Make sure it was created for the account this Worker lives in.`);
 }
 
+/** Whether *token* sees *script* in *account*: it proves a Worker made by the setup Worker is the
+ * user's (they update with OAuth, so nothing else is needed from the token). */
+export async function seesScript(fetch: Fetch, token: string, account: string, script: string): Promise<boolean> {
+  const found = (await call(fetch, token, "GET", `/accounts/${account}/workers/scripts-search?name=${encodeURIComponent(script)}`)) ?? [];
+  return found.some((s: any) => s.script_name === script);
+}
+
 export async function setBuildVars(
   fetch: Fetch, token: string, accountId: string, trigger: string,
   secret: Record<string, unknown>, plain: Record<string, unknown>,

@@ -8,7 +8,8 @@
 
   // The first login is a Cloudflare token (it proves the Worker is yours); it then sets a password,
   // and later logins use that. The token stays the way back in, should the password be forgotten.
-  let { onlogin } = $props()
+  // *notice*: why a login link from the setup site didn't work.
+  let { onlogin, notice = '' } = $props()
   let token = $state('')
   let password = $state('')
   let error = $state('')
@@ -48,6 +49,7 @@
   }
 </script>
 
+{#if notice}<p class="err">{notice}</p>{/if}
 {#if hasPassword === null}
   <p class="muted">Loading…</p>
 {:else if hasPassword && !useToken}

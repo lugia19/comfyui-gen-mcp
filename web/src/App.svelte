@@ -10,6 +10,7 @@
   import SetPassword from './lib/SetPassword.svelte'
   import Update from './lib/Update.svelte'
   import AgentUpdate from './lib/AgentUpdate.svelte'
+  import { Task } from './lib/task.svelte.js'
 
   let info = $state(null) // GET /api/state, or null while logged out
   let checking = $state(true)
@@ -100,7 +101,29 @@
     info = null
   }
 
-  onMount(loggedIn)
+  // #ticket=…: the setup site created this Worker (or reconnected it) and sent the browser here
+  // with a one-use login (design §6). An expired one leaves the usual login.
+  let ticketError = $state('')
+  async function useTicket() {
+    const m = /^#ticket=([\w-]+)$/.exec(location.hash)
+    if (!m) return
+    history.replaceState(null, '', location.pathname)
+    try {
+      await api('POST', '/login', { ticket: m[1] })
+    } catch (e) {
+      ticketError = e.message
+    }
+  }
+
+  // The Worker's Cloudflare connection is gone (revoked, or unused too long): signing in again on
+  // the setup site hands it new access, and comes back here.
+  const reconnect = new Task()
+  const startReconnect = () => reconnect.run(async () => (location.href = (await api('POST', '/cloudflare/reconnect')).url))
+
+  onMount(async () => {
+    await useTicket()
+    await loggedIn()
+  })
 </script>
 
 <!-- The Setup / Settings tabs: in the header on a wide window, above the page on a narrow one. -->
@@ -136,6 +159,13 @@
       </div>
     {/if}
   </header>
+  {#if info?.cf_lost && !local && info.password_set}
+    <p class="lost">
+      <span>Your Worker lost its connection to Cloudflare, so it can't update itself.</span>
+      <button class="small" onclick={startReconnect} disabled={reconnect.busy}>Reconnect Cloudflare</button>
+      {#if reconnect.error}<span class="err">{reconnect.error}</span>{/if}
+    </p>
+  {/if}
   </div>
 
   {#if checking}
@@ -148,7 +178,7 @@
       <button onclick={() => refresh().catch(() => {})}>Try again</button>
     </section>
   {:else if !info}
-    <Login onlogin={loggedIn} />
+    <Login onlogin={loggedIn} notice={ticketError} />
   {:else if !local && !info.password_set}
     <!-- Required once, right after the first (token) login. -->
     <section><SetPassword required ondone={loggedIn} /></section>
@@ -184,3 +214,16 @@
     {/if}
   {/if}
 </main>
+
+<style>
+  .lost {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    margin: 0;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--err);
+    background: var(--panel);
+  }
+</style>

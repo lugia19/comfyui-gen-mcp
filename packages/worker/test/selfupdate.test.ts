@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { cfapi } from "@comfy-gen/core";
-import { request, world } from "./world.ts";
+import { request, TOKEN, world } from "./world.ts";
 
 const DEV = "https://setup.example/dev";
 const CLAIM = "claim-secret";
@@ -57,6 +57,7 @@ class FakeCloudflare {
     }
     if (!url.startsWith(cfapi.CF_API)) return null;
     const path = url.slice(cfapi.CF_API.length);
+    if (path.includes("/scripts-search") || path.startsWith("/user/")) return null; // the world's (token login)
     const auth = new Headers(init.headers).get("authorization");
     if (path.endsWith("/assets-upload-session")) {
       const wanted = Object.values(JSON.parse(String(init.body)).manifest as Record<string, { hash: string }>).map((f) => f.hash).filter((h) => !this.known.has(h));
@@ -130,6 +131,17 @@ describe("the claim", () => {
     const legacy = world();
     expect((await legacy.app.handle(request("POST", "/api/claim", { claim: "", tokens: tokens(1), account_id: "a", script: "s" }))).status).toBe(403);
     expect((await w.app.handle(request("POST", "/api/claim", { claim: CLAIM, account_id: "a", script: "s" }))).status).toBe(400);
+  });
+
+  it("a Cloudflare token still logs in (the way back without the password), and isn't kept", async () => {
+    const w = created();
+    await claimed(w);
+    w.net.scripts = { "comfy-gen-x": "tagx" };
+    const resp = await w.app.handle(request("POST", "/api/login", { token: TOKEN }));
+    expect(resp.status).toBe(200);
+    expect((await w.app.store.secrets()).cf_token).toBeUndefined();
+    w.net.scripts = { "something-else": "tagy" };
+    expect((await w.app.handle(request("POST", "/api/login", { token: TOKEN }))).status).toBe(401);
   });
 });
 

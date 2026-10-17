@@ -901,9 +901,17 @@ export class App {
     if (!token) return error(400, "paste a token");
     // Under wrangler dev the host is 127.0.0.1; DEV_WORKER_HOST names a deployed Worker instead.
     const host = this.p.env.DEV_WORKER_HOST || url.host;
+    const s = await this.fresh.secrets();
     let found: cloudflare.Discovery;
     try {
       await cloudflare.verifyUserToken(this.fetch, token);
+      if (this.oauthPath(s)) {
+        // Made by the setup Worker: the token only proves the Worker is yours, and isn't kept.
+        if (!(await cloudflare.seesScript(this.fetch, token, s.cf_account_id, s.cf_script))) {
+          return error(401, `The token cannot see this Worker (${s.cf_script}). Make sure it was created for the account this Worker lives in.`);
+        }
+        return json({ ok: true }, 200, { "Set-Cookie": auth.cookieHeader(await auth.makeSession(s.cookie_key, this.p.now())) });
+      }
       found = await cloudflare.discover(this.fetch, token, host);
     } catch (e) {
       if (e instanceof cloudflare.CloudflareError) return error(401, e.message);
@@ -912,7 +920,7 @@ export class App {
     await this.fresh.updateSecrets({
       cf_token: token, cf_account_id: found.account_id, cf_script: found.script, cf_trigger: found.trigger, cf_branch: found.branch,
     });
-    const session = await auth.makeSession((await this.fresh.secrets()).cookie_key, this.p.now());
+    const session = await auth.makeSession(s.cookie_key, this.p.now());
     return json({ ok: true }, 200, { "Set-Cookie": auth.cookieHeader(session) });
   }
 

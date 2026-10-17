@@ -6,13 +6,16 @@
 
   // The Worker's version in the header, with its update button beside it (design §7): the Worker
   // checks for a release daily and updates itself; the button starts the same build now. A panel
-  // under the header has the details, Update now, and the build's log while it runs.
+  // under the header has the details, Update now, and the build's log while it runs. A Worker made
+  // by the setup site (path "oauth") uploads the release itself: Update now answers once it's live.
   let { info, refresh } = $props()
   // The version this page was loaded from: a refresh after an update reports the new one, and the
   // page is still the old one until reloaded.
   const version = untrack(() => info.version)
 
-  let update = $state(null) // GET /api/update: {current, latest, dev, newer, can, build, building, outcome}
+  let update = $state(null) // GET /api/update: {current, latest, dev, newer, can, build, building, outcome}, or on the oauth path {…, path, lost, error}
+  let oauth = $derived(update?.path === 'oauth')
+  let updatedTo = $state(null) // the oauth path's update finished here
   let seen = $state(false) // this page saw an update build run: its end is shown here
   let open = $state(false)
   const starting = new Task()
@@ -30,7 +33,8 @@
 
   const start = () =>
     starting.run(async () => {
-      await api('POST', '/update')
+      const r = await api('POST', '/update')
+      if (r.updated) return void (updatedTo = r.updated)
       seen = true
       await load()
       await refresh()
@@ -41,9 +45,10 @@
   let phase = $derived.by(() => {
     if (!update) return null
     if (update.dev) return 'dev'
+    if (updatedTo) return 'done'
     if (update.building) return 'building'
     if (update.current !== version || (seen && update.outcome === 'success')) return 'done'
-    if (update.newer && update.outcome && update.outcome !== 'success') return 'failed'
+    if (update.newer && (oauth ? update.error : update.outcome && update.outcome !== 'success')) return 'failed'
     if (update.newer) return 'available'
     return 'latest'
   })
@@ -69,7 +74,9 @@
 
   const title = $derived(
     phase === 'dev'
-      ? "A development build: it doesn't update itself. Remove the build's COMFY_GEN_REF variable to go back to releases."
+      ? oauth
+        ? "A development build: it doesn't update itself."
+        : "A development build: it doesn't update itself. Remove the build's COMFY_GEN_REF variable to go back to releases."
       : phase === 'latest'
         ? 'The latest release. This Worker checks for new ones every day.'
         : '',
@@ -87,7 +94,7 @@
   {:else if phase === 'building'}
     <button type="button" class="small secondary" onclick={() => (open = !open)}>Updating…</button>
   {:else if phase === 'done'}
-    <button type="button" class="small" onclick={() => location.reload()}>Reload for {update.current}</button>
+    <button type="button" class="small" onclick={() => location.reload()}>Reload for {updatedTo ?? update.current}</button>
   {:else if phase === 'failed'}
     <button type="button" class="small danger" onclick={() => (open = !open)}>Update failed</button>
   {/if}
@@ -101,20 +108,25 @@
         {/if}
       {:else}
         {#if phase === 'failed'}
-          <p class="err">The last update didn't finish (Cloudflare says: {update.outcome}). This Worker still runs {update.current}.</p>
+          <p class="err">The last update didn't finish ({oauth ? update.error : `Cloudflare says: ${update.outcome}`}). This Worker still runs {update.current}.</p>
         {/if}
         <p>
           This Worker runs <b>{update.current}</b>; <b>{update.latest}</b> is out.
           <a href={notes(update.latest)} target="_blank" rel="noopener">What's new</a>
         </p>
         <p class="muted">
-          It updates itself within a day. Updating now takes 2 to 5 minutes{modal ? ' and redeploys ComfyUI on Modal too' : ''};
-          image requests keep working meanwhile.
+          {#if oauth}
+            It updates itself within a day. Updating now takes a few seconds; image requests keep working meanwhile.
+          {:else}
+            It updates itself within a day. Updating now takes 2 to 5 minutes{modal ? ' and redeploys ComfyUI on Modal too' : ''};
+            image requests keep working meanwhile.
+          {/if}
         </p>
-        {#if !update.can}<p class="muted">Log in again with a Cloudflare token to update from here.</p>{/if}
+        {#if update.lost}<p class="muted">Reconnect Cloudflare first, with the button at the top of the page.</p>
+        {:else if !update.can}<p class="muted">Log in again with a Cloudflare token to update from here.</p>{/if}
         {#if starting.error}<p class="err">{starting.error}</p>{/if}
         <div class="row">
-          <button type="button" onclick={start} disabled={!update.can || starting.busy}>{starting.busy ? 'Starting…' : phase === 'failed' ? 'Try again' : 'Update now'}</button>
+          <button type="button" onclick={start} disabled={!update.can || starting.busy}>{starting.busy ? (oauth ? 'Updating…' : 'Starting…') : phase === 'failed' ? 'Try again' : 'Update now'}</button>
           <button type="button" class="secondary" onclick={() => (open = false)}>Cancel</button>
         </div>
         {#if phase === 'failed' && update.build === info.build}
