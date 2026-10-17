@@ -7,7 +7,7 @@
 // The cookie format is a compatibility surface (test/golden.json pins it): changing it logs everyone
 // out. So is the password record in the secrets (its algorithm and fields).
 
-import { fromHex, hmacSha256, safeEqual, toHex, tokenHex, utf8 } from "@comfy-gen/core";
+import { fromHex, hmacSha256, readCookie as readNamed, safeEqual, toHex, tokenHex, utf8 } from "@comfy-gen/core";
 
 export const COOKIE = "cg_session";
 export const SESSION_S = 365 * 24 * 3600;
@@ -35,13 +35,7 @@ export function cookieHeader(value: string, maxAge = SESSION_S): string {
 }
 
 export function readCookie(header: string | null): string | null {
-  for (const part of (header ?? "").split(";")) {
-    const p = part.trim();
-    const eq = p.indexOf("=");
-    const name = eq < 0 ? p : p.slice(0, eq);
-    if (name === COOKIE) return eq < 0 ? "" : p.slice(eq + 1);
-  }
-  return null;
+  return readNamed(header, COOKIE);
 }
 
 // Passwords: PBKDF2-SHA256 with a random salt. The iterations are few for a password hash (the

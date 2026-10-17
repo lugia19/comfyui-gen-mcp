@@ -13,7 +13,7 @@ export interface StateStorage {
   get(key: string): Promise<string | null>;
   put(key: string, value: string): Promise<void>;
   /** Cloudflare OAuth (oauth.ts): only changed inside the State object, one call at a time. */
-  cfAccessToken(clientId: string, force?: boolean): Promise<TokenAnswer>;
+  cfAccessToken(clientId: string): Promise<TokenAnswer>;
   cfSetTokens(tokens: cfapi.OAuthTokens): Promise<void>;
 }
 

@@ -1,8 +1,9 @@
-// Updates: a newer GitHub release starts a Workers Build, which fetches that release, from the daily
-// check or the settings page's Update now. Nothing to sync in the user's copy of the template: its
-// deploy command downloads the latest release's deploy.sh on every build (design §7).
+// Updates (design §7), from the daily check or the settings page's Update now. A Worker made from a
+// repository starts a Workers Build, which fetches the release (nothing to sync in the user's copy
+// of the template: its deploy command downloads the latest release's deploy.sh on every build). A
+// Worker made by the setup Worker uploads the release as a new version of itself (App.uploadSelf).
 
-import { releases } from "@comfy-gen/core";
+import { cfapi, releases } from "@comfy-gen/core";
 import * as cloudflare from "./cloudflare.ts";
 import type { Fetch } from "./platform.ts";
 import type { Store } from "./store.ts";
@@ -48,26 +49,55 @@ export function isNewer(latest: string | null, current: string): boolean {
   return Boolean(next) && (!cur || newer(next!, cur));
 }
 
-/** Start a build if a newer release exists. Returns what happened, for the log. A development
- * build (a branch or "dev", not a release tag) never updates itself: its build variables would only
- * rebuild the same branch, and whoever set them decides when it goes back to releases. */
-export async function check(fetch: Fetch, store: Store, current: string): Promise<string> {
+/**
+ * How a Worker installs a release. A Worker made from a repository starts a Workers Build of it
+ * (buildUpdater); one made by the setup Worker uploads it as a new version of itself (App, design §6).
+ */
+export type Updater = {
+  path: "build" | "oauth";
+  /** The latest release's tag. */
+  latest(): Promise<string | null>;
+  /** Why it can't update now (no token to start builds with, Cloudflare connection lost), or null. */
+  blocked(): Promise<string | null>;
+  /** Install *tag* (also the running version again: the storage check). {build}: a Workers Build
+   * started, which finishes later; {storage}: the version is live, with R2 bound or not. Throws
+   * cfapi.CloudflareError. */
+  install(tag: string): Promise<{ build?: string; storage?: boolean }>;
+};
+
+export function buildUpdater(fetch: Fetch, store: Store): Updater {
+  return {
+    path: "build",
+    latest: () => releases.latestTag(fetch, undefined),
+    async blocked() {
+      const s = await store.secrets();
+      return s.cf_token && s.cf_trigger ? null : "Log in again with a Cloudflare token: this Worker has none to start builds with.";
+    },
+    install: async (tag) => ({ build: await startUpdate(fetch, store, tag) }),
+  };
+}
+
+/** The daily check: install a newer release, once per release. Returns what happened, for the log.
+ * A development build (a branch or "dev", not a release tag) never updates itself: whoever made it
+ * decides when it goes back to releases. */
+export async function check(store: Store, current: string, u: Updater): Promise<string> {
   const cur = parseVersion(current);
   if (!cur) return `development build (${current}): no automatic updates`;
-  const latest = await releases.latestRelease(fetch);
+  const latest = await u.latest();
   const next = parseVersion(latest ?? "");
   if (!next) return "no release found";
   if (!newer(next, cur)) return `up to date (${current})`;
-  const setup = await store.setup();
-  if (setup.update_tried === latest) return `already tried ${latest}`;
-  const s = await store.secrets();
-  if (!s.cf_token || !s.cf_trigger) return "no Cloudflare token: updates are off";
-  let build: string;
+  if ((await store.setup()).update_tried === latest) return `already tried ${latest}`;
+  const blocked = await u.blocked();
+  if (blocked) return `not updating: ${blocked}`;
+  await store.updateSetup({ update_tried: latest });
   try {
-    build = await startUpdate(fetch, store, latest!);
+    const r = await u.install(latest!);
+    await store.updateSetup({ update_error: null });
+    return `updating ${current} -> ${latest}${r.build ? ` (build ${r.build})` : ": done"}`;
   } catch (e) {
-    if (e instanceof cloudflare.CloudflareError) return `could not start the update build: ${e.message}`;
-    throw e;
+    if (!(e instanceof cfapi.CloudflareError)) throw e;
+    await store.updateSetup({ update_error: e.message });
+    return `could not update to ${latest}: ${e.message}`;
   }
-  return `updating ${current} -> ${latest} (build ${build})`;
 }

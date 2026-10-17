@@ -6,7 +6,7 @@
 // which the release build writes from packages/worker/wrangler.jsonc, so the two never drift.
 
 import type { Fetch } from "./comfyui.ts";
-import { toBase64Url } from "./bytes.ts";
+import { sha256, toBase64Url, tokenUrlsafe, utf8 } from "./bytes.ts";
 
 export const CF_API = "https://api.cloudflare.com/client/v4";
 export const CF_OAUTH_AUTHORIZE = "https://dash.cloudflare.com/oauth2/auth";
@@ -14,7 +14,9 @@ export const CF_OAUTH_TOKEN = "https://dash.cloudflare.com/oauth2/token";
 /** What setup and self-update need; offline_access brings the refresh token. */
 export const CF_OAUTH_SCOPES = ["workers-scripts.write", "workers-r2.write", "account-settings.read", "offline_access"];
 
-/** A Cloudflare API call failed. *code* is the first API error code, when there is one. */
+/** A Cloudflare API call failed. *code* is the first API error code, when there is one. The base
+ * of the sign-in's and a release's errors too (OAuthError, releases.ReleaseError): one check
+ * catches every failure whose message is for the page. */
 export class CloudflareError extends Error {
   name = "CloudflareError";
   readonly code?: number;
@@ -193,10 +195,6 @@ export async function uploadScript(
   await cfCall(fetch, token, "PUT", `/accounts/${account}/workers/scripts/${script}`, form);
 }
 
-export async function sha256Hex(data: Uint8Array): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", data as BufferSource));
-  return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 // ── OAuth (authorization code with PKCE; no client secret) ──────────────────
 
@@ -204,7 +202,7 @@ export type OAuthTokens = { access_token: string; refresh_token: string; expires
 
 /** The token endpoint refused: *error* is OAuth's code ("invalid_grant": the refresh token is gone,
  * the user must connect again). */
-export class OAuthError extends Error {
+export class OAuthError extends CloudflareError {
   name = "OAuthError";
   readonly error: string;
   constructor(error: string, description: string) {
@@ -214,8 +212,8 @@ export class OAuthError extends Error {
 }
 
 export async function pkcePair(): Promise<{ verifier: string; challenge: string }> {
-  const verifier = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
-  const challenge = toBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+  const verifier = tokenUrlsafe(32);
+  const challenge = toBase64Url(await sha256(utf8(verifier)));
   return { verifier, challenge };
 }
 

@@ -1,5 +1,5 @@
 // Cloudflare API calls the Worker makes about itself on the legacy path (built from a repository):
-// token checks, self-discovery, Workers Builds. Self-update with OAuth is selfupdate.ts (core cfapi).
+// token checks, self-discovery, Workers Builds. Self-update with OAuth is App.uploadSelf (core cfapi).
 //
 // A Worker has no runtime API for its own account or name. The name comes from its workers.dev
 // hostname (<name>.<subdomain>.workers.dev), the account from listing what the user's token can
@@ -8,9 +8,7 @@
 import { cfapi } from "@comfy-gen/core";
 import type { Fetch } from "./platform.ts";
 
-// One client for both paths: this file keeps the legacy Builds calls (installs built from a repository).
-export const CloudflareError = cfapi.CloudflareError;
-export const call = cfapi.cfCall;
+const { CloudflareError, cfCall: call } = cfapi;
 
 /** Throws CloudflareError with advice if the token isn't an active user token. */
 export async function verifyUserToken(fetch: Fetch, token: string): Promise<void> {
@@ -46,13 +44,6 @@ export async function discover(fetch: Fetch, token: string, host: string): Promi
     return { account_id: acct.id, script, tag: match.id, trigger: trig.trigger_uuid, branch: (trig.branch_includes ?? ["main"])[0] };
   }
   throw new CloudflareError(`The token cannot see a Worker named ${script}. Make sure it was created for the account this Worker lives in.`);
-}
-
-/** Whether *token* sees *script* in *account*: it proves a Worker made by the setup Worker is the
- * user's (they update with OAuth, so nothing else is needed from the token). */
-export async function seesScript(fetch: Fetch, token: string, account: string, script: string): Promise<boolean> {
-  const found = (await call(fetch, token, "GET", `/accounts/${account}/workers/scripts-search?name=${encodeURIComponent(script)}`)) ?? [];
-  return found.some((s: any) => s.script_name === script);
 }
 
 export async function setBuildVars(

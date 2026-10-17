@@ -34,15 +34,15 @@ export async function setTokens(kv: KeyValue, tokens: cfapi.OAuthTokens, now: nu
   await kv.put(KEY, JSON.stringify(stored));
 }
 
-/** An access token, refreshed first when it is about to expire (or when *force*). {lost}: the
+/** An access token, refreshed first when it is about to expire. {lost}: the
  * connection is gone (never made, revoked, or the refresh token expired): the user must connect
  * again; the reason is kept so the page can say so. */
-export async function accessToken(kv: KeyValue, fetch: Fetch, clientId: string, now: number, force = false): Promise<TokenAnswer> {
+export async function accessToken(kv: KeyValue, fetch: Fetch, clientId: string, now: number): Promise<TokenAnswer> {
   const raw = await kv.get(KEY);
   if (!raw) return { lost: "not connected to Cloudflare" };
   const s: Stored = JSON.parse(raw);
   if (s.lost) return { lost: s.lost };
-  if (!force && s.expires_at - now > MARGIN_S) return { token: s.access_token };
+  if (s.expires_at - now > MARGIN_S) return { token: s.access_token };
   try {
     const fresh = await cfapi.refreshTokens(fetch, clientId, s.refresh_token);
     await setTokens(kv, fresh, now);

@@ -13,9 +13,10 @@
 //                           answer {url, ticket} (the page opens url#ticket=…)
 // Everything else is the site's static files, served without running the Worker.
 
-import { bodyJson, cfapi, error, fromBase64Url, fromHex, fromUtf8, json, releases, safeEqual, toBase64Url, tokenUrlsafe, utf8 } from "@comfy-gen/core";
-
-type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
+import {
+  bodyJson, cfapi, concat, error, fromBase64Url, fromHex, fromUtf8, json, randomBytes, readCookie, releases, safeEqual, toBase64Url, tokenUrlsafe, utf8,
+  type Fetch,
+} from "@comfy-gen/core";
 
 export type Env = {
   CF_OAUTH_CLIENT: string;
@@ -42,12 +43,9 @@ async function key(env: Env, use: "encrypt" | "decrypt"): Promise<CryptoKey> {
 
 /** *value*, encrypted and authenticated, readable by open() until *exp*. */
 export async function seal(env: Env, value: unknown, exp: number): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await key(env, "encrypt"), utf8(JSON.stringify({ v: value, exp })) as BufferSource));
-  const out = new Uint8Array(12 + ct.length);
-  out.set(iv);
-  out.set(ct, 12);
-  return toBase64Url(out);
+  const iv = randomBytes(12);
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv as BufferSource }, await key(env, "encrypt"), utf8(JSON.stringify({ v: value, exp })) as BufferSource);
+  return toBase64Url(concat([iv, new Uint8Array(ct)]));
 }
 
 export async function open<T>(env: Env, sealed: string | null, now: number): Promise<T | null> {
@@ -62,10 +60,7 @@ export async function open<T>(env: Env, sealed: string | null, now: number): Pro
   }
 }
 
-function cookie(req: Request, name: string): string | null {
-  const m = new RegExp(`(?:^|;\\s*)${name}=([^;]+)`).exec(req.headers.get("cookie") ?? "");
-  return m ? m[1] : null;
-}
+const cookie = (req: Request, name: string) => readCookie(req.headers.get("cookie"), name) || null;
 
 const setCookie = (name: string, value: string, path: string, maxAge: number) =>
   `${name}=${value}; Path=${path}; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`;
@@ -114,7 +109,7 @@ export async function handle(req: Request, env: Env, deps: Deps): Promise<Respon
     if (path === "/api/create" && req.method === "POST") return create(req, env, deps, url);
     return error(404, "not found");
   } catch (e) {
-    if (e instanceof cfapi.CloudflareError || e instanceof releases.ReleaseError || e instanceof cfapi.OAuthError) {
+    if (e instanceof cfapi.CloudflareError) {
       return path.startsWith("/api/") ? error(502, e.message) : page("Something went wrong", e.message, 502);
     }
     throw e;
@@ -159,12 +154,10 @@ function workersDev(worker: string): [string, string] | null {
 async function reconnect(deps: Deps, tokens: Tokens, r: NonNullable<Pending["reconnect"]>, clear: string): Promise<Response> {
   const [script, sub] = workersDev(r.worker)!;
   const t = tokens.access_token;
-  let account: string | null = null;
-  for (const a of await cfapi.listAccounts(deps.fetch, t)) {
-    if ((await cfapi.workersSubdomain(deps.fetch, t, a.id)) !== sub) continue;
-    if ((await cfapi.scriptMigrationTag(deps.fetch, t, a.id, script)) !== undefined) account = a.id;
-    break;
-  }
+  const list = await cfapi.listAccounts(deps.fetch, t);
+  const subs = await Promise.all(list.map((a) => cfapi.workersSubdomain(deps.fetch, t, a.id)));
+  const a = list[subs.indexOf(sub)]; // workers.dev subdomains are unique
+  const account = a && (await cfapi.scriptMigrationTag(deps.fetch, t, a.id, script)) !== undefined ? a.id : null;
   if (!account) return page("That Worker isn't in this account", `${r.worker} isn't a Worker in the Cloudflare account you signed in to. Sign in to the account it's in.`);
   const resp = await claim(deps, r.worker, { reconnect: r.code, tokens, account_id: account }, 0);
   if (!resp.ok) return page("Your Worker refused", (await resp.json().catch(() => ({})) as any).error ?? `HTTP ${resp.status}`);
@@ -180,7 +173,7 @@ async function claim(deps: Deps, worker: string, body: unknown, waitS: number): 
       method: "POST", headers: { "Content-Type": "application/json", "User-Agent": USER_AGENT }, body: JSON.stringify(body),
     }).catch(() => null);
     if (resp && resp.status !== 404 && resp.status < 500) return resp;
-    if (waited >= waitS) return resp ?? new Response(JSON.stringify({ error: "Your Worker didn't answer." }), { status: 504 });
+    if (waited >= waitS) return resp ?? error(504, "Your Worker didn't answer.");
     await deps.sleep(2);
   }
 }
@@ -214,7 +207,6 @@ async function create(req: Request, env: Env, deps: Deps, url: URL): Promise<Res
   const token = t.access_token;
   const f = deps.fetch;
   if (!(await cfapi.listAccounts(f, token)).some((a) => a.id === account)) return error(400, "Choose one of your accounts.");
-
   const [existing, tag, sub0] = await Promise.all([
     cfapi.scriptMigrationTag(f, token, account, name),
     releases.latestTag(f, env.COMFY_GEN_RELEASES),
@@ -230,11 +222,12 @@ async function create(req: Request, env: Env, deps: Deps, url: URL): Promise<Res
 
   const bucket = cfapi.bucketName(name);
   const [release, made] = await Promise.all([releases.loadRelease(f, env.COMFY_GEN_RELEASES, tag), cfapi.createBucket(f, token, account, bucket)]);
-  if (made !== "off") await cfapi.setLifecycle(f, token, account, bucket);
   const secret = tokenUrlsafe(32);
-  const vars: Record<string, string> = { SETUP_MODE: mode, CF_OAUTH_CLIENT: env.CF_OAUTH_CLIENT, COMFY_GEN_SETUP: url.origin };
-  if (env.COMFY_GEN_RELEASES) vars.COMFY_GEN_RELEASES = env.COMFY_GEN_RELEASES;
-  await releases.uploadRelease(f, token, account, name, release, { bucket: made === "off" ? null : bucket, vars, secrets: { CLAIM: secret }, fromTag: null });
+  const vars: releases.WorkerVars = { SETUP_MODE: mode, CF_OAUTH_CLIENT: env.CF_OAUTH_CLIENT, COMFY_GEN_SETUP: url.origin, COMFY_GEN_RELEASES: env.COMFY_GEN_RELEASES };
+  await Promise.all([
+    made !== "off" && cfapi.setLifecycle(f, token, account, bucket),
+    releases.uploadRelease(f, token, account, name, release, { bucket: made === "off" ? null : bucket, vars: releases.workerVars(vars), secrets: { CLAIM: secret }, fromTag: null }),
+  ]);
   await Promise.all([cfapi.setCrons(f, token, account, name, release.manifest.crons), cfapi.enableWorkersDev(f, token, account, name)]);
 
   const worker = `https://${name}.${sub}.workers.dev`;

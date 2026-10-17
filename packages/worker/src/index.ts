@@ -55,9 +55,9 @@ class StateStub implements StateStorage {
     return this.call((s) => s.write(key, value));
   }
 
-  cfAccessToken(clientId: string, force = false): Promise<oauth.TokenAnswer> {
+  cfAccessToken(clientId: string): Promise<oauth.TokenAnswer> {
     // The RPC type of a union is a union of promises; it is one promise of a union.
-    return this.call((s) => s.cfAccessToken(clientId, force) as unknown as Promise<oauth.TokenAnswer>);
+    return this.call((s) => s.cfAccessToken(clientId) as unknown as Promise<oauth.TokenAnswer>);
   }
 
   cfSetTokens(tokens: cfapi.OAuthTokens): Promise<void> {
@@ -114,9 +114,9 @@ export class State extends DurableObject<Env> {
   private oauthLock = new oauth.Lock();
   private kv: oauth.KeyValue = { get: (k) => this.read(k), put: (k, v) => this.write(k, v) };
 
-  cfAccessToken(clientId: string, force = false): Promise<oauth.TokenAnswer> {
+  cfAccessToken(clientId: string): Promise<oauth.TokenAnswer> {
     const fetchUA = withUserAgent((url, init) => fetch(url, init));
-    return this.oauthLock.run(() => oauth.accessToken(this.kv, fetchUA, clientId, Date.now() / 1000, force));
+    return this.oauthLock.run(() => oauth.accessToken(this.kv, fetchUA, clientId, Date.now() / 1000));
   }
 
   cfSetTokens(tokens: cfapi.OAuthTokens): Promise<void> {

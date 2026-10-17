@@ -89,6 +89,14 @@ export function randomSeed(): number {
   return (hi & 0x1fffff) * 2 ** 32 + lo;
 }
 
+export async function sha256(data: Uint8Array): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", data as BufferSource));
+}
+
+export async function sha256Hex(data: Uint8Array): Promise<string> {
+  return toHex(await sha256(data));
+}
+
 const hmacKeys = new Map<string, Promise<CryptoKey>>(); // imported keys; plain data, fine across requests
 
 /** HMAC-SHA256 of *message* under *key*. The imported key is cached per key. */

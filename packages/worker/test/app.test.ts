@@ -818,7 +818,7 @@ describe("setup: storage and the answer", () => {
   it("Check again rebuilds, tracked as the update build", async () => {
     const { app, net } = world({ noStorage: true });
     const cookie = await login(app);
-    expect(await body(await app.handle(request("POST", "/api/setup/storage", undefined, cookie)))).toEqual({ build: "build1" });
+    expect(await body(await app.handle(request("POST", "/api/setup/storage", undefined, cookie)))).toEqual({ storage: null, build: "build1" });
     expect(net.buildsStarted.length).toBe(1);
     const state = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
     expect([state.build, state.update_build]).toEqual(["build1", "build1"]); // so the Modal step stays closed
@@ -857,15 +857,16 @@ describe("session cookies", () => {
 describe("updates", () => {
   it("update check", async () => {
     const { app, net } = world();
-    expect(await updates.check(net.fetch, app.store, "v0.9.0")).toContain("no Cloudflare token");
+    const check = (v: string) => updates.check(app.store, v, updates.buildUpdater(net.fetch, app.store));
+    expect(await check("v0.9.0")).toContain("not updating: Log in again with a Cloudflare token");
     await login(app);
-    expect(await updates.check(net.fetch, app.store, "v1.0.0")).toContain("up to date");
-    expect(await updates.check(net.fetch, app.store, "v0.9.0")).toContain("updating v0.9.0 -> v1.0.0");
-    expect(await updates.check(net.fetch, app.store, "v0.9.0")).toContain("already tried");
+    expect(await check("v1.0.0")).toContain("up to date");
+    expect(await check("v0.9.0")).toContain("updating v0.9.0 -> v1.0.0");
+    expect(await check("v0.9.0")).toContain("already tried");
     expect(net.buildsStarted.length).toBe(1);
     net.latestRelease = null; // no release yet: github.com redirects to the releases list
-    expect(await updates.check(net.fetch, app.store, "v0.9.0")).toBe("no release found");
-    expect(await updates.check(net.fetch, app.store, "claude/some-branch")).toBe("development build (claude/some-branch): no automatic updates");
+    expect(await check("v0.9.0")).toBe("no release found");
+    expect(await check("claude/some-branch")).toBe("development build (claude/some-branch): no automatic updates");
     expect(net.calls.at(-1)?.[1]).toBe("https://github.com/lugia19/comfyui-gen-mcp/releases/latest");
   });
 
@@ -874,7 +875,7 @@ describe("updates", () => {
     env.VERSION = "v0.9.0";
     const cookie = await login(app);
     const info = await body(await app.handle(request("GET", "/api/update", undefined, cookie)));
-    expect(info).toEqual({ current: "v0.9.0", latest: "v1.0.0", dev: false, newer: true, can: true, build: null, building: false, outcome: null });
+    expect(info).toEqual({ current: "v0.9.0", latest: "v1.0.0", dev: false, newer: true, path: "build", blocked: null, failed: null, build: null, building: false, outcome: null });
     env.VERSION = "claude/some-branch"; // a branch build: the page says so, and offers no update
     expect(await body(await app.handle(request("GET", "/api/update", undefined, cookie)))).toMatchObject({ dev: true, newer: false });
     env.VERSION = "v0.9.0";

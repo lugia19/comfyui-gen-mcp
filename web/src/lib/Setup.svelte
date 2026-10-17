@@ -89,16 +89,14 @@
     storageChecked = false
     storageTask.run(async () => {
       const r = await api('POST', '/setup/storage')
-      if (!('storage' in r)) {
+      if (r.build) {
         storageBuild = true
         return void (await refresh())
       }
       if (!r.storage) return void (storageChecked = true)
-      for (let i = 0; i < 15; i++) {
-        await refresh()
-        if (info.storage !== false) return
-        await new Promise((ok) => setTimeout(ok, 2000))
-      }
+      // Uploaded with R2 bound: wait until the new version serves.
+      for (let i = 0; i < 15 && !(await api('GET', '/setup/storage')).storage; i++) await new Promise((ok) => setTimeout(ok, 2000))
+      await refresh()
     })
   }
 

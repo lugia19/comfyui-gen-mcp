@@ -27,8 +27,8 @@ export class FakeStorage implements StateStorage {
   fetch!: Fetch;
   now!: () => number;
   private lock = new oauth.Lock();
-  cfAccessToken(clientId: string, force = false) {
-    return this.lock.run(() => oauth.accessToken(this, this.fetch, clientId, this.now(), force));
+  cfAccessToken(clientId: string) {
+    return this.lock.run(() => oauth.accessToken(this, this.fetch, clientId, this.now()));
   }
   cfSetTokens(tokens: cfapi.OAuthTokens) {
     return this.lock.run(() => oauth.setTokens(this, tokens, this.now()));
@@ -118,9 +118,7 @@ export class FakeBucket implements Bucket {
   }
 }
 
-export async function sha256Hex(data: Uint8Array): Promise<string> {
-  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", data as BufferSource))].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
+export { sha256Hex } from "@comfy-gen/core";
 
 const jsonResp = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 const cf = (result: unknown, ok = true) =>

@@ -13,7 +13,7 @@
   // page is still the old one until reloaded.
   const version = untrack(() => info.version)
 
-  let update = $state(null) // GET /api/update: {current, latest, dev, newer, can, build, building, outcome}, or on the oauth path {…, path, lost, error}
+  let update = $state(null) // GET /api/update: {current, latest, dev, newer, path, blocked, failed, build, building, outcome}
   let oauth = $derived(update?.path === 'oauth')
   let updatedTo = $state(null) // the oauth path's update finished here
   let seen = $state(false) // this page saw an update build run: its end is shown here
@@ -34,7 +34,7 @@
   const start = () =>
     starting.run(async () => {
       const r = await api('POST', '/update')
-      if (r.updated) return void (updatedTo = r.updated)
+      if (!r.build) return void (updatedTo = r.latest) // uploaded: live already
       seen = true
       await load()
       await refresh()
@@ -48,7 +48,7 @@
     if (updatedTo) return 'done'
     if (update.building) return 'building'
     if (update.current !== version || (seen && update.outcome === 'success')) return 'done'
-    if (update.newer && (oauth ? update.error : update.outcome && update.outcome !== 'success')) return 'failed'
+    if (update.newer && update.failed) return 'failed'
     if (update.newer) return 'available'
     return 'latest'
   })
@@ -108,7 +108,7 @@
         {/if}
       {:else}
         {#if phase === 'failed'}
-          <p class="err">The last update didn't finish ({oauth ? update.error : `Cloudflare says: ${update.outcome}`}). This Worker still runs {update.current}.</p>
+          <p class="err">The last update didn't finish ({update.failed}). This Worker still runs {update.current}.</p>
         {/if}
         <p>
           This Worker runs <b>{update.current}</b>; <b>{update.latest}</b> is out.
@@ -122,11 +122,10 @@
             image requests keep working meanwhile.
           {/if}
         </p>
-        {#if update.lost}<p class="muted">Reconnect Cloudflare first, with the button at the top of the page.</p>
-        {:else if !update.can}<p class="muted">Log in again with a Cloudflare token to update from here.</p>{/if}
+        {#if update.blocked}<p class="muted">{update.blocked}</p>{/if}
         {#if starting.error}<p class="err">{starting.error}</p>{/if}
         <div class="row">
-          <button type="button" onclick={start} disabled={!update.can || starting.busy}>{starting.busy ? (oauth ? 'Updating…' : 'Starting…') : phase === 'failed' ? 'Try again' : 'Update now'}</button>
+          <button type="button" onclick={start} disabled={Boolean(update.blocked) || starting.busy}>{starting.busy ? (oauth ? 'Updating…' : 'Starting…') : phase === 'failed' ? 'Try again' : 'Update now'}</button>
           <button type="button" class="secondary" onclick={() => (open = false)}>Cancel</button>
         </div>
         {#if phase === 'failed' && update.build === info.build}
