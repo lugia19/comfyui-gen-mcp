@@ -15,6 +15,8 @@ import * as oauth from "./oauth.ts";
 import { newPcId, newPcName, splitToken, DEFAULT_KEEP_WARM, PC_KEEP_WARM, type Gpu } from "./gpus.ts";
 import { offlineMessage, pausedMessage, PcHooks, storedImageId, WorkerHooks } from "./hooks.ts";
 import * as loras from "./loras.ts";
+import { GrpcError, ModalClient, type ModalToken } from "./modal/client.ts";
+import * as modalDeploy from "./modal/deploy.ts";
 import * as modalAdmin from "./modal-admin.ts";
 import { withUserAgent, type Bucket, type Fetch, type Platform } from "./platform.ts";
 import { Images } from "./images.ts";
@@ -260,7 +262,12 @@ export class App {
         const lost = await oauth.isLost(this.p.storage);
         return lost ? `Reconnect Cloudflare first (${lost}).` : null;
       },
-      install: (tag) => this.uploadSelf(s, tag),
+      install: async (tag) => {
+        const r = await this.uploadSelf(s, tag);
+        // Modal's app follows the Worker's release (not on the storage check: the same version).
+        if (tag !== this.version) await this.redeployModal(s, tag);
+        return r;
+      },
     };
   }
 
@@ -331,7 +338,9 @@ export class App {
       const claim = this.p.env.CLAIM;
       if (!claim || s.cf_claimed || !safeEqual(String(b.claim ?? ""), claim)) return error(403, "This Worker is already set up, or the claim is wrong.");
       if (typeof b.account_id !== "string" || typeof b.script !== "string") return error(400, "account_id and script missing");
-      await this.fresh.updateSecrets({ cf_claimed: this.p.now(), cf_account_id: b.account_id, cf_script: b.script });
+      // Its own address, for the Modal deploy's report when no request names it (the daily update).
+      const worker_url = new URL(req.url).origin;
+      await this.fresh.updateSecrets({ cf_claimed: this.p.now(), cf_account_id: b.account_id, cf_script: b.script, worker_url });
     }
     await this.p.storage.cfSetTokens(t);
     return json({ ticket: await this.mintOnce("login_ticket", 600) });
@@ -588,6 +597,104 @@ export class App {
     return uploads.receive(token, new Uint8Array(await req.arrayBuffer()), this.images, hmacKey(s), this.p.now());
   }
 
+  // ── Modal without a build (Workers made by the setup site, design §6) ──
+
+  private modal(token: ModalToken | null = null): ModalClient {
+    return new ModalClient({ fetch: this.fetch, now: this.p.now, token, base: this.p.env.MODAL_GRPC || undefined });
+  }
+
+  /** A Modal token that works (it writes the workspace Secret the deploy reads), kept here too. */
+  private async setModalToken(token: ModalToken): Promise<void> {
+    await this.modal(token).secretPut(modalDeploy.TOKEN_SECRET, { MODAL_TOKEN_ID: token.id, MODAL_TOKEN_SECRET: token.secret });
+    await this.fresh.updateSecrets({ modal_token: token });
+  }
+
+  /** Deploy *tag*'s Modal app from a Sandbox; the result comes back to /build-callback. */
+  private async startModalDeploy(s: Secrets, tag: string, origin: string): Promise<void> {
+    if (!s.modal_token) throw new GrpcError(0, "Connect Modal first.");
+    const nonce = tokenUrlsafe(24);
+    const source = modalDeploy.sourceUrl(this.p.env.COMFY_GEN_RELEASES, tag);
+    const script = modalDeploy.deployScript(source, `${origin}/build-callback`, nonce, tag);
+    const sandbox = await modalDeploy.startDeploy(this.modal(s.modal_token), s.modal_token, script);
+    await this.fresh.updateSetup({ build_nonce: nonce, modal_deploy: { sandbox, tag, started: this.p.now() }, modal_error: null });
+  }
+
+  /** After an update: the same release on Modal, when Modal is set up. A failure shows as Modal's
+   * (the page's Try again), not as a failed Worker update. */
+  private async redeployModal(s: Secrets, tag: string): Promise<void> {
+    if (!s.modal_token || !(await this.gpus()).some((g) => g.kind === "modal")) return;
+    try {
+      if (!s.worker_url) throw new GrpcError(0, "This Worker doesn't know its own address yet: open its page once.");
+      await this.startModalDeploy(s, tag, s.worker_url);
+    } catch (e) {
+      if (!(e instanceof GrpcError)) throw e;
+      await this.fresh.updateSetup({ modal_error: `Updating Modal to ${tag} didn't start: ${e.message}` });
+    }
+  }
+
+  /**
+   * Connecting Modal and deploying its app, on the OAuth path:
+   *   POST /modal/connect        start Modal's sign-in: {url} to approve it at
+   *   POST /modal/connect/wait   wait for the approval (about 20 s): {connected, workspace}
+   *   POST /modal/token          {token_id, token_secret}: a pasted token instead
+   *   POST /setup/modal          deploy this version's app from a Sandbox
+   *   GET  /setup/modal/log      ?cursor=: the deploy's output since *cursor*: {lines, cursor, done}
+   */
+  private async modalApi(req: Request, url: URL, sub: string, s: Secrets): Promise<Response> {
+    if (!this.oauthPath(s)) return error(409, "This Worker deploys Modal with its Workers Build.");
+    try {
+      if (sub === "/modal/connect" && req.method === "POST") {
+        const f = await this.modal().tokenFlowCreate();
+        await this.fresh.updateSetup({ modal_flow: { id: f.token_flow_id, wait_secret: f.wait_secret, exp: this.p.now() + 900 } });
+        return json({ url: f.web_url });
+      }
+      if (sub === "/modal/connect/wait" && req.method === "POST") {
+        const flow = (await this.fresh.setup()).modal_flow;
+        if (!flow || flow.exp < this.p.now()) return error(409, "That Modal sign-in expired: click Connect Modal again.");
+        const r = await this.modal().tokenFlowWait(flow.id, flow.wait_secret, 20);
+        if (r.timeout || !r.token_id || !r.token_secret) return json({ connected: false });
+        await this.setModalToken({ id: r.token_id, secret: r.token_secret });
+        await this.fresh.updateSetup({ modal_flow: null });
+        return json({ connected: true, workspace: r.workspace_username ?? null });
+      }
+      if (sub === "/modal/token" && req.method === "POST") {
+        const b = await bodyJson(req);
+        const id = String(b.token_id ?? "").trim();
+        const secret = String(b.token_secret ?? "").trim();
+        if (!/^ak-\w+$/.test(id) || !/^as-\w+$/.test(secret)) return error(400, "Paste the token id (ak-…) and secret (as-…).");
+        await this.setModalToken({ id, secret });
+        return json({ connected: true });
+      }
+      if (sub === "/setup/modal" && req.method === "POST") {
+        await this.startModalDeploy(s, this.version, url.origin);
+        if (s.worker_url !== url.origin) await this.fresh.updateSecrets({ worker_url: url.origin });
+        return json({ started: true });
+      }
+      if (sub === "/setup/modal/log" && req.method === "GET") return this.modalLog(s, url.searchParams.get("cursor") ?? "");
+    } catch (e) {
+      if (e instanceof GrpcError) return error(502, `Modal: ${e.message}`);
+      throw e;
+    }
+    return error(404, "not found");
+  }
+
+  /** The deploy's output since *cursor*. Its script reports before it exits, so a Sandbox that
+   * ended while the deploy is still recorded ended without its report: shown as Modal's error. */
+  private async modalLog(s: Secrets, cursor: string): Promise<Response> {
+    const d = (await this.fresh.setup()).modal_deploy;
+    if (!d) return json({ lines: [], cursor, done: true });
+    const c = this.modal(s.modal_token);
+    const r = await c.sandboxLogs(d.sandbox, cursor, 5);
+    if (r.eof) {
+      const result = await c.sandboxResult(d.sandbox, 1);
+      if (result && (await this.fresh.setup()).modal_deploy?.sandbox === d.sandbox) {
+        const why = result.exception || `the deploy stopped (exit ${result.exitcode}) before it finished; its log says why`;
+        await this.fresh.updateSetup({ modal_deploy: null, modal_error: why });
+      }
+    }
+    return json({ lines: r.lines, cursor: r.entry, done: r.eof });
+  }
+
   // ── builds ────────────────────────────────────────────────────────
 
   private async buildCallback(req: Request): Promise<Response> {
@@ -608,10 +715,10 @@ export class App {
       // A deploy resets keep-warm to the app's default, and a fresh install has no models yet.
       warnings = await this.applyToModal(this.admin(gpu)!, await this.fresh.config(), gpu.keep_warm_minutes);
       warnings.push(...(await this.spreadLoras(new URL(req.url).origin)));
-      await this.fresh.updateSetup({ modal_error: null });
+      await this.fresh.updateSetup({ modal_error: null, modal_deploy: null });
     } else if (typeof data.modal_error === "string" || String(data.modal_result ?? "").startsWith("failed")) {
       // The setup page shows Modal's reason (no card on file, a bad token) and offers Try again.
-      await this.fresh.updateSetup({ modal_error: String(data.modal_error || data.modal_result).slice(0, 500) });
+      await this.fresh.updateSetup({ modal_error: String(data.modal_error || data.modal_result).slice(0, 500), modal_deploy: null });
     }
     return json({ ok: true, warnings });
   }
@@ -707,6 +814,7 @@ export class App {
       return json({ encrypt_images: on });
     }
     if (sub === "/update") return this.update(req, s);
+    if (sub.startsWith("/modal/") || sub.startsWith("/setup/modal")) return this.modalApi(req, url, sub, s);
     if (sub === "/cloudflare/reconnect" && req.method === "POST") {
       // Back from the setup Worker's sign-in with new tokens (claim(), {reconnect}).
       if (!this.p.env.COMFY_GEN_SETUP) return error(400, "This Worker wasn't made by the setup site: log in with a Cloudflare token instead.");
@@ -743,6 +851,10 @@ export class App {
       version: this.version,
       cloudflare: s.cf_token || s.cf_claimed ? { account_id: s.cf_account_id ?? null, script: s.cf_script ?? null } : null,
       cf_lost: cfLost, // a Worker made by the setup Worker lost its Cloudflare connection: why
+      // How it updates and deploys Modal: "oauth" (itself, and Modal from a Sandbox) or "build".
+      update_path: this.oauthPath(s) ? "oauth" : "build",
+      modal_connected: Boolean(s.modal_token),
+      modal_deploy: setup.modal_deploy ? { tag: setup.modal_deploy.tag, started: setup.modal_deploy.started } : null,
       gpus,
       storage: Boolean(this.p.bucket),
       encrypt_images: Boolean(s.encrypt_images),

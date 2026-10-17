@@ -21,6 +21,7 @@ export interface Env {
   COMFY_GEN_SETUP?: string;
   CLAIM?: string;
   COMFY_GEN_RELEASES?: string;
+  MODAL_GRPC?: string; // development: another gRPC-web proxy for Modal's API
   ASSETS?: Fetcher; // the settings app (web/dist)
 }
 
@@ -75,7 +76,7 @@ function app(env: Env): App {
     now: () => Date.now() / 1000,
     env: {
       VERSION: env.VERSION, DEV_WORKER_HOST: env.DEV_WORKER_HOST, SETUP_MODE: env.SETUP_MODE,
-      CF_OAUTH_CLIENT: env.CF_OAUTH_CLIENT, COMFY_GEN_SETUP: env.COMFY_GEN_SETUP, CLAIM: env.CLAIM, COMFY_GEN_RELEASES: env.COMFY_GEN_RELEASES,
+      CF_OAUTH_CLIENT: env.CF_OAUTH_CLIENT, COMFY_GEN_SETUP: env.COMFY_GEN_SETUP, CLAIM: env.CLAIM, COMFY_GEN_RELEASES: env.COMFY_GEN_RELEASES, MODAL_GRPC: env.MODAL_GRPC,
     },
   });
 }

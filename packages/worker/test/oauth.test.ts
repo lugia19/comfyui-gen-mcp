@@ -3,7 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 import { FakeCloudflare, tokens } from "../../core/test/fake-cloudflare.ts";
-import { request, TOKEN, world } from "./world.ts";
+import { FakeModal, GRPC } from "./fake-modal.ts";
+import { ADMIN, COMFY, HOST, request, TOKEN, world } from "./world.ts";
 
 const DEV = "https://setup.example/dev";
 const CLAIM = "claim-secret";
@@ -12,13 +13,14 @@ const body = async (resp: Response) => JSON.parse(await resp.text());
 /** A Worker the setup Worker just created: CLAIM, the OAuth client and a dev release base set. */
 function created() {
   const w = world();
-  Object.assign(w.env, { CF_OAUTH_CLIENT: "cid", CLAIM, COMFY_GEN_SETUP: "https://setup.example", COMFY_GEN_RELEASES: DEV, SETUP_MODE: "cloud" });
+  Object.assign(w.env, { CF_OAUTH_CLIENT: "cid", CLAIM, COMFY_GEN_SETUP: "https://setup.example", COMFY_GEN_RELEASES: DEV, SETUP_MODE: "cloud", MODAL_GRPC: GRPC });
   const cf = new FakeCloudflare(DEV);
   cf.latest = "v1.1.0";
   cf.scripts = { "comfy-gen-x": "v2" };
   cf.apiTokens.add(TOKEN);
-  w.net.intercept = cf.handle;
-  return { ...w, cf };
+  const modal = new FakeModal();
+  w.net.intercept = async (url, init) => (await cf.handle(url, init)) ?? (await modal.handle(url, init));
+  return { ...w, cf, modal };
 }
 
 const claim = (w: ReturnType<typeof world>, extra: Record<string, unknown> = {}) =>
@@ -183,5 +185,97 @@ describe("updating itself", () => {
     await w.app.handle(request("POST", "/api/update", undefined, cookie));
     expect(w.cf.lifecycles).toHaveLength(1);
     expect(w.cf.uploads[1].meta.bindings).toEqual(expect.arrayContaining([{ type: "r2_bucket", name: "STORE", bucket_name: "comfy-gen-x-storage" }]));
+  });
+});
+
+describe("Modal without a build", () => {
+  const api = (w: ReturnType<typeof created>, method: string, path: string, cookie: Record<string, string>, b?: unknown) =>
+    w.app.handle(request(method, `/api${path}`, b, cookie)).then(async (r) => [r.status, await body(r)] as const);
+
+  /** Claimed, logged in and Modal connected through its sign-in. */
+  async function connected() {
+    const w = created();
+    const cookie = await claimed(w);
+    expect(await api(w, "POST", "/modal/connect", cookie)).toEqual([200, { url: "https://modal.com/token-flow/tf-1" }]);
+    expect(await api(w, "POST", "/modal/connect/wait", cookie)).toEqual([200, { connected: false }]);
+    expect(await api(w, "POST", "/modal/connect/wait", cookie)).toEqual([200, { connected: true, workspace: "someone" }]);
+    return { w, cookie };
+  }
+
+  it("Connect Modal: the token is kept here and in a workspace Secret", async () => {
+    const { w, cookie } = await connected();
+    expect((await w.app.store.secrets()).modal_token).toEqual({ id: "ak-new", secret: "as-new" });
+    expect(w.modal.secrets["comfy-gen-token"]).toEqual({ MODAL_TOKEN_ID: "ak-new", MODAL_TOKEN_SECRET: "as-new" });
+    expect((await api(w, "GET", "/state", cookie))[1]).toMatchObject({ update_path: "oauth", modal_connected: true, modal_deploy: null });
+    expect((await api(w, "POST", "/modal/connect/wait", cookie))[0]).toBe(409); // that sign-in is used
+    // A pasted token instead.
+    expect((await api(w, "POST", "/modal/token", cookie, { token_id: "nope", token_secret: "x" }))[0]).toBe(400);
+    expect(await api(w, "POST", "/modal/token", cookie, { token_id: " ak-2 ", token_secret: "as-2" })).toEqual([200, { connected: true }]);
+    expect(w.modal.secrets["comfy-gen-token"].MODAL_TOKEN_ID).toBe("ak-2");
+  });
+
+  it("deploys from a Sandbox, which reports to /build-callback", async () => {
+    const { w, cookie } = await connected();
+    expect(await api(w, "POST", "/setup/modal", cookie)).toEqual([200, { started: true }]);
+    const sb = w.modal.sandboxes[0].definition;
+    expect(sb.secret_ids).toEqual(["st-comfy-gen-token"]);
+    expect(sb.timeout_secs).toBe(1800);
+    const script = sb.entrypoint_args[2];
+    expect(script).toContain(`'${DEV}/v1.0.0/source.tar.gz'`);
+    expect(script).toContain(`--callback 'https://${HOST}/build-callback'`);
+    expect(script).toContain("--version 'v1.0.0'");
+    expect((await api(w, "GET", "/state", cookie))[1].modal_deploy).toMatchObject({ tag: "v1.0.0" });
+    expect(await api(w, "GET", "/setup/modal/log", cookie)).toEqual([200, { lines: ["Cloning…\n", "Deploying…\n"], cursor: "2", done: false }]);
+    expect((await api(w, "GET", "/setup/modal/log?cursor=2", cookie))[1].lines).toEqual([]);
+
+    const nonce = (await w.app.store.setup()).build_nonce;
+    const report = { nonce, stage: "modal", version: "v1.0.0", modal_result: "deployed", modal: { server_url: COMFY, admin_url: ADMIN, proxy_token_id: "wk", proxy_token_secret: "ws" } };
+    expect((await w.app.handle(request("POST", "/build-callback", { ...report, nonce: "wrong" }))).status).toBe(403);
+    expect((await w.app.handle(request("POST", "/build-callback", report))).status).toBe(200);
+    const state = (await api(w, "GET", "/state", cookie))[1];
+    expect(state.modal_deploy).toBeNull();
+    expect(state.gpus.find((g: any) => g.kind === "modal")).toBeTruthy();
+  });
+
+  it("a Sandbox that ends without its report shows as Modal's error", async () => {
+    const { w, cookie } = await connected();
+    await api(w, "POST", "/setup/modal", cookie);
+    w.modal.sandboxDone = true;
+    w.modal.sandboxExit = 1;
+    expect((await api(w, "GET", "/setup/modal/log", cookie))[1]).toMatchObject({ done: true });
+    const state = (await api(w, "GET", "/state", cookie))[1];
+    expect(state.modal_deploy).toBeNull();
+    expect(state.modal_error).toContain("exit 1");
+  });
+
+  it("an update redeploys Modal with the new release; the storage check doesn't", async () => {
+    const { w, cookie } = await connected();
+    await api(w, "POST", "/setup/modal", cookie);
+    const nonce = (await w.app.store.setup()).build_nonce;
+    await w.app.handle(request("POST", "/build-callback", { nonce, stage: "modal", modal_result: "deployed", modal: { server_url: COMFY, admin_url: ADMIN, proxy_token_id: "wk", proxy_token_secret: "ws" } }));
+    await api(w, "POST", "/setup/storage", cookie);
+    expect(w.modal.sandboxes).toHaveLength(1);
+    expect(await api(w, "POST", "/update", cookie)).toEqual([200, { latest: "v1.1.0", build: null }]);
+    expect(w.modal.sandboxes).toHaveLength(2);
+    expect(w.modal.sandboxes[1].definition.entrypoint_args[2]).toContain("--version 'v1.1.0'");
+    expect((await w.app.store.setup()).build_nonce).not.toBe(nonce); // a fresh one per deploy
+  });
+
+  it("a failed start of Modal's update doesn't fail the Worker's", async () => {
+    const { w, cookie } = await connected();
+    await api(w, "POST", "/setup/modal", cookie);
+    const nonce = (await w.app.store.setup()).build_nonce;
+    await w.app.handle(request("POST", "/build-callback", { nonce, stage: "modal", modal_result: "deployed", modal: { server_url: COMFY, admin_url: ADMIN, proxy_token_id: "wk", proxy_token_secret: "ws" } }));
+    w.modal.imageBuilt = false;
+    w.modal.imageFails = true;
+    expect(await w.app.scheduled()).toBe("updating v1.0.0 -> v1.1.0: done");
+    expect((await w.app.store.setup()).modal_error).toContain("Updating Modal to v1.1.0 didn't start");
+  });
+
+  it("a Worker made from a repository keeps its build", async () => {
+    const w = world();
+    const resp = await w.app.handle(request("POST", "/api/login", { token: TOKEN }));
+    const cookie = { cookie: resp.headers.get("set-cookie")!.split(";")[0] };
+    expect((await w.app.handle(request("POST", "/api/modal/connect", undefined, cookie))).status).toBe(409);
   });
 });
