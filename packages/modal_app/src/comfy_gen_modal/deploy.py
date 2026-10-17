@@ -1,8 +1,14 @@
-"""Deploy the Modal app and report how to reach it. Runs inside the Workers Build (the Worker's
-deploy/deploy.py calls it when the setup page stored a Modal token), where MODAL_TOKEN_ID and
-MODAL_TOKEN_SECRET are build secrets:
+"""Deploy the Modal app and report how to reach it, with MODAL_TOKEN_ID and MODAL_TOKEN_SECRET in
+the environment. Two callers:
+
+- the Workers Build (a Worker made from a repository; its deploy/deploy.py reads the file):
 
     uv run --package comfy-gen-modal --no-dev python -m comfy_gen_modal.deploy --out modal.json
+
+- a Modal Sandbox started by a Worker made by the setup site (design §6), which posts the same
+  report to the Worker's /build-callback itself:
+
+    … python -m comfy_gen_modal.deploy --callback https://<worker>/build-callback --nonce <n> --version vX.Y.Z
 
 On failure it writes {"error": <Modal's reason>} instead, for the setup page to show ("Please add a
 payment method to use L4 GPU functions." on an account with no card), and exits 1.
@@ -18,6 +24,9 @@ import json
 import re
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 
 
 def modal_error(output: str) -> str:
@@ -56,16 +65,58 @@ def proxy_token(stored: dict | None, create) -> tuple[dict, bool]:
     return {"id": t.token_id, "secret": t.token_secret}, True
 
 
+def report(result: dict, nonce: str, version: str) -> dict:
+    """The Worker's build-callback body for *result* (deploy/deploy.py sends the same keys)."""
+    body = {"nonce": nonce, "stage": "modal", "version": version}
+    if "error" in result:
+        return {**body, "modal_result": "failed", "modal_error": result["error"]}
+    return {**body, "modal_result": "deployed", "modal": result}
+
+
+def post(url: str, body: dict, tries: int = 4) -> None:
+    """POST *body* to the Worker, again on a 5xx or a connection error. Its own User-Agent:
+    Cloudflare refuses urllib's default before the Worker runs."""
+    data = json.dumps(body).encode()
+    for attempt in range(tries):
+        req = urllib.request.Request(url, data=data, method="POST",
+                                     headers={"Content-Type": "application/json", "User-Agent": "comfy-gen-modal"})
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                print(f"Worker: {resp.status}", flush=True)
+                return
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or attempt == tries - 1:
+                print(f"Worker refused the report: HTTP {e.code}", flush=True)
+                return
+        except OSError as e:
+            if attempt == tries - 1:
+                print(f"Worker unreachable: {e}", flush=True)
+                return
+        time.sleep(2 ** attempt)
+
+
+def finish(result: dict, args) -> int:
+    if args.out:
+        with open(args.out, "w") as fh:
+            json.dump(result, fh)
+    if args.callback:
+        post(args.callback, report(result, args.nonce or "", args.version or ""))
+    return 1 if "error" in result else 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", required=True, help="where to write the JSON for the Worker's build callback")
+    ap.add_argument("--out", help="where to write the JSON for the build's callback")
+    ap.add_argument("--callback", help="the Worker's /build-callback, to post the report to")
+    ap.add_argument("--nonce", help="the Worker's one-time nonce for the callback")
+    ap.add_argument("--version", help="the release deployed, for the report")
     args = ap.parse_args()
+    if not args.out and not args.callback:
+        ap.error("--out or --callback")
 
     code, output = run_deploy()
     if code != 0:
-        with open(args.out, "w") as fh:
-            json.dump({"error": modal_error(output)}, fh)
-        return 1
+        return finish({"error": modal_error(output)}, args)
 
     import modal
 
@@ -81,10 +132,8 @@ def main() -> int:
         "proxy_token_id": token["id"],
         "proxy_token_secret": token["secret"],
     }
-    with open(args.out, "w") as fh:
-        json.dump(result, fh)
     print(f"Modal: {result['server_url']} (proxy token {'new' if new else 'reused'})")
-    return 0
+    return finish(result, args)
 
 
 if __name__ == "__main__":

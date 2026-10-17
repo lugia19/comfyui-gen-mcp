@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from comfy_gen_modal.deploy import modal_error, proxy_token
+from comfy_gen_modal.deploy import modal_error, post, proxy_token, report
 from comfy_gen_modal.models import needed, rel_path, validate_models, validate_pack_name
 
 MODEL = {"url": "https://huggingface.co/x/y/resolve/main/m.safetensors", "subfolder": "vae",
@@ -112,3 +112,49 @@ def test_modal_error_reads_the_error_panel():
     assert modal_error(two_lines) == "Token missing. Could not authenticate client."
     assert modal_error("building...\nsomething broke\n\n") == "something broke"
     assert modal_error("") == "modal deploy failed"
+
+
+def test_report_is_the_build_callbacks_body():
+    ok = report({"server_url": "https://s", "admin_url": "https://a", "proxy_token_id": "wk", "proxy_token_secret": "ws"}, "n1", "v2.0.0")
+    assert ok == {"nonce": "n1", "stage": "modal", "version": "v2.0.0", "modal_result": "deployed",
+                  "modal": {"server_url": "https://s", "admin_url": "https://a", "proxy_token_id": "wk", "proxy_token_secret": "ws"}}
+    bad = report({"error": "Please add a payment method"}, "n1", "v2.0.0")
+    assert bad["modal_result"] == "failed" and bad["modal_error"] == "Please add a payment method" and "modal" not in bad
+
+
+def test_post_sends_its_user_agent_and_retries_a_5xx(monkeypatch):
+    import io
+    import urllib.error
+    import urllib.request
+
+    seen = []
+
+    class Resp(io.BytesIO):
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def urlopen(req, timeout):
+        seen.append((req.full_url, req.get_header("User-agent"), req.data))
+        if len(seen) == 1:
+            raise urllib.error.HTTPError(req.full_url, 502, "bad gateway", {}, None)
+        return Resp(b"{}")
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    post("https://w.example/build-callback", {"nonce": "n"})
+    assert len(seen) == 2 and seen[1][1] == "comfy-gen-modal" and b'"nonce": "n"' in seen[1][2]
+
+    seen.clear()
+
+    def refuse(req, timeout):
+        seen.append(req)
+        raise urllib.error.HTTPError(req.full_url, 403, "bad nonce", {}, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
+    post("https://w.example/build-callback", {"nonce": "n"})
+    assert len(seen) == 1  # a 4xx isn't retried
