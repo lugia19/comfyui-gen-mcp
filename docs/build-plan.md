@@ -912,4 +912,13 @@ Asked: can Anima outpaint? Spike on Modal with raw graphs (scratchpad `outpaint/
   masks (overlap 48, feather 16, paste-back inset 32); the rest is redraw's graph and paste. LLLite
   is worth having for Turbo; rather than a second node pack on every GPU, its apply step could be
   vendored into our extension (Apache-2.0, with attribution), with the 66 MB weights in the model
-  set. It might help redraw too, which wasn't tested.
+  set.
+- **LLLite on redraw** (same spike app, Anima Turbo, today's redraw mask and paste, two seeds; with
+  LLLite at denoise 0.9 and 1.0): on a full-body sprite's hand it kept the glove and arm continuous
+  in all four runs, where today's redraw painted an orange band into the sleeve and left a floating
+  glove; on a face (smug to angry) it kept the muzzle and fur tones, which today's redraw lightened;
+  on the tavern knight's hand it drew clean fists but lost the sword at the hip in most runs (its
+  control sees the area blacked out, so it continues the surroundings, not what was inside: the
+  prompt has to name what must stay). 0.9 and 1.0 alike. About 1 s more per redraw (5.7 against 4.6 s
+  at 1 MP). At 66 MB the weights are no reason to leave it out: always for outpainting, on by
+  default for Anima's redraw, with a line in redraw's description about naming what must stay.
