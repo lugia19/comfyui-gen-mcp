@@ -1026,14 +1026,116 @@ Sandbox** in the user's account from a stock Python image, which runs `pip insta
 our release and runs the real `modal deploy` with the user's token; the Worker streams its output
 and reads its exit code. A few simple calls, not a deploy, and seconds of CPU on Modal.
 
-Blocked on: Workers gRPC reaching general availability (every user's account needs it). Also to
-solve then: Modal's JS SDK targets Node, Deno and Bun over HTTP/2, so the few calls we need (the
-token flow, create a sandbox, stream its output, wait) need an adapted or hand-written client;
-those calls are Modal's internal protocol, which checks the client version, so the surface stays
-small; the cards (R2's checkout, Modal's billing) stay manual; and existing installs, deployed
-from their repo copy, need a migration. Until then: OAuth login and the Modal token flow through
-the build, both steps toward it (the build's token flow is replaced once gRPC lands, not thrown
-away).
+**Unblocked without waiting for GA (decided 2026-10-17): our own gRPC-web proxy.** Workers gRPC is a
+closed beta. Users already run self-updating code from us, so routing Modal calls through a proxy
+we host adds no new trust. The proxy:
+
+- is stock Envoy (`grpc_web` filter, no code of ours) on Google Cloud Run;
+- forwards only to `api.modal.com:443`, and only the methods setup needs (403 for anything else);
+- is rate-limited, capped at two instances, keeps no state and writes no access log;
+- is retired when Workers gRPC is GA: the same calls then go direct.
+
+Decided with it:
+
+- **A setup Worker on our account,** stateless, does the Cloudflare side: OAuth, creating the
+  user's Worker, R2. The browser can't call `api.cloudflare.com` (no CORS), and the user's Worker
+  doesn't exist yet at that point.
+- **The user's Worker then drives Modal:** the token flow, and the deploy from a Sandbox.
+- **The Modal token is kept twice,** so either update path works:
+  - as a Modal Secret in the user's workspace;
+  - in the user's Worker.
+- **Existing installs migrate;** the GitHub route becomes legacy.
+- **Releases ship the built Worker bundle** for the self-upload.
+- **The Modal client version** is read from npm (`modal`, libmodal) and refreshed once on a
+  version error.
+
+### The spike (2026-10-17): every piece proven on the test accounts
+
+**Proxy.**
+- Envoy 1.39.4 on Cloud Run (us-east4, `--timeout 3600 --max-instances 2`), setup cost about
+  nothing: a few hundred vCPU-seconds against a 180,000-second free tier.
+- A disallowed method answers 403 in 0.35 s; an allowed call reaches Modal in 0.39 s.
+- Server streams arrive unbuffered (a log line 0.1 s after it was printed).
+- Modal itself ends one log call after 55 s, not Cloud Run; the client resumes from
+  `last_entry_id`.
+- GCP gotchas, for whoever sets this up again:
+  - a billing account allows only a few linked projects;
+  - re-linking a project that's already linked reports that quota as the error;
+  - a budget must be in the billing account's own currency (EUR here), or the API answers only
+    "invalid argument".
+
+**Modal over gRPC-web (`fetch` only, so it runs in a Worker).**
+- protobuf-es codecs generated from `modal_proto/api.proto`, plus a ~150-line transport:
+  5-byte frames, the trailer frame or trailers-only headers, unary and server streams.
+- Headers as libmodal sends them:
+  - `x-modal-client-type` 8 (LIBMODAL_JS), `x-modal-client-version` 1.0.0;
+  - `x-modal-libmodal-version` from npm;
+  - the token id and secret, plus `x-modal-auth-token` from `AuthTokenGet`.
+- **Token flow:** `TokenFlowCreate` needs no credentials, and works headless (no localhost
+  callback). The person approves on modal.com, and `TokenFlowWait` (40 s polls) returns the token:
+  78 s including the approval.
+- **Deploy from a Sandbox:**
+  1. `SecretGetOrCreate` holds the token (`MODAL_TOKEN_ID/SECRET`);
+  2. `AppGetOrCreate` makes the app `comfy-gen-setup`;
+  3. `ImageGetOrCreate` + `ImageJoinStreaming` build `python:3.12-slim` + `pip install modal`;
+  4. `SandboxCreate` (network open, the Secret attached) runs
+     `bash -c '… > app.py && modal deploy app.py'`;
+  5. `SandboxGetLogs` streams the output, and `SandboxWait` returns the exit code.
+
+  First run 28 s, with the image built (13.6 s); later runs about 6 s, through Cloud Run 7.6 s.
+- **Updates, both ways proven:**
+  - (1) a function of the app runs `modal deploy` on its own app. Inside Modal the CLI ignores the
+    token env vars and uses the container's credentials, so this way needs no stored token;
+  - (2) the Worker starts a fresh Sandbox, as for the first deploy.
+- **Modal deploys are rolling:** a warm container of the previous version keeps answering until
+  it idles out, as with today's updates.
+- **In a Worker:**
+  - the client adds 86–103 KB gzipped;
+  - CPU per request (Workers Logs `cpuTimeMs`, 12 calls each): the unauthenticated token flow
+    call median 1 ms; three authenticated calls (auth, app, image) median 9 ms, max 17. The max is
+    a fresh isolate decoding the whole proto descriptor. The milestone can trim the codecs to the
+    ~15 messages used, and keep the auth token across calls.
+
+**Cloudflare OAuth.**
+- **Endpoints,** from `dash.cloudflare.com/.well-known/openid-configuration`: authorize
+  `/oauth2/auth`, token `/oauth2/token` (PKCE S256, `token_endpoint_auth_method: none`, so no
+  secret), revoke `/oauth2/revoke`.
+- **Clients are created by API** (`POST /accounts/{id}/oauth_clients`, needs "OAuth Client
+  Write"). Scope ids come from `GET /oauth/scopes`; `offline_access` is added for a
+  `refresh_token` grant.
+- **The scopes we need:** `workers-scripts.write`, `workers-r2.write`, `account-settings.read`.
+- **Tokens:**
+  - access tokens last 1 hour;
+  - a refresh takes about 0.45 s and rotates the refresh token, so the Worker must store each new
+    one; the refresh token's own lifetime isn't stated;
+  - the token reads accounts, scripts, R2 and the workers.dev subdomain;
+  - `/user` and the Builds API are refused (not in scope; we drop Builds).
+- **Going public is permanent and needs domain verification:** a DNS TXT record
+  `cloudflare_oauth_client_publisher=…` on the client URI's host, verified within two days.
+
+**Creating the Worker by API, with only the OAuth token** (what wrangler does, by hand). The steps:
+1. create the R2 bucket;
+2. open a static-assets upload session (manifest of path → hash and size, the hash as wrangler
+   computes it), and upload only the files it asks for;
+3. upload the script (multipart: metadata plus the bundled module) with bindings, Durable Object
+   migrations and the assets config, `run_worker_first` included;
+4. set the cron;
+5. enable workers.dev.
+
+Results:
+- Our real bundle (215 KB, 57 KB gzipped) was serving its settings page in 7.9 s, with the
+  Durable Objects answering.
+- **Self-update** is the same calls: a new version went up in 3.5 s with a freshly refreshed token.
+  Unchanged assets are skipped (0 to upload); the migration is sent as `old_tag` = `new_tag`.
+- Embedding `web/dist` in the script wasn't needed: the assets upload is straightforward.
+
+**Still for the milestone:**
+- the real `comfy-gen` deploy and its nonce callback (not run, so as not to replace the live test
+  app);
+- the setup site's UI and the migration of existing installs;
+- the custom domain for the setup Worker, the proxy and the public OAuth client.
+
+R2's checkout and Modal's billing stay manual.
 
 ## 7. Updates
 

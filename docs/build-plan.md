@@ -1069,3 +1069,30 @@ after):
 - **Corners:** all 16 new tavern corners and both new bust corners are clean, with no signature;
   the bust's white corners read 253 to 255.
 
+## Spike: a setup without a repository (2026-10-17)
+
+- **Decided:** our own gRPC-web proxy for Modal, since Workers gRPC is a closed beta. Stock Envoy
+  on Cloud Run, locked to `api.modal.com` and an allowlist of methods. With it:
+  - a stateless setup Worker on our account for Cloudflare OAuth and creating the user's Worker;
+  - the user's Worker drives Modal: the token flow, and the deploy from a Sandbox;
+  - the Modal token is kept both in a Modal Secret and in the Worker;
+  - existing installs migrate;
+  - releases ship the built Worker bundle.
+- **Proven end to end on the test accounts** (details in design §6, "The spike"):
+  - the proxy: 403 outside the allowlist, unbuffered streams;
+  - Modal's token flow, headless;
+  - deploy from a Sandbox: 28 s first, about 6 s after;
+  - both update paths: the app redeploying itself, and a Worker-started Sandbox;
+  - the client in a Worker: 86–103 KB gzipped, 1–9 ms CPU median;
+  - Cloudflare OAuth with PKCE: 1 h access tokens, refresh rotating;
+  - a Worker created from our real bundle through the API with only the OAuth token (R2, assets,
+    Durable Objects with migrations, cron, workers.dev): 7.9 s;
+  - a self-update: 3.5 s.
+- **Spike code:** stayed in the scratchpad.
+- **Torn down after:**
+  - the spike Workers, the R2 bucket and the OAuth client;
+  - the throwaway Modal app and Secret.
+- **Kept:** Cloud Run, for the milestone.
+- **Next:** plan the milestone (setup Worker and site, the Worker's Modal client and setup steps,
+  release bundle, migration).
+
