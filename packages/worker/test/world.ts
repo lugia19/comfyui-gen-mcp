@@ -1,10 +1,11 @@
 // Test fixtures: the Worker's App over fake storage, a fake network and a controllable clock.
 
-import { md5, utf8 } from "@comfy-gen/core";
+import { md5, utf8, type cfapi } from "@comfy-gen/core";
 import { FakeComfy, png } from "../../core/test/fake-comfy.ts";
 import { App } from "../src/app.ts";
 import type { RelayReply, RelayRequest, RelayStatus, RelayStub } from "../src/relay.ts";
-import type { Bucket, MultipartUpload, StoredObject, StateStorage } from "../src/platform.ts";
+import * as oauth from "../src/oauth.ts";
+import type { Bucket, Fetch, MultipartUpload, StoredObject, StateStorage } from "../src/platform.ts";
 import { clearCache } from "../src/store.ts";
 
 export const COMFY = "https://comfy.example";
@@ -21,6 +22,16 @@ export class FakeStorage implements StateStorage {
   async put(key: string, value: string) {
     this.writes += 1;
     this.data.set(key, value);
+  }
+  // The State object's OAuth calls (index.ts), over the world's network and clock.
+  fetch!: Fetch;
+  now!: () => number;
+  private lock = new oauth.Lock();
+  cfAccessToken(clientId: string, force = false) {
+    return this.lock.run(() => oauth.accessToken(this, this.fetch, clientId, this.now(), force));
+  }
+  cfSetTokens(tokens: cfapi.OAuthTokens) {
+    return this.lock.run(() => oauth.setTokens(this, tokens, this.now()));
   }
 }
 
@@ -137,6 +148,8 @@ export class FakeNet {
   adminUp = true;
   loras: Record<string, number> = {};
   fetches: { name: string; url: string; size: number }[] = []; // LoRAs the Volume was told to copy from R2
+  /** Answers first when it returns a response (a test's own fake service). */
+  intercept: ((url: string, init: RequestInit) => Promise<Response | null>) | null = null;
 
   constructor(comfy: FakeComfy) {
     this.comfy = comfy;
@@ -146,6 +159,8 @@ export class FakeNet {
     const method = init.method ?? "GET";
     const headers = { ...((init.headers as Record<string, string>) ?? {}) };
     this.calls.push([method, url, headers]);
+    const own = await this.intercept?.(url, init);
+    if (own) return own;
     const u = new URL(url);
     if (url.startsWith(COMFY)) {
       const params = u.search ? Object.fromEntries(u.searchParams) : undefined;
@@ -272,6 +287,8 @@ export function world({ noStorage = false } = {}) {
   const storage = new FakeStorage();
   const net = new FakeNet(comfy);
   const clock = new Clock();
+  storage.fetch = net.fetch;
+  storage.now = clock.now;
   // One Relay object per PC, as the Durable Object namespace gives them: pc is the first PC's.
   const relays = new Map<string, FakeRelay>();
   const relay = (id: string) => relays.get(id) ?? (relays.set(id, new FakeRelay()), relays.get(id)!);

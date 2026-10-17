@@ -6,11 +6,13 @@
 
 import {
   Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
-  builtinPacks, isModelSet, wantedModelSets, fromHex, fromUtf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
+  builtinPacks, cfapi, isModelSet, wantedModelSets, fromHex, fromUtf8, utf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
   withoutLora, tagLooseLoras, wantedLoras, strengthIn, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, BG_MODELS, HIDDEN_TOOLS, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
+import * as oauth from "./oauth.ts";
+import * as selfupdate from "./selfupdate.ts";
 import { newPcId, newPcName, splitToken, DEFAULT_KEEP_WARM, PC_KEEP_WARM, type Gpu } from "./gpus.ts";
 import { offlineMessage, pausedMessage, PcHooks, storedImageId, WorkerHooks } from "./hooks.ts";
 import * as loras from "./loras.ts";
@@ -233,9 +235,92 @@ export class App {
   }
 
   async scheduled(): Promise<string> {
-    const result = await updates.check(this.fetch, this.store, this.version);
+    const s = await this.store.secrets();
+    const result = this.oauthPath(s) ? await this.checkSelf(s) : await updates.check(this.fetch, this.store, this.version);
     console.log(`update check: ${result}`);
     return result;
+  }
+
+  // ── Updating itself through the Cloudflare API (installs made by the setup Worker, design §6) ──
+
+  /** Created by the setup Worker and claimed: it updates itself with its OAuth token, no builds. */
+  private oauthPath(s: Secrets): boolean {
+    return Boolean(this.p.env.CF_OAUTH_CLIENT && s.cf_claimed);
+  }
+
+  /** The OAuth access token, refreshed in the State object when due. */
+  private cfToken(force = false): Promise<oauth.TokenAnswer> {
+    return this.p.storage.cfAccessToken(this.p.env.CF_OAUTH_CLIENT!, force);
+  }
+
+  /** Upload *tag* as this Worker's new version (R2 bound when *bucket*). Throws on failure, with
+   * a message for the page. */
+  private async uploadSelf(s: Secrets, tag: string, bucket: boolean): Promise<{ uploaded: number }> {
+    const t = await this.cfToken();
+    if ("lost" in t) throw new selfupdate.UpdateError(`Reconnect Cloudflare first (${t.lost}).`);
+    return selfupdate.selfUpdate(this.fetch, {
+      token: t.token, account: s.cf_account_id, script: s.cf_script, tag, env: this.p.env,
+      bucket: bucket ? cfapi.bucketName(s.cf_script) : null,
+    });
+  }
+
+  /** The daily check on the OAuth path. Refreshing the token daily also keeps the grant from ever
+   * sitting idle long enough to expire, whatever Cloudflare's refresh-token lifetime is. */
+  private async checkSelf(s: Secrets): Promise<string> {
+    const t = await this.cfToken();
+    if ("lost" in t) return `Cloudflare connection lost: ${t.lost}`;
+    if (!updates.parseVersion(this.version)) return `development build (${this.version}): no automatic updates`;
+    const latest = await selfupdate.latestTag(this.fetch, this.p.env);
+    if (!updates.isNewer(latest, this.version)) return latest ? `up to date (${this.version})` : "no release found";
+    const setup = await this.store.setup();
+    if (setup.update_tried === latest) return `already tried ${latest}`;
+    await this.fresh.updateSetup({ update_tried: latest });
+    try {
+      await this.uploadSelf(s, latest!, Boolean(this.p.bucket));
+    } catch (e) {
+      if (!(e instanceof selfupdate.UpdateError || e instanceof cfapi.CloudflareError)) throw e;
+      await this.fresh.updateSetup({ update_error: e.message });
+      return `could not update to ${latest}: ${e.message}`;
+    }
+    await this.fresh.updateSetup({ update_error: null });
+    return `updated ${this.version} -> ${latest}`;
+  }
+
+  /**
+   * The setup Worker hands a Worker it created over (design §6): {claim, tokens, account_id, script},
+   * checked against the CLAIM secret it set at upload, once. Or a reconnect after the connection
+   * was lost: {reconnect, tokens}, with the one-time code this page made. Answers a login ticket
+   * for the browser it sends here (#ticket=…).
+   */
+  private async claim(req: Request): Promise<Response> {
+    const b = await bodyJson(req);
+    const t = b.tokens ?? {};
+    if (typeof t.access_token !== "string" || typeof t.refresh_token !== "string" || typeof t.expires_in !== "number") return error(400, "tokens missing");
+    const now = this.p.now();
+    const s = await this.fresh.secrets();
+    if (typeof b.reconnect === "string") {
+      const r = (await this.fresh.setup()).reconnect;
+      if (!r || r.exp < now || !safeEqual(await cfapi.sha256Hex(utf8(b.reconnect)), r.hash)) return error(403, "That reconnect link has expired: start again from the Worker's page.");
+      await this.fresh.updateSetup({ reconnect: null });
+    } else {
+      const claim = this.p.env.CLAIM;
+      if (!claim || s.cf_claimed || !safeEqual(String(b.claim ?? ""), claim)) return error(403, "This Worker is already set up, or the claim is wrong.");
+      if (typeof b.account_id !== "string" || typeof b.script !== "string") return error(400, "account_id and script missing");
+      await this.fresh.updateSecrets({ cf_claimed: now, cf_account_id: b.account_id, cf_script: b.script });
+    }
+    await this.p.storage.cfSetTokens(t);
+    const ticket = tokenUrlsafe(24);
+    await this.fresh.updateSetup({ login_ticket: { hash: await cfapi.sha256Hex(utf8(ticket)), exp: now + 600 } });
+    return json({ ticket });
+  }
+
+  /** A login ticket from claim(): one use, ten minutes. */
+  private async ticketLogin(ticket: string): Promise<Response> {
+    const lt = (await this.fresh.setup()).login_ticket;
+    if (!lt || lt.exp < this.p.now() || !safeEqual(await cfapi.sha256Hex(utf8(ticket)), lt.hash)) return error(401, "That link has expired: log in with your password.");
+    await this.fresh.updateSetup({ login_ticket: null });
+    const session = await auth.makeSession((await this.fresh.secrets()).cookie_key, this.p.now());
+    return json({ ok: true }, 200, { "Set-Cookie": auth.cookieHeader(session) });
   }
 
   // ── GPUs ──────────────────────────────────────────────────────────
@@ -554,6 +639,7 @@ export class App {
 
   private async api(req: Request, url: URL, sub: string): Promise<Response> {
     if (sub === "/login" && req.method === "POST") return this.login(req, url);
+    if (sub === "/claim" && req.method === "POST") return this.claim(req);
     // The login screen asks which way in to offer: a password once one is set, else a token.
     if (sub === "/login" && req.method === "GET") return json({ password: Boolean((await this.fresh.secrets()).password) });
     const s = await this.fresh.secrets();
@@ -579,6 +665,7 @@ export class App {
       await this.fresh.updateSetup({ mode });
       return json({ mode });
     }
+    if (sub === "/setup/storage" && req.method === "POST" && this.oauthPath(s)) return this.storageSelf(s);
     if (sub === "/setup/storage" && req.method === "POST") {
       // Check again: a rebuild, which binds the bucket once R2 is on (deploy.py checks).
       if (!s.cf_token || !s.cf_trigger) return error(400, "Log in again with a Cloudflare token: this Worker has none to start builds with.");
@@ -595,7 +682,15 @@ export class App {
       await this.fresh.updateSecrets(on && !s.image_key ? { encrypt_images: true, image_key: tokenHex(32) } : { encrypt_images: on });
       return json({ encrypt_images: on });
     }
-    if (sub === "/update") return this.update(req, s);
+    if (sub === "/update") return this.oauthPath(s) ? this.updateSelf(req, s) : this.update(req, s);
+    if (sub === "/cloudflare/reconnect" && req.method === "POST") {
+      // Back from the setup Worker's sign-in with new tokens (claim(), {reconnect}).
+      if (!this.p.env.COMFY_GEN_SETUP) return error(400, "This Worker wasn't made by the setup site: log in with a Cloudflare token instead.");
+      const code = tokenUrlsafe(24);
+      await this.fresh.updateSetup({ reconnect: { hash: await cfapi.sha256Hex(utf8(code)), exp: this.p.now() + 900 } });
+      const q = new URLSearchParams({ worker: url.origin, code });
+      return json({ url: `${this.p.env.COMFY_GEN_SETUP.replace(/\/$/, "")}/reconnect?${q}` });
+    }
     if (sub === "/setup/rotate-connector" && req.method === "POST") {
       await this.fresh.updateSecrets({ mcp_secret: tokenUrlsafe(24) });
       await this.fresh.updateSetup({ claude_seen: null }); // the new URL has to be added again
@@ -619,7 +714,10 @@ export class App {
     const setup = await this.fresh.setup();
     return {
       version: this.version,
-      cloudflare: s.cf_token ? { account_id: s.cf_account_id ?? null, script: s.cf_script ?? null } : null,
+      cloudflare: s.cf_token || s.cf_claimed ? { account_id: s.cf_account_id ?? null, script: s.cf_script ?? null } : null,
+      // How it updates: "oauth" (it uploads itself), "build" (Workers Builds, from a repository), or null.
+      update_path: this.oauthPath(s) ? "oauth" : s.cf_trigger ? "build" : null,
+      cf_lost: this.oauthPath(s) ? await oauth.isLost(this.p.storage) : null,
       gpus: await this.gpuStates(url),
       storage: Boolean(this.p.bucket),
       encrypt_images: Boolean(s.encrypt_images),
@@ -669,6 +767,47 @@ export class App {
     if (!can) return error(400, "Log in again with a Cloudflare token: this Worker has none to start builds with.");
     if (!latest) return error(502, "Could not find the latest release on GitHub. Try again in a minute.");
     return json({ build: await updates.startUpdate(this.fetch, this.fresh, latest), latest });
+  }
+
+  /** The settings page's update on the OAuth path: GET as update(); POST uploads the latest now
+   * and answers when it's live (about 3.5 s), so the page just reloads. */
+  private async updateSelf(req: Request, s: Secrets): Promise<Response> {
+    const setup = await this.fresh.setup();
+    const [latest, seen] = updates.steadyLatest(await selfupdate.latestTag(this.fetch, this.p.env), setup.latest_seen ?? null, this.p.now());
+    if (seen) await this.fresh.updateSetup({ latest_seen: seen });
+    const dev = !updates.parseVersion(this.version);
+    if (req.method === "GET") {
+      const lost = await oauth.isLost(this.p.storage);
+      return json({ current: this.version, latest, dev, newer: !dev && updates.isNewer(latest, this.version), can: !lost, path: "oauth", lost, error: setup.update_error ?? null });
+    }
+    if (req.method !== "POST") return error(405, "GET or POST");
+    if (!latest) return error(502, "Could not find the latest release. Try again in a minute.");
+    try {
+      const r = await this.uploadSelf(s, latest, Boolean(this.p.bucket));
+      await this.fresh.updateSetup({ update_tried: latest, update_error: null });
+      return json({ updated: latest, uploaded: r.uploaded });
+    } catch (e) {
+      if (!(e instanceof selfupdate.UpdateError || e instanceof cfapi.CloudflareError)) throw e;
+      return error(502, e.message);
+    }
+  }
+
+  /** "Check now" for storage on the OAuth path: make the bucket (it works once R2 is on), set its
+   * lifecycle as deploy.py did, and upload this same version again with the R2 binding. */
+  private async storageSelf(s: Secrets): Promise<Response> {
+    const t = await this.cfToken();
+    if ("lost" in t) return error(409, `Reconnect Cloudflare first (${t.lost}).`);
+    const bucket = cfapi.bucketName(s.cf_script);
+    try {
+      const made = await cfapi.createBucket(this.fetch, t.token, s.cf_account_id, bucket);
+      if (made === "off") return json({ storage: false });
+      await cfapi.setLifecycle(this.fetch, t.token, s.cf_account_id, bucket);
+      await this.uploadSelf(s, this.version, true);
+    } catch (e) {
+      if (!(e instanceof selfupdate.UpdateError || e instanceof cfapi.CloudflareError)) throw e;
+      return error(502, e.message);
+    }
+    return json({ storage: true });
   }
 
   /**
@@ -755,6 +894,7 @@ export class App {
   private async login(req: Request, url: URL): Promise<Response> {
     const body = await bodyJson(req);
     if (typeof body.password === "string") return this.passwordLogin(body.password);
+    if (typeof body.ticket === "string") return this.ticketLogin(body.ticket);
     const token = String(body.token ?? "").trim();
     if (!token) return error(400, "paste a token");
     // Under wrangler dev the host is 127.0.0.1; DEV_WORKER_HOST names a deployed Worker instead.

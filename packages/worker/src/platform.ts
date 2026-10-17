@@ -1,6 +1,8 @@
 // What the app needs from its host. index.ts builds the real one over Cloudflare's runtime; tests
 // build fakes. Everything else in src/ is plain TypeScript over these, tested in Node.
 
+import type { cfapi } from "@comfy-gen/core";
+import type { TokenAnswer } from "./oauth.ts";
 import type { Fetch } from "@comfy-gen/core";
 import type { RelayStub } from "./relay.ts";
 
@@ -10,6 +12,9 @@ export type { Fetch };
 export interface StateStorage {
   get(key: string): Promise<string | null>;
   put(key: string, value: string): Promise<void>;
+  /** Cloudflare OAuth (oauth.ts): only changed inside the State object, one call at a time. */
+  cfAccessToken(clientId: string, force?: boolean): Promise<TokenAnswer>;
+  cfSetTokens(tokens: cfapi.OAuthTokens): Promise<void>;
 }
 
 /** The part of an R2 object the app uses. */

@@ -2,8 +2,10 @@
 // declares the Durable Objects. Keep this file thin; logic belongs in app.ts.
 
 import { DurableObject } from "cloudflare:workers";
+import { cfapi } from "@comfy-gen/core";
 import { App } from "./app.ts";
-import type { Bucket, StateStorage } from "./platform.ts";
+import * as oauth from "./oauth.ts";
+import { withUserAgent, type Bucket, type StateStorage } from "./platform.ts";
 import { CONTROL_TIMEOUT_S, liveSocket, RelayCore, type RelayReply, type RelayRequest, type RelayStatus, type RelayStub } from "./relay.ts";
 
 export interface Env {
@@ -11,8 +13,14 @@ export interface Env {
   RELAY: DurableObjectNamespace<Relay>;
   STORE?: R2Bucket; // bound once R2 is turned on in the account (deploy.py checks at each build)
   VERSION?: string;
-  SETUP_MODE?: string; // the setup site's answer, from the template the Deploy button copied
+  SETUP_MODE?: string; // the setup site's answer (the template the Deploy button copied, or the setup Worker)
   DEV_WORKER_HOST?: string;
+  // Set by the setup Worker on Workers it creates (design §6): the OAuth client it signs in with,
+  // its own address (reconnecting), the one-time claim secret, and (development) a bundle base.
+  CF_OAUTH_CLIENT?: string;
+  COMFY_GEN_SETUP?: string;
+  CLAIM?: string;
+  COMFY_GEN_RELEASES?: string;
   ASSETS?: Fetcher; // the settings app (web/dist)
 }
 
@@ -46,6 +54,15 @@ class StateStub implements StateStorage {
   put(key: string, value: string): Promise<void> {
     return this.call((s) => s.write(key, value));
   }
+
+  cfAccessToken(clientId: string, force = false): Promise<oauth.TokenAnswer> {
+    // The RPC type of a union is a union of promises; it is one promise of a union.
+    return this.call((s) => s.cfAccessToken(clientId, force) as unknown as Promise<oauth.TokenAnswer>);
+  }
+
+  cfSetTokens(tokens: cfapi.OAuthTokens): Promise<void> {
+    return this.call((s) => s.cfSetTokens(tokens));
+  }
 }
 
 function app(env: Env): App {
@@ -56,7 +73,10 @@ function app(env: Env): App {
     fetch: (url, init) => fetch(url, init),
     assets: env.ASSETS ? (req) => env.ASSETS!.fetch(req) : undefined,
     now: () => Date.now() / 1000,
-    env: { VERSION: env.VERSION, DEV_WORKER_HOST: env.DEV_WORKER_HOST, SETUP_MODE: env.SETUP_MODE },
+    env: {
+      VERSION: env.VERSION, DEV_WORKER_HOST: env.DEV_WORKER_HOST, SETUP_MODE: env.SETUP_MODE,
+      CF_OAUTH_CLIENT: env.CF_OAUTH_CLIENT, COMFY_GEN_SETUP: env.COMFY_GEN_SETUP, CLAIM: env.CLAIM, COMFY_GEN_RELEASES: env.COMFY_GEN_RELEASES,
+    },
   });
 }
 
@@ -88,6 +108,19 @@ export class State extends DurableObject<Env> {
 
   async write(key: string, value: string): Promise<void> {
     await this.ctx.storage.put(key, value);
+  }
+
+  // Cloudflare OAuth: here so refreshes run one at a time (each one rotates the refresh token).
+  private oauthLock = new oauth.Lock();
+  private kv: oauth.KeyValue = { get: (k) => this.read(k), put: (k, v) => this.write(k, v) };
+
+  cfAccessToken(clientId: string, force = false): Promise<oauth.TokenAnswer> {
+    const fetchUA = withUserAgent((url, init) => fetch(url, init));
+    return this.oauthLock.run(() => oauth.accessToken(this.kv, fetchUA, clientId, Date.now() / 1000, force));
+  }
+
+  cfSetTokens(tokens: cfapi.OAuthTokens): Promise<void> {
+    return this.oauthLock.run(() => oauth.setTokens(this.kv, tokens, Date.now() / 1000));
   }
 }
 
