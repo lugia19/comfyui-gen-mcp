@@ -9,7 +9,7 @@
   "workers_dev": false,
   "routes": [{ "pattern": "comfy-setup.lugia19.com", "custom_domain": true }],
   "vars": {
-    "CF_OAUTH_CLIENT": "",
+    "CF_OAUTH_CLIENT": "bcd36bc3b38367b7510c0b2171855c31",
     // Development: Workers created from this site's /dev bundles (built with build-dev.mjs) instead
     // of GitHub's releases. Empty for the real thing.
     "COMFY_GEN_RELEASES": ""
