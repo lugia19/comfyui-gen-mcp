@@ -1137,6 +1137,67 @@ Results:
 
 R2's checkout and Modal's billing stay manual.
 
+### Setup without a repository: the Cloudflare side (Phase 1, built 2026-10-17)
+
+The milestone has four phases, with no numbered release until the first three are done:
+1. **the setup Worker and the Worker updating itself** (this section);
+2. **Modal through the proxy:** the token flow, the deploy from a Sandbox, and `grpc.lugia19.com`
+   as a pass-through Worker to Cloud Run;
+3. **migrating existing installs:** Connect Cloudflare, plus `workers-ci.write` so the Worker can
+   delete its old build trigger; the GitHub route becomes legacy;
+4. **later:** the OAuth login replaces the password.
+
+**The setup Worker** (`packages/setup`, `comfy-setup.lugia19.com`, on our account) serves the site
+(`site/`; GitHub Pages keeps publishing `site/guide/`, which Workers load their walkthroughs from,
+and redirects its front page). The steps are use → where → accounts (no GitHub) → **Connect
+Cloudflare** → **Create** (account, Worker name, and a workers.dev subdomain if the account has
+none) → **Open**. It is stateless and stores nothing:
+- `/oauth/start` puts the PKCE verifier and state in a cookie sealed with AES-GCM under
+  `COOKIE_KEY` (ten minutes); `/oauth/callback` checks the state and exchanges the code; the
+  tokens wait in another sealed cookie (50 minutes, the access token lasting an hour) until
+  creation.
+- `POST /api/create` (about 8 s, mostly waiting on the API) refuses a name the account already
+  uses, then: the bucket (R2 off, error 10042, is fine: no binding yet), its lifecycle, the
+  latest release uploaded with a fresh one-time `CLAIM` secret and the vars below, the cron, and
+  workers.dev. It then hands the tokens to the new Worker's `/api/claim` (retried for up to 30 s
+  while the new address still answers 404), which answers a login ticket, and the browser opens
+  `<worker>#ticket=…`. The tokens cookie is cleared.
+- The vars it sets, which every later version carries (`releases.WORKER_VARS`): `SETUP_MODE`,
+  `CF_OAUTH_CLIENT`, `COMFY_GEN_SETUP` (its own address) and, in development, `COMFY_GEN_RELEASES`.
+- `/reconnect?worker=…&code=…` signs in again for a Worker whose connection was lost, and hands
+  the new tokens over only if that workers.dev address is a Worker in an account the sign-in
+  reaches: a link can name any address, and the tokens must only reach the user's own Worker. The
+  Worker checks the account too, and its one-time code (15 minutes).
+- `/privacy` says what it does with the access.
+
+**Releases ship the Worker as a bundle** (`packages/worker/build-bundle.mjs`, run by
+`release.yml`): `worker-bundle.js` (wrangler's own bundling, `deploy --dry-run`),
+`worker-assets.json` (the settings app, `{hash: base64}`, hashed as wrangler does) and
+`worker-manifest.json` (module hash, bindings, migrations, assets config and files, crons, read
+from `wrangler.jsonc`). Core `releases.ts` loads one (checking the module's hash) and uploads it as
+a version (`cfapi.ts`): only the static files Cloudflare lacks, then the script with
+`keep_bindings: ["secret_text"]` and the migrations after the script's current tag. In development
+the setup Worker serves bundles built from the branch (`packages/setup/build-dev.mjs`, plain
+versions past the real releases) at `/dev/<tag>/` with a `latest.txt`, and Workers it creates use
+that base.
+
+**The user's Worker** (`App`):
+- **Claim:** `/api/claim` takes `{claim, tokens, account_id, script}` once, checked against
+  `CLAIM` (`cf_claimed` in the secrets), or `{reconnect, tokens, account_id}`. It answers a
+  one-use login ticket (ten minutes). One-use codes are kept as SHA-256 hashes in the setup state.
+  The password step follows, as before.
+- **OAuth tokens** live in the State object (`cf_oauth`) and are only touched there, one call at
+  a time (`oauth.Lock`): each refresh rotates the refresh token, so the new pair is stored before
+  the access token is used. The daily cron refreshes even with nothing to update, so the grant
+  never sits idle. `invalid_grant` marks the connection lost (`/api/state` `cf_lost`), and the
+  page shows **Reconnect Cloudflare**.
+- **Updates go through one `updates.Updater`:** a Workers Build (made from a repository) or an
+  upload of itself (`App.uploadSelf`). The daily check, Update now and the storage check use it
+  alike. The upload makes sure the bucket exists first, so R2 binds with the next upload once it
+  is on, as `deploy.py` does at each build; the storage check is an upload of the same version.
+- **A Cloudflare token still logs in** (the way back when the password is forgotten): it only
+  proves the token sees this Worker, and isn't kept.
+
 ## 7. Updates
 
 - **Worker and Modal app:** the Worker's cron checks the latest GitHub release against its own
@@ -1155,6 +1216,10 @@ R2's checkout and Modal's billing stay manual.
   the button again (2026-10-13). The Worker therefore keeps offering a release it has seen for an
   hour (`latest_seen` in the setup state, `updates.steadyLatest`), even when a later answer is
   older.
+- **A Worker made by the setup Worker** uploads the release itself instead (§6, "Setup without a
+  repository"): Update now answers once the new version is live (seconds), and the header offers
+  **Reload for vX**. `GET /api/update` answers both paths in one shape: `path`, `blocked` (why it
+  can't update: no token, connection lost) and `failed` (the last attempt's reason).
 - **Agent:** the launcher's shim loads the latest release's bundle, checking daily while
   the agent runs, and the agent restarts into a new one when idle (§2). The launcher changes only
   with a new Node; it is downloaded again by hand.
@@ -1178,6 +1243,10 @@ R2's checkout and Modal's billing stay manual.
 | Storage link | Modal, the agent | `/store/<token>`: reads one stored object, the token signed with the HMAC key (6 h) |
 | Image id | Chats | 8 random base62 characters: the image in R2, read by `/img/<id>` and `edit_image` (a year) |
 | Image key | Worker state (`image_key`) | AES-256 key for images stored encrypted (§4); made once, never changed |
+| Cloudflare OAuth tokens | Worker state (`cf_oauth`); the setup Worker's sealed cookie until creation | A Worker made by the setup Worker updates itself and checks R2 with them (§6). Access 1 h, refresh rotating |
+| `CLAIM` | the Worker's secret binding | One-time hand-off from the setup Worker; random per Worker, never re-sent by uploads |
+| Login ticket, reconnect code | Worker state (hashed) | One use: the setup site's login link (10 min), Reconnect Cloudflare (15 min) |
+| `COOKIE_KEY` | the setup Worker's secret | Seals its sign-in cookies (AES-GCM) |
 
 **Login.** There is no setup password: the first login is a Cloudflare token. A fresh install's URL is not secret: the Worker name is the
 template's `comfy-gen` for nearly everyone, and each account's workers.dev subdomain is public in
@@ -1365,15 +1434,17 @@ request); copies in progress show on the settings page.
 | `agent` | `local` plus the relay client and the agent's settings routes; in the same bundle | Node, started by the launcher |
 | `launcher` | the agent's launcher: installs itself, Node and the login entry, supervises the agent | Go, one binary per platform |
 | `web` | Svelte settings and setup app | browser |
-| `site` | static landing page | browser |
+| `setup` | the setup Worker: Cloudflare sign-in, creating the user's Worker (§6) | Workers (our account) |
+| `site` | the setup site, served by `setup`; `guide/` also on GitHub Pages | browser |
 | `bootstrap` | what the Deploy button copies: wrangler config and `package.json` with the deploy stub | Workers Builds |
 
 `core` exports its TypeScript source directly (no build step): wrangler bundles it into the Worker,
 and the MCPB and agent bundle it with esbuild (`packages/mcpb/build.mjs` builds the one bundle and
 the shim the launcher embeds).
 
-A release is six files: `deploy.sh` and `comfy-gen.mjs`, which installs download on their own,
-and the `.mcpb` and three launchers, which people download; the notes open with a download table
+A release is ten files: `deploy.sh`, `comfy-gen.mjs`, the tray helpers' archive and the Worker
+bundle's three files (§6), which installs download on their own, and the `.mcpb` and three
+launchers, which people download; the notes open with a download table
 (`.github/release-notes.md`). `web` stays outside the workspaces with its own lockfile,
 and its built `dist` is committed so deploys need no web build.
 

@@ -1096,3 +1096,25 @@ after):
 - **Next:** plan the milestone (setup Worker and site, the Worker's Modal client and setup steps,
   release bundle, migration).
 
+
+## Phase 1: setup without a repository, the Cloudflare side (2026-10-17)
+
+Design §6, "Setup without a repository". No numbered release until Phases 1 to 3 are done.
+
+- **Core:** `cfapi.ts` (the Cloudflare API calls wrangler makes, and OAuth with PKCE) and
+  `releases.ts` (the latest release, loading a Worker bundle, uploading it as a version).
+- **Release:** `packages/worker/build-bundle.mjs` makes `worker-bundle.js`, `worker-assets.json`
+  and `worker-manifest.json`; `release.yml` ships them (ten files).
+- **The setup Worker** (`packages/setup`): sign-in, create, reconnect; the site's steps lose GitHub
+  and the Deploy button; GitHub Pages keeps `guide/` and redirects.
+- **The Worker:** the claim and ticket login, OAuth tokens in the State object (serialized,
+  refreshed daily, Reconnect Cloudflare when lost), updates through one `Updater` (a build or an
+  upload of itself), the storage check as an upload, token login without a build trigger.
+- **Web:** `#ticket`, Update in seconds, the storage check, the Reconnect banner.
+- **Infrastructure:** the private OAuth client `Comfy-Gen` on our account (redirect
+  `https://comfy-setup.lugia19.com/oauth/callback`).
+- **`/simplify` pass:** one Updater and one API shape for both paths; one error base; shared
+  hashing, cookie and var-list helpers in core; one fake Cloudflare for both Workers' tests.
+- **Still to do in Phase 1:** deploy the setup Worker on `comfy-setup.lugia19.com` and run the end
+  to end on the test account (create, claim, password, self-update to a second dev bundle, R2 off
+  then on, a refresh, CPU from Workers Logs), then tear the test Worker down.
