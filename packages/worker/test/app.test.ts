@@ -1234,6 +1234,9 @@ describe("the PC path", () => {
     expect(await body(await app.handle(request("PUT", `/api/gpus/${id}/machine/config`, config, { ...cookie, "Content-Type": "application/json" }))))
       .toEqual({ method: "PUT", path: "/config", body: JSON.stringify(config) }); // the body as sent, unparsed
     expect((await body(await app.handle(request("GET", `/api/gpus/${id}/machine/setup/install?x=1`, undefined, cookie)))).path).toBe("/setup/install?x=1");
+    // The GPU list's "Update agent to vX" (v1.22.0): the agent's own POST /api/update.
+    expect(await body(await app.handle(request("POST", `/api/gpus/${id}/machine/update`, {}, { ...cookie, "Content-Type": "application/json" }))))
+      .toEqual({ method: "POST", path: "/update", body: "{}" });
     const pairing = await app.handle(request("POST", `/api/gpus/${id}/machine/pair`, { link: "x" }, cookie));
     expect([pairing.status, (await body(pairing)).error]).toEqual([403, "Your PC: Pair or unpair on the PC itself."]);
     // Binary bodies (the page's LoRA uploads) are not relayed.

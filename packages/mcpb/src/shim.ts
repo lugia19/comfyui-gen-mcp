@@ -5,8 +5,10 @@
 // once a day it looks up the latest release (the github.com/<repo>/releases/latest redirect, as the
 // Worker's update check does) and downloads that release's bundle in the background, for the next
 // start. The agent checks at every start and then hourly while it runs (it is one process, so one
-// request an hour), and a newer bundle is handed to updateReady(), which restarts into it. Keep
-// this file small and stable: it only changes when users reinstall the extension or the launcher.
+// request an hour), and a newer bundle is handed to updateReady(), which restarts into it. The
+// agent also gets a Host: its "Update to vX" button checks and downloads now through it, so this
+// file stays the only one that fetches bundles. Keep this file small and stable: it only changes
+// when users reinstall the extension or the launcher, so a bundle must work without a Host.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -73,8 +75,15 @@ async function download(tag: string): Promise<void> {
   renameSync(join(dir, `${BUNDLE}.part`), join(dir, BUNDLE));
 }
 
-/** Once a day: fetch the latest release's bundle if we lack it; prune old ones. */
-async function update(force: boolean): Promise<void> {
+/** Once a day: fetch the latest release's bundle if we lack it; prune old ones. One at a time: the
+ * hourly check and the agent's button would otherwise write the same file. */
+let updating: Promise<void> | null = null;
+function update(force: boolean): Promise<void> {
+  updating ??= check(force).finally(() => (updating = null));
+  return updating;
+}
+
+async function check(force: boolean): Promise<void> {
   const stamp = join(appDir, "checked");
   let last = 0;
   try {
@@ -98,8 +107,21 @@ async function update(force: boolean): Promise<void> {
 
 const failed = (e: unknown) => void say(`update check failed: ${(e as Error).message}`);
 
-type Bundle = { start?: (app: string) => Promise<void>; updateReady?: (tag: string) => void };
+/** What the shim offers the agent (bundles from before it ignore the argument); the agent's own
+ * copy of this contract is ShimHost in packages/agent/src/update.ts. */
+type Host = {
+  /** The latest release's tag, or null if it could not be read. */
+  latest(): Promise<string | null>;
+  /** Check now: download the latest release's bundle if missing. The newest loadable tag on disk. */
+  update(): Promise<string | null>;
+};
+type Bundle = { start?: (app: string, host?: Host) => Promise<void>; updateReady?: (tag: string) => void };
 const broken = new Set<string>(); // bundles that failed to load in this process: never offered
+const newest = () => bundles().find(([t]) => !broken.has(t))?.[0] ?? null;
+const host: Host = {
+  latest: () => latestTag(),
+  update: () => update(true).then(newest),
+};
 
 /** For a long-running bundle (the agent): tell it when the first check brought a newer bundle, and
  * repeat the check hourly while it runs. */
@@ -108,8 +130,8 @@ function watchUpdates(running: string, mod: Bundle, first: Promise<void>): void 
   const notify = mod.updateReady;
   if (!current || !notify) return;
   const offer = () => {
-    const newest = parseTag(bundles().find(([t]) => !broken.has(t))?.[0] ?? "");
-    if (newest && newer(newest, current)) notify(newest[0]);
+    const tag = parseTag(newest() ?? "");
+    if (tag && newer(tag, current)) notify(tag[0]);
   };
   void first.then(offer);
   setInterval(() => void update(true).then(offer, failed), 3600 * 1000).unref();
@@ -144,7 +166,7 @@ async function run(): Promise<void> {
       continue;
     }
     say(`running ${APP} ${tag}`);
-    await mod.start!(APP);
+    await mod.start!(APP, host);
     if (APP === "agent") watchUpdates(tag, mod, checking);
     return;
   }

@@ -14,10 +14,18 @@ import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts"
 import { agentHandler } from "./handlers.ts";
 import { LoraSync } from "./lora-sync.ts";
 import { RelayClient } from "./relay-client.ts";
+import { Updater, type ShimHost } from "./update.ts";
 import { bindWhenFree, launcherPid, watchParent } from "./watchdog.ts";
 
 export const RESTART_EXIT_CODE = 75;
 const RESTART_WHEN_QUIET_MS = 10 * 60_000; // an update waits for this long without generations
+const RESTART_ASKED_QUIET_MS = 15_000; // one asked for from the page: only a generation's end, and its image fetched
+
+/** An update asked for from the page may restart now: no install running, no generation (and its
+ * image fetched), ComfyUI not starting. Model downloads don't count: they resume. */
+export function quietForUpdate(machine: Pick<Machine, "install" | "comfy">): boolean {
+  return machine.install.state !== "running" && machine.comfy.state !== "starting" && machine.comfy.quietFor() >= RESTART_ASKED_QUIET_MS;
+}
 
 export type AgentOptions = {
   version: string;
@@ -26,6 +34,8 @@ export type AgentOptions = {
   tray?: TrayLook;
   paths?: Paths;
   exit?: (code: number) => void;
+  /** The shim's offer to check for an update now (a launcher from before v1.22.0: none). */
+  host?: ShimHost | null;
 };
 
 export type Agent = { app: AgentApp; close(): Promise<void>; restartWhenIdle(tag: string): void };
@@ -90,6 +100,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
       return [resp.status, await resp.text()];
     },
   });
+  const updater = new Updater({ version: opts.version, host: opts.host ?? null, restart: (tag) => restartNow(tag) });
   const reconnect = () => {
     client?.stop();
     client = null;
@@ -109,6 +120,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
         redraw_area: true, // its redraw node crops for prompt_scope "area" (v1.20.0)
         inpaint_control: true, // our extension's inpainting control node, kohya's LLLite (v1.21.0)
         redraw_extend: true, // its redraw nodes grow the canvas for extend (v1.21.0)
+        update_now: updater.can, // its page's POST /api/update restarts it into the latest release (v1.22.0)
       }),
       onOpen: () => void sync.sync(),
     });
@@ -138,6 +150,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     reconnect,
     relay: () => client,
     paused: () => paused,
+    updater,
     web: opts.web,
   });
 
@@ -190,6 +203,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
 
   let restart: NodeJS.Timeout | null = null;
   const restartWhenIdle = (tag: string) => {
+    updater.ready = tag;
     if (restart) return;
     log.info(`Comfy-Gen agent ${tag} is downloaded; restarting into it once ComfyUI has been unused for ${RESTART_WHEN_QUIET_MS / 60_000} minutes (within a minute if it already has) and the agent isn't paused`);
     restart = setInterval(() => {
@@ -198,6 +212,22 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
       clearInterval(restart!);
       void close(`restarting into ${tag}`).then(() => exit(RESTART_EXIT_CODE));
     }, 60_000);
+  };
+  // Asked for from a page: at once, unless an install or a generation would be cut off. Even while
+  // paused (whoever clicked can pause again), and not waiting for model downloads (they resume:
+  // the Worker asks again within a minute).
+  let asked: NodeJS.Timeout | null = null;
+  const restartNow = (tag: string) => {
+    if (asked) return;
+    log.info(`Restarting into ${tag}, asked for from the page, once no install or generation is running`);
+    const tryNow = () => {
+      if (!quietForUpdate(machine)) return;
+      clearInterval(asked!);
+      if (restart) clearInterval(restart);
+      void close(`restarting into ${tag}`).then(() => exit(RESTART_EXIT_CODE));
+    };
+    asked = setInterval(tryNow, 2000);
+    tryNow();
   };
   return { app, close, restartWhenIdle };
 }

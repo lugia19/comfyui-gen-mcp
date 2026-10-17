@@ -7,6 +7,7 @@ import {
 } from "@comfy-gen/local";
 import { parsePairingLink, type AgentConfig } from "./config.ts";
 import type { RelayClient } from "./relay-client.ts";
+import type { Updater } from "./update.ts";
 
 export type AgentServices = {
   version: string;
@@ -19,6 +20,8 @@ export type AgentServices = {
   relay(): RelayClient | null;
   /** Paused from the tray: not taking image requests. */
   paused?(): boolean;
+  /** The "Update to vX" button's (absent: no button). */
+  updater?: Updater;
   web: WebFiles;
 };
 
@@ -70,6 +73,13 @@ export class AgentApp {
       this.s.saveConfig({ ...this.s.config(), worker_url: "", secret: "" });
       this.s.reconnect();
       return json({ ok: true });
+    }
+    if (sub === "/update" && m === "GET") {
+      return this.s.updater ? json(await this.s.updater.status()) : json({ current: this.s.version, can: false });
+    }
+    if (sub === "/update" && m === "POST") {
+      const bad = this.s.updater ? this.s.updater.start() : "This agent can't update itself from here.";
+      return bad ? error(409, bad) : json(await this.s.updater!.status()); // 200: the Worker passes only that on as success
     }
     if (sub === "/models" && m === "GET") {
       // The packs the Worker asked for so far, with their downloads.

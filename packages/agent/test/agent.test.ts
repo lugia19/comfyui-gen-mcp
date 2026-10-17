@@ -10,6 +10,8 @@ import { loadAgentConfig, parsePairingLink, saveAgentConfig } from "../src/confi
 import { AgentApp } from "../src/app.ts";
 import { agentHandler, viewFromDisk } from "../src/handlers.ts";
 import { RelayClient } from "../src/relay-client.ts";
+import { isNewer, Updater } from "../src/update.ts";
+import { quietForUpdate } from "../src/main.ts";
 
 describe("pairing link", () => {
   const secret = "s".repeat(43);
@@ -329,5 +331,94 @@ describe("images while ComfyUI is stopped", () => {
     expect([status, fromUtf8(body as Uint8Array), jobs]).toEqual([200, "png!", 0]);
     const [missing] = await handle({ header: { kind: "http", id: "2", method: "GET", path: "/view", params: { filename: "nope.png" } }, body: new Uint8Array() });
     expect(missing).toBe(503);
+  });
+});
+
+describe("the Update to vX button", () => {
+  const host = (latest: string | null, downloads: string | null) => {
+    const calls: string[] = [];
+    return { calls, latest: async () => (calls.push("latest"), latest), update: async () => (calls.push("update"), downloads) };
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+
+  it("asks the shim to download now, then restarts into what it got", async () => {
+    const h = host("v1.22.0", "v1.22.0");
+    const restarted: string[] = [];
+    const u = new Updater({ version: "v1.21.1", host: h, restart: (t) => restarted.push(t) });
+    expect(await u.status()).toMatchObject({ current: "v1.21.1", latest: "v1.22.0", newer: true, can: true, state: "idle" });
+    expect(u.start()).toBeNull();
+    await settle();
+    expect([h.calls, restarted, u.state]).toEqual([["latest", "update"], ["v1.22.0"], "restarting"]);
+  });
+
+  it("restarts into a bundle the shim already has (updateReady) without asking it again", async () => {
+    const h = host(null, null);
+    const restarted: string[] = [];
+    const u = new Updater({ version: "v1.21.1", host: h, restart: (t) => restarted.push(t) });
+    u.ready = "v1.22.0";
+    expect((await u.status()).latest).toBe("v1.22.0"); // GitHub unreadable: the ready bundle still counts
+    u.start();
+    await settle();
+    expect([h.calls, restarted]).toEqual([["latest"], ["v1.22.0"]]);
+  });
+
+  it("says when the latest release isn't downloadable yet, and doesn't restart", async () => {
+    const h = host("v1.22.0", "v1.21.1"); // the tag is out, its bundle not yet
+    const restarted: string[] = [];
+    const u = new Updater({ version: "v1.21.1", host: h, restart: (t) => restarted.push(t) });
+    await u.status();
+    u.start();
+    await settle();
+    expect(u.state).toBe("failed");
+    expect(u.error).toContain("v1.22.0 isn't downloadable yet");
+    expect(restarted).toEqual([]);
+  });
+
+  it("looks the latest release up once per ten minutes; a dev build is never offered one", async () => {
+    let t = 0;
+    const h = host("v1.22.0", null);
+    const u = new Updater({ version: "v1.21.1", host: h, restart: () => {}, now: () => t });
+    await u.status();
+    await u.status();
+    t += 10 * 60_000;
+    await u.status();
+    expect(h.calls).toEqual(["latest", "latest"]);
+    expect((await new Updater({ version: "dev", host: h, restart: () => {} }).status()).newer).toBe(false);
+    expect([isNewer("v1.10.0", "v1.9.9"), isNewer("v1.9.9", "v1.10.0"), isNewer(null, "v1.0.0")]).toEqual([true, false, false]);
+  });
+
+  it("without the shim's host (an older launcher): no button, and a POST says why", async () => {
+    const u = new Updater({ version: "v1.21.1", host: null, restart: () => {} });
+    expect(await u.status()).toMatchObject({ can: false, newer: false });
+    const machine = { api: async () => null, comfy: { state: "stopped" } } as unknown as Machine;
+    const cfg = { worker_url: "", secret: "", port: 9248, extra_models_dir: "" } as any;
+    const app = new AgentApp({ version: "v1.21.1", port: 9248, machine, config: () => cfg, saveConfig: () => {}, reconnect: () => {}, relay: () => null, updater: u, web: {} as any });
+    const call = (method: string) => app.handle(new Request("http://127.0.0.1:9248/api/update", { method, headers: { host: "127.0.0.1:9248" } }), "127.0.0.1");
+    expect(await (await call("GET")).json()).toMatchObject({ current: "v1.21.1", can: false });
+    const post = await call("POST");
+    expect(post.status).toBe(409);
+    expect(await post.text()).toContain("restart the agent");
+  });
+
+  it("the page's POST answers at once; the restart waits for a generation to end", async () => {
+    let release = (_: string) => {};
+    const h = { latest: async () => "v1.22.0", update: () => new Promise<string>((r) => (release = r)) }; // downloading until released
+    const u = new Updater({ version: "v1.21.1", host: h, restart: () => {} });
+    const machine = { api: async () => null, comfy: { state: "stopped" } } as unknown as Machine;
+    const cfg = { worker_url: "", secret: "", port: 9248, extra_models_dir: "" } as any;
+    const app = new AgentApp({ version: "v1.21.1", port: 9248, machine, config: () => cfg, saveConfig: () => {}, reconnect: () => {}, relay: () => null, updater: u, web: {} as any });
+    const post = await app.handle(new Request("http://127.0.0.1:9248/api/update", { method: "POST", headers: { host: "127.0.0.1:9248" } }), "127.0.0.1");
+    expect(post.status).toBe(200);
+    expect((await post.json()).state).toBe("downloading");
+    release("v1.22.0");
+    await settle();
+    expect(u.state).toBe("restarting");
+
+    const m = (install: string, comfy: string, quiet: number) => ({ install: { state: install }, comfy: { state: comfy, quietFor: () => quiet } }) as any;
+    expect(quietForUpdate(m("idle", "running", 0))).toBe(false); // a generation runs
+    expect(quietForUpdate(m("idle", "running", 5_000))).toBe(false); // its image may not be fetched yet
+    expect(quietForUpdate(m("running", "stopped", 60_000))).toBe(false); // ComfyUI being installed
+    expect(quietForUpdate(m("idle", "starting", 60_000))).toBe(false);
+    expect(quietForUpdate(m("done", "running", 15_000))).toBe(true);
   });
 });

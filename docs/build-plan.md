@@ -992,3 +992,37 @@ After v1.21.0, live (all on Modal, Anima Turbo; see v1.21.1 for why not the PC):
   update.
 - **Checked:** Worker tests for the recheck (asked again after the interval, takes calls once it
   is done) and for a stored `false`; all 315 TS tests pass.
+
+## v1.22.0: an "Update to vX" button for the PC agent (2026-10-17)
+
+- **Why:** an agent took up to an hour to notice a release (the shim's hourly check), then waited
+  for ten quiet minutes. The v1.21.0 live check sat on a v1.20.2 agent for a while.
+- **Shim:**
+  - `start(app, host)`: `latest()` and `update()` (a forced check, then the newest loadable tag).
+  - The check runs one at a time, so the hourly check and a click never write the same file.
+  - The shim reaches a PC with the launcher: the user runs the new launcher once.
+- **Agent:**
+  - `Updater` and `GET/POST /api/update`.
+  - The restart takes the already-downloaded bundle or asks the host, then happens as soon as no
+    install or generation is running (15 s quiet).
+  - Hello `update_now`.
+- **Web:**
+  - `AgentUpdate.svelte` in the agent page's header and on the GPU list's PC rows.
+  - Its states: "Update to vX", "Downloading…", "Restarting into…", "Reload for vX" (the agent's
+    page) or the row's new version, and "Update failed: try again" with the reason in its tooltip.
+- **Old shim:** no host, so no button and `can: false`. A POST says to restart or run a newer
+  launcher.
+- **Checked:**
+  - unit tests: the Updater (download path, ready path, not yet published, the lookup cached 10
+    minutes, a dev build, no host), the routes, the restart's quiet rule, and the Worker relaying
+    the POST; all 321 TS tests pass, and `go test` for the launcher;
+  - end to end, with the real shim and bundles (v1.21.1 running, v1.22.0 as "latest"), a fake
+    releases server, and a loop restarting on exit 75 in place of the launcher:
+    - on the agent's page: the first click hit a failing download and showed "Update failed: try
+      again"; the retry downloaded, exited 75, came back on v1.22.0 in 3 s, and "Reload for
+      v1.22.0" showed the new version;
+    - from the Worker's GPU list (the API mocked from the live Worker's state, the row's calls
+      relayed to the real agent): the same, and the row then read "Agent v1.22.0" with the button
+      gone;
+    - under the committed (old) shim: the header shows just the version, with no button.
+

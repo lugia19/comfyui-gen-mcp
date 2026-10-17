@@ -1,5 +1,7 @@
 <script>
+  import { onMount } from 'svelte'
   import { api, gpuName, platformName } from './api.js'
+  import AgentUpdate from './AgentUpdate.svelte'
   import Icon from './Icon.svelte'
   import { Task } from './task.svelte.js'
 
@@ -11,6 +13,22 @@
   const KIND = { pc: 'PC', modal: 'Modal' }
   const task = new Task() // busy: the id of the GPU an action is running for
   let names = $state({}) // id -> the name being edited
+  // The latest release, from the Worker's own check (kept steady while GitHub's caches disagree): a
+  // PC whose agent can update itself from here (update_now, v1.22.0) and is older gets a button.
+  let latest = $state(null)
+  onMount(async () => {
+    try {
+      latest = (await api('GET', '/update')).latest ?? null
+    } catch {
+      // GitHub unreachable: no buttons
+    }
+  })
+  const older = (v) => {
+    const [a, b] = [latest, v].map((t) => /^v(\d+)\.(\d+)\.(\d+)$/.exec(t ?? '')?.slice(1).map(Number))
+    if (!a || !b) return false
+    const i = a.findIndex((n, k) => n !== b[k])
+    return i >= 0 && a[i] > b[i]
+  }
 
   const act = (id, fn) => task.run(async () => (await fn(), await refresh()), id)
 
@@ -92,6 +110,9 @@
           <button type="button" class="ok small" disabled={task.busy === g.id} onclick={() => act(g.id, () => api('POST', `/gpus/${g.id}/pause`, { paused: false }))}><Icon name="play" />Resume</button>
         {:else}
           <button type="button" class="warn small" disabled={task.busy === g.id} onclick={() => act(g.id, () => api('POST', `/gpus/${g.id}/pause`, { paused: true }))}><Icon name="pause" />Pause</button>
+        {/if}
+        {#if g.info?.update_now && older(g.info.version)}
+          <AgentUpdate version={g.info.version} {latest} can label="Update agent to" call={(m, p) => api(m, `/gpus/${g.id}/machine${p}`)} onupdated={refresh} />
         {/if}
       {/if}
       <!-- The PC's own Comfy-Gen page, through this Worker (design §9, "A page per PC"). -->

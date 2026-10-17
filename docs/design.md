@@ -66,7 +66,26 @@ the agent. For the agent the shim checks at every start, so restarting it by han
 hourly while it runs (it runs for days); it hands a newer bundle to the agent, which restarts into
 it once nothing has used ComfyUI for 10 minutes and it is not paused (the pause is not saved, so a
 restart would take requests again). The shim is embedded in the launcher: a change to it reaches an
-agent when its user runs a newer launcher. A new launcher (a
+agent when its user runs a newer launcher.
+
+**Update now (v1.22.0).** The shim also hands the agent a host, `start(app, host)`: `latest()` (the
+same `releases/latest` lookup) and `update()` (its own check, forced, then the newest loadable tag on
+disk). So the shim stays the only code that downloads bundles. The agent's `Updater`
+(`packages/agent/src/update.ts`) serves `GET/POST /api/update` on its page. The POST answers at
+once; the agent then:
+- takes the bundle the shim already has (`updateReady`), or asks the host for it;
+- restarts with exit code 75 as soon as no install or generation is running and ComfyUI has been
+  quiet 15 s, so a finished image is fetched first. It doesn't wait for the 10 quiet minutes, nor
+  for model downloads (routing asks the PC again within a minute and they resume), and it restarts
+  even when paused, since someone asked.
+
+The button ("Update to vX") is on the agent's page header (`AgentUpdate.svelte`, which also covers
+its page on the Worker, `/gpu/<id>`), and on its row in the Worker's GPU list ("Update agent to
+vX"). The list uses the Worker's own steady latest tag, and calls the agent through the
+`machine` relay (`/api/gpus/<id>/machine/update`).
+
+An agent says `update_now` in its hello when it has a host. A launcher from before v1.22.0 runs the
+old shim, which passes none: no button anywhere, and the hourly update works as before. A new launcher (a
 new Node) is a new download; running it installs it over the old one.
 
 ### Modes
@@ -1142,7 +1161,7 @@ a header and its chunks in one synchronous run, so messages never interleave.
 | `http` | Worker → agent | One ComfyUI request (method, path, params, headers, body); the agent calls its ComfyUI inside a job, so the idle stop waits |
 | `control` | Worker → agent | An agent operation: `pause` (`{paused}`, from the Setup page), `ensure` (start ComfyUI, install the pack's nodes, check or start its model downloads), `loras` (its files and the LoRA copies in progress), `models`, `download`, `sync` (start a LoRA sync), `lora_delete`, `status` |
 | `reply` | agent → Worker | `{id, status}` and the body |
-| `hello` | agent → Worker | On connecting, and again when paused or resumed: version, platform, GPU, ComfyUI state, `paused`, and what this agent's ComfyUI can do (`remove_marks`, `remove_background`, `redraw`, `cutout`, `redraw_area`, `inpaint_control`, `redraw_extend`; and `installing` while ComfyUI is installed; each absent on an agent from before it, so the Worker leaves that step out or says the agent needs updating); the latest is kept with the socket for the settings page |
+| `hello` | agent → Worker | On connecting, and again when paused or resumed: version, platform, GPU, ComfyUI state, `paused`, and what this agent's ComfyUI can do (`remove_marks`, `remove_background`, `redraw`, `cutout`, `redraw_area`, `inpaint_control`, `redraw_extend`; `update_now` when its shim can update it on request; and `installing` while ComfyUI is installed; each absent on an agent from before it, so the Worker leaves that step out or says the agent needs updating); the latest is kept with the socket for the settings page |
 
 On the Worker, `RelayTransport` is core's `Transport` over the object's `request()`, so the
 ComfyUI client, held waits and the brain are unchanged. A call with no agent connected waits 10 s

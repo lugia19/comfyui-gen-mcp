@@ -1,6 +1,7 @@
 // The bundle (comfy-gen.mjs, the release asset the shim loads): both local programs, the Claude
 // Desktop extension's server and the PC agent, which share nearly all their code. The shim imports
-// it and calls start(app); for the agent, updateReady() once it has downloaded a newer bundle. The
+// it and calls start(app, host); for the agent, updateReady() once it has downloaded a newer bundle,
+// and the host lets the agent's "Update to vX" button ask for one now (update.ts). The
 // settings app, the wait extension, the tray icons and the tray helpers' hashes are embedded at
 // build time (build.mjs provides the comfy-gen:* modules).
 
@@ -10,6 +11,7 @@ import icons from "comfy-gen:icons";
 import trayFiles from "comfy-gen:tray";
 import type { TrayColor, TrayHelper, TrayLook, WebFiles } from "@comfy-gen/local";
 import { startAgent, type Agent } from "../../agent/src/main.ts";
+import type { ShimHost } from "../../agent/src/update.ts";
 import { main } from "./main.ts";
 
 declare const __VERSION__: string;
@@ -38,9 +40,9 @@ const trayLook = (): TrayLook => ({
 
 let agent: Agent | null = null;
 
-export async function start(app: "server" | "agent" = "server"): Promise<void> {
+export async function start(app: "server" | "agent" = "server", host?: ShimHost): Promise<void> {
   const opts = { version: VERSION, waitExtension, web: webFiles, tray: trayLook() };
-  if (app === "agent") agent = await startAgent(opts);
+  if (app === "agent") agent = await startAgent({ ...opts, host: host ?? null });
   else await main(opts);
 }
 
