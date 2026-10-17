@@ -153,6 +153,18 @@ describe("updating itself", () => {
     expect(await w.app.scheduled()).toBe("already tried v1.2.0");
   });
 
+  it("the heavy work goes to the State object when the platform has one (its CPU budget)", async () => {
+    const w = created();
+    const cookie = await claimed(w);
+    const jobs: any[] = [];
+    (w.app as any).p.inState = (job: any) => (jobs.push(job), w.app.runJob(job));
+    expect(await body(await w.app.handle(request("POST", "/api/update", undefined, cookie)))).toEqual({ latest: "v1.1.0", build: null });
+    expect(await body(await w.app.handle(request("POST", "/api/setup/storage", undefined, cookie)))).toEqual({ storage: true, build: null });
+    w.cf.latest = "v1.2.0";
+    expect(await w.app.scheduled()).toBe("updating v1.0.0 -> v1.2.0: done");
+    expect(jobs).toEqual([{ kind: "install", tag: "v1.1.0" }, { kind: "install", tag: "v1.0.0" }, { kind: "cron" }]);
+  });
+
   it("refuses a bundle that doesn't match its manifest, and says so", async () => {
     const w = created();
     const cookie = await claimed(w);

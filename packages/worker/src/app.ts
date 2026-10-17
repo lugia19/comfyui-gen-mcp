@@ -18,7 +18,7 @@ import * as loras from "./loras.ts";
 import { GrpcError, ModalClient, type ModalToken } from "./modal/client.ts";
 import * as modalDeploy from "./modal/deploy.ts";
 import * as modalAdmin from "./modal-admin.ts";
-import { withUserAgent, type Bucket, type Fetch, type Platform } from "./platform.ts";
+import { withUserAgent, type Bucket, type Fetch, type Job, type JobResult, type Platform } from "./platform.ts";
 import { Images } from "./images.ts";
 import { RelayTransport } from "./relay.ts";
 import { Store, type Secrets } from "./store.ts";
@@ -236,13 +236,41 @@ export class App {
   }
 
   async scheduled(): Promise<string> {
-    const s = await this.store.secrets();
-    // Refreshed daily even with nothing to update: the grant never sits idle long enough to
-    // expire, whatever Cloudflare's refresh-token lifetime is.
-    if (this.oauthPath(s)) await this.cfToken();
-    const result = await updates.check(this.fresh, this.version, this.updater(s));
+    const result = String((await this.job({ kind: "cron" })).body);
     console.log(`update check: ${result}`);
     return result;
+  }
+
+  /** *job* in the State object when the platform has it (its CPU budget), else here. */
+  private job(job: Job): Promise<JobResult> {
+    return this.p.inState ? this.p.inState(job) : this.runJob(job);
+  }
+
+  /** A Job's work (Platform.Job): run by the State object. */
+  async runJob(job: Job): Promise<JobResult> {
+    const s = await this.fresh.secrets();
+    if (job.kind === "cron") {
+      // Refreshed daily even with nothing to update: the grant never sits idle long enough to
+      // expire, whatever Cloudflare's refresh-token lifetime is.
+      if (this.oauthPath(s)) await this.cfToken();
+      return { status: 200, body: await updates.check(this.fresh, this.version, this.updater(s)) };
+    }
+    try {
+      if (job.kind === "modal") {
+        await this.startModalDeploy(s, this.version, job.origin);
+        if (s.worker_url !== job.origin) await this.fresh.updateSecrets({ worker_url: job.origin });
+        return { status: 200, body: { started: true } };
+      }
+      const u = this.updater(s);
+      const blocked = await u.blocked();
+      if (blocked) return { status: 409, body: { error: blocked } };
+      const r = await u.install(job.tag);
+      return { status: 200, body: { storage: r.storage ?? null, build: r.build ?? null } };
+    } catch (e) {
+      if (e instanceof GrpcError) return { status: 502, body: { error: `Modal: ${e.message}` } };
+      if (e instanceof cfapi.CloudflareError) return { status: 502, body: { error: e.message } };
+      throw e;
+    }
   }
 
   // ── Updating itself through the Cloudflare API (installs made by the setup Worker, design §6) ──
@@ -666,9 +694,8 @@ export class App {
         return json({ connected: true });
       }
       if (sub === "/setup/modal" && req.method === "POST") {
-        await this.startModalDeploy(s, this.version, url.origin);
-        if (s.worker_url !== url.origin) await this.fresh.updateSecrets({ worker_url: url.origin });
-        return json({ started: true });
+        const r = await this.job({ kind: "modal", origin: url.origin });
+        return json(r.body, r.status);
       }
       if (sub === "/setup/modal/log" && req.method === "GET") return this.modalLog(s, url.searchParams.get("cursor") ?? "");
     } catch (e) {
@@ -791,16 +818,8 @@ export class App {
     // and GET says when this Worker's version has it.
     if (sub === "/setup/storage" && req.method === "GET") return json({ storage: Boolean(this.p.bucket) });
     if (sub === "/setup/storage" && req.method === "POST") {
-      const u = this.updater(s);
-      const blocked = await u.blocked();
-      if (blocked) return error(409, blocked);
-      try {
-        const r = await u.install(this.version);
-        return json({ storage: r.storage ?? null, build: r.build ?? null });
-      } catch (e) {
-        if (e instanceof cfapi.CloudflareError) return error(502, e.message);
-        throw e;
-      }
+      const r = await this.job({ kind: "install", tag: this.version });
+      return json(r.body, r.status);
     }
     if (sub === "/setup/build" && req.method === "POST") return this.startBuild(req, url, s);
     if (sub === "/setup/build" && req.method === "GET") return this.buildState(url, s);
@@ -891,14 +910,10 @@ export class App {
     if (req.method !== "POST") return error(405, "GET or POST");
     if (blocked) return error(409, blocked);
     if (!latest) return error(502, "Could not find the latest release. Try again in a minute.");
-    try {
-      const r = await u.install(latest);
-      await this.fresh.updateSetup({ update_tried: latest, update_error: null });
-      return json({ latest, build: r.build ?? null });
-    } catch (e) {
-      if (e instanceof cfapi.CloudflareError) return error(502, e.message);
-      throw e;
-    }
+    const r = await this.job({ kind: "install", tag: latest });
+    if (r.status !== 200) return json(r.body, r.status);
+    await this.fresh.updateSetup({ update_tried: latest, update_error: null });
+    return json({ latest, build: (r.body as { build: string | null }).build });
   }
 
   /** The last update build: in progress only while Cloudflare says so (a finished update build

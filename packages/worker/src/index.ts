@@ -5,7 +5,7 @@ import { DurableObject } from "cloudflare:workers";
 import { cfapi } from "@comfy-gen/core";
 import { App } from "./app.ts";
 import * as oauth from "./oauth.ts";
-import { withUserAgent, type Bucket, type StateStorage } from "./platform.ts";
+import { withUserAgent, type Bucket, type Job, type JobResult, type Platform, type StateStorage } from "./platform.ts";
 import { CONTROL_TIMEOUT_S, liveSocket, RelayCore, type RelayReply, type RelayRequest, type RelayStatus, type RelayStub } from "./relay.ts";
 
 export interface Env {
@@ -66,9 +66,9 @@ class StateStub implements StateStorage {
   }
 }
 
-function app(env: Env): App {
-  return new App({
-    storage: new StateStub(env.STATE),
+/** The Platform for *env*, but its storage. */
+function platform(env: Env): Omit<Platform, "storage"> {
+  return {
     bucket: env.STORE ? (env.STORE as unknown as Bucket) : null,
     relays: (id) => env.RELAY.getByName(id) as unknown as RelayStub,
     fetch: (url, init) => fetch(url, init),
@@ -78,6 +78,14 @@ function app(env: Env): App {
       VERSION: env.VERSION, DEV_WORKER_HOST: env.DEV_WORKER_HOST, SETUP_MODE: env.SETUP_MODE,
       CF_OAUTH_CLIENT: env.CF_OAUTH_CLIENT, COMFY_GEN_SETUP: env.COMFY_GEN_SETUP, CLAIM: env.CLAIM, COMFY_GEN_RELEASES: env.COMFY_GEN_RELEASES, MODAL_GRPC: env.MODAL_GRPC,
     },
+  };
+}
+
+function app(env: Env): App {
+  return new App({
+    ...platform(env),
+    storage: new StateStub(env.STATE),
+    inState: (job) => env.STATE.getByName("state").runJob(job) as unknown as Promise<JobResult>,
   });
 }
 
@@ -122,6 +130,16 @@ export class State extends DurableObject<Env> {
 
   cfSetTokens(tokens: cfapi.OAuthTokens): Promise<void> {
     return this.oauthLock.run(() => oauth.setTokens(this.kv, tokens, Date.now() / 1000));
+  }
+
+  /** A Job (platform.ts): here, a request gets 30 s of CPU where a Worker's gets 10 ms. The App
+   * runs over this object's own storage. */
+  runJob(job: Job): Promise<JobResult> {
+    const storage: StateStorage = {
+      get: (k) => this.read(k), put: (k, v) => this.write(k, v),
+      cfAccessToken: (c) => this.cfAccessToken(c), cfSetTokens: (t) => this.cfSetTokens(t),
+    };
+    return new App({ ...platform(this.env), storage }).runJob(job);
   }
 }
 

@@ -50,6 +50,11 @@ export interface Bucket {
   resumeMultipartUpload(key: string, uploadId: string): MultipartUpload;
 }
 
+/** Work over a Worker request's CPU budget (10 ms on the free plan): uploading a version of itself
+ * (an update, the storage check), starting Modal's deploy, the daily check. Measured 15 to 51 ms. */
+export type Job = { kind: "install"; tag: string } | { kind: "modal"; origin: string } | { kind: "cron" };
+export type JobResult = { status: number; body: unknown };
+
 export type Platform = {
   storage: StateStorage;
   bucket: Bucket | null; // R2: images and LoRAs; null until R2 is turned on in the account
@@ -59,6 +64,9 @@ export type Platform = {
   now: () => number; // seconds
   env: Record<string, string | undefined>; // VERSION; DEV_WORKER_HOST under wrangler dev
   sleep?: (seconds: number) => Promise<void>; // tests make the ComfyUI client's waits instant
+  /** Runs a Job in the State object, whose requests get 30 s of CPU; without it (tests, and inside
+   * the State object itself) jobs run here. */
+  inState?: (job: Job) => Promise<JobResult>;
 };
 
 // Sent on every outbound request: GitHub's API refuses requests without one.
