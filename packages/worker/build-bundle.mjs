@@ -40,8 +40,10 @@ const walk = (dir) => {
     else {
       const data = readFileSync(path);
       const b64 = data.toString("base64");
-      // Content-addressed, as wrangler does (base64 plus extension, 32 hex characters).
-      const hash = createHash("sha256").update(b64 + extname(name).slice(1)).digest("hex").slice(0, 32);
+      // Content-addressed as wrangler does (base64 plus extension, 32 hex characters), plus a tag:
+      // Cloudflare keeps each file with the content type it first went up with, and the first dev
+      // uploads (2026-10-17) sent none, so these keys differ from those.
+      const hash = createHash("sha256").update(b64 + extname(name).slice(1) + ":typed").digest("hex").slice(0, 32);
       files["/" + relative(web, path).split("\\").join("/")] = { hash, size: data.length };
       content[hash] = b64;
     }

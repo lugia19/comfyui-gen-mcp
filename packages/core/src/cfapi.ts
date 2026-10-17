@@ -128,6 +128,15 @@ export async function scriptMigrationTag(fetch: Fetch, token: string, account: s
 
 // ── Uploading a version ─────────────────────────────────────────────────────
 
+/** Content types by extension, as wrangler sends them: Cloudflare serves each file with the type it
+ * was uploaded with (none at all for an unknown one, and a browser won't run a script without one). */
+const TYPES: Record<string, string> = {
+  html: "text/html", js: "text/javascript", mjs: "text/javascript", css: "text/css", json: "application/json", map: "application/json",
+  svg: "image/svg+xml", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", ico: "image/x-icon",
+  txt: "text/plain", xml: "application/xml", woff: "font/woff", woff2: "font/woff2", wasm: "application/wasm",
+};
+export const contentType = (path: string) => TYPES[path.split(".").pop()!.toLowerCase()] ?? "application/octet-stream";
+
 /** Static assets through an upload session: Cloudflare names the files it lacks, only those are
  * sent (*files(hashes)* gives each one's base64 content), and the final token goes with the script. */
 export async function uploadAssets(
@@ -137,12 +146,13 @@ export async function uploadAssets(
   const session = await cfCall(fetch, token, "POST", `/accounts/${account}/workers/scripts/${script}/assets-upload-session`, {
     manifest: manifest.assets.files,
   });
+  const types = Object.fromEntries(Object.entries(manifest.assets.files).map(([path, f]) => [f.hash, contentType(path)]));
   let jwt: string = session.jwt;
   let uploaded = 0;
   for (const batch of (session.buckets ?? []) as string[][]) {
     const content = await files(batch);
     const form = new FormData();
-    for (const hash of batch) form.append(hash, new Blob([content[hash]], { type: "application/null" }), hash);
+    for (const hash of batch) form.append(hash, new Blob([content[hash]], { type: types[hash] }), hash);
     const result = await cfCall(fetch, jwt, "POST", `/accounts/${account}/workers/assets/upload?base64=true`, form);
     jwt = result?.jwt || jwt;
     uploaded += batch.length;

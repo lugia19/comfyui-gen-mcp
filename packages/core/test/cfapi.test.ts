@@ -75,6 +75,7 @@ describe("API calls", () => {
     expect(api.calls[1].auth).toBe("Bearer S"); // the session token, not the user's
     expect(api.calls[1].url).toContain("/workers/assets/upload?base64=true");
     expect((api.calls[1].body as FormData).get("h2")).toBeInstanceOf(Blob);
+    expect(((api.calls[1].body as FormData).get("h2") as Blob).type).toBe("text/javascript"); // served with it
   });
 
   it("nothing new to upload: the session's own token completes it", async () => {
