@@ -10,7 +10,7 @@ import { ModelLocator } from "./discover.ts";
 import { ensureExtensionPackages, findInstall, type Install } from "./install.ts";
 import { log } from "./log.ts";
 import { publish, writeExtraModelPaths } from "./models.ts";
-import { installedNodePackages, installNodePackage, writeWaitExtension } from "./nodes.ts";
+import { installedNodePackages, installNodePackage, writeWaitExtension, type ExtensionFiles } from "./nodes.ts";
 import type { Paths } from "./paths.ts";
 import { killTree, pythonEnv, start } from "./proc.ts";
 
@@ -87,11 +87,11 @@ export class LocalComfy {
 
   private p: Paths;
   private settings: () => ComfySettings;
-  private waitExtension: string; // the source of comfy_node/__init__.py
+  private waitExtension: ExtensionFiles; // comfy_node's files
   /** The model folders this ComfyUI reads: its own, then the others on this machine. */
   readonly models: ModelLocator;
 
-  constructor(p: Paths, settings: () => ComfySettings, waitExtension: string) {
+  constructor(p: Paths, settings: () => ComfySettings, waitExtension: ExtensionFiles) {
     this.p = p;
     this.settings = settings;
     this.waitExtension = waitExtension;

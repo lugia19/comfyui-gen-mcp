@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { roundHalfEven } from "../src/bytes.ts";
-import { BACKGROUND_UNAVAILABLE, Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pending, REDRAW_AREA_UNAVAILABLE, REDRAW_UNAVAILABLE, redrawBox, type ResolvedImage } from "../src/brain.ts";
+import { BACKGROUND_UNAVAILABLE, Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pending, REDRAW_AREA_UNAVAILABLE, REDRAW_UNAVAILABLE, redrawBox, type ResolvedImage, REDRAW_EXTEND_UNAVAILABLE, redrawExtend } from "../src/brain.ts";
 import { ComfyUIError, STILL_STARTING } from "../src/comfyui.ts";
 import { McpHandler, PROTOCOL_VERSIONS, RESULT_META, UnknownTool, type ToolCall } from "../src/mcp.ts";
 import { builtinPacks, type Pack } from "../src/packs.ts";
@@ -50,7 +50,7 @@ class PathHooks extends Hooks {
   }
 }
 
-function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean; canCutout?: boolean; canRedrawArea?: boolean } = {}) {
+function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean; canCutout?: boolean; canRedrawArea?: boolean; canInpaintControl?: boolean; canRedrawExtend?: boolean } = {}) {
   const comfy = new FakeComfy();
   const client = fastClient(comfy, { coldStartS: 60, requestBudget: opts.budget ?? null });
   const brain = (o: typeof opts = {}) =>
@@ -62,6 +62,8 @@ function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: nu
       canRedraw: o.canRedraw ?? opts.canRedraw,
       canCutout: o.canCutout ?? opts.canCutout,
       canRedrawArea: o.canRedrawArea ?? opts.canRedrawArea,
+      canInpaintControl: o.canInpaintControl ?? opts.canInpaintControl,
+      canRedrawExtend: o.canRedrawExtend ?? opts.canRedrawExtend,
     });
   return { comfy, client, brain };
 }
@@ -474,6 +476,45 @@ describe("redraw", () => {
     expect(await fail({}, brain({ canRedraw: false }))).toBe(REDRAW_UNAVAILABLE);
     expect(((await brain().call("redraw", { prompt: "", image_path: "a.png" })) as Failed).message).toMatch(/required/);
     expect(comfy.prompts).toEqual([]);
+  });
+
+  it("puts the pack's inpainting control on the model where the GPU has it; without, the old graph", async () => {
+    const { comfy, brain } = setup({ canRedraw: true, cfg: { remove_marks: false } });
+    const args = { prompt: "x", image_path: "a.png", box: [0.3, 0.7, 0.4, 0.9] };
+    await brain({ canInpaintControl: true }).call("redraw", args);
+    const control = nodeOf(comfy.prompts.at(-1)!, "ComfyGenInpaintControl");
+    expect(control.inputs).toMatchObject({ control_name: "anima-lllite-inpainting-v2.safetensors", strength: 1 });
+    expect(nodeOf(comfy.prompts.at(-1)!, "DifferentialDiffusion").inputs.model[0]).toBe(Object.entries(comfy.prompts.at(-1)!).find(([, n]: any) => n.class_type === "ComfyGenInpaintControl")![0]);
+    expect(await brain().call("redraw", args)).toBeInstanceOf(Done); // a PC agent from before v1.21.0
+    expect(JSON.stringify(comfy.prompts.at(-1))).not.toContain("ComfyGenInpaintControl");
+  });
+
+  it("extend grows the canvas where the GPU can, denoised fully, without the face detector", async () => {
+    const { comfy, brain } = setup({ canRedraw: true, cfg: { remove_marks: false } });
+    const hooks = new PathHooks();
+    const args = { prompt: "x", image_path: "a.png", extend: { left: 0.25, right: 0.25 } };
+    expect(await brain().call("redraw", args)).toEqual(new Failed(REDRAW_EXTEND_UNAVAILABLE));
+    expect(comfy.prompts.length).toBe(0);
+    await brain({ hooks, canRedrawExtend: true }).call("redraw", { ...args, strength: 0.5 });
+    expect(hooks.ensured).toEqual(["anima_turbo"]); // no face to find
+    const prompt = comfy.prompts.at(-1)!;
+    expect(nodeOf(prompt, "ComfyGenRedrawRegion").inputs).toMatchObject({ box: "", extend: "0.25,0,0.25,0" });
+    expect(nodeOf(prompt, "KSampler").inputs.denoise).toBe(1); // strength doesn't apply
+    const fail = async (more: Record<string, any>) => ((await brain({ canRedrawExtend: true, canRedrawArea: true }).call("redraw", { ...args, ...more })) as Failed).message;
+    expect(await fail({ box: [0.1, 0.1, 0.5, 0.5] })).toMatch(/extend and box can't be combined/);
+    expect(await fail({ prompt_scope: "area" })).toMatch(/prompt_scope "area"/);
+    expect(await fail({ extend: { left: 0.75, right: 0.5 } })).toMatch(/at most double/);
+    expect(comfy.prompts.length).toBe(1);
+    expect(toolSpecs(BUILTIN, normalize({}), "refs").find((s) => s.name === "redraw")!.inputSchema.properties.extend.type).toBe("object");
+  });
+
+  it("takes extend as shares per side, missing sides 0", () => {
+    expect(redrawExtend(undefined)).toBe("");
+    expect(redrawExtend({ bottom: 0.5 })).toBe("0,0,0,0.5");
+    expect(redrawExtend({ left: 0.333333, right: 0.25, top: null })).toBe("0.3333,0,0.25,0");
+    expect((redrawExtend({ left: 256 }) as Failed).message).toMatch(/not pixels/);
+    expect((redrawExtend({}) as Failed).message).toMatch(/adds nothing/);
+    expect((redrawExtend([0.1, 0, 0.1, 0]) as Failed).message).toMatch(/\{left, top, right, bottom\}/);
   });
 
   it("takes the box as numbers or a string of them", () => {

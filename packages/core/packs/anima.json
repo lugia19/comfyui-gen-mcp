@@ -8,6 +8,7 @@
   "default_artist_list": "@cutesexyrobutts, @shuuko \\(s h uuko\\), @nyantcha, @bone nigi",
   "lora_group": "anima",
   "negative_fixed": "worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, watermark, signature",
+  "inpaint_control": { "file": "anima-lllite-inpainting-v2.safetensors", "strength": 1.0 },
   "models": [
     {
       "filename": "anima-base-v1.0.safetensors",
@@ -29,6 +30,13 @@
       "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/vae/qwen_image_vae.safetensors",
       "size_bytes": 253806246,
       "sha256": "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
+    },
+    {
+      "filename": "anima-lllite-inpainting-v2.safetensors",
+      "subfolder": "comfy_gen",
+      "url": "https://huggingface.co/kohya-ss/Anima-LLLite/resolve/36ba7f2f498a1ca63cc77fc7a1298652f72d4524/anima-lllite-inpainting-v2.safetensors",
+      "size_bytes": 65772872,
+      "sha256": "5242e677d2be34ee70ca7c97c3b14ff5ee49838c03fc1e60ac4852a180db6ef5"
     }
   ],
   "workflow": {

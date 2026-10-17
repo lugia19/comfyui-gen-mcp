@@ -12,12 +12,16 @@ import { ensureUv, uvEnv } from "./uv.ts";
 const REGISTRY = "https://api.comfy.org";
 export const WAIT_EXTENSION_DIR = "comfy-gen";
 
-/** Write our /comfy-gen/wait extension (packages/modal_app/.../comfy_node) into custom_nodes, so
- * waits are held there as on Modal. Written at every launch: a new release may change it. */
-export function writeWaitExtension(inst: Install, source: string): void {
+/** Our extension's files by name (packages/modal_app/.../comfy_node: the /comfy-gen/wait route and our
+ * nodes in __init__.py, the inpainting control's model code beside it). */
+export type ExtensionFiles = Record<string, string>;
+
+/** Write our extension into custom_nodes, so waits are held there and our nodes run as on Modal.
+ * Written at every launch: a new release may change it. */
+export function writeWaitExtension(inst: Install, files: ExtensionFiles): void {
   const dir = join(inst.dir, "custom_nodes", WAIT_EXTENSION_DIR);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "__init__.py"), source);
+  for (const [name, source] of Object.entries(files)) writeFileSync(join(dir, name), source);
 }
 
 /** Folder names in custom_nodes, lowercased (a node package installed by the old extension's

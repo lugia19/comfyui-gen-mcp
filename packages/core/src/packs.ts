@@ -24,6 +24,9 @@ export type Pack = Record<string, any> & {
   /** Negative tags that always apply (quality and the like): a caller's `negative` is added to
    * these, replacing only the rest of the cg:negative node's default (Anima's sepia, mask...). */
   negative_fixed?: string;
+  /** Redraw's inpainting control (kohya's Anima LLLite): one of the pack's models, in comfy_gen, applied
+   * to the model at *strength* on every redraw where the GPU has our ComfyGenInpaintControl node. */
+  inpaint_control?: { file: string; strength: number };
   models: { url: string; subfolder: string; filename: string; size_bytes?: number; sha256?: string }[];
   /** ComfyUI API format; the nodes we fill in are found by title (workflow.ts TITLES). */
   workflow: Record<string, any>;
@@ -102,6 +105,12 @@ export function validate(pack: unknown, source = "pack"): Pack {
     throw new Error(`${source}: unknown LoRA group ${pack.lora_group} (packs/tools.json)`);
   }
   if (pack.negative_fixed !== undefined && typeof pack.negative_fixed !== "string") throw new Error(`${source}: negative_fixed must be a string`);
+  if (pack.inpaint_control !== undefined) {
+    const c = pack.inpaint_control as Record<string, unknown>;
+    const listed = Array.isArray(pack.models) && pack.models.some((m: any) => m?.filename === c?.file && m?.subfolder === "comfy_gen");
+    if (!isPlainObject(c) || typeof c.file !== "string" || typeof c.strength !== "number" || !listed)
+      throw new Error(`${source}: inpaint_control needs a file among its models in comfy_gen, and a strength`);
+  }
   // The nodes we fill in, by title: one prompt, at least one seed; a model loader for LoRAs.
   const wf = isPlainObject(pack.workflow) ? (pack.workflow as Record<string, any>) : {};
   const count = (title: string) => nodesTitled(wf, title).length;

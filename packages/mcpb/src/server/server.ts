@@ -7,14 +7,14 @@
 import { closeSync, openSync } from "node:fs";
 import type { Server } from "node:http";
 import { join } from "node:path";
-import { listen, loadConfig, log, logTo, Machine, openExternal, paths, saveConfig, type LocalConfig, type Paths, type WebFiles } from "@comfy-gen/local";
+import { listen, loadConfig, log, logTo, Machine, openExternal, paths, saveConfig, type ExtensionFiles, type LocalConfig, type Paths, type WebFiles } from "@comfy-gen/local";
 import { wantedModelSets, withoutLora } from "@comfy-gen/core";
 import type { Pack } from "@comfy-gen/core";
 import { LocalApp } from "./app.ts";
 
 export type ServerOptions = {
   version: string;
-  waitExtension: string; // comfy_node/__init__.py
+  waitExtension: ExtensionFiles; // comfy_node's files
   web: WebFiles;
   paths?: Paths;
   port?: number; // overrides the config (tests)

@@ -7,6 +7,7 @@ import { totalmem } from "node:os";
 import { join } from "node:path";
 import { ComfyUIError, downloadSize, MODEL_SETS, UploadError } from "@comfy-gen/core";
 import { LocalComfy, type ComfySettings } from "./comfyui.ts";
+import type { ExtensionFiles } from "./nodes.ts";
 import { ModelDownloads, type ModelFile } from "./downloads.ts";
 import { bodyJson, error, json } from "./http.ts";
 import { detectGpu, GPUS, install, isGpu } from "./install.ts";
@@ -25,7 +26,7 @@ export type MachineOptions = {
   settings: () => ComfySettings;
   /** Remember the GPU kind an install was made for. */
   saveGpu: (gpu: string) => void;
-  waitExtension: string; // comfy_node/__init__.py
+  waitExtension: ExtensionFiles; // comfy_node's files
   /** After a LoRA is deleted (the MCPB takes it out of its packs' settings). */
   onLoraDeleted?: (name: string) => void;
   openFolder?: (path: string) => void;

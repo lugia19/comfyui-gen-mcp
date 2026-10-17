@@ -5,7 +5,7 @@ import { withPrompt } from "../../core/test/metadata-fixtures.ts";
 import { LORA_CHUNK } from "../src/loras.ts";
 import { PACKS, REQUEST_BUDGET, type App } from "../src/app.ts";
 import { offlineMessage, pausedMessage } from "../src/hooks.ts";
-import { BACKGROUND_UNAVAILABLE, MODEL_SETS, REDRAW_AREA_UNAVAILABLE, REDRAW_UNAVAILABLE, seedKey } from "@comfy-gen/core";
+import { BACKGROUND_UNAVAILABLE, MODEL_SETS, REDRAW_AREA_UNAVAILABLE, REDRAW_EXTEND_UNAVAILABLE, REDRAW_UNAVAILABLE, seedKey } from "@comfy-gen/core";
 import { cacheEntry } from "../src/store.ts";
 import * as updates from "../src/updates.ts";
 import golden from "../../core/test/golden.json" with { type: "json" };
@@ -1108,6 +1108,21 @@ describe("the PC path", () => {
     [, r] = await area();
     expect(r.result.content[0].type).toBe("image");
     expect(Object.values<any>(pc.comfy.prompts[1]).find((n) => n.class_type === "ComfyGenRedrawRegion").inputs.area_only).toBe(true);
+    // The inpainting control only where the agent has the node (v1.21.0); an older one redraws without it.
+    const has = (i: number, c: string) => Object.values<any>(pc.comfy.prompts[i]).some((n) => n.class_type === c);
+    expect(has(1, "ComfyGenInpaintControl")).toBe(false);
+    pc.inpaintControl = true;
+    [, r] = await call();
+    expect(has(2, "ComfyGenInpaintControl")).toBe(true);
+    // extend needs an agent whose nodes grow the canvas (v1.21.0)
+    const extend = () => mcp(app, "tools/call", { name: "redraw", arguments: { prompt: "a wide tavern", image: "https://images.example/a.png", extend: { left: 0.25, right: 0.25 } } });
+    [, r] = await extend();
+    expect(r.result.content[0].text).toContain(REDRAW_EXTEND_UNAVAILABLE);
+    expect(pc.comfy.prompts.length).toBe(3);
+    pc.redrawExtend = true;
+    [, r] = await extend();
+    expect(r.result.content[0].type).toBe("image");
+    expect(Object.values<any>(pc.comfy.prompts[3]).find((n) => n.class_type === "ComfyGenRedrawRegion").inputs.extend).toBe("0.25,0,0.25,0");
   });
 
   it("generates on the PC when it is online, on Modal when it is not", async () => {

@@ -60,6 +60,7 @@ export const TITLES = {
   redrawEncode: "cg:redraw encode",
   redrawMask: "cg:redraw mask",
   redrawModel: "cg:redraw model",
+  redrawControl: "cg:redraw control",
   redrawPaste: "cg:redraw paste",
 } as const;
 const IMAGE_GROUP = "cg:image"; // every node whose title starts so is part of one image's chain
@@ -349,6 +350,8 @@ export function withImages(workflow: Workflow, count: number): [Workflow, { load
  * what to sample, and the paste back. */
 export const REDRAW_REGION_NODE = "ComfyGenRedrawRegion";
 export const REDRAW_PASTE_NODE = "ComfyGenRedrawPaste";
+/** kohya's Anima LLLite inpainting control, in our extension (v1.21.0). */
+export const REDRAW_CONTROL_NODE = "ComfyGenInpaintControl";
 
 /** A pack workflow's sampler and empty latent, when redraw can use it: the one cg:size node feeds
  * exactly one KSampler's latent_image (a KSampler has the denoise a redraw needs; Flux 2 Klein's
@@ -379,6 +382,12 @@ export type RedrawOptions = {
   /** Sample only a crop around the area, scaled to about a megapixel (the prompt describes just the
    * area): redraw's prompt_scope "area". Off, the node gets no such input, as before v1.20.0. */
   areaOnly?: boolean;
+  /** Grow the canvas by "left,top,right,bottom" shares of the image's sides and draw the new border
+   * (outpainting, redraw's `extend`): the sampler then denoises fully, whatever the strength. Off,
+   * the node gets no such input, as before v1.21.0. */
+  extend?: string;
+  /** The pack's inpainting control (Pack.inpaint_control), applied to the model the sampler uses. */
+  control?: { file: string; strength: number };
 };
 
 /**
@@ -396,17 +405,25 @@ export function redrawWorkflow(workflow: Workflow, loadValue: string, opts: Redr
   if (!found) throw new Error("this workflow can't redraw: no empty latent feeding a KSampler");
   const { sampler, size, vae } = found;
   let nextId = nextNodeId(wf);
-  const [image, region, encode, mask, model] = [nextId++, nextId++, nextId++, nextId++, nextId++].map(String);
+  const [image, region, encode, mask, model, control] = [nextId++, nextId++, nextId++, nextId++, nextId++, nextId++].map(String);
   const node = (class_type: string, title: string, inputs: Record<string, any>): Node => ({ inputs, class_type, _meta: { title } });
   delete wf[size];
   wf[image] = node("LoadImage", TITLES.redrawImage, { image: loadValue });
   wf[region] = node(REDRAW_REGION_NODE, TITLES.redrawRegion, {
     image: [image, 0], box: opts.box, max_pixels: Math.round(opts.maxPixels), ...(opts.areaOnly ? { area_only: true } : {}),
+    ...(opts.extend ? { extend: opts.extend } : {}),
   });
   wf[encode] = node("VAEEncode", TITLES.redrawEncode, { pixels: [region, 0], vae });
   wf[mask] = node("SetLatentNoiseMask", TITLES.redrawMask, { samples: [encode, 0], mask: [region, 1] });
-  wf[model] = node("DifferentialDiffusion", TITLES.redrawModel, { model: wf[sampler].inputs.model });
-  Object.assign(wf[sampler].inputs, { latent_image: [mask, 0], model: [model, 0], denoise: opts.strength });
+  // The control patches the model after its LoRAs (the end of the chain that fed the sampler), with
+  // the sampled image and its mask.
+  if (opts.control) {
+    wf[control] = node(REDRAW_CONTROL_NODE, TITLES.redrawControl, {
+      model: wf[sampler].inputs.model, image: [region, 0], mask: [region, 1], control_name: opts.control.file, strength: opts.control.strength,
+    });
+  }
+  wf[model] = node("DifferentialDiffusion", TITLES.redrawModel, { model: opts.control ? [control, 0] : wf[sampler].inputs.model });
+  Object.assign(wf[sampler].inputs, { latent_image: [mask, 0], model: [model, 0], denoise: opts.extend ? 1 : opts.strength });
   for (const save of Object.values(wf)) {
     if (save.class_type !== "SaveImage" || !Array.isArray(save.inputs?.images)) continue;
     const paste = String(nextId++);

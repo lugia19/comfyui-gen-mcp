@@ -8,7 +8,7 @@ import { describe as describeTool } from "../src/tools.ts";
 import { OutputImage } from "../src/comfyui.ts";
 import { previewImage } from "../src/results.ts";
 import { FakeComfy, fastClient } from "./fake-comfy.ts";
-import { BACKGROUND_MODEL, CUTOUT_NODE, buildPrompt, calcDimensions, injectLoras, redrawWorkflow, withBackgroundRemoval, REDRAW_PASTE_NODE, REDRAW_REGION_NODE, REMOVE_MARKS_NODE, withImages, withWebpSave, WEBP_SAVE, type Workflow } from "../src/workflow.ts";
+import { BACKGROUND_MODEL, CUTOUT_NODE, buildPrompt, calcDimensions, injectLoras, redrawWorkflow, withBackgroundRemoval, REDRAW_CONTROL_NODE, REDRAW_PASTE_NODE, REDRAW_REGION_NODE, REMOVE_MARKS_NODE, withImages, withWebpSave, WEBP_SAVE, type Workflow } from "../src/workflow.ts";
 
 const smallWorkflow = (): Workflow => ({
   "1": { class_type: "UNETLoader", inputs: { unet_name: "m.safetensors" }, _meta: { title: "cg:model" } },
@@ -448,6 +448,45 @@ describe("redraw", () => {
     expect(node(node(join.inputs.alpha).inputs.mask).inputs.image).toEqual(join.inputs.image); // RemoveBackground sees the paste
     const plain = redrawWorkflow(pack.workflow, "a.png", { box: "", strength: 0.9, maxPixels: 2359296 });
     expect(Object.values<any>(plain).find((n) => n.class_type === REDRAW_PASTE_NODE).inputs.alpha).toBeDefined();
+  });
+
+  it("puts the pack's inpainting control on the model after its LoRAs, fed the sampled image and mask", () => {
+    const cfg = normalize({ pack_loras: { anima: [{ name: "style.safetensors", trigger: "@style" }] } });
+    const prepared = prepare(pack("anima_turbo"), cfg);
+    const wf = redrawWorkflow(prepared.workflow, "a.png", { box: "", strength: 0.9, maxPixels: 2359296, control: prepared.inpaint_control });
+    const node = (ref: [string, number]) => wf[ref[0]];
+    const sampler = Object.values<any>(wf).find((n) => n.class_type === "KSampler");
+    const diff = node(sampler.inputs.model);
+    const control = node(diff.inputs.model);
+    expect([diff.class_type, control.class_type]).toEqual(["DifferentialDiffusion", REDRAW_CONTROL_NODE]);
+    expect(node(control.inputs.model).class_type).toBe("LoraLoaderModelOnly"); // after the LoRAs
+    const region = node(control.inputs.image);
+    expect([region.class_type, control.inputs.image[1], control.inputs.mask]).toEqual([REDRAW_REGION_NODE, 0, [control.inputs.image[0], 1]]);
+    expect([control.inputs.control_name, control.inputs.strength]).toEqual(["anima-lllite-inpainting-v2.safetensors", 1]);
+    // A LoRA left out for its missing trigger: the control is rewired to what fed it.
+    const built = buildPrompt(wf, "no trigger here", { loraToggles: prepared.lora_toggles });
+    const c = Object.values<any>(built).find((n) => n.class_type === REDRAW_CONTROL_NODE);
+    expect(built[c.inputs.model[0]].class_type).toBe("UNETLoader");
+  });
+
+  it("both Anima packs carry the control's weights; without the option there is no control", () => {
+    for (const name of ["anima", "anima_turbo"]) {
+      const p = pack(name);
+      expect(p.inpaint_control?.file).toBe("anima-lllite-inpainting-v2.safetensors");
+      expect(p.models.find((m) => m.filename === p.inpaint_control!.file)?.subfolder).toBe("comfy_gen");
+    }
+    const wf = redrawWorkflow(prepare(pack("anima"), normalize({})).workflow, "a.png", { box: "", strength: 0.9, maxPixels: 1 });
+    expect(Object.values<any>(wf).some((n) => n.class_type === REDRAW_CONTROL_NODE)).toBe(false);
+    const bad = structuredClone(pack("anima")) as any;
+    bad.inpaint_control.file = "elsewhere.safetensors";
+    expect(() => validate(bad)).toThrow(/inpaint_control/);
+  });
+
+  it("extend grows the canvas and denoises it fully", () => {
+    const wf = redrawWorkflow(prepare(pack("anima_turbo"), normalize({})).workflow, "a.png", { box: "", strength: 0.9, maxPixels: 2359296, extend: "0.25,0,0.25,0" });
+    const region = Object.values<any>(wf).find((n) => n.class_type === REDRAW_REGION_NODE);
+    expect(region.inputs.extend).toBe("0.25,0,0.25,0");
+    expect(Object.values<any>(wf).find((n) => n.class_type === "KSampler").inputs.denoise).toBe(1);
   });
 
   it("won't build on a pack that can't", () => {

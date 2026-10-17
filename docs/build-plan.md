@@ -933,3 +933,32 @@ Asked: can Anima outpaint? Spike on Modal with raw graphs (scratchpad `outpaint/
   weights are 66 MB: kohya's ControlNet-LLLite adds small modules to some layers, like a LoRA, where
   a full ControlNet would copy half the model). Redraw's description gains a line: name in the prompt
   anything inside the area that must stay.
+
+## v1.21.0: the inpainting control on redraw, and extend (2026-10-17)
+
+- **The control:** kohya's Anima LLLite inpainting control on every Anima redraw, at strength 1.0.
+  - kohya's model code is copied into our extension (`comfy_node/lllite.py`, Apache-2.0, with its
+    licence); our node is `ComfyGenInpaintControl`.
+  - The weights (66 MB) are one of both Anima packs' models, in `comfy_gen`; a pack's
+    `inpaint_control` names them.
+  - The extension ships as a set of files to PCs and the MCPB (`build.mjs`, `writeWaitExtension`).
+  - A PC agent says `inpaint_control`; an older one's redraws run without it.
+- **`extend` on redraw (outpainting):** shares per side, at most 1 per axis, not with `box` or
+  `prompt_scope: "area"`; denoised fully.
+  - The region node pads the canvas; the paste puts the original back from inside its band.
+  - A PC agent says `redraw_extend`; an older one answers "needs a newer agent".
+- **Description:** an extend paragraph, and "name in the prompt what must stay inside the area".
+- **Checked:**
+  - unit tests: core graph and Brain, Worker gating, Python geometry and paste, the control's
+    condition building, the extension files written;
+  - the MCPB bundle carries the three extension files;
+  - `check_pack_models.py`: 17 files, 0 problems;
+  - on the scratchpad's CPU ComfyUI with the real Anima Turbo, through graphs built by core:
+    - a controlled redraw of a sprite's hand: same size, 0 pixels changed outside the area, the
+      control's 112 modules loaded with every key matched;
+    - the same seed at control strength 1 and 0: 13,406 pixels differ (kohya's code silently
+      skips itself on a size mismatch, so loading alone proves nothing);
+    - a tavern extended a quarter on each side: the canvas size, the original pixel for pixel
+      from the band's blend inward, a coherent new border.
+- **Live, after the release:** a sprite-hand redraw and an extend of a scene, on Modal and on the
+  PC agent.

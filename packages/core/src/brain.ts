@@ -103,6 +103,11 @@ export type BrainOptions = {
   hooks?: Hooks; waitS?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean; canCutout?: boolean;
   /** redraw's prompt_scope "area": the GPU's extension crops (a PC agent from before v1.20.0 doesn't). */
   canRedrawArea?: boolean;
+  /** The pack's inpainting control on redraws: the GPU's extension has ComfyGenInpaintControl (v1.21.0;
+   * without it a redraw runs as before, uncontrolled). */
+  canInpaintControl?: boolean;
+  /** redraw's extend: the GPU's extension grows the canvas (v1.21.0). */
+  canRedrawExtend?: boolean;
 };
 
 export const BACKGROUND_UNAVAILABLE =
@@ -113,6 +118,9 @@ export const REDRAW_UNAVAILABLE =
 
 export const REDRAW_AREA_UNAVAILABLE =
   "prompt_scope \"area\" needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that, or without prompt_scope.";
+
+export const REDRAW_EXTEND_UNAVAILABLE =
+  "extend needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that.";
 
 // Redraw's strength: the sampler's denoise. 0.9 changed expressions clearly and kept identity in
 // the spikes (0.8 barely changed them); below 0.3 nothing visible changes.
@@ -131,6 +139,8 @@ export class Brain {
   private canRedraw: boolean;
   private canCutout: boolean;
   private canRedrawArea: boolean;
+  private canInpaintControl: boolean;
+  private canRedrawExtend: boolean;
   private packs: Pack[];
   // Raw selected packs by tool. They are prepared (LoRAs, budget) only when called, so a request
   // pays for one pack, not all of them.
@@ -146,6 +156,8 @@ export class Brain {
     this.canRedraw = opts.canRedraw ?? false;
     this.canCutout = opts.canCutout ?? false;
     this.canRedrawArea = opts.canRedrawArea ?? false;
+    this.canInpaintControl = opts.canInpaintControl ?? false;
+    this.canRedrawExtend = opts.canRedrawExtend ?? false;
     this.packs = packs;
     this.specs = toolSpecs(packs, this.cfg, imageMode);
     this.selected = Object.fromEntries(select(groupByTool(packs), this.cfg.pack_selections).map((p) => [p.tool_name, p]));
@@ -221,8 +233,13 @@ export class Brain {
     if (!Number.isFinite(strength) || strength < MIN_STRENGTH || strength > 1) return new Failed(`strength must be a number from ${MIN_STRENGTH} to 1.`);
     const scope = args.prompt_scope === undefined || args.prompt_scope === null || args.prompt_scope === "" ? "image" : args.prompt_scope;
     if (scope !== "image" && scope !== "area") return new Failed('prompt_scope must be "image" (the default) or "area".');
+    const extend = redrawExtend(args.extend);
+    if (extend instanceof Failed) return extend;
+    if (extend && box) return new Failed("extend and box can't be combined: extend redraws the new border. Fix a part of the image with a second redraw.");
+    if (extend && scope === "area") return new Failed('extend can\'t be combined with prompt_scope "area".');
     if (!this.canRedraw) return new Failed(REDRAW_UNAVAILABLE);
     if (scope === "area" && !this.canRedrawArea) return new Failed(REDRAW_AREA_UNAVAILABLE);
+    if (extend && !this.canRedrawExtend) return new Failed(REDRAW_EXTEND_UNAVAILABLE);
     const removeBackground = args.remove_background === true;
     if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
     // Unnamed, the model that drew the image when its metadata says (mixing models doesn't work).
@@ -233,13 +250,16 @@ export class Brain {
     let loadValue: string;
     try {
       // before the upload, as for edits
-      await this.ensureAll(pack, [...(box ? [] : [FACE_MODELS]), ...(removeBackground ? [BG_MODELS] : [])]);
+      await this.ensureAll(pack, [...(box || extend ? [] : [FACE_MODELS]), ...(removeBackground ? [BG_MODELS] : [])]);
       [loadValue] = await this.hooks.resolveImage(image);
     } catch (e) {
       if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
       throw e;
     }
-    const wf = redrawWorkflow(pack.workflow, loadValue, { box, strength, maxPixels: pack.max_pixels ?? 1_048_576, keepAlpha: !removeBackground, areaOnly: scope === "area" });
+    const wf = redrawWorkflow(pack.workflow, loadValue, {
+      box, strength, maxPixels: pack.max_pixels ?? 1_048_576, keepAlpha: !removeBackground, areaOnly: scope === "area", extend,
+      control: this.canInpaintControl ? pack.inpaint_control : undefined,
+    });
     // The background cut from the pasted result, not before: a redraw reaching into an already
     // transparent part samples the colours left under it and gets the old edge pasted back.
     if (removeBackground) withBackgroundRemoval(wf, { cutout: this.canCutout });
@@ -310,6 +330,22 @@ export class Brain {
       throw e;
     }
   }
+}
+
+/** A redraw call's extend for the node: "left,top,right,bottom" shares of the image's sides, "" for
+ * none; a Failed saying what is wrong with it. Takes {left, top, right, bottom} (missing sides 0). */
+export function redrawExtend(extend: unknown): string | Failed {
+  if (extend === undefined || extend === null || extend === "") return "";
+  if (typeof extend !== "object" || Array.isArray(extend)) return new Failed("extend must be {left, top, right, bottom}: shares of the image's width and height to add on each side.");
+  const e = extend as Record<string, unknown>;
+  const sides = ["left", "top", "right", "bottom"].map((k) => (e[k] === undefined || e[k] === null ? 0 : e[k]));
+  if (sides.some((v) => typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1)) {
+    return new Failed("extend's sides are shares of the image's width and height, from 0 to 1, not pixels (0.25 adds a quarter).");
+  }
+  const [l, t, r, b] = sides as number[];
+  if (l + r > 1 || t + b > 1) return new Failed("extend can at most double the width and the height in one call (left + right and top + bottom up to 1): extend again for more.");
+  if (Math.max(l, t, r, b) < MIN_BOX_SIDE) return new Failed("extend adds nothing: give at least one side a share above 0.");
+  return [l, t, r, b].map((v) => String(roundHalfEven(v * 1e4) / 1e4)).join(",");
 }
 
 /** A redraw call's box for the node: "left,top,right,bottom" fractions, "" for the largest face; a

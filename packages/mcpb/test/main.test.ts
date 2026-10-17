@@ -22,7 +22,7 @@ function proc(home: string) {
   });
   let exited = false;
   let id = 0;
-  const started = main({ version: "t", waitExtension: "", web: () => null, paths: paths({ COMFY_GEN_HOME: home }), stdin, stdout, exit: () => (exited = true) });
+  const started = main({ version: "t", waitExtension: {}, web: () => null, paths: paths({ COMFY_GEN_HOME: home }), stdin, stdout, exit: () => (exited = true) });
   const rpc = (method: string, params: object = {}) =>
     new Promise<any>((resolve) => {
       const i = ++id;

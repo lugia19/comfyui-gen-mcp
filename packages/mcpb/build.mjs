@@ -59,8 +59,11 @@ const embedded = {
         return { contents: `export default ${JSON.stringify(files)};`, loader: "js" };
       }
       if (args.path === "comfy-gen:wait-extension") {
-        const src = readFileSync(join(root, "packages/modal_app/src/comfy_gen_modal/comfy_node/__init__.py"), "utf8");
-        return { contents: `export default ${JSON.stringify(src)};`, loader: "js" };
+        // Our extension's files by name: its nodes (__init__.py), the inpainting control's model code
+        // (lllite.py) and that code's licence.
+        const dir = join(root, "packages/modal_app/src/comfy_gen_modal/comfy_node");
+        const files = Object.fromEntries(readdirSync(dir).filter((f) => /\.(py|txt)$/.test(f)).sort().map((f) => [f, readFileSync(join(dir, f), "utf8")]));
+        return { contents: `export default ${JSON.stringify(files)};`, loader: "js" };
       }
       if (args.path === "comfy-gen:icons") {
         // Tray icons by state color (assets/make_tray_icons.py): .ico for Windows, .png elsewhere.

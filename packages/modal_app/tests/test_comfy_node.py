@@ -309,3 +309,69 @@ def test_the_node_never_fails_without_isnet():
     rgb, alpha = _sprite()
     (out,) = ComfyGenCutout().run(torch.from_numpy(rgb)[None], torch.from_numpy(alpha)[None])
     assert out.shape == (1, 60, 60, 4)
+
+
+# ── The inpainting control (kohya's Anima LLLite) ──
+
+
+def test_the_control_image_covers_whole_patches():
+    from comfy_gen_modal.comfy_node import control_hw
+
+    assert control_hw(128, 96) == (1024, 768)
+    assert control_hw(129, 97) == (1040, 784)  # an odd latent side is padded to a whole patch first
+
+
+def test_the_control_gets_the_image_blanked_inside_the_area_and_the_mask():
+    torch = pytest.importorskip("torch")
+    from comfy_gen_modal.comfy_node import control_cond
+
+    image = torch.full((1, 64, 64, 3), 0.75)
+    mask = torch.zeros(1, 64, 64)
+    mask[:, 16:48, 16:48] = 0.6  # a soft mask: binarized at 0.5
+    cond = control_cond(image, mask, 8, 8, True, "cpu", torch.float32)
+    assert cond.shape == (1, 4, 64, 64)
+    assert torch.allclose(cond[0, :3, 0, 0], torch.tensor(0.5))  # the image, in [-1, 1], outside the area
+    assert torch.allclose(cond[0, :3, 32, 32], torch.tensor(0.0))  # blanked inside it
+    assert cond[0, 3, 32, 32] == 1 and cond[0, 3, 0, 0] == -1  # the mask channel, in [-1, 1]
+    kept = control_cond(image, mask, 8, 8, False, "cpu", torch.float32)
+    assert torch.allclose(kept[0, :3, 32, 32], torch.tensor(0.5))  # weights trained without blanking see it all
+
+
+# ── extend (outpainting) ──
+
+
+def test_extend_shares_become_pixels_and_are_bounded():
+    from comfy_gen_modal.comfy_node import parse_extend
+
+    assert parse_extend("", 100, 80) is None
+    assert parse_extend("0.25,0,0.25,0", 100, 80) == [25, 0, 25, 0]
+    assert parse_extend("0,0,0,0.5", 100, 80) == [0, 0, 0, 40]
+    for bad in ("0.6,0,0.6,0", "0,0,0,0", "-0.1,0,0,0", "0.2,0.2"):
+        with pytest.raises(ValueError):
+            parse_extend(bad, 100, 80)
+
+
+def test_extend_geometry_bands_only_the_grown_sides():
+    from comfy_gen_modal.comfy_node import extend_geometry
+
+    size, offset, keep, paste = extend_geometry(1000, 1000, [250, 0, 250, 0])
+    assert size == (1500, 1000) and offset == (250, 0)
+    assert keep == [250 + 47, 0, 1250 - 47, 1000]  # the band on the left and right only
+    assert paste == [250 + 47 + 31, 0, 1250 - 47 - 31, 1000]  # the original back from further in
+    _, _, keep, _ = extend_geometry(1000, 600, [0, 0, 0, 300])
+    assert keep == [0, 0, 1000, 600 - round(0.047 * 600)]  # the shorter side sets the band
+
+
+def test_extend_samples_the_canvas_and_pastes_the_original_back_exactly():
+    torch = pytest.importorskip("torch")
+    from comfy_gen_modal.comfy_node import redraw_paste, redraw_region
+
+    original = torch.rand(1, 120, 160, 3)
+    sample, mask, region = redraw_region(original, "", 16777216, extend_text="0.25,0,0.25,0")
+    assert region["canvas"] == [240, 120] and region["offset"] == [40, 0]
+    assert sample.shape == (1, 128, 240, 3)  # in steps of 16
+    assert float(mask[0, 50, 0]) == 1 and float(mask[0, 50, 120]) == 0  # the border repainted, the middle kept
+    out = redraw_paste(original, torch.zeros(1, 128, 240, 3), region)
+    assert out.shape == (1, 120, 240, 3)
+    assert torch.equal(out[0, :, 40 + 20 : 200 - 20], original[0, :, 20:140])  # the original's interior, pixel for pixel
+    assert float(out[0, 60, 5].max()) == 0  # the border is the redrawn result

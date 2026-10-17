@@ -100,7 +100,7 @@ describe("Machine.idleFor", () => {
     vi.useFakeTimers();
     try {
       const p = paths({ COMFY_GEN_HOME: dir() });
-      const machine = new Machine({ paths: p, settings: () => loadConfig(p.config), saveGpu: () => {}, waitExtension: "" });
+      const machine = new Machine({ paths: p, settings: () => loadConfig(p.config), saveGpu: () => {}, waitExtension: {} });
       expect(machine.idleFor(30_000)).toBe(true); // unused since it started: an update needn't wait
       let finish!: () => void;
       const job = machine.comfy.job(() => new Promise<void>((r) => (finish = r)));
@@ -122,7 +122,7 @@ describe("model sets kept in the background", () => {
     const p = paths({ COMFY_GEN_HOME: dir() });
     const set = { name: "remove-background", display_name: "Background removal", models: [{ url: "https://x.example/m", subfolder: "background_removal", filename: "m.safetensors" }] };
     const comfy = { state: "not_installed" } as any;
-    const machine = new Machine({ paths: p, settings: () => loadConfig(p.config), saveGpu: () => {}, waitExtension: "", modelSets: () => [set], comfy });
+    const machine = new Machine({ paths: p, settings: () => loadConfig(p.config), saveGpu: () => {}, waitExtension: {}, modelSets: () => [set], comfy });
     const started: string[] = [];
     machine.downloads.start = ((key: string) => (started.push(key), { state: "queued", done: 0, total: 1 })) as any;
     machine.fetchModelSets();

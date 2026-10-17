@@ -10,13 +10,13 @@ import { request as httpRequest } from "node:http";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { failResult, McpHandler, toolSpecs } from "@comfy-gen/core";
-import { loadConfig, log, logTo, machineTray, paths, selfRequest, type Paths, type Tray, type TrayLook, type WebFiles } from "@comfy-gen/local";
+import { loadConfig, log, logTo, machineTray, paths, selfRequest, type ExtensionFiles, type Paths, type Tray, type TrayLook, type WebFiles } from "@comfy-gen/local";
 import { PACKS } from "./server/app.ts";
 import { startServer, type RunningServer } from "./server/server.ts";
 
 export type MainOptions = {
   version: string;
-  waitExtension: string;
+  waitExtension: ExtensionFiles;
   web: WebFiles;
   tray?: TrayLook;
   paths?: Paths;

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { clearWorkspace, ensureExtensionPackages, EXTENSION_PACKAGES } from "../src/install.ts";
+import { WAIT_EXTENSION_DIR, writeWaitExtension } from "../src/nodes.ts";
 import { paths } from "../src/paths.ts";
 import { UV_VERSION, uvPath } from "../src/uv.ts";
 
@@ -24,6 +25,18 @@ describe("reinstalling", () => {
     await clearWorkspace(ws);
     expect(readdirSync(ws).sort()).toEqual(["models", "output", "user"]);
     expect(readFileSync(join(ws, "models", "checkpoints", "mine.safetensors"), "utf8")).toBe("data");
+  });
+});
+
+describe("our extension's files", () => {
+  it("writes every file into custom_nodes, over the last release's", () => {
+    const ws = dir();
+    const inst = { dir: ws, python: "", gpu: null, version: null };
+    writeWaitExtension(inst, { "__init__.py": "old" });
+    writeWaitExtension(inst, { "__init__.py": "nodes", "lllite.py": "model code", "LICENSE-lllite.txt": "Apache" });
+    const ext = join(ws, "custom_nodes", WAIT_EXTENSION_DIR);
+    expect(readdirSync(ext).sort()).toEqual(["LICENSE-lllite.txt", "__init__.py", "lllite.py"]);
+    expect(readFileSync(join(ext, "__init__.py"), "utf8")).toBe("nodes");
   });
 });
 

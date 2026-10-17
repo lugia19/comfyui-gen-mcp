@@ -8,7 +8,7 @@
 // RESTART_EXIT_CODE asks it to start us again at once (into a newer bundle), 0 to stay stopped.
 
 import { BG_MODELS, FACE_MODELS } from "@comfy-gen/core";
-import { agentInstance, setPartSuffix, listen, log, logTo, Machine, machineTray, openExternal, paths, selfRequest, type Paths, type TrayLook, type WebFiles } from "@comfy-gen/local";
+import { agentInstance, setPartSuffix, listen, log, logTo, Machine, machineTray, openExternal, paths, selfRequest, type ExtensionFiles, type Paths, type TrayLook, type WebFiles } from "@comfy-gen/local";
 import { AgentApp } from "./app.ts";
 import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts";
 import { agentHandler } from "./handlers.ts";
@@ -21,7 +21,7 @@ const RESTART_WHEN_QUIET_MS = 10 * 60_000; // an update waits for this long with
 
 export type AgentOptions = {
   version: string;
-  waitExtension: string;
+  waitExtension: ExtensionFiles;
   web: WebFiles;
   tray?: TrayLook;
   paths?: Paths;
@@ -107,6 +107,8 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
         redraw: true, // our extension's redraw nodes (v1.17.0)
         cutout: true, // our extension's cut-out cleanup node (v1.17.3)
         redraw_area: true, // its redraw node crops for prompt_scope "area" (v1.20.0)
+        inpaint_control: true, // our extension's inpainting control node, kohya's LLLite (v1.21.0)
+        redraw_extend: true, // its redraw nodes grow the canvas for extend (v1.21.0)
       }),
       onOpen: () => void sync.sync(),
     });

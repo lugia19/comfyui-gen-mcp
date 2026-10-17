@@ -99,6 +99,8 @@ export class LocalApp {
       canRedraw: true,
       canCutout: true,
       canRedrawArea: true,
+      canInpaintControl: true,
+      canRedrawExtend: true,
     });
     const specs = brain(client()).specs;
     const served = new Set([...specs.map((spec) => spec.name), ...HIDDEN_TOOLS]);

@@ -447,6 +447,35 @@ and `strength` (0.3 to 1, default 0.9); hidden, `model` and `negative` (Scripted
   description says to measure the box with tooling where there is any, otherwise to estimate it
   erring larger, and to call again with a larger box if the problem remains. In the spike a box
   estimated by eye was within about 30 px of the measured one.
+- **The inpainting control (v1.21.0, the user's call: always on).** kohya's Anima ControlNet-LLLite
+  inpainting weights (`anima-lllite-inpainting-v2.safetensors`, 66 MB: small modules added to some
+  of the model's layers, like a LoRA, where a full ControlNet would copy half the model) read the
+  image with the area blanked and the mask, and steer the sampler to continue what surrounds the
+  area. Our `ComfyGenInpaintControl` node applies them to the model after its LoRAs, fed the
+  region's sample and mask, at strength 1.0 (core `redrawWorkflow`, the pack's `inpaint_control`;
+  the weights are one of both Anima packs' models, in `comfy_gen`). The model code is kohya's
+  (`comfy_node/lllite.py`, copied from kohya-ss/ComfyUI-Anima-LLLite at `b7495bd` under the Apache
+  License 2.0, with its licence beside it), so no node pack is added on any GPU; the extension now
+  ships as a set of files (`build.mjs`, `writeWaitExtension`). Trained on Anima Base; it works on
+  Turbo too. In the spike (build plan, "Outpainting") it was as good or better than redrawing
+  without it in all 18 pairs on both models: without it a glove melted into the hip, a muzzle
+  lightened, a steel gauntlet came out brown; with it, about 25% more time (Turbo 6.4 s against 5.2
+  at a megapixel, Base 35.5 against 27.2). It draws the area to fit its surroundings, not what was
+  inside it, so the description asks to name in the prompt anything there that must stay (a sword
+  inside the area was lost; one reaching out of it was kept). A PC agent says `inpaint_control` in
+  its hello; an older one's redraws run without it, as before.
+- **Extend: outpainting (v1.21.0).** `extend` ({left, top, right, bottom}, shares of the image's
+  width and height, at most 1 per axis per call) grows the canvas instead of repainting a box (not
+  both). The region node pads the image, its edge stretched and blurred into the new border; the
+  mask is the border and a band of the original, the sampler denoises fully (strength doesn't
+  apply), with the control on; the paste puts the original back from further in than the band, so
+  the result is the canvas with the original's interior pixel for pixel (opaque). Sizes are shares
+  of the image's shorter side (band 0.047, paste-back inset 0.031, feather 0.016: the spike's 48,
+  32 and 16 px at 1024). The inset is what removed the spike's ghosts (half-transparent bottles
+  where the original's frame cut them, from blending the original back over the whole band). The
+  description recommends up to 0.5 per side (2× in one call repeated a motif in the spike), a
+  prompt for the whole new picture with its new framing, and a second redraw for a stray hand. A PC
+  agent says `redraw_extend`; an older one answers "needs a newer agent".
 - **Our nodes.** `ComfyGenRedrawRegion` (the area, its mask, the image to sample) and
   `ComfyGenRedrawPaste` in our extension, so redraw runs where it does: Modal, the extension, and a
   PC whose agent's hello says `redraw` (v1.17.0; older agents get a plain "needs a newer agent").
@@ -1108,7 +1137,7 @@ a header and its chunks in one synchronous run, so messages never interleave.
 | `http` | Worker → agent | One ComfyUI request (method, path, params, headers, body); the agent calls its ComfyUI inside a job, so the idle stop waits |
 | `control` | Worker → agent | An agent operation: `pause` (`{paused}`, from the Setup page), `ensure` (start ComfyUI, install the pack's nodes, check or start its model downloads), `loras` (its files and the LoRA copies in progress), `models`, `download`, `sync` (start a LoRA sync), `lora_delete`, `status` |
 | `reply` | agent → Worker | `{id, status}` and the body |
-| `hello` | agent → Worker | On connecting, and again when paused or resumed: version, platform, GPU, ComfyUI state, `paused`, and what this agent's ComfyUI can do (`remove_marks`, `remove_background`, `redraw`; absent on an agent from before each, so the Worker leaves that step out or says the agent needs updating); the latest is kept with the socket for the settings page |
+| `hello` | agent → Worker | On connecting, and again when paused or resumed: version, platform, GPU, ComfyUI state, `paused`, and what this agent's ComfyUI can do (`remove_marks`, `remove_background`, `redraw`, `cutout`, `redraw_area`, `inpaint_control`, `redraw_extend`; and `installing` while ComfyUI is installed; each absent on an agent from before it, so the Worker leaves that step out or says the agent needs updating); the latest is kept with the socket for the settings page |
 
 On the Worker, `RelayTransport` is core's `Transport` over the object's `request()`, so the
 ComfyUI client, held waits and the brain are unchanged. A call with no agent connected waits 10 s
@@ -1267,7 +1296,7 @@ Later: the ComfyUI client and the Modal app can become shared with Visual-Noveli
 | A PC's settings reachable from the Worker only through an allow-list (2026-10-02) | Guarded nothing: the Worker can already run code on the PC through each pack's `required_nodes`. Every setting is now on the PC's own page on the Worker; only pairing stays on the PC (§9, "A page per PC") |
 | The negative prompt against painted-in signatures (2026-10-15) | Didn't stop them on base Anima, and Anima Turbo skips the negative at CFG 1 |
 | Repainting a mark with the image's own model, or ready-made node packs (2026-10-15) | A diffusion inpaint per image costs seconds of GPU and loads another graph. The marks sit on flat colour near the corners, which LaMa fills well. Acly's LaMa node resizes the whole image to 512 and blurred it; Impact Pack's detailers were more machinery than one detector and one fill. Our own node crops each mark at full resolution |
-| `edit_image` for touch-ups, and an inpainting control model (2026-10-15) | Flux 2 Klein's edits changed 0.7 to 1% of a sprite's body pixels, lost Frenni's bear muzzle and shifted the style. kohya's Anima LLLite inpainting needs a custom node; masked denoising on the pack's own graph was enough (§3, Redraw). (Corrected 2026-10-17: the node is Apache-2.0 and its weights carry Anima's own licence, so licensing was never the obstacle.) |
+| `edit_image` for touch-ups, and an inpainting control model (2026-10-15) | Flux 2 Klein's edits changed 0.7 to 1% of a sprite's body pixels, lost Frenni's bear muzzle and shifted the style. kohya's Anima LLLite inpainting needed a custom node, and masked denoising on the pack's own graph seemed enough (§3, Redraw). **Reversed 2026-10-17**: the spike showed the control fixes what plain masked denoising got wrong, on both models; its code (Apache-2.0) is copied into our extension and its weights (Anima's licence) ship with the packs (§3, Redraw: the inpainting control) |
 | Redrawing a crop around the area (2026-10-15) | With the whole character's prompt the crop got the body the prompt described (a bustier drawn into a face crop); with a prompt for the crop alone, the model lost what the crop didn't show (bare hands on an armoured knight): 2 usable of 12. Redraw samples the whole image with the prompt for all of it, and repaints only the mask (§3, Redraw) |
 | Lucida for background removal (v1.16.0 to v1.17.2), and fixes that only cleaned its edge colours (2026-10-16) | A white contour over dark scenes, from a light ring in the images that any soft mask keeps, and enclosed background kept between hair and face; RMBG 2.0 with isnet-anime's gaps, a 2 px shrink and colour cleanup won on all 7 test sprites (§3, Background removal) |
 | Seed records keyed by pack name only (to v1.17.3) | Changing a pack's files under the same name kept both records at "done", so Modal never fetched v1.17.3's background models; keys now carry a hash of the files (`seedKey`, §2) |

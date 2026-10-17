@@ -4,8 +4,8 @@ declare module "comfy-gen:web" {
   export default files;
 }
 declare module "comfy-gen:wait-extension" {
-  const source: string;
-  export default source;
+  const files: Record<string, string>; // our ComfyUI extension's files by name (comfy_node/)
+  export default files;
 }
 declare module "comfy-gen:icons" {
   const icons: Record<"yellow" | "green" | "red", { ico: string; png: string }>; // base64

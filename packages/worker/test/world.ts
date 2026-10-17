@@ -236,6 +236,8 @@ export class FakeRelay implements RelayStub {
   redraw = false; // its hello says its ComfyUI has our redraw nodes (v1.17.0)
   cutout = false; // its hello says its ComfyUI has our cut-out node (v1.17.3)
   redrawArea = false; // its hello says its redraw node crops for prompt_scope "area" (v1.20.0)
+  inpaintControl = false; // its hello says its extension has the inpainting control node (v1.21.0)
+  redrawExtend = false; // its hello says its redraw nodes grow the canvas (v1.21.0)
   comfyui = "running"; // its ComfyUI's state, as its hello reports it
   installing = false; // its hello says ComfyUI is being installed (v1.20.1)
 
@@ -255,7 +257,7 @@ export class FakeRelay implements RelayStub {
   }
 
   async status(): Promise<RelayStatus> {
-    return { connected: this.connected, since: this.connected ? 1000 : null, info: this.connected ? { version: "t", gpu: "nvidia", paused: this.paused, remove_marks: this.removeMarks, remove_background: this.removeBackground, redraw: this.redraw, cutout: this.cutout, redraw_area: this.redrawArea, comfyui: this.comfyui, installing: this.installing } : null };
+    return { connected: this.connected, since: this.connected ? 1000 : null, info: this.connected ? { version: "t", gpu: "nvidia", paused: this.paused, remove_marks: this.removeMarks, remove_background: this.removeBackground, redraw: this.redraw, cutout: this.cutout, redraw_area: this.redrawArea, inpaint_control: this.inpaintControl, redraw_extend: this.redrawExtend, comfyui: this.comfyui, installing: this.installing } : null };
   }
 
   async drop(): Promise<void> {

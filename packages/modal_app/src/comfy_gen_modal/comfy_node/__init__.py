@@ -29,6 +29,10 @@ area scaled to about a megapixel (the prompt describes only the area: more pixel
 detail, no knowledge of the rest); the second puts the result back through the mask, so every other
 pixel stays as it was and the image keeps its size and transparency.
 
+ComfyGenInpaintControl (node): kohya's Anima ControlNet-LLLite inpainting control on a redraw's model
+(models/comfy_gen; the model code is lllite.py, copied from kohya-ss/ComfyUI-Anima-LLLite under the
+Apache License 2.0), so the repainted area continues what surrounds it.
+
 ComfyGenCutout (node): turns ComfyUI's background removal (RMBG 2.0) into the RGBA image, cleaned:
 background enclosed by the silhouette (which BiRefNet models keep) cleared where isnet-anime
 (models/comfy_gen/ISNET) disagrees and the patch is the background's colour, the mask shrunk past
@@ -305,6 +309,14 @@ FEATHER_SHARE = 0.04
 ROUND_SHARE = 0.2  # a box's corner radius: this share of its shorter side
 SIDE_STEP = 16  # sampled sides are multiples of this (the latent's 8, times the model's 2x2 patches)
 NO_FACE = "No face found in this image: pass a box around it instead."
+# extend (outpainting, v1.21.0): the canvas grown by shares of the image's sides. The repainted area is
+# the new border and a band of the original; the original comes back from further in, where the
+# sampler barely changed it, so nothing it cut through shows half-transparent (the spike's ghosts).
+# All as shares of the image's shorter side (the spike's pixels at about 1024).
+EXTEND_OVERLAP = 0.047  # the band of the original repainted with the border (48 px)
+EXTEND_INSET = 0.031  # the original pasted back from this much further in (32 px)
+EXTEND_FEATHER = 0.016  # the masks' soft edge (16 px)
+EXTEND_FILL_BLUR = 0.023  # the new border starts as the image's edge, stretched and blurred (24 px)
 
 
 def parse_box(text, width, height):
@@ -320,6 +332,39 @@ def parse_box(text, width, height):
     if r <= l or b <= t:
         raise ValueError(f"box {text!r} is empty: left < right and top < bottom")
     return [l * width, t * height, r * width, b * height]
+
+
+def parse_extend(text, width, height):
+    """extend's "left,top,right,bottom" shares of the image's width and height, as whole pixels;
+    None for "". Each side 0 or more, at most 1 per axis (twice the image), one side at least."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    parts = [float(v) for v in text.split(",")]
+    if len(parts) != 4 or any(v < 0 for v in parts):
+        raise ValueError(f"extend must be 4 shares of 0 or more, got {text!r}")
+    l, t, r, b = parts
+    if l + r > 1.0001 or t + b > 1.0001:
+        raise ValueError(f"extend {text!r} grows an axis more than twice: at most 1 per axis per call")
+    pad = [round(l * width), round(t * height), round(r * width), round(b * height)]
+    if not any(pad):
+        raise ValueError(f"extend {text!r} adds nothing")
+    return pad
+
+
+def extend_geometry(width, height, pad):
+    """For a *width* x *height* image padded by *pad* (left, top, right, bottom pixels): the canvas
+    size, the original's offset in it, the part of the original the sampler keeps (inside the band)
+    and the part pasted back (further in), boxes [x0, y0, x1, y1] in canvas pixels."""
+    l, t, r, b = pad
+    short = min(width, height)
+    ov, ins = round(EXTEND_OVERLAP * short), round(EXTEND_INSET * short)
+
+    def shrink(box, d):
+        return [box[0] + (d if l else 0), box[1] + (d if t else 0), box[2] - (d if r else 0), box[3] - (d if b else 0)]
+
+    keep = shrink([l, t, l + width, t + height], ov)
+    return (width + l + r, height + t + b), (l, t), keep, shrink(keep, ins)
 
 
 def grow(box, factor):
@@ -358,7 +403,6 @@ def shape_mask(height, width, box, ellipse):
     """A (height, width) float mask: 1 inside *box* (an ellipse, else a rounded rectangle), its edge
     blurred by FEATHER_SHARE of the box's shorter side."""
     import torch
-    import torch.nn.functional as F
 
     x0, y0, x1, y1 = box
     cx, cy, hw, hh = (x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2
@@ -371,17 +415,55 @@ def shape_mask(height, width, box, ellipse):
         dx = ((xs - cx).abs() - (hw - r)).clamp(min=0)
         dy = ((ys - cy).abs() - (hh - r)).clamp(min=0)
         inside = dx**2 + dy**2 <= r**2
-    mask = inside.float()
-    sigma = FEATHER_SHARE * min(hw, hh) * 2
+    return blur(inside.float()[None, None], FEATHER_SHARE * min(hw, hh) * 2)[0, 0].clamp(0, 1)
+
+
+def blur(x, sigma):
+    """A (B, C, H, W) batch blurred by a Gaussian of *sigma* pixels (the edges replicated)."""
+    import torch
+    import torch.nn.functional as F
+
     if sigma < 0.5:
-        return mask
+        return x
     k = int(3 * sigma)
     g = torch.exp(-(torch.arange(-k, k + 1, dtype=torch.float32) ** 2) / (2 * sigma**2))
-    g = (g / g.sum())[None, None]
-    m = mask[None, None]
-    m = F.conv2d(F.pad(m, (k, k, 0, 0), mode="replicate"), g[..., None, :])
-    m = F.conv2d(F.pad(m, (0, 0, k, k), mode="replicate"), g[..., :, None])
-    return m[0, 0].clamp(0, 1)
+    g = (g / g.sum()).to(x).view(1, 1, 1, -1).repeat(x.shape[1], 1, 1, 1)  # (C, 1, 1, K): each channel alone
+    x = F.conv2d(F.pad(x, (k, k, 0, 0), mode="replicate"), g, groups=x.shape[1])
+    return F.conv2d(F.pad(x, (0, 0, k, k), mode="replicate"), g.transpose(-1, -2), groups=x.shape[1])
+
+
+def box_mask(height, width, box, sigma):
+    """A (height, width) float mask, 1 inside *box*, its edge blurred by *sigma* pixels."""
+    import torch
+
+    x0, y0, x1, y1 = (int(round(v)) for v in box)
+    m = torch.zeros(1, 1, height, width)
+    m[..., max(0, y0):y1, max(0, x0):x1] = 1
+    return blur(m, sigma)[0, 0].clamp(0, 1)
+
+
+def extend_region(image, extend_text, max_pixels):
+    """extend's (sample, mask, region): the canvas (the image, its edge stretched and blurred into the
+    new border), the mask to repaint (the border and a band of the original), and the paste-back."""
+    import torch
+    import torch.nn.functional as F
+
+    height, width = image.shape[1:3]
+    pad = parse_extend(extend_text, width, height)
+    (cw, ch), (ox, oy), keep, paste = extend_geometry(width, height, pad)
+    short = min(width, height)
+    rgb = image[:1, ..., :3].movedim(-1, 1)
+    canvas = F.pad(rgb, (pad[0], pad[2], pad[1], pad[3]), mode="replicate")
+    canvas = blur(canvas, EXTEND_FILL_BLUR * short)
+    canvas[..., oy : oy + height, ox : ox + width] = rgb
+    canvas = canvas.movedim(1, -1)
+    feather = EXTEND_FEATHER * short
+    repaint = 1 - box_mask(ch, cw, keep, feather)
+    back = torch.minimum(box_mask(ch, cw, paste, feather), box_mask(ch, cw, [ox, oy, ox + width, oy + height], 0))
+    sw, sh = sample_size(cw, ch, max_pixels)
+    sample = resize(canvas, sw, sh)
+    mask = resize(repaint[None, ..., None], sw, sh)[..., 0]
+    return sample, mask, {"canvas": [cw, ch], "offset": [ox, oy], "keep": back.to(torch.float32)}
 
 
 def resize(images, width, height):
@@ -435,11 +517,15 @@ def largest_face(image):
     return boxes[0]
 
 
-def redraw_region(image, box_text, max_pixels, area_only=False):
+def redraw_region(image, box_text, max_pixels, area_only=False, extend_text=""):
     """(sample, mask, region) for the first image of a batch: the image to sample (all of it, scaled
     down to *max_pixels* if over; with *area_only* a crop around the area, scaled to REGION_PIXELS
-    either way), its mask, and what ComfyGenRedrawPaste needs to put the result back."""
+    either way; with *extend_text* the grown canvas), its mask, and what ComfyGenRedrawPaste needs to
+    put the result back."""
     import torch
+
+    if (extend_text or "").strip():
+        return extend_region(image, extend_text, max_pixels)
 
     height, width = image.shape[1:3]
     box = parse_box(box_text, width, height)
@@ -459,8 +545,17 @@ def redraw_region(image, box_text, max_pixels, area_only=False):
 def redraw_paste(original, redrawn, region, alpha=None):
     """*original* with *redrawn* blended in through the region's mask: every pixel outside it as it
     was, the output the original's size. A source with transparency (LoadImage's mask, 1 where
-    transparent) gets its alpha back."""
+    transparent) gets its alpha back. After extend: the canvas, with the original pasted back from
+    inside its band (opaque: the border has no transparency to give)."""
     import torch
+
+    if "canvas" in region:
+        (cw, ch), (ox, oy) = region["canvas"], region["offset"]
+        out = resize(redrawn[:1, ..., :3].to(original), cw, ch).clone()
+        h, w = original.shape[1:3]
+        k = region["keep"][oy : oy + h, ox : ox + w, None].to(out)
+        out[:, oy : oy + h, ox : ox + w] = out[:, oy : oy + h, ox : ox + w] * (1 - k) + original[:1, ..., :3].to(out) * k
+        return out
 
     out = original[:1, ..., :3].clone()
     x0, y0, x1, y1 = region.get("crop") or [0, 0, out.shape[2], out.shape[1]]
@@ -481,8 +576,8 @@ class ComfyGenRedrawRegion:
                 "box": ("STRING", {"default": ""}),
                 "max_pixels": ("INT", {"default": DEFAULT_PIXELS, "min": 65536, "max": 16777216}),
             },
-            # Optional, so a graph without it (before v1.20.0) samples the whole image as it did.
-            "optional": {"area_only": ("BOOLEAN", {"default": False})},
+            # Optional, so a graph without them (before v1.20.0, v1.21.0) samples the whole image as it did.
+            "optional": {"area_only": ("BOOLEAN", {"default": False}), "extend": ("STRING", {"default": ""})},
         }
 
     RETURN_TYPES = ("IMAGE", "MASK", "CG_REGION")
@@ -490,8 +585,8 @@ class ComfyGenRedrawRegion:
     FUNCTION = "run"
     CATEGORY = "comfy-gen"
 
-    def run(self, image, box="", max_pixels=DEFAULT_PIXELS, area_only=False):
-        return redraw_region(image, box, max_pixels, area_only)
+    def run(self, image, box="", max_pixels=DEFAULT_PIXELS, area_only=False, extend=""):
+        return redraw_region(image, box, max_pixels, area_only, extend)
 
 
 class ComfyGenRedrawPaste:
@@ -505,6 +600,123 @@ class ComfyGenRedrawPaste:
 
     def run(self, original, redrawn, region, alpha=None):
         return (redraw_paste(original, redrawn, region, alpha),)
+
+
+# ── Inpainting control: kohya's Anima ControlNet-LLLite on a redraw ────────────────────────────
+# Adapted from kohya-ss/ComfyUI-Anima-LLLite nodes.py (commit b7495bd, Apache License 2.0; the model
+# code is lllite.py beside this file). The weights (a 4-channel inpainting control: the image with the
+# area blanked, and the mask) guide the sampler to continue what surrounds the area; without them
+# Anima redrew a glove into the hip and lightened a muzzle (design §3, Redraw).
+
+
+def control_hw(latent_h, latent_w, patch=2):
+    """The size the control image and mask are resized to: the latent padded to whole patches, times 8
+    (the control's first convolution has stride 16; an odd latent side would silently skip it)."""
+    return -(-latent_h // patch) * patch * 8, -(-latent_w // patch) * patch * 8
+
+
+def control_cond(image, mask, latent_h, latent_w, masked_input, device, dtype, patch=2):
+    """(1, 4, H, W) in [-1, 1]: the image (blanked inside the area when the weights were trained so)
+    and the mask, binarized at 0.5, as the fourth channel."""
+    import torch
+    import torch.nn.functional as F
+
+    h, w = control_hw(latent_h, latent_w, patch)
+    rgb = image[:1].permute(0, 3, 1, 2)
+    if tuple(rgb.shape[-2:]) != (h, w):
+        rgb = F.interpolate(rgb, size=(h, w), mode="bicubic", align_corners=False).clamp(0.0, 1.0)
+    m = mask[:1].unsqueeze(1).float()
+    if tuple(m.shape[-2:]) != (h, w):
+        m = F.interpolate(m, size=(h, w), mode="nearest")
+    m = (m >= 0.5).to(rgb.dtype)
+    rgb = rgb * 2.0 - 1.0
+    if masked_input:
+        rgb = rgb * (1 - m)
+    return torch.cat([rgb, m * 2.0 - 1.0], dim=1).to(device=device, dtype=dtype)
+
+
+def apply_inpaint_control(model, weights_path, image, mask, strength):
+    """A clone of *model* that runs the control on every sampler step, through ComfyUI's model wrapper
+    (an earlier wrapper, if any, still runs inside it)."""
+    from .lllite import ASPP_DEFAULT_DILATIONS, ControlNetLLLiteDiT, load_lllite_weights, read_lllite_metadata
+
+    meta = read_lllite_metadata(weights_path)
+    if int(meta.get("lllite.cond_in_channels", 3)) != 4:
+        raise ValueError(f"{os.path.basename(weights_path)} is not an inpainting control (it takes no mask)")
+    use_aspp = str(meta.get("lllite.use_aspp", "false")).lower() == "true"
+    dilations = meta.get("lllite.aspp_dilations")
+    masked_input = str(meta.get("lllite.inpaint_masked_input", "false")).lower() == "true"
+    dit = model.model.diffusion_model
+    patch = int(getattr(dit, "patch_spatial", 2))
+    control = ControlNetLLLiteDiT(
+        dit,
+        cond_emb_dim=int(meta.get("lllite.cond_emb_dim", 32)),
+        mlp_dim=int(meta.get("lllite.mlp_dim", 64)),
+        target_layers=meta.get("lllite.target_atomics", meta.get("lllite.target_layers", "self_attn_q")),
+        multiplier=strength,
+        cond_dim=int(meta.get("lllite.cond_dim", 64)),
+        cond_resblocks=int(meta.get("lllite.cond_resblocks", 1)),
+        use_aspp=use_aspp,
+        aspp_dilations=tuple(int(d) for d in dilations.split(",") if d.strip()) if use_aspp and dilations else ASPP_DEFAULT_DILATIONS,
+        cond_in_channels=4,
+        inpaint_masked_input=masked_input,
+    )
+    load_lllite_weights(control, weights_path, strict=False)
+    control.eval().requires_grad_(False)
+    image, mask = image.detach().clone(), mask.detach().clone()
+    cache = {"to": None, "key": None, "cond": None}
+    earlier = model.model_options.get("model_function_wrapper")
+
+    def wrapper(apply_model, args):
+        x, t, c = args["input"], args["timestep"], args["c"]
+        tag = (x.device, x.dtype)
+        if cache["to"] != tag:
+            control.to(device=x.device, dtype=x.dtype)
+            cache["to"], cache["cond"] = tag, None
+        key = (int(x.shape[-2]), int(x.shape[-1]), tag)
+        if cache["key"] != key or cache["cond"] is None:
+            cache["cond"] = control_cond(image, mask, key[0], key[1], masked_input, x.device, x.dtype, patch)
+            cache["key"] = key
+        control.set_multiplier(strength)
+        control.set_cond_image(cache["cond"])
+        control.apply_to()
+        try:
+            if earlier is not None:
+                return earlier(apply_model, {"input": x, "timestep": t, "c": c})
+            return apply_model(x, t, **c)
+        finally:
+            control.restore()
+            control.clear_cond_image()
+
+    patched = model.clone()
+    patched.set_model_unet_function_wrapper(wrapper)
+    return patched
+
+
+class ComfyGenInpaintControl:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "image": ("IMAGE",),
+                "mask": ("MASK",),  # 1 = repaint, 0 = keep
+                "control_name": ("STRING", {"default": "anima-lllite-inpainting-v2.safetensors"}),
+                "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05}),
+            }
+        }
+
+    RETURN_TYPES = ("MODEL",)
+    FUNCTION = "run"
+    CATEGORY = "comfy-gen"
+
+    def run(self, model, image, mask, control_name, strength=1.0):
+        import folder_paths
+
+        path = folder_paths.get_full_path(MARK_FOLDER, control_name)
+        if not path:
+            raise FileNotFoundError(f"The inpainting control {control_name} is not in models/{MARK_FOLDER}")
+        return (apply_inpaint_control(model, path, image, mask, strength),)
 
 
 # ── Cut-outs: the background removal's mask, cleaned ──────────────────────────────────────────
@@ -651,12 +863,14 @@ NODE_CLASS_MAPPINGS = {
     "ComfyGenRemoveMarks": ComfyGenRemoveMarks,
     "ComfyGenRedrawRegion": ComfyGenRedrawRegion,
     "ComfyGenRedrawPaste": ComfyGenRedrawPaste,
+    "ComfyGenInpaintControl": ComfyGenInpaintControl,
     "ComfyGenCutout": ComfyGenCutout,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "ComfyGenRemoveMarks": "Remove signatures and watermarks (Comfy-Gen)",
     "ComfyGenRedrawRegion": "Redraw: region and mask (Comfy-Gen)",
     "ComfyGenRedrawPaste": "Redraw: paste back (Comfy-Gen)",
+    "ComfyGenInpaintControl": "Redraw: inpainting control, Anima LLLite (Comfy-Gen)",
     "ComfyGenCutout": "Cut-out: clean the background removal (Comfy-Gen)",
 }
 

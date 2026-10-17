@@ -30,7 +30,7 @@ function world(overrides: Partial<Services> = {}) {
     job: (fn: () => Promise<unknown>) => fn(),
   } as unknown as LocalComfy;
   const machine = new Machine({
-    paths: p, settings: () => loadConfig(p.config), saveGpu: () => {}, waitExtension: "", comfy, openFolder: (path) => opened.push(path),
+    paths: p, settings: () => loadConfig(p.config), saveGpu: () => {}, waitExtension: {}, comfy, openFolder: (path) => opened.push(path),
   });
   machine.startInstall = (gpu) => void installs.push(gpu);
   machine.detectedGpu = async () => "nvidia";
