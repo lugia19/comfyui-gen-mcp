@@ -217,15 +217,16 @@
       <div class="body">
         <form id="create-form" class="form">
           <label id="acct-row">Cloudflare account <select id="acct"></select></label>
-          <label id="sub-row" hidden>Your workers.dev subdomain
-            <input id="sub" autocomplete="off" spellcheck="false" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?">
-            <small class="muted">Your account has no workers.dev address yet. Every Worker in it gets one under this
-              name, and it is hard to change later. Lowercase letters, digits and dashes.</small></label>
           <p>Your Worker's address will be <code id="addr"></code>.</p>
           <details>
             <summary>Use another name</summary>
             <label>Worker name
               <input id="wname" value="comfy-gen" autocomplete="off" spellcheck="false" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"></label>
+            <label id="sub-row" hidden>Your account's workers.dev subdomain
+              <input id="sub" autocomplete="off" spellcheck="false" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?">
+              <small class="muted">Your account has no workers.dev address yet, so this one is made for it. Every Worker in
+                the account gets an address under it, and changing it later changes all of them. Lowercase letters,
+                digits and dashes.</small></label>
           </details>
           <button class="button" id="create-btn" type="submit">Create my Worker</button>
           <p id="create-msg" role="status"></p>
@@ -456,8 +457,19 @@
     var loading = false
     function say(text, bad) { msg.textContent = text; msg.className = bad ? 'bad' : 'muted' }
     function chosen() { return accounts && accounts.filter(function (a) { return a.id === acct.value })[0] }
+    // An account without a workers.dev subdomain gets one, suggested from its name with a short
+    // random ending as Cloudflare's own are ("yuri-f92"); editable under Use another name.
+    var subEdited = false
+    var suggested = {} // per account, made once
+    function suggest(name) {
+      var base = name.toLowerCase().replace(/'s account$| account$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'comfy'
+      var end = ''
+      for (var i = 0; i < 3; i++) end += 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]
+      return base.replace(/-+$/, '') + '-' + end
+    }
     function address() {
       var a = chosen()
+      if (a && !a.subdomain && !subEdited) sub.value = suggested[a.id] = suggested[a.id] || suggest(a.name)
       var s = (a && a.subdomain) || sub.value || '<subdomain>'
       document.getElementById('sub-row').hidden = !a || Boolean(a.subdomain)
       document.getElementById('addr').textContent = 'https://' + (wname.value || 'comfy-gen') + '.' + s + '.workers.dev'
@@ -493,7 +505,7 @@
         .then(function () { loading = false })
     }
     acct.addEventListener('change', address)
-    sub.addEventListener('input', address)
+    sub.addEventListener('input', function () { subEdited = true; address() })
     wname.addEventListener('input', address)
     form.addEventListener('submit', function (e) {
       e.preventDefault()
@@ -502,7 +514,7 @@
       say('Creating your Worker… This takes about half a minute.')
       fetch('/api/create', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_id: acct.value, name: wname.value, subdomain: sub.value || undefined, mode: state.where }),
+        body: JSON.stringify({ account_id: acct.value, name: wname.value, subdomain: chosen().subdomain ? undefined : sub.value, mode: state.where }),
       }).then(function (r) {
         if (r.status === 401) return expired()
         return r.json().then(function (d) {
