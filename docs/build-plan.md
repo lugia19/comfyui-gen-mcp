@@ -1055,3 +1055,17 @@ After v1.22.0, live on the user's PC (agent v1.22.0, `update_now` true after the
 - **Checked:** a Brain test (the order paste → marks → background, none on a box redraw, none with
   the setting off), which fails without the change; all TS tests pass.
 
+After v1.22.1, live on the user's PC (agent v1.22.1; Modal turned off for the run and back on
+after):
+- **Graphs:** four tavern extends `{left: 0.25, right: 0.25}` and one bust extend
+  `{bottom: 0.5}` all carry `ComfyGenRemoveMarks`, fed by `ComfyGenRedrawPaste`. A box redraw has
+  none.
+- **Times:**
+  - tavern extends 32.3 s (the first call: ComfyUI's cold start after the update's restart), then
+    12.6, 12.3 and 12.3 s, against v1.22.0's 13.0 s: the step costs nothing noticeable;
+  - bust extend 14.3 s; box redraw 12.6 s.
+- **Interiors:** match their sources from 128 px in (mean 1.09 on all four taverns, 1.12 on the
+  bust). The removal touched nothing of the original.
+- **Corners:** all 16 new tavern corners and both new bust corners are clean, with no signature;
+  the bust's white corners read 253 to 255.
+
