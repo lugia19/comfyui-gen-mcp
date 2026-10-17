@@ -2,8 +2,10 @@
   import { onDestroy, onMount } from 'svelte'
   import { api } from './api.js'
 
-  // *takes*: how long the build usually takes, as the page that started it knows.
-  let { onfinished, takes = 'a few minutes' } = $props()
+  // *takes*: how long the build usually takes, as the page that started it knows. *path*: where its
+  // log is: a Workers Build's ({build, lines, cursor, status, outcome}), or a Modal Sandbox's
+  // ({lines, cursor, done}; the page tells how it ended, from the Worker's state).
+  let { onfinished, takes = 'a few minutes', path = '/setup/build' } = $props()
 
   let lines = $state([])
   let status = $state('')
@@ -17,14 +19,14 @@
   async function poll() {
     try {
       const q = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
-      const b = await api('GET', `/setup/build${q}`)
-      if (!b.build) return
-      lines = [...lines, ...(b.lines || [])]
+      const b = await api('GET', `${path}${q}`)
+      if (b.done === undefined && !b.build) return
+      lines = [...lines, ...(b.lines || []).map((l) => l.replace(/\n$/, ''))]
       cursor = b.cursor || cursor
       status = b.status
       outcome = b.outcome
       if (pre) queueMicrotask(() => (pre.scrollTop = pre.scrollHeight))
-      if (b.status === 'stopped') return await onfinished()
+      if (b.status === 'stopped' || b.done) return await onfinished()
       error = ''
     } catch (e) {
       error = e.message

@@ -131,9 +131,33 @@
   let packs = $state(null)
   let deployed = $derived(Boolean(modalGpu))
   let modelsReady = $derived(deployed && packs !== null && packs.every((p) => p.on.modal?.state === 'done'))
-  // A Modal deploy running: the state names the last deploy build, its log says when it stopped.
+  // A Modal deploy running: the state names the last deploy build, its log says when it stopped. A
+  // Worker made by the setup site (path "oauth") deploys from a Modal Sandbox instead, which the
+  // state names until its report arrives.
+  let oauth = $derived(info.update_path === 'oauth')
   let finishedBuild = $state(null)
-  let building = $derived(Boolean(info.build && info.build !== info.update_build && info.build !== finishedBuild))
+  let building = $derived(oauth ? Boolean(info.modal_deploy) : Boolean(info.build && info.build !== info.update_build && info.build !== finishedBuild))
+
+  // Connect Modal (the oauth path): Modal's sign-in in a new tab; this page waits for the approval,
+  // then deploys. The tab is opened at the click (a tab opened after a request is often blocked).
+  const connectTask = new Task()
+  let connecting = $state(false)
+  function connectModal() {
+    const tab = window.open('about:blank', '_blank')
+    connectTask.run(async () => {
+      const { url } = await api('POST', '/modal/connect')
+      if (tab) tab.location.href = url
+      else window.open(url, '_blank')
+      connecting = true
+      try {
+        while (!(await api('POST', '/modal/connect/wait')).connected) {}
+      } finally {
+        connecting = false
+      }
+      await api('POST', '/setup/modal')
+      await refresh()
+    })
+  }
 
   // Modal shows a new token only inside `modal token set --token-id ak-… --token-secret as-…`.
   // Pasted whole, it is split here and the deploy starts at once.
@@ -157,7 +181,10 @@
   // With the token given here, or (*withToken* false: Try again) the one stored with the last deploy.
   function deploy(withToken) {
     buildTask.run(async () => {
-      await api('POST', '/setup/build', withToken ? { modal_token_id: modalId.trim(), modal_token_secret: modalSecret.trim() } : {})
+      if (oauth) {
+        if (withToken) await api('POST', '/modal/token', { token_id: modalId.trim(), token_secret: modalSecret.trim() })
+        await api('POST', '/setup/modal')
+      } else await api('POST', '/setup/build', withToken ? { modal_token_id: modalId.trim(), modal_token_secret: modalSecret.trim() } : {})
       modalSecret = ''
       modalCommand = ''
       await refresh()
@@ -417,10 +444,29 @@
         {#if deployed}<p class="muted">Until then, your last working setup keeps running.</p>{/if}
       </div>
     {/if}
-    {#if building}
+    {#if building && oauth}
+      {#key info.modal_deploy.started}<BuildLog path="/setup/modal/log" takes="about 5 minutes the first time" onfinished={refresh} />{/key}
+    {:else if building}
       {#key info.build}<BuildLog takes="about 5 minutes the first time" onfinished={async () => { await refresh(); finishedBuild = info.build }} />{/key}
     {:else if deployed && !modalError}
       <p>Modal is ready.</p>
+    {:else if oauth && !needsCard && !modalError}
+      <p>Images are made on Modal, in your own Modal account. Modal is a cloud service with graphics cards. Modal gives you $30 free each month.</p>
+      <Walk>
+        <WalkStep>
+          No Modal account yet? Sign up first.
+          {#snippet controls()}<OpenButton secondary small href="https://modal.com/signup" label="Sign up at Modal" />{/snippet}
+        </WalkStep>
+        <WalkStep>
+          Connect your Modal account. Modal opens in a new tab and asks you to approve it. Approve it there, then come back here: the setup goes on by itself.
+          {#snippet controls()}
+            <button onclick={connectModal} disabled={connectTask.busy}>{connecting ? 'Waiting for you to approve in Modal…' : connectTask.busy ? 'Opening Modal…' : 'Connect Modal'}</button>
+          {/snippet}
+        </WalkStep>
+      </Walk>
+      {#if connectTask.error}<p class="err">{connectTask.error}</p>{/if}
+      {#if buildTask.error}<p class="err">{buildTask.error}</p>{/if}
+      {@render typedToken()}
     {:else if !needsCard}
       <p>Images are made on Modal, in your own Modal account. Modal is a cloud service with graphics cards. Modal gives you $30 free each month.</p>
       <Walk>
