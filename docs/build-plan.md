@@ -920,5 +920,16 @@ Asked: can Anima outpaint? Spike on Modal with raw graphs (scratchpad `outpaint/
   on the tavern knight's hand it drew clean fists but lost the sword at the hip in most runs (its
   control sees the area blacked out, so it continues the surroundings, not what was inside: the
   prompt has to name what must stay). 0.9 and 1.0 alike. About 1 s more per redraw (5.7 against 4.6 s
-  at 1 MP). At 66 MB the weights are no reason to leave it out: always for outpainting, on by
-  default for Anima's redraw, with a line in redraw's description about naming what must stay.
+  at 1 MP).
+- **Per model** (each model redraws and outpaints its own images, made with the same prompts and
+  seeds; three seeds; boxes by eye, faces by the detector): on redraw LLLite was as good or better in
+  all 18 pairs, on both models. Turbo raw melted a glove into the hip, lightened the muzzle and
+  erased an arm (a floating hilt); with LLLite, clean gloves, the fur kept, a hand on the hilt each
+  time. Base raw drew a brown glove for a steel gauntlet in 2 of 3 and a clumped double hand; with
+  LLLite, the silver gauntlet every time. A sword reaching out of the area survived; one inside it
+  (earlier) did not. Outpainting with LLLite was coherent on both; Base's a little more
+  architectural. Times on the L4 at 1 MP: Turbo 5.2 s raw, 6.4 with LLLite; Base 27.2 and 35.5.
+- **Decided**: LLLite always on, for redraw and outpainting, on both models, at strength 1.0 (the
+  weights are 66 MB: kohya's ControlNet-LLLite adds small modules to some layers, like a LoRA, where
+  a full ControlNet would copy half the model). Redraw's description gains a line: name in the prompt
+  anything inside the area that must stay.
