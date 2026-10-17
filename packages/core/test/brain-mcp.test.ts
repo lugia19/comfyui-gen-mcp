@@ -508,6 +508,23 @@ describe("redraw", () => {
     expect(toolSpecs(BUILTIN, normalize({}), "refs").find((s) => s.name === "redraw")!.inputSchema.properties.extend.type).toBe("object");
   });
 
+  it("an extend's new border gets the signature removal, after the paste; a redraw inside the image doesn't", async () => {
+    const { comfy, brain } = setup({ canRedraw: true, canRedrawExtend: true, canRemoveMarks: true, canRemoveBackground: true });
+    const hooks = new PathHooks();
+    await brain({ hooks }).call("redraw", { prompt: "x", image_path: "a.png", extend: { bottom: 0.5 }, remove_background: true });
+    expect(hooks.ensured).toContain("remove-marks");
+    const prompt = comfy.prompts.at(-1)!;
+    const id = (cls: string) => Object.keys(prompt).find((k) => prompt[k].class_type === cls)!;
+    // paste → marks → background, as on the generate tools
+    expect(prompt[id("ComfyGenRemoveMarks")].inputs.images).toEqual([id("ComfyGenRedrawPaste"), 0]);
+    expect(prompt[id("RemoveBackground")].inputs.image).toEqual([id("ComfyGenRemoveMarks"), 0]);
+    await brain({ hooks }).call("redraw", { prompt: "x", image_path: "a.png", box: [0.1, 0.1, 0.5, 0.5] });
+    expect(JSON.stringify(comfy.prompts.at(-1))).not.toContain("ComfyGenRemoveMarks");
+    const off = new PathHooks();
+    await brain({ hooks: off, cfg: { remove_marks: false } }).call("redraw", { prompt: "x", image_path: "a.png", extend: { bottom: 0.5 } });
+    expect([off.ensured.includes("remove-marks"), JSON.stringify(comfy.prompts.at(-1)).includes("ComfyGenRemoveMarks")]).toEqual([false, false]);
+  });
+
   it("takes extend as shares per side, missing sides 0", () => {
     expect(redrawExtend(undefined)).toBe("");
     expect(redrawExtend({ bottom: 0.5 })).toBe("0,0,0,0.5");

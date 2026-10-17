@@ -16,7 +16,7 @@ import { redrawPackFor } from "./metadata.ts";
 import { BG_MODELS, FACE_MODELS, groupByTool, MARK_MODELS, packFor, prepare, redrawPack, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
 import * as refs from "./refs.ts";
-import { buildPrompt, cutoutWorkflow, redrawWorkflow, withBackgroundRemoval, withImages, withWebpSave, type Workflow } from "./workflow.ts";
+import { buildPrompt, cutoutWorkflow, redrawWorkflow, withBackgroundRemoval, withImages, withMarkRemoval, withWebpSave, type Workflow } from "./workflow.ts";
 
 // A tool call answers within this, counted from its start. claude.ai gives up at 300 s (S8), but a
 // claude.ai connector used from Claude Code gave up at about 183 s (2026-10-01: a cold Modal edit
@@ -247,6 +247,9 @@ export class Brain {
     const rawPack = redrawPack(this.packs, model);
     if (typeof rawPack === "string") return new Failed(rawPack);
     const pack = prepare(rawPack, this.cfg);
+    // An extend paints new borders, where the models paint signatures (one in a corner, live on the
+    // PC, 2026-10-17): cleaned as a generation is. A redraw inside the image keeps none (§3).
+    const removeMarks = extend ? await this.marksReady() : false;
     let loadValue: string;
     try {
       // before the upload, as for edits
@@ -260,8 +263,10 @@ export class Brain {
       box, strength, maxPixels: pack.max_pixels ?? 1_048_576, keepAlpha: !removeBackground, areaOnly: scope === "area", extend,
       control: this.canInpaintControl ? pack.inpaint_control : undefined,
     });
-    // The background cut from the pasted result, not before: a redraw reaching into an already
-    // transparent part samples the colours left under it and gets the old edge pasted back.
+    // The marks (an extend's) and then the background, from the pasted result, as on the generate
+    // tools; not before: a redraw reaching into an already transparent part samples the colours left
+    // under it and gets the old edge pasted back.
+    if (removeMarks) withMarkRemoval(wf);
     if (removeBackground) withBackgroundRemoval(wf, { cutout: this.canCutout });
     return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles, negative: String(args.negative ?? ""), negativeFixed: pack.negative_fixed }), null);
   }

@@ -1026,3 +1026,32 @@ After v1.21.0, live (all on Modal, Anima Turbo; see v1.21.1 for why not the PC):
       gone;
     - under the committed (old) shim: the header shows just the version, with no button.
 
+After v1.22.0, live on the user's PC (agent v1.22.0, `update_now` true after the new launcher):
+- **The v1.21.1 recheck, live:**
+  - The PC still lacked the LLLite weights, and a call within a minute of a models check skipped it
+    (that check had just marked it not ready: as designed).
+  - The next call after the minute asked the PC. The PC fetched the 66 MB for both Anima packs
+    while Modal answered the call (19 s), and both packs then read "done".
+- **The four checks, with Modal turned off for the run (and back on after):**
+
+  | Check | PC | Modal (v1.21.0 run) |
+  |---|---|---|
+  | Hand redraw with a box | 36.2 s (ComfyUI's cold start included) | 18 to 21 s |
+  | Face redraw without a box | 12.6 s | 21.5 s |
+  | Extend left/right 0.25 (2688×1344) | 13.0 s | 19 to 23 s |
+  | Extend bottom 0.5 (1536×2304) | 13.0 s | 23.5 s |
+
+  - `ComfyGenInpaintControl` is in every graph.
+  - The extends' interiors match their sources from 128 px in (mean 1.08 and 1.10), as on Modal.
+- **Found:** the PC's tavern extend had a white signature painted into its new bottom-right
+  corner. Redraw skipped the watermark step ("cleaned when it was made"), which doesn't hold for an
+  extend's new borders (v1.22.1).
+
+## v1.22.1: an extend's new border gets the signature removal (2026-10-17)
+
+- `Brain.redraw`: with `extend`, `marksReady()` (the setting, the GPU, the models), then
+  `withMarkRemoval` after the paste and before any background cut. A redraw inside the image stays
+  without it.
+- **Checked:** a Brain test (the order paste → marks → background, none on a box redraw, none with
+  the setting off), which fails without the change; all TS tests pass.
+

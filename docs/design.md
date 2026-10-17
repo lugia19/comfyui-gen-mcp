@@ -519,8 +519,11 @@ and `strength` (0.3 to 1, default 0.9); hidden, `model` and `negative` (Scripted
   model on, so the call goes to a GPU with that pack; the MCPB reads local files; URLs are not
   downloaded for it.
   `canRedraw` also requires a KSampler fed by the empty latent, the denoise the technique needs.
-- **No watermark step:** the image was cleaned when it was made. A transparent input keeps its
-  alpha (LoadImage's mask, put back).
+- **No watermark step**, except on an extend: the image was cleaned when it was made. An extend
+  paints new borders, though, and that's where the models paint signatures: one appeared in a
+  corner on the PC, live, 2026-10-17. So since v1.22.1 an extend gets the mark removal after the
+  paste, as a generation does (before any background cut, the generate tools' order). A
+  transparent input keeps its alpha (LoadImage's mask, put back).
 - **Background removal on request, after the paste** (`remove_background`, v1.17.2). Visual
   Novelist's sprite → cut background → redraw went wrong where the area reached a transparent part:
   the model sampled the colours left under it, and the old alpha was pasted back over the new edge.
