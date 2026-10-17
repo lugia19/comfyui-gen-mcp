@@ -900,6 +900,16 @@ Asked: can Anima outpaint? Spike on Modal with raw graphs (scratchpad `outpaint/
   8 to 14 s of L4 per call.
 - **kohya's Anima-LLLite inpainting** (prior art; the node is Apache-2.0, the weights carry Anima's
   licence): compared on a throwaway Modal app (`comfy-gen-lllite-spike`, our route with and
-  without it, Turbo and Base, the same three cases). Result: pending.
+  without it, Turbo and Base, the same three cases, two seeds each). Seams were invisible either
+  way. LLLite continued objects across the original's edge more faithfully: on Turbo it fixed the
+  route's three clear failures in the same seeds (a stray board across a chair on the 2× tavern, a
+  chair turning into a table top, the knight's floating gauntlet); on Base both were clean
+  everywhere. It works on Turbo though trained on Base, and cost about 20% more time (Base knight at
+  1536²: 95 to 100 s against about 80). Small sample (12 pairs). A spike container restarted once
+  mid-job and lost the prompt: the driver waited on its history forever, a reminder that a lost job
+  shows only as an empty history.
 - If built: an `extend` option on redraw or a tool of its own; a node in our extension pads and
-  masks (overlap 48, feather 16, paste-back inset 32); the rest is redraw's graph and paste.
+  masks (overlap 48, feather 16, paste-back inset 32); the rest is redraw's graph and paste. LLLite
+  is worth having for Turbo; rather than a second node pack on every GPU, its apply step could be
+  vendored into our extension (Apache-2.0, with attribution), with the 66 MB weights in the model
+  set. It might help redraw too, which wasn't tested.
