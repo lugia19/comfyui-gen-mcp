@@ -962,3 +962,33 @@ Asked: can Anima outpaint? Spike on Modal with raw graphs (scratchpad `outpaint/
       from the band's blend inward, a coherent new border.
 - **Live, after the release:** a sprite-hand redraw and an extend of a scene, on Modal and on the
   PC agent.
+
+After v1.21.0, live (all on Modal, Anima Turbo; see v1.21.1 for why not the PC):
+- No slow first call this time; every call took 15 to 24 s wall time through the connector.
+- Hand redraw with a box (1344×1792 sprite): 18 to 21 s over four runs, about as v1.20.0's 20.3 s
+  whole-image redraw; `ComfyGenInpaintControl` is in every result's embedded graph.
+- Face redraw without a box (smug to angry): 21.5 s, the face redrawn in the same style.
+- Extend `{left: 0.25, right: 0.25}` on a 1792×1344 tavern: 2688×1344 in 19 to 23 s; the new sides
+  carry on the shelves, lamps and tables. The original's interior matches the source from 128 px
+  in (mean difference 1.09, the same WebP noise as the untouched part of a plain redraw).
+- Extend `{bottom: 0.5}` on a 1536 square bust: 1536×2304 in 23.5 s, the hips and legs continued.
+- Extend with `box`, over 1 per axis, and with `prompt_scope: "area"`: the right errors, about
+  0.6 s, no GPU time.
+- Found: the PC was never used (v1.21.1).
+
+## v1.21.1: a PC that once lacked a pack is asked again (2026-10-17)
+
+- **Found live:** the PC agent was online, first in the list, and from v1.21.0 on, yet every call
+  went to Modal. Both Anima packs now include the LLLite weights, and the PC had none of it
+  ("missing", 0 bytes). One call had found it downloading, which stored `ready: false`. With
+  Modal ready behind it, routing skipped the PC from then on and never asked it again. So it
+  never restarted the download (lost when the agent restarted to update itself), and would never
+  have noticed one that finished. Only the settings page's models check reset the flag.
+- **Fix:** `setup.ready` keeps `true`, or the time the PC last said it lacked the pack. That
+  answer holds for `READY_RECHECK_S` (60 s); the next call after that asks the PC again. While it
+  is still downloading, the call goes on to the next GPU in the same call, as before; a lost
+  download starts again (`ensurePack` starts a missing one); a finished one is noticed and the PC
+  takes the call. A `false` from before counts as not known, so the PC is asked once after the
+  update.
+- **Checked:** Worker tests for the recheck (asked again after the interval, takes calls once it
+  is done) and for a stored `false`; all 315 TS tests pass.

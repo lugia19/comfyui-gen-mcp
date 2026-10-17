@@ -101,13 +101,18 @@ the list leaves a stored one out, so the next write drops it, and its `fetch_res
   their secrets.
 - **Routing:** a call goes to the first enabled GPU that is available (a PC: connected and not
   paused) and not known to lack the call's pack; readiness unknown (a PC not asked yet) is worth a
-  try. A PC's readiness is kept per pack from its answers (`setup.ready`), Modal's from its seed
+  try. A PC's readiness is kept per pack from its answers (`setup.ready`: true, or the time it
+  last said it lacked the pack), Modal's from its seed
   cache (`setup.seeded`). Both that cache and Modal's own record of a finished seed are keyed by
   core `seedKey`: the pack's name plus a hash of its files' names and hashes, so changing a pack's
   files makes it count as not seeded (v1.17.4; name-only keys kept v1.17.3's new background models
   from ever reaching Modal). With none ready, the first available one takes the call and starts
   the download. A GPU that turns out to be downloading hands the call to the next one in the same
-  call. None available: the tools say which GPUs are offline or paused.
+  call. A PC's "lacks it" holds a minute (`READY_RECHECK_S`); the next call after that asks it
+  again, so its finished download is noticed and a lost one (the agent restarted mid-download)
+  starts again. Before v1.21.1 it held until the settings page asked: a PC that once answered
+  "downloading" with Modal behind it was skipped for good (found live after v1.21.0). None
+  available: the tools say which GPUs are offline or paused.
 - **`fetch_result` tokens** are `<gpuId>:<prompt_id>`: only that GPU has the job, so the call goes
   there, or says it is offline.
 - **Keep-warm** is per GPU (§5).

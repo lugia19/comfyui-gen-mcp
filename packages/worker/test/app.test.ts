@@ -3,7 +3,7 @@ import { fromBase64, fromHex, OutputImage, refs, utf8 } from "@comfy-gen/core";
 import { png } from "../../core/test/fake-comfy.ts";
 import { withPrompt } from "../../core/test/metadata-fixtures.ts";
 import { LORA_CHUNK } from "../src/loras.ts";
-import { PACKS, REQUEST_BUDGET, type App } from "../src/app.ts";
+import { PACKS, READY_RECHECK_S, REQUEST_BUDGET, type App } from "../src/app.ts";
 import { offlineMessage, pausedMessage } from "../src/hooks.ts";
 import { BACKGROUND_UNAVAILABLE, MODEL_SETS, REDRAW_AREA_UNAVAILABLE, REDRAW_EXTEND_UNAVAILABLE, REDRAW_UNAVAILABLE, seedKey } from "@comfy-gen/core";
 import { cacheEntry } from "../src/store.ts";
@@ -1148,7 +1148,7 @@ describe("the PC path", () => {
     const { app, pc, comfy } = world();
     await withModal(app);
     await pair(app);
-    await app.store.updateSetup({ seeded: ["anima"].map(keyOf), ready: { pc: { anima: false, anima_turbo: true } } });
+    await app.store.updateSetup({ seeded: ["anima"].map(keyOf), ready: { pc: { anima: 1_800_000_000, anima_turbo: true } } }); // anima: lacked it just now
     const gen = (model: string) => mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "x", model } });
     await gen("anima");
     expect([pc.comfy.prompts.length, comfy.prompts.length]).toEqual([0, 1]);
@@ -1375,6 +1375,35 @@ describe("the GPU list", () => {
     pc.controlCalls.length = 0;
     await gen(app, 2);
     expect(pc.controlCalls.some(([op]) => op === "ensure")).toBe(false); // known to lack it: not asked
+  });
+
+  it("a PC that lacked the pack is asked again after a while, and takes calls once it has it", async () => {
+    const { app, pc, comfy, clock } = world();
+    const cookie = await login(app);
+    await withReadyModal(app);
+    await pairPc(app, cookie);
+    pc.controls.ensure = () => [500, "The Anima model is downloading: 12% of 5.6 GB."];
+    await gen(app, 1);
+    clock.t += READY_RECHECK_S; // still downloading: asked (it restarts a lost download), Modal answers
+    pc.controlCalls.length = 0;
+    await gen(app, 2);
+    expect(pc.controlCalls.filter(([op]) => op === "ensure").length).toBe(1);
+    expect([pc.comfy.prompts.length, comfy.prompts.length]).toEqual([0, 2]);
+    clock.t += READY_RECHECK_S; // done now
+    pc.controls.ensure = () => [200, { ok: true }];
+    await gen(app, 3);
+    await gen(app, 4);
+    expect([pc.comfy.prompts.length, comfy.prompts.length]).toEqual([2, 2]);
+  });
+
+  it("a not-ready mark from before v1.21.1 (false) counts as not known: the PC is asked", async () => {
+    const { app, pc } = world();
+    const cookie = await login(app);
+    await withReadyModal(app);
+    await pairPc(app, cookie);
+    await app.store.updateSetup({ ready: { pc: { anima: false, anima_turbo: false } } });
+    await gen(app, 1);
+    expect(pc.comfy.prompts.length).toBe(1);
   });
 
   it("a fetch_result token names its GPU, and goes only there", async () => {

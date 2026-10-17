@@ -58,6 +58,8 @@ export function wantedPacks(cfg: Config): Pack[] {
 // agent asks again once a round is done, for the rest.
 export const SYNC_MAX_FILES = 20;
 
+// How long a PC's "I lack that pack" holds before a call asks it again (routing, `ready`).
+export const READY_RECHECK_S = 60;
 
 const hmacKey = (s: Secrets) => fromHex(s.hmac_key);
 
@@ -299,24 +301,29 @@ export class App {
     return pcs.filter((_, i) => online[i]);
   }
 
-  /** Whether a GPU has a pack's models: true, false (downloading, or missing), or null when not
-   * known yet (a PC that has not been asked). Modal's from its seed cache (downloads it finished), a
-   * PC's from its last ensure or models check. */
+  /** Whether a GPU has a pack's models: true, false (downloading, or missing, when last asked), or
+   * null when not known (a PC not asked yet, or not for READY_RECHECK_S). Modal's from its seed cache
+   * (downloads it finished), a PC's from its last ensure or models check: true, or the time it last
+   * said it lacked the pack. A not-ready PC is asked again after a while, else it would stay skipped
+   * for good: its finished download never noticed, a lost one (the agent restarted) never restarted. */
   private ready(gpu: Gpu, setup: Record<string, any>, pack: Pack): boolean | null {
     if (!pack.models?.length) return true;
     if (gpu.kind === "modal" && (setup.seeded ?? []).includes(seedKey(pack))) return true;
-    return setup.ready?.[gpu.id]?.[pack.name] ?? null;
+    const known = setup.ready?.[gpu.id]?.[pack.name];
+    if (known === true) return true;
+    return typeof known === "number" && this.p.now() - known < READY_RECHECK_S ? false : null; // false: from before v1.21.1
   }
 
   private async setReady(gpu: Gpu, pack: string, ready: boolean): Promise<void> {
     // Most calls change nothing: compare with the copy this call already read (routing did), and
     // read fresh only to write. Saves a State read per generation (a 2026-10-01 CPU probe). A stale
     // copy at worst skips one update of an advisory flag; the next call corrects it.
-    if ((await this.store.setup()).ready?.[gpu.id]?.[pack] === ready) return;
+    const same = (v: unknown) => (ready ? v === true : typeof v === "number" && this.p.now() - v < READY_RECHECK_S);
+    if (same((await this.store.setup()).ready?.[gpu.id]?.[pack])) return;
     const setup = await this.fresh.setup();
-    const known: Record<string, boolean> = setup.ready?.[gpu.id] ?? {};
-    if (known[pack] === ready) return;
-    await this.fresh.updateSetup({ ready: { ...(setup.ready ?? {}), [gpu.id]: { ...known, [pack]: ready } } });
+    const known: Record<string, boolean | number> = setup.ready?.[gpu.id] ?? {};
+    if (same(known[pack])) return;
+    await this.fresh.updateSetup({ ready: { ...(setup.ready ?? {}), [gpu.id]: { ...known, [pack]: ready || this.p.now() } } });
   }
 
   /**
