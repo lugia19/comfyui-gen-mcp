@@ -175,11 +175,12 @@ describe("the OAuth tokens", () => {
     expect((await w.app.handle(request("POST", "/api/claim", { reconnect: "wrong", tokens: tokens(7) }))).status).toBe(403);
     w.cf.refuse = false;
     w.cf.issued = 7;
-    const back = await w.app.handle(request("POST", "/api/claim", { reconnect: code, tokens: tokens(7) }));
+    expect((await w.app.handle(request("POST", "/api/claim", { reconnect: code, tokens: tokens(7), account_id: "other" }))).status).toBe(403);
+    const back = await w.app.handle(request("POST", "/api/claim", { reconnect: code, tokens: tokens(7), account_id: "acct1" }));
     expect(back.status).toBe(200);
     expect((await body(back)).ticket).toBeTruthy();
     expect((await body(await w.app.handle(request("GET", "/api/state", undefined, cookie)))).cf_lost).toBeNull();
-    expect((await w.app.handle(request("POST", "/api/claim", { reconnect: code, tokens: tokens(7) }))).status).toBe(403); // one use
+    expect((await w.app.handle(request("POST", "/api/claim", { reconnect: code, tokens: tokens(7), account_id: "acct1" }))).status).toBe(403); // one use
   });
 });
 

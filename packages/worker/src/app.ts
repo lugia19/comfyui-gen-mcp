@@ -6,7 +6,7 @@
 
 import {
   Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
-  builtinPacks, cfapi, isModelSet, wantedModelSets, fromHex, fromUtf8, utf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
+  builtinPacks, cfapi, releases, isModelSet, wantedModelSets, fromHex, fromUtf8, utf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
   withoutLora, tagLooseLoras, wantedLoras, strengthIn, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, BG_MODELS, HIDDEN_TOOLS, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
@@ -257,7 +257,7 @@ export class App {
    * a message for the page. */
   private async uploadSelf(s: Secrets, tag: string, bucket: boolean): Promise<{ uploaded: number }> {
     const t = await this.cfToken();
-    if ("lost" in t) throw new selfupdate.UpdateError(`Reconnect Cloudflare first (${t.lost}).`);
+    if ("lost" in t) throw new releases.ReleaseError(`Reconnect Cloudflare first (${t.lost}).`);
     return selfupdate.selfUpdate(this.fetch, {
       token: t.token, account: s.cf_account_id, script: s.cf_script, tag, env: this.p.env,
       bucket: bucket ? cfapi.bucketName(s.cf_script) : null,
@@ -270,7 +270,7 @@ export class App {
     const t = await this.cfToken();
     if ("lost" in t) return `Cloudflare connection lost: ${t.lost}`;
     if (!updates.parseVersion(this.version)) return `development build (${this.version}): no automatic updates`;
-    const latest = await selfupdate.latestTag(this.fetch, this.p.env);
+    const latest = await releases.latestTag(this.fetch, this.p.env.COMFY_GEN_RELEASES);
     if (!updates.isNewer(latest, this.version)) return latest ? `up to date (${this.version})` : "no release found";
     const setup = await this.store.setup();
     if (setup.update_tried === latest) return `already tried ${latest}`;
@@ -278,7 +278,7 @@ export class App {
     try {
       await this.uploadSelf(s, latest!, Boolean(this.p.bucket));
     } catch (e) {
-      if (!(e instanceof selfupdate.UpdateError || e instanceof cfapi.CloudflareError)) throw e;
+      if (!(e instanceof releases.ReleaseError || e instanceof cfapi.CloudflareError)) throw e;
       await this.fresh.updateSetup({ update_error: e.message });
       return `could not update to ${latest}: ${e.message}`;
     }
@@ -289,7 +289,8 @@ export class App {
   /**
    * The setup Worker hands a Worker it created over (design §6): {claim, tokens, account_id, script},
    * checked against the CLAIM secret it set at upload, once. Or a reconnect after the connection
-   * was lost: {reconnect, tokens}, with the one-time code this page made. Answers a login ticket
+   * was lost: {reconnect, tokens, account_id}, with the one-time code this page made, from the
+   * same account. Answers a login ticket
    * for the browser it sends here (#ticket=…).
    */
   private async claim(req: Request): Promise<Response> {
@@ -301,6 +302,7 @@ export class App {
     if (typeof b.reconnect === "string") {
       const r = (await this.fresh.setup()).reconnect;
       if (!r || r.exp < now || !safeEqual(await cfapi.sha256Hex(utf8(b.reconnect)), r.hash)) return error(403, "That reconnect link has expired: start again from the Worker's page.");
+      if (b.account_id !== s.cf_account_id) return error(403, "Sign in to the Cloudflare account this Worker is in.");
       await this.fresh.updateSetup({ reconnect: null });
     } else {
       const claim = this.p.env.CLAIM;
@@ -740,7 +742,7 @@ export class App {
    */
   private async update(req: Request, s: Secrets): Promise<Response> {
     const setup = await this.fresh.setup();
-    const [latest, seen] = updates.steadyLatest(await updates.latestRelease(this.fetch), setup.latest_seen ?? null, this.p.now());
+    const [latest, seen] = updates.steadyLatest(await releases.latestRelease(this.fetch), setup.latest_seen ?? null, this.p.now());
     if (seen) await this.fresh.updateSetup({ latest_seen: seen });
     const can = Boolean(s.cf_token && s.cf_trigger);
     if (req.method === "GET") {
@@ -773,7 +775,7 @@ export class App {
    * and answers when it's live (about 3.5 s), so the page just reloads. */
   private async updateSelf(req: Request, s: Secrets): Promise<Response> {
     const setup = await this.fresh.setup();
-    const [latest, seen] = updates.steadyLatest(await selfupdate.latestTag(this.fetch, this.p.env), setup.latest_seen ?? null, this.p.now());
+    const [latest, seen] = updates.steadyLatest(await releases.latestTag(this.fetch, this.p.env.COMFY_GEN_RELEASES), setup.latest_seen ?? null, this.p.now());
     if (seen) await this.fresh.updateSetup({ latest_seen: seen });
     const dev = !updates.parseVersion(this.version);
     if (req.method === "GET") {
@@ -787,7 +789,7 @@ export class App {
       await this.fresh.updateSetup({ update_tried: latest, update_error: null });
       return json({ updated: latest, uploaded: r.uploaded });
     } catch (e) {
-      if (!(e instanceof selfupdate.UpdateError || e instanceof cfapi.CloudflareError)) throw e;
+      if (!(e instanceof releases.ReleaseError || e instanceof cfapi.CloudflareError)) throw e;
       return error(502, e.message);
     }
   }
@@ -804,7 +806,7 @@ export class App {
       await cfapi.setLifecycle(this.fetch, t.token, s.cf_account_id, bucket);
       await this.uploadSelf(s, this.version, true);
     } catch (e) {
-      if (!(e instanceof selfupdate.UpdateError || e instanceof cfapi.CloudflareError)) throw e;
+      if (!(e instanceof releases.ReleaseError || e instanceof cfapi.CloudflareError)) throw e;
       return error(502, e.message);
     }
     return json({ storage: true });

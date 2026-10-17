@@ -1,0 +1,23 @@
+// The setup Worker (design §6): deployed by hand on the author's account, `npx wrangler deploy` here.
+// Secret: COOKIE_KEY (64 hex characters, `wrangler secret put COOKIE_KEY`).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "comfy-gen-setup",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-26",
+  "observability": { "enabled": true },
+  "workers_dev": false,
+  "routes": [{ "pattern": "comfy-setup.lugia19.com", "custom_domain": true }],
+  "vars": {
+    "CF_OAUTH_CLIENT": "",
+    // Development: Workers created from this site's /dev bundles (built with build-dev.mjs) instead
+    // of GitHub's releases. Empty for the real thing.
+    "COMFY_GEN_RELEASES": ""
+  },
+  // The site (repository root site/, which GitHub Pages also publishes for guide/), served without
+  // running the Worker, except the sign-in and creation routes.
+  "assets": {
+    "directory": "../../site",
+    "run_worker_first": ["/oauth/*", "/api/*", "/reconnect"]
+  }
+}

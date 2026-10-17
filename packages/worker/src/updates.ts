@@ -2,11 +2,10 @@
 // check or the settings page's Update now. Nothing to sync in the user's copy of the template: its
 // deploy command downloads the latest release's deploy.sh on every build (design §7).
 
+import { releases } from "@comfy-gen/core";
 import * as cloudflare from "./cloudflare.ts";
 import type { Fetch } from "./platform.ts";
 import type { Store } from "./store.ts";
-
-const REPO = "lugia19/comfyui-gen-mcp";
 
 export function parseVersion(tag: string): [number, number, number] | null {
   const m = /^v?(\d+)\.(\d+)\.(\d+)$/.exec((tag || "").trim());
@@ -16,18 +15,6 @@ export function parseVersion(tag: string): [number, number, number] | null {
 function newer(a: number[], b: number[]): boolean {
   for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
   return false;
-}
-
-/**
- * The latest release's tag, from the redirect github.com/<repo>/releases/latest answers with
- * (…/releases/tag/<tag>). Not the REST API: its unauthenticated limit is 60 requests an hour per IP,
- * and Workers share their outgoing IPs, so from a Worker it often answers 403 (seen live: the
- * v1.0.0 cron check logged "no release found").
- */
-export async function latestRelease(fetch: Fetch): Promise<string | null> {
-  const resp = await fetch(`https://github.com/${REPO}/releases/latest`, { redirect: "manual" });
-  const m = /\/releases\/tag\/([^/?#]+)$/.exec(resp.headers.get("location") ?? "");
-  return m ? decodeURIComponent(m[1]) : null;
 }
 
 // Right after a release, GitHub's caches disagree for a few minutes: some answer the new tag, some
@@ -67,7 +54,7 @@ export function isNewer(latest: string | null, current: string): boolean {
 export async function check(fetch: Fetch, store: Store, current: string): Promise<string> {
   const cur = parseVersion(current);
   if (!cur) return `development build (${current}): no automatic updates`;
-  const latest = await latestRelease(fetch);
+  const latest = await releases.latestRelease(fetch);
   const next = parseVersion(latest ?? "");
   if (!next) return "no release found";
   if (!newer(next, cur)) return `up to date (${current})`;

@@ -85,6 +85,15 @@
     .wizard .card { padding: 18px 20px; }
     .wizard .card b { font-size: 1.15rem; }
     .wz-bar a.src { margin-left: auto; font-size: 0.85rem; color: var(--muted); }
+
+    /* Creating the Worker. */
+    .form label { display: block; font-weight: 600; margin: 0 0 14px; }
+    .form input, .form select {
+      display: block; width: 100%; max-width: 420px; margin-top: 4px; font: inherit; font-weight: 400; color: inherit;
+      background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+    }
+    .form small { display: block; font-weight: 400; margin-top: 4px; }
+    .form .bad { color: #dc2626; }
   </style>
   <link rel="stylesheet" href="guide/tour.css">
   <link rel="stylesheet" href="guide/wizard.css">
@@ -159,11 +168,7 @@
       <div class="head"><span class="num">3</span><h2>The accounts you need</h2></div>
       <div class="body">
         <p>Create each account you don't have yet. Then tick its box.</p>
-        <p>Create the GitHub account first. Cloudflare and Modal can then sign you up with it (<b>Continue with GitHub</b>), so
-          you need fewer passwords.</p>
         <ul class="wz-checks">
-          <li><label class="acct"><input type="checkbox" data-tick="github"> <span>A GitHub account</span>
-            <a class="button secondary small" href="https://github.com/signup" target="_blank" rel="noopener">Sign up at GitHub</a></label></li>
           <li><label class="acct"><input type="checkbox" data-tick="cloudflare"> <span>A Cloudflare account (the free plan)</span>
             <a class="button secondary small" href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noopener">Sign up at Cloudflare</a></label></li>
           <li data-where="cloud both"><label class="acct"><input type="checkbox" data-tick="modal"> <span>A Modal account</span>
@@ -186,58 +191,51 @@
       </div>
     </li>
 
-    <li class="step" data-step="deploy" data-short="Deploy">
-      <div class="head"><span class="num">4</span><h2>Deploy your Worker</h2></div>
+    <li class="step" data-step="connect" data-short="Connect">
+      <div class="head"><span class="num">4</span><h2>Connect Cloudflare</h2></div>
       <div class="body">
-        <p>Your Worker is your own copy of Comfy-Gen. It runs in your Cloudflare account.</p>
-        <p>The first time, Cloudflare must also connect to your GitHub account. So you click this button two times. The steps
-          below show when.</p>
-        <a class="button" id="deploy" target="_blank" rel="noopener" href="https://deploy.workers.cloudflare.com/?url=https://github.com/lugia19/comfyui-gen-mcp/tree/main/bootstrap">Deploy to Cloudflare</a>
-        <div data-guide="deploy">
-          <ol>
-            <li>Under <b>Git account</b>, click <b>New GitHub connection</b>.</li>
-            <li>GitHub asks to install Cloudflare Workers and Pages. Keep <b>All repositories</b> selected. Click
-              <b>Install &amp; Authorize</b>.</li>
-            <li>Cloudflare opens a page called <b>Select a repository</b>. You do not need it. Close that tab.</li>
-            <li>Come back here. Click <b>Deploy to Cloudflare</b> again. Under <b>Git account</b>, choose your GitHub account.
-              Click <b>Deploy</b>.</li>
-          </ol>
-        </div>
+        <p>Your Worker is your own copy of Comfy-Gen. It runs in your Cloudflare account, and this page creates it there.</p>
+        <p>Cloudflare asks you to allow that. Check that the page is on <b>dash.cloudflare.com</b>, choose your account if
+          it asks, and click <b>Allow</b>.</p>
+        <a class="button" href="/oauth/start">Connect Cloudflare</a>
+        <p class="wz-only" id="connected" hidden><span class="tag green">Connected</span></p>
         <details class="guide">
-          <summary>GitHub shows a settings page instead of Install &amp; Authorize?</summary>
-          <p>This means Cloudflare's app is already on your GitHub account, from an earlier try. Remove it, then start again
-            from the first step. On GitHub, open
-            <a href="https://github.com/settings/installations" target="_blank" rel="noopener">Settings → Applications → Installed GitHub Apps</a>,
-            then <b>Cloudflare Workers and Pages → Configure</b>, and <b>Uninstall</b> at the bottom.</p>
-          <p class="muted">That also disconnects any other Cloudflare project that builds from this GitHub account, until it is connected again.</p>
+          <summary>What does it allow?</summary>
+          <p>Creating and updating Workers and storage (R2) in your account, and reading the account's name. This page
+            creates your Worker, then hands the access to it and keeps nothing. Your Worker uses it to install
+            updates by itself. <a href="privacy.html">Privacy</a></p>
         </details>
       </div>
     </li>
 
-    <li class="step" data-step="open" data-short="Open">
-      <div class="head"><span class="num">5</span><h2>Open your Worker</h2></div>
+    <li class="step" data-step="create" data-short="Create">
+      <div class="head"><span class="num">5</span><h2>Create your Worker</h2></div>
       <div class="body">
-        <div data-guide="open-worker">
-          <ol>
-            <li>In the Cloudflare tab, wait about one minute for the build.</li>
-            <li>When you see <b>Success</b>, reload the page. Click <b>Visit</b> (top right). This opens your Worker, at
-              <code>https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>. Save it as a bookmark.</li>
-          </ol>
-        </div>
-        <p>Did you close the Cloudflare tab? Open your Workers with this button. Click <b>comfy-gen</b>, then <b>Visit</b>.</p>
-        <a class="button secondary" href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noopener">Open Workers &amp; Pages in Cloudflare</a>
+        <form id="create-form" class="form">
+          <label id="acct-row">Cloudflare account <select id="acct"></select></label>
+          <label id="sub-row" hidden>Your workers.dev subdomain
+            <input id="sub" autocomplete="off" spellcheck="false" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?">
+            <small class="muted">Your account has no workers.dev address yet. Every Worker in it gets one under this
+              name, and it is hard to change later. Lowercase letters, digits and dashes.</small></label>
+          <label>Worker name
+            <input id="wname" value="comfy-gen" autocomplete="off" spellcheck="false" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"></label>
+          <p class="muted">Its address: <code id="addr"></code></p>
+          <button class="button" id="create-btn" type="submit">Create my Worker</button>
+          <p id="create-msg" role="status"></p>
+        </form>
       </div>
     </li>
 
-    <li class="step" data-step="finish" data-short="Finish">
-      <div class="head"><span class="num">6</span><h2>Finish on your Worker's page</h2></div>
+    <li class="step" data-step="open" data-short="Open">
+      <div class="head"><span class="num">6</span><h2>Open your Worker</h2></div>
       <div class="body">
-        <p>Save your Worker's page as a bookmark. It guides you through the rest, one step at a time. Each step has a button
-          to the page you need.</p>
-        <p>You can close this setup page and the Cloudflare tab now.</p>
+        <p>Your Worker is ready at <code id="worker-url">https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>. Save
+          it as a bookmark.</p>
+        <a class="button" id="open-worker" href="#">Open your Worker</a>
+        <p>Its page guides you through the rest, one step at a time:</p>
         <ol>
-          <li>Log in with Cloudflare.</li>
-          <li>Turn on storage in Cloudflare.</li>
+          <li>Set a password.</li>
+          <li id="storage-step" hidden>Turn on storage in Cloudflare.</li>
           <li data-where="cloud">Connect your Modal account.</li>
           <li data-where="pc">Install the Comfy-Gen agent on your PC.</li>
           <li data-where="both">Install the Comfy-Gen agent on your PC, then connect your Modal account.</li>
@@ -254,22 +252,31 @@
   // The setup wizard (wizard.css): one step at a time, filling the window, with a bar of the steps
   // for the answers given. Next is the one way on: through a walkthrough's every step (tour.js), past
   // a list only once every item is ticked; a step once finished stays finished, so going back over it
-  // gates nothing. Progress is remembered in this browser, and the Deploy button points at the
-  // template for the answer (bootstrap-<answer>/, whose SETUP_MODE the Worker's page starts from).
+  // gates nothing. Progress is remembered in this browser. Connect Cloudflare signs in through this
+  // site's Worker (packages/setup), which comes back to #connected; Create asks it to create the
+  // Worker, with the answer as its SETUP_MODE, and answers its address and a one-time login ticket.
   // Without this script, the page shows every step.
   (function () {
     var KEY = 'comfy-gen-setup'
-    var REPO = 'https://github.com/lugia19/comfyui-gen-mcp/tree/main/'
     var LABELS = {
       worker: 'claude.ai, everywhere', desktop: 'Claude Desktop only',
       cloud: 'In the cloud (Modal)', pc: 'On my PC', both: 'Both: PC first, cloud as fallback',
     }
-    var state = { use: null, where: null, open: 'use', done: {}, ticks: {} }
+    var state = { use: null, where: null, open: 'use', done: {}, ticks: {}, connected: 0, created: null }
     try {
       var saved = JSON.parse(localStorage.getItem(KEY) || 'null')
       if (saved && typeof saved === 'object') state = Object.assign(state, saved)
     } catch (e) {}
     state.ticks = state.ticks || {}
+    // Back from signing in to Cloudflare. The sign-in lasts 50 minutes (the setup Worker's cookie).
+    var SIGN_IN_MS = 50 * 60 * 1000
+    if (location.hash === '#connected') {
+      state.connected = Date.now()
+      state.done.connect = true
+      state.open = 'create'
+      history.replaceState(null, '', location.pathname)
+    }
+    var connected = function () { return Date.now() - state.connected < SIGN_IN_MS }
     function save() {
       try { localStorage.setItem(KEY, JSON.stringify(state)) } catch (e) {}
     }
@@ -297,7 +304,7 @@
     function visible() {
       if (state.use === 'desktop') return ['use', 'desktop']
       if (state.use !== 'worker') return ['use']
-      return state.where ? ['use', 'where', 'accounts', 'deploy', 'open', 'finish'] : ['use', 'where']
+      return state.where ? ['use', 'where', 'accounts', 'connect', 'create', 'open'] : ['use', 'where']
     }
     var title = function (name) { return byName[name].querySelector('h2').textContent }
     // The open step's walkthrough, while it shows (tour.js); none if it fell back to plain steps.
@@ -313,6 +320,8 @@
       if (name === 'use' && !state.use) return 'Choose an answer.'
       if (name === 'where' && !state.where) return 'Choose an answer.'
       if (name === 'accounts' && !state.done.accounts && !ticksDone()) return 'Tick each account once you have it.'
+      if (name === 'connect' && !state.created && !connected()) return 'Connect Cloudflare first.'
+      if (name === 'create' && !state.created) return 'Create your Worker first.'
       return ''
     }
 
@@ -332,7 +341,13 @@
         el.classList.toggle('off', Boolean(state.where) && el.dataset.where.split(' ').indexOf(state.where) < 0)
       })
       byName.accounts.querySelectorAll('[data-tick]').forEach(function (box) { box.checked = Boolean(state.ticks[box.dataset.tick]) })
-      document.getElementById('deploy').href = 'https://deploy.workers.cloudflare.com/?url=' + REPO + (state.where ? 'bootstrap-' + state.where : 'bootstrap')
+      document.getElementById('connected').hidden = !connected()
+      if (state.created) {
+        document.getElementById('worker-url').textContent = state.created.url
+        document.getElementById('open-worker').href = state.created.url + '#ticket=' + state.created.ticket
+        document.getElementById('storage-step').hidden = state.created.storage
+      }
+      if (state.open === 'create') { if (state.created) say('Created: ' + state.created.url); else loadAccounts() }
 
       // The bar: a finished step, and the first unfinished one, can be opened from it.
       var reach = 0
@@ -423,6 +438,77 @@
         })
       })
     })
+    // ── Creating the Worker ──
+    var form = document.getElementById('create-form')
+    var acct = document.getElementById('acct')
+    var sub = document.getElementById('sub')
+    var wname = document.getElementById('wname')
+    var msg = document.getElementById('create-msg')
+    var createBtn = document.getElementById('create-btn')
+    var accounts = null
+    var loading = false
+    function say(text, bad) { msg.textContent = text; msg.className = bad ? 'bad' : 'muted' }
+    function chosen() { return accounts && accounts.filter(function (a) { return a.id === acct.value })[0] }
+    function address() {
+      var a = chosen()
+      var s = (a && a.subdomain) || sub.value || '<subdomain>'
+      document.getElementById('sub-row').hidden = !a || Boolean(a.subdomain)
+      document.getElementById('addr').textContent = 'https://' + (wname.value || 'comfy-gen') + '.' + s + '.workers.dev'
+    }
+    function expired() {
+      state.connected = 0
+      say('Your Cloudflare sign-in expired. Go back a step and connect again.', true)
+      render()
+    }
+    function loadAccounts() {
+      if (accounts || loading || state.created) return
+      if (!connected()) return expired()
+      loading = true
+      say('Loading your Cloudflare accounts…')
+      fetch('/api/accounts').then(function (r) {
+        if (r.status === 401) return expired()
+        return r.json().then(function (d) {
+          if (!r.ok) return say(d.error || 'Could not load your accounts.', true)
+          accounts = d.accounts
+          acct.innerHTML = ''
+          accounts.forEach(function (a) {
+            var o = document.createElement('option')
+            o.value = a.id
+            o.textContent = a.name
+            acct.appendChild(o)
+          })
+          document.getElementById('acct-row').hidden = accounts.length < 2
+          if (!accounts.length) say('This sign-in reaches no account. Connect again and choose your account.', true)
+          else say('')
+          address()
+        })
+      }, function () { say('Could not reach the setup site. Check your connection.', true) })
+        .then(function () { loading = false })
+    }
+    acct.addEventListener('change', address)
+    sub.addEventListener('input', address)
+    wname.addEventListener('input', address)
+    form.addEventListener('submit', function (e) {
+      e.preventDefault()
+      if (!form.reportValidity() || !chosen()) return
+      createBtn.disabled = true
+      say('Creating your Worker… This takes about half a minute.')
+      fetch('/api/create', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: acct.value, name: wname.value, subdomain: sub.value || undefined, mode: state.where }),
+      }).then(function (r) {
+        if (r.status === 401) return expired()
+        return r.json().then(function (d) {
+          if (!r.ok) return say(d.error || 'Creating the Worker failed.', true)
+          state.created = { url: d.url, ticket: d.ticket, storage: d.storage }
+          state.connected = 0 // the access went to the Worker
+          state.done.create = true
+          go('open')
+        })
+      }, function () { say('Could not reach the setup site. Check your connection, then try again.', true) })
+        .then(function () { createBtn.disabled = false })
+    })
+
     byName.accounts.addEventListener('change', function (e) {
       if (!e.target.dataset.tick) return
       state.ticks[e.target.dataset.tick] = e.target.checked

@@ -7,11 +7,12 @@
     "packages/local",
     "packages/mcpb",
     "packages/agent",
-    "packages/worker"
+    "packages/worker",
+    "packages/setup"
   ],
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc -p packages/core && tsc -p packages/local && tsc -p packages/mcpb && tsc -p packages/agent && tsc -p packages/worker"
+    "typecheck": "tsc -p packages/core && tsc -p packages/local && tsc -p packages/mcpb && tsc -p packages/agent && tsc -p packages/worker && tsc -p packages/setup"
   },
   "devDependencies": {
     "@anthropic-ai/mcpb": "2.1.2",

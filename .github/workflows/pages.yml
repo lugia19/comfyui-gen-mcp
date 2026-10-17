@@ -1,7 +1,9 @@
 name: Site
 
-# Publishes site/ (the landing page with the Deploy button) to GitHub Pages. Needs, once, Settings →
-# Pages → Source: GitHub Actions.
+# Publishes site/guide/ to GitHub Pages: Workers load their walkthroughs (guides.json and its
+# screenshots) from there. The setup page itself is served by the setup Worker (packages/setup) at
+# comfy-setup.lugia19.com, and the old address redirects to it. Needs, once, Settings → Pages →
+# Source: GitHub Actions.
 
 on:
   push:
@@ -27,8 +29,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - name: The guides, and the setup page's new address
+        run: |
+          mkdir -p _site
+          cp -r site/guide site/favicon.svg _site/
+          cat > _site/index.html <<'EOF'
+          <!doctype html><meta charset="utf-8"><title>Comfy-Gen setup</title>
+          <meta http-equiv="refresh" content="0; url=https://comfy-setup.lugia19.com/">
+          <p>The setup page moved to <a href="https://comfy-setup.lugia19.com/">comfy-setup.lugia19.com</a>.</p>
+          EOF
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: _site
       - id: deployment
         uses: actions/deploy-pages@v4
