@@ -158,6 +158,23 @@ describe("creating the Worker", () => {
   });
 });
 
+describe("grpc.lugia19.com", () => {
+  it("passes Modal's client API through to the proxy, and nothing else", async () => {
+    const seen: { url: string; init: RequestInit }[] = [];
+    const deps = { fetch: async (url: string, init: RequestInit = {}) => (seen.push({ url, init }), new Response("ok")), now: () => 0, sleep: async () => {} };
+    const proxied = { ...env, GRPC_UPSTREAM: "https://proxy.example/" };
+    const call = (path: string, method = "POST") =>
+      handle(new Request(`https://grpc.lugia19.com${path}`, { method, headers: { "content-type": "application/grpc-web+proto", "x-modal-token-id": "ak" }, body: method === "POST" ? "frame" : undefined }), proxied, deps);
+    expect(await (await call("/modal.client.ModalClient/TokenFlowCreate")).text()).toBe("ok");
+    expect(seen[0].url).toBe("https://proxy.example/modal.client.ModalClient/TokenFlowCreate");
+    expect(new Headers(seen[0].init.headers).get("x-modal-token-id")).toBe("ak");
+    expect((await call("/other/Thing")).status).toBe(404);
+    expect((await call("/modal.client.ModalClient/AppList", "GET")).status).toBe(404);
+    expect((await call("/oauth/start", "POST")).status).toBe(404); // the setup site's routes aren't on this address
+    expect(seen).toHaveLength(1);
+  });
+});
+
 describe("reconnecting a Worker", () => {
   it("hands new tokens to a Worker in the signed-in account, which answers a login ticket", async () => {
     const f = new Fake();

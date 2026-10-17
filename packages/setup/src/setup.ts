@@ -12,6 +12,10 @@
 //   POST /api/create        {account_id, name, mode, subdomain?}: create the Worker, hand it over,
 //                           answer {url, ticket} (the page opens url#ticket=…)
 // Everything else is the site's static files, served without running the Worker.
+//
+// On its second address, grpc.lugia19.com, it passes Modal's client API through to our gRPC-web
+// proxy (GRPC_UPSTREAM, Envoy on Cloud Run, which allows only the methods setup needs): how Workers
+// reach Modal until Workers' own gRPC support is generally available (design §6).
 
 import {
   bodyJson, cfapi, concat, error, fromBase64Url, fromHex, fromUtf8, json, randomBytes, readCookie, releases, safeEqual, toBase64Url, tokenUrlsafe, utf8,
@@ -24,7 +28,12 @@ export type Env = {
   COOKIE_KEY: string;
   /** Development: a release base (this site's /dev) instead of GitHub's releases. */
   COMFY_GEN_RELEASES?: string;
+  /** The gRPC-web proxy behind grpc.lugia19.com. */
+  GRPC_UPSTREAM?: string;
 };
+
+export const GRPC_HOST = "grpc.lugia19.com";
+const GRPC_SERVICE = "/modal.client.ModalClient/";
 
 export type Deps = { fetch: Fetch; now: () => number; sleep: (s: number) => Promise<void> };
 
@@ -96,6 +105,10 @@ const redirect = (location: string, cookies: string[] = []) => {
 export async function handle(req: Request, env: Env, deps: Deps): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
+  if (url.host === GRPC_HOST) {
+    if (!env.GRPC_UPSTREAM || !path.startsWith(GRPC_SERVICE) || req.method !== "POST") return error(404, "not found");
+    return deps.fetch(releases.trim(env.GRPC_UPSTREAM) + path, { method: "POST", headers: req.headers, body: req.body });
+  }
   try {
     if (path === "/oauth/start" && req.method === "GET") return start(env, deps, url, undefined);
     if (path === "/reconnect" && req.method === "GET") {
