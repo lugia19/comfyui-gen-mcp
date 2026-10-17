@@ -1198,6 +1198,20 @@ that base.
 - **A Cloudflare token still logs in** (the way back when the password is forgotten): it only
   proves the token sees this Worker, and isn't kept.
 
+**End to end on the test account (2026-10-17),** through `comfy-setup.lugia19.com` with dev bundles:
+- Created `comfy-gen-p1test`: every binding, `CLAIM` as a secret, R2 bound, the cron. Claim and
+  ticket login, the password, a token login, and Reconnect Cloudflare all worked.
+- Self-updates: v9.0.0 → v9.0.1 in 5.2 s (2 changed files uploaded), v9.0.2 → v9.0.3 in 3.6 s
+  (none); bindings and the secret survived; live on the next request. The storage check answers
+  from the live version.
+- Found and fixed live: a Worker can't fetch its own custom domain (the setup Worker reads `/dev`
+  through its ASSETS binding), and static files must go up with their content type, or Cloudflare
+  serves them with none and the browser won't run the settings app.
+- CPU (Workers Logs `cpuTimeMs`): setup `/api/create` median 7 ms (max 12), `/oauth/callback`
+  3.5; the Worker's `/api/claim` 4, `/api/state` 2.5; a self-upload (Update now, the storage
+  check) 16 to 17 ms, over the 10 ms budget but rare. If Cloudflare starts refusing those, the
+  upload moves into the State object.
+
 ## 7. Updates
 
 - **Worker and Modal app:** the Worker's cron checks the latest GitHub release against its own

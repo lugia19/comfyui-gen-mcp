@@ -1115,6 +1115,9 @@ Design §6, "Setup without a repository". No numbered release until Phases 1 to 
   `https://comfy-setup.lugia19.com/oauth/callback`).
 - **`/simplify` pass:** one Updater and one API shape for both paths; one error base; shared
   hashing, cookie and var-list helpers in core; one fake Cloudflare for both Workers' tests.
-- **Still to do in Phase 1:** deploy the setup Worker on `comfy-setup.lugia19.com` and run the end
-  to end on the test account (create, claim, password, self-update to a second dev bundle, R2 off
-  then on, a refresh, CPU from Workers Logs), then tear the test Worker down.
+- **Deployed:** the setup Worker on `comfy-setup.lugia19.com` (dev bundles for now).
+- **End to end on the test account:** create, claim, ticket login, password, token login,
+  Reconnect Cloudflare, two self-updates, the storage check, CPU (design §6). Two live fixes: the
+  setup Worker reads its own `/dev` through ASSETS, and static files go up with their content type.
+  R2 off is covered by tests only (it can't be turned off on the account). Still to check: a
+  token refresh after the first hour; then the test Worker is torn down.
