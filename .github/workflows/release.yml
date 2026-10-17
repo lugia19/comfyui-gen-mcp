@@ -65,6 +65,12 @@ jobs:
           npm ci
           node packages/mcpb/build.mjs "$GITHUB_REF_NAME"
           cp packages/mcpb/dist/comfy-gen.mjs packages/mcpb/dist/Comfy-Gen-MCP.mcpb out/
+      # The Worker for the API path: the setup Worker creates Workers from these, and a Worker
+      # updates itself from a newer release's (design §6).
+      - name: The Worker bundle
+        run: |
+          node packages/worker/build-bundle.mjs "$GITHUB_REF_NAME"
+          cp packages/worker/dist-release/worker-bundle.js packages/worker/dist-release/worker-assets.json packages/worker/dist-release/worker-manifest.json out/
       - name: The agent's launchers
         run: |
           node packages/launcher/build.mjs "$GITHUB_REF_NAME"
@@ -73,7 +79,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ls out && test "$(ls out | wc -l)" -eq 7
+          ls out && test "$(ls out | wc -l)" -eq 10
           sed "s/__TAG__/${GITHUB_REF_NAME}/g" .github/release-notes.md > notes.md
           # The download table comes first; GitHub's generated changes follow it.
           gh release create "$GITHUB_REF_NAME" out/* --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes

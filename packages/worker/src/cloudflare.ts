@@ -1,34 +1,16 @@
-// Cloudflare API calls the Worker makes about itself: token checks, self-discovery, Workers Builds.
+// Cloudflare API calls the Worker makes about itself on the legacy path (built from a repository):
+// token checks, self-discovery, Workers Builds. Self-update with OAuth is selfupdate.ts (core cfapi).
 //
 // A Worker has no runtime API for its own account or name. The name comes from its workers.dev
 // hostname (<name>.<subdomain>.workers.dev), the account from listing what the user's token can
 // see (S4). The Builds API accepts only user tokens (design §8).
 
+import { cfapi } from "@comfy-gen/core";
 import type { Fetch } from "./platform.ts";
 
-const API = "https://api.cloudflare.com/client/v4";
-
-/** A Cloudflare API call failed. The message is meant for the setup page. */
-export class CloudflareError extends Error {
-  name = "CloudflareError";
-}
-
-export async function call(fetch: Fetch, token: string, method: string, path: string, body?: unknown): Promise<any> {
-  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-  const resp = await fetch(API + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  let payload: any;
-  try {
-    payload = await resp.json();
-  } catch {
-    throw new CloudflareError(`${method} ${path}: HTTP ${resp.status}`);
-  }
-  if (!payload?.success) {
-    const errors = (payload?.errors ?? []).map((e: any) => `${e.code}: ${e.message}`).join("; ");
-    throw new CloudflareError(`${method} ${path}: ${errors || `HTTP ${resp.status}`}`);
-  }
-  return payload.result;
-}
+// One client for both paths: this file keeps the legacy Builds calls (installs built from a repository).
+export const CloudflareError = cfapi.CloudflareError;
+export const call = cfapi.cfCall;
 
 /** Throws CloudflareError with advice if the token isn't an active user token. */
 export async function verifyUserToken(fetch: Fetch, token: string): Promise<void> {
