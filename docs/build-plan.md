@@ -862,3 +862,44 @@ no case for "area" yet, which stays the opt-in last resort.
   item 6 (of 6), the Copy link button only on item 2; Next at a step's last item is the setup
   step's ("Next: Set up your PC", disabled until storage is on); the fallback is one item. The
   site's Deploy list: six items, Next moved the red step and the screenshot, a click went back.
+
+## Next: sign-in, toward a setup without a repository (planned 2026-10-17)
+
+The direction is in design §6 ("Sign-in, and a setup without a repository"). In order:
+
+1. **Checks on the test account** before any code:
+   - a private Cloudflare OAuth client: token lifetimes, the scope names (`GET /oauth/scopes`), and
+     whether the Builds API accepts its token (it rejects account API tokens);
+   - Modal's token flow from a headless build (no `localhost` callback).
+2. **Log in with Cloudflare**: PKCE from the Worker, a relay page on the setup site for the fixed
+   redirect, the refresh token kept for builds; then decide whether it replaces the password.
+3. **Approve in Modal**: a "connect Modal" build that starts the token flow, posts the approval URL
+   back and deploys once approved; the typed token stays as the fallback.
+4. **Modal state through the admin app**: the ComfyUI function's stats for tool calls ("starting a
+   container") and a stop button.
+5. **Later, blocked on Workers gRPC reaching general availability**: the setup site creates the
+   Worker through the Cloudflare API, and the Worker deploys Modal through a Modal Sandbox running
+   the real SDK. Then the Workers Build and the GitHub connection go.
+
+## Outpainting (spike, 2026-10-17)
+
+Asked: can Anima outpaint? Spike on Modal with raw graphs (scratchpad `outpaint/`, notes in its
+`NOTES.md`), Anima Turbo, sources made for it (a tavern, 1152×896; a half-length knight, 1024²):
+
+- **Redraw's technique works**: pad the canvas, sample at the pack's budget with the new area (and
+  48 px of the original) as the noise mask through DifferentialDiffusion at denoise 1.0, and paste
+  the original back. The fill (grey, stretched edge, noise) hardly matters at denoise 1; ComfyUI's
+  `VAEEncodeForInpaint` left a visible seam.
+- **Ghosts** where the original's frame cut an object (half-transparent bottles over the overlap)
+  came from blending the original back over the whole band; pasting it back 32 px further in,
+  where the sampler barely changed anything, removed them.
+- **Cases**: +25% each side (coherent in every run); twice the width in one call (one seed
+  convincing, one repeated a motif); the knight +512 px down (no visible seam; the prompt should
+  describe the new framing: "cowboy shot, hand on sword hilt" drew the hands and a sword) and on
+  all sides (one seed clean, one with a stray floating gauntlet, which redraw could fix).
+  8 to 14 s of L4 per call.
+- **kohya's Anima-LLLite inpainting** (prior art; the node is Apache-2.0, the weights carry Anima's
+  licence): compared on a throwaway Modal app (`comfy-gen-lllite-spike`, our route with and
+  without it, Turbo and Base, the same three cases). Result: pending.
+- If built: an `extend` option on redraw or a tool of its own; a node in our extension pads and
+  masks (overlap 48, feather 16, paste-back inset 32); the rest is redraw's graph and paste.

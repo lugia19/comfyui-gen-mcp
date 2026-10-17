@@ -914,6 +914,71 @@ result, pick the GPU and install ComfyUI (or keep the old extension's). Before t
 the model folders it found and asks for any other one: models download at the first image, so this
 is the moment to say where existing ones are. No accounts.
 
+### Sign-in, and a setup without a repository (direction, 2026-10-17)
+
+Two of setup's hardest parts are tokens: the Cloudflare token on the login page (a template link,
+narrowing "All accounts", copying) and the Modal token (New Token, Create, copying the command).
+And the GitHub connection inside Deploy is the most error-prone step of all. Two new facts change
+what is possible:
+
+- **Cloudflare has real OAuth** (self-managed OAuth clients, open to every account since June 2026).
+  Authorization code with PKCE (or a client secret); scopes are API-token permission names; the
+  consent screen shows our name, logo and verified domain and lets the user pick the account(s),
+  and the user can revoke it from their profile. A client is private (our account's members only)
+  until we verify its domain and make it public, which is permanent.
+- **Workers can call gRPC servers** (private beta since August 2026): the Worker speaks gRPC-web and
+  Cloudflare's edge converts it to gRPC. Unary and server-streaming only; bidirectional needs
+  Containers. Modal's control plane (`api.modal.com`) is gRPC.
+
+**Buildable now, for every user:**
+
+- **Log in with Cloudflare.** The Worker starts the flow with PKCE and exchanges the code itself. A
+  client registers fixed redirect URLs and every Worker has its own address, so the redirect is one
+  page we own (on the setup site) that relays the code to the Worker named in `state`. A code
+  relayed elsewhere is useless without the Worker's verifier, so the relay holds no secret. One
+  consent screen replaces the token walkthrough, and could replace the password too: an OAuth login
+  proves the person controls the account the Worker runs in. The Worker keeps the refresh token for
+  what it does with the pasted token today (the build trigger, build secrets).
+  To check first, on a private client on the test account: the access and refresh token lifetimes
+  (the docs don't say), whether the Builds API takes an OAuth token (it rejects account API tokens,
+  §8), the scope names (`GET /oauth/scopes`; today's four permissions, §8), and domain
+  verification for a `github.io` address (we may need a small domain of our own).
+- **Approve in Modal (the token flow, run by the build).** `modal setup` gets its token from two
+  unary calls: start a token flow (an approval URL on modal.com, a flow id, a wait secret), then
+  wait for the user to approve it there. The Workers Build already runs the Python SDK, so the
+  Worker starts a "connect Modal" build, the build starts the flow and posts the approval URL back
+  (the nonce callback the deploy uses), the page shows **Approve in Modal**, and the build waits,
+  stores the token in the build secrets and goes on to the deploy. No tokens page, no copying. The
+  button appears after the build starts (about 30 to 60 s: "Preparing Modal sign-in…"). The typed
+  token stays as the fallback. To check first: that the flow completes from a headless build
+  without the CLI's `localhost` callback.
+- **Modal's state through the admin app.** `comfy-gen-admin` runs the Python SDK inside Modal,
+  signed in to its workspace, and already sets keep-warm through it (`/idle`). It can also report
+  the ComfyUI function's stats (queue backlog, running containers) so a tool call can say "Modal
+  is starting a container", and stop the container on demand. It exists only after a deploy, so
+  it can't check a token before the first one.
+
+**The direction: no repository.** With both, the setup site itself could create the Worker through
+the Cloudflare API (upload the script, create the R2 bucket, set the variables) and skip GitHub and
+the Deploy button. The Worker would update itself by uploading a new script version. What still
+needs a repository is the Modal deploy: `modal deploy` is the Python SDK at work (the image
+definition, mounting our code, creating each function from its Python definition, publishing), and
+Workers Builds need a connected repo. Re-implementing a deploy in the Worker would copy SDK
+internals that change every release; Modal's own JS and Go SDKs say defining functions will likely
+stay Python-only. The route that works: once Workers have gRPC, the Worker creates a **Modal
+Sandbox** in the user's account from a stock Python image, which runs `pip install modal`, fetches
+our release and runs the real `modal deploy` with the user's token; the Worker streams its output
+and reads its exit code. A few simple calls, not a deploy, and seconds of CPU on Modal.
+
+Blocked on: Workers gRPC reaching general availability (every user's account needs it). Also to
+solve then: Modal's JS SDK targets Node, Deno and Bun over HTTP/2, so the few calls we need (the
+token flow, create a sandbox, stream its output, wait) need an adapted or hand-written client;
+those calls are Modal's internal protocol, which checks the client version, so the surface stays
+small; the cards (R2's checkout, Modal's billing) stay manual; and existing installs, deployed
+from their repo copy, need a migration. Until then: OAuth login and the Modal token flow through
+the build, both steps toward it (the build's token flow is replaced once gRPC lands, not thrown
+away).
+
 ## 7. Updates
 
 - **Worker and Modal app:** the Worker's cron checks the latest GitHub release against its own
@@ -1196,17 +1261,20 @@ Later: the ComfyUI client and the Modal app can become shared with Visual-Noveli
 | Fork-sync GitHub Action | More code; the token-driven build covers updates |
 | Qt desktop app | Settings moved to the web; the PC side is a daemon with a small tray |
 | Cold/warm status in results | A blocking call fits inside the client timeout |
-| Modal Sandboxes over gRPC | Outbound gRPC from Workers is private beta, browsers cannot reach Modal's API (no CORS, no gRPC-web), and Sandboxes would make us own lifecycle and an undocumented protocol |
-| Worker uploading over its own script | Replaced by Workers Builds, which also updates Modal |
+| Modal Sandboxes over gRPC | Outbound gRPC from Workers is private beta, browsers cannot reach Modal's API (no CORS, no gRPC-web), and Sandboxes would make us own lifecycle and an undocumented protocol. **Reconsidered 2026-10-17**: deferred, not rejected. A Sandbox that runs the real `modal deploy` is the one piece a setup without a repository lacks; it waits for Workers gRPC to reach general availability, and keeps the call surface small (§6, Sign-in) |
+| Worker uploading over its own script | Replaced by Workers Builds, which also updates Modal. Back in the direction of 2026-10-17 (§6, Sign-in): with Cloudflare OAuth the Worker could update itself, once Modal deploys no longer need the build |
 | An automatic upload route for images pasted into Claude Desktop (MCPB) | The sandbox trick needs a public endpoint, and the extension is on `127.0.0.1`. A clipboard route (the model asks the user to copy the image, then passes `"clipboard"`) was built and removed: too much machinery for the gain. What remains is opt-in, and costs no code: the `edit_image` description offers a file path, or an upload to Litterbox (catbox's temporary host) for one hour, only after the user agrees to the image being public for that hour; the returned URL goes to `edit_image` like any URL. It needs code execution with network access to `litterbox.catbox.moe`. Tested 2026-09-30: one POST, the URL serves the same bytes to the extension's fetch |
 | A PC's settings reachable from the Worker only through an allow-list (2026-10-02) | Guarded nothing: the Worker can already run code on the PC through each pack's `required_nodes`. Every setting is now on the PC's own page on the Worker; only pairing stays on the PC (§9, "A page per PC") |
 | The negative prompt against painted-in signatures (2026-10-15) | Didn't stop them on base Anima, and Anima Turbo skips the negative at CFG 1 |
 | Repainting a mark with the image's own model, or ready-made node packs (2026-10-15) | A diffusion inpaint per image costs seconds of GPU and loads another graph. The marks sit on flat colour near the corners, which LaMa fills well. Acly's LaMa node resizes the whole image to 512 and blurred it; Impact Pack's detailers were more machinery than one detector and one fill. Our own node crops each mark at full resolution |
-| `edit_image` for touch-ups, and an inpainting control model (2026-10-15) | Flux 2 Klein's edits changed 0.7 to 1% of a sprite's body pixels, lost Frenni's bear muzzle and shifted the style. kohya's Anima LLLite inpainting needs a custom node under a non-commercial licence; masked denoising on the pack's own graph was enough (§3, Redraw) |
+| `edit_image` for touch-ups, and an inpainting control model (2026-10-15) | Flux 2 Klein's edits changed 0.7 to 1% of a sprite's body pixels, lost Frenni's bear muzzle and shifted the style. kohya's Anima LLLite inpainting needs a custom node; masked denoising on the pack's own graph was enough (§3, Redraw). (Corrected 2026-10-17: the node is Apache-2.0 and its weights carry Anima's own licence, so licensing was never the obstacle.) |
 | Redrawing a crop around the area (2026-10-15) | With the whole character's prompt the crop got the body the prompt described (a bustier drawn into a face crop); with a prompt for the crop alone, the model lost what the crop didn't show (bare hands on an armoured knight): 2 usable of 12. Redraw samples the whole image with the prompt for all of it, and repaints only the mask (§3, Redraw) |
 | Lucida for background removal (v1.16.0 to v1.17.2), and fixes that only cleaned its edge colours (2026-10-16) | A white contour over dark scenes, from a light ring in the images that any soft mask keeps, and enclosed background kept between hair and face; RMBG 2.0 with isnet-anime's gaps, a 2 px shrink and colour cleanup won on all 7 test sprites (§3, Background removal) |
 | Seed records keyed by pack name only (to v1.17.3) | Changing a pack's files under the same name kept both records at "done", so Modal never fetched v1.17.3's background models; keys now carry a hash of the files (`seedKey`, §2) |
 | A ComfyUI by URL as a GPU, and "Your own ComfyUI" for the agent and the extension (`comfyui_url`); removed 2026-10-15 | Every feature since the wait route needs our ComfyUI extension (the held wait, watermark removal; background removal needs our model folders), and each had to say "except there". What people wanted from their own ComfyUI, its models, the managed install already uses (other installs' folders are found and shared, §5). A stored URL GPU is left out of the list; a stored `comfyui_url` is dropped when the config loads, and the managed ComfyUI takes over |
+| A Python Worker running the Modal SDK (2026-10-17) | The SDK needs raw sockets for HTTP/2 gRPC (`grpclib`); a Python Worker reaches the network only through `fetch`, and the gRPC beta gives Workers gRPC-web over `fetch`, not sockets. Pyodide's per-request cost (above) with the SDK's imports would also break the free plan's CPU limit. The admin app on Modal already runs the SDK (§6, Sign-in) |
+| Cloudflare Containers for the Modal SDK, or for a setup without a repository (2026-10-17) | They run Python natively, but need the paid Workers plan; every user's Cloudflare is the free plan |
+| Reimplementing `modal deploy` over gRPC (2026-10-17) | A deploy is the SDK's internals (images, mounts, functions from their Python definitions), which change every release; Modal's JS and Go SDKs leave defining functions to Python. A Sandbox running the real SDK does it with a few calls (§6, Sign-in) |
 | comfy-cli for the local ComfyUI install | Needs git (a hard failure without it) and a second Python env just to run it, and caused the old extension's Windows bugs (spaces in `override.txt`, cp1252 crashes, a leaked `VIRTUAL_ENV`). What it abstracts, uv does: `--torch-backend auto` picks the CUDA wheels from the driver on every OS and the ROCm build by GPU architecture on Linux. The one gap, Intel Arc on Windows, is an explicit "intel" choice (`xpu`). AMD on Windows gets CPU wheels either way (comfy-cli installed DirectML but never launched with `--directml`). `local` downloads the pinned ComfyUI release, makes the venv with uv, installs node packages from the Comfy Registry API. Installs the old extension made with comfy-cli run as they are |
 
 ## 12. Phases
