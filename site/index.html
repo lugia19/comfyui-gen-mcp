@@ -240,6 +240,8 @@
         <p>Your Worker is ready at <code id="worker-url">https://comfy-gen.&lt;your-subdomain&gt;.workers.dev</code>. Save
           it as a bookmark.</p>
         <a class="button" id="open-worker" href="#">Open your Worker</a>
+        <p class="muted" id="new-address" hidden>Your account's workers.dev address is brand new: Cloudflare takes a few minutes to
+          set it up. If your browser warns that it can't connect securely, wait five minutes and try again.</p>
         <p>Its page guides you through the rest, one step at a time:</p>
         <ol>
           <li id="storage-step" hidden>Turn on storage in Cloudflare.</li>
@@ -356,6 +358,7 @@
         document.getElementById('worker-url').textContent = state.created.url
         document.getElementById('open-worker').href = state.created.url + '#ticket=' + state.created.ticket
         document.getElementById('storage-step').hidden = state.created.storage
+        document.getElementById('new-address').hidden = !state.created.newAddress
       }
       if (state.open === 'create') { if (state.created) say('Created: ' + state.created.url); else loadAccounts() }
 
@@ -460,11 +463,13 @@
     function say(text, bad) { msg.textContent = text; msg.className = bad ? 'bad' : 'muted' }
     function chosen() { return accounts && accounts.filter(function (a) { return a.id === acct.value })[0] }
     // An account without a workers.dev subdomain gets one, suggested from its name with a short
-    // random ending as Cloudflare's own are ("yuri-f92"); editable under Use another name.
+    // random ending as Cloudflare's own are ("yuri-f92"); editable under Use another name. A new
+    // account's name is "<email>'s Account": only the part before the @ is used, as the address is
+    // public (certificate logs list it).
     var subEdited = false
     var suggested = {} // per account, made once
     function suggest(name) {
-      var base = name.toLowerCase().replace(/'s account$| account$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'comfy'
+      var base = name.toLowerCase().replace(/'s account$| account$/, '').replace(/@.*$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'comfy'
       var end = ''
       for (var i = 0; i < 3; i++) end += 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]
       return base.replace(/-+$/, '') + '-' + end
@@ -521,7 +526,7 @@
         if (r.status === 401) return expired()
         return r.json().then(function (d) {
           if (!r.ok) return say(d.error || 'Creating the Worker failed.', true)
-          state.created = { url: d.url, ticket: d.ticket, storage: d.storage }
+          state.created = { url: d.url, ticket: d.ticket, storage: d.storage, newAddress: Boolean(d.new_address) }
           state.connected = 0 // the access went to the Worker
           state.done.create = true
           go('open')

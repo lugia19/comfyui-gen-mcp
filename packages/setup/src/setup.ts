@@ -281,5 +281,7 @@ async function create(req: Request, env: Env, deps: Deps, url: URL): Promise<Res
   const resp = await claim(deps, worker, { claim: secret, tokens: t, account_id: account, script: name }, CLAIM_WAIT_S);
   if (!resp.ok) return error(502, `Your Worker is created, but didn't take the hand-off (${(await resp.json().catch(() => ({})) as any).error ?? `HTTP ${resp.status}`}). Open ${worker} and log in with a Cloudflare token.`);
   const { ticket } = (await resp.json()) as { ticket: string };
-  return json({ url: worker, ticket, version: tag, storage }, 200, { "Set-Cookie": setCookie(TOKENS, "", "/api", 0) });
+  // new_address: the account's workers.dev subdomain was made just now, and its certificate takes a
+  // few minutes, so browsers refuse the address until then (seen 2026-10-18).
+  return json({ url: worker, ticket, version: tag, storage, new_address: !sub0 }, 200, { "Set-Cookie": setCookie(TOKENS, "", "/api", 0) });
 }

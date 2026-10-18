@@ -105,7 +105,7 @@ describe("creating the Worker", () => {
     const f = new Fake();
     const r = await create(f, {});
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ url: "https://comfy-gen.someone.workers.dev", ticket: "TICKET", version: "v2.0.0", storage: true });
+    expect(await r.json()).toEqual({ url: "https://comfy-gen.someone.workers.dev", ticket: "TICKET", version: "v2.0.0", storage: true, new_address: false });
     expect(cookies(r)[0]).toMatch(/^cg_tokens=; Path=\/api; Max-Age=0/); // the tokens are the Worker's now
     expect(f.buckets).toEqual(["comfy-gen-storage"]);
     const meta = f.uploads[0].meta;
@@ -142,7 +142,7 @@ describe("creating the Worker", () => {
     f.subdomain = null;
     expect((await create(f, {})).status).toBe(400);
     expect(f.uploads).toEqual([]);
-    expect(await (await create(f, { subdomain: "mine" })).json()).toMatchObject({ url: "https://comfy-gen.mine.workers.dev" });
+    expect(await (await create(f, { subdomain: "mine" })).json()).toMatchObject({ url: "https://comfy-gen.mine.workers.dev", new_address: true });
     expect(f.registered).toEqual(["mine"]);
   });
 
