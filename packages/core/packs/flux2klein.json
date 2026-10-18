@@ -5,6 +5,7 @@
   "tool_name": "generate_realistic_image",
   "lora_group": "klein4b",
   "is_default": false,
+  "legacy": true,
   "models": [
     {
       "filename": "flux-2-klein-4b-Q8_0.gguf",

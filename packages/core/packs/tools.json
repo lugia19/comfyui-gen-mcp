@@ -34,6 +34,16 @@
       "title": "Flux 2 Klein 9B",
       "base_models": ["flux2_klein_9b"],
       "match": { "layout": "flux2", "width": 4096 }
+    },
+    "qwenimage21": {
+      "title": "Qwen Image 2.1",
+      "base_models": ["qwen_image_2", "qwen-image-2.1"],
+      "match": { "layout": "qwenimage21", "width": 4096 }
+    },
+    "krea2": {
+      "title": "Krea 2",
+      "base_models": ["krea2", "krea-2"],
+      "match": { "layout": "krea2", "width": 6144 }
     }
   },
   "remove_marks": {

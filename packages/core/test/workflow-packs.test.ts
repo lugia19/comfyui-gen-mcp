@@ -6,6 +6,7 @@ import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize, tagLoras } from "../src
 import { BG_MODELS, builtinPacks, fileKey, MODEL_SETS, removableFiles, canRedraw, seedKey, DEFAULT_LORA_GROUP, FACE_MODELS, MARK_MODELS, redrawPack, wantedModelSets, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
 import { describe as describeTool } from "../src/tools.ts";
 import { OutputImage } from "../src/comfyui.ts";
+import { editWorkflow } from "../src/brain.ts";
 import { previewImage } from "../src/results.ts";
 import { FakeComfy, fastClient } from "./fake-comfy.ts";
 import { BACKGROUND_MODEL, CUTOUT_NODE, buildPrompt, calcDimensions, injectLoras, redrawWorkflow, withBackgroundRemoval, REDRAW_CONTROL_NODE, REDRAW_PASTE_NODE, REDRAW_REGION_NODE, REMOVE_MARKS_NODE, withImages, withWebpSave, WEBP_SAVE, type Workflow } from "../src/workflow.ts";
@@ -222,7 +223,7 @@ describe("packs and config", () => {
     expect(names(withFamilies([byName("flux2klein")], builtin))).toEqual(["flux2klein"]);
     expect(packFor(builtin, byName("anima"), undefined)).toBe(byName("anima"));
     expect(packFor(builtin, byName("anima"), "anima_turbo")).toBe(byName("anima_turbo"));
-    expect(packFor(builtin, byName("z_image_turbo"), "anima")).toBe('Unknown model "anima" for generate_realistic_image. Valid models: flux2klein, flux2klein_9b, z_image_turbo.');
+    expect(packFor(builtin, byName("z_image_turbo"), "anima")).toBe('Unknown model "anima" for generate_realistic_image. Valid models: flux2klein, flux2klein_9b, krea2_turbo, qwen_image_21, z_image_turbo.');
   });
 
   it("prepare splices LoRAs only for Anima", () => {
@@ -367,11 +368,13 @@ describe("packs and config", () => {
     expect(Object.fromEntries(builtinPacks().map((p) => [p.name, p.lora_group]))).toEqual({
       anima: "anima", anima_turbo: "anima", z_image_turbo: "zimage",
       flux2klein: "klein4b", flux2klein_edit: "klein4b", flux2klein_9b: "klein9b", flux2klein_9b_edit: "klein9b",
+      qwen_image_21: "qwenimage21", qwen_image_21_edit: "qwenimage21", krea2_turbo: "krea2",
     });
     // A family is the key users' settings are stored under: these must never change.
     expect(Object.fromEntries(builtinPacks().map((p) => [p.name, family(p)]))).toEqual({
       anima: "anima", anima_turbo: "anima", flux2klein: "flux2klein", flux2klein_9b: "flux2klein_9b",
       flux2klein_9b_edit: "flux2klein_9b_edit", flux2klein_edit: "flux2klein_edit", z_image_turbo: "z_image_turbo",
+      krea2_turbo: "krea2_turbo", qwen_image_21: "qwen_image_21", qwen_image_21_edit: "qwen_image_21_edit",
     });
     // Anima's is the key its LoRA lists were stored under before groups, and where loose ones go.
     expect(DEFAULT_LORA_GROUP).toBe("anima");
@@ -551,5 +554,53 @@ describe("stored models", () => {
       expect(group.filter((p) => p.is_default && !p.legacy), tool).toHaveLength(1);
     }
     expect(() => validate({ ...pack("anima"), legacy: true, is_default: true })).toThrow(/legacy/);
+  });
+});
+
+describe("Qwen Image 2.1 and Krea 2", () => {
+  const pack = (name: string) => builtinPacks().find((p) => p.name === name)!;
+  const byClass = (wf: Workflow, cls: string) => Object.entries(wf).filter(([, n]) => n.class_type === cls);
+
+  it("are the new defaults; the models they replace are older but still selectable", () => {
+    const groups = groupByTool(builtinPacks());
+    expect(select(groups, {}).map((p) => p.name)).toEqual(["anima_turbo", "qwen_image_21", "qwen_image_21_edit"]);
+    expect(builtinPacks().filter((p) => p.legacy).map((p) => p.name).sort()).toEqual(
+      ["flux2klein", "flux2klein_9b", "flux2klein_9b_edit", "flux2klein_edit", "z_image_turbo"],
+    );
+    expect(select(groups, { generate_realistic_image: "z_image_turbo" })[1].name).toBe("z_image_turbo");
+    // One download serves both Qwen tools; Krea shares Anima's VAE.
+    expect(pack("qwen_image_21").models).toEqual(pack("qwen_image_21_edit").models);
+    expect(pack("krea2_turbo").models.find((m) => m.subfolder === "vae")).toEqual(
+      expect.objectContaining({ filename: "qwen_image_vae.safetensors", sha256: pack("anima").models.find((m) => m.subfolder === "vae")!.sha256 }),
+    );
+  });
+
+  it("Qwen's encoder takes the prompt as `prompt`; the others as `text`", () => {
+    const qwen = buildPrompt(pack("qwen_image_21").workflow, "a red door", { rng: () => 1 });
+    const [, encoder] = byClass(qwen, "TextEncodeQwenImage21")[0];
+    expect([encoder.inputs.prompt, encoder.inputs.text]).toEqual(["a red door", undefined]);
+    const krea = buildPrompt(pack("krea2_turbo").workflow, "a red door", { rng: () => 1 });
+    expect(byClass(krea, "CLIPTextEncode")[0][1].inputs.text).toBe("a red door");
+  });
+
+  it("a Qwen edit with two images feeds both to the encoder, the output sized to the first", () => {
+    const wf = buildPrompt(editWorkflow(pack("qwen_image_21_edit"), [["a.png", [1000, 800]], ["b.png", [4000, 3000]]]), "put <image2>'s hat on <image1>", { rng: () => 1 });
+    const [encId, encoder] = byClass(wf, "TextEncodeQwenImage21")[0];
+    const source = (link: [string, number]) => wf[wf[link[0]].inputs.image[0]].inputs.image; // scale ← load
+    expect([source(encoder.inputs["images.image_1"]), source(encoder.inputs["images.image_2"])]).toEqual(["a.png", "b.png"]);
+    expect(encoder.inputs["images.image_3"]).toBeUndefined();
+    expect(byClass(wf, "SamplerCustomAdvanced")[0][1].inputs.latent_image).toEqual([encId, 2]);
+    expect(byClass(wf, "ImageScaleToTotalPixels").map(([, n]) => n.inputs.megapixels)).toEqual([0.7629, 1]); // native, then the budget
+    // Klein's edit still chains its reference latents.
+    const klein = editWorkflow(pack("flux2klein_edit"), [["a.png", null], ["b.png", null]]);
+    expect(byClass(klein, "ReferenceLatent").length).toBe(4);
+  });
+
+  it("Qwen's RGBA decode is made RGB before the save, with the cleaning nodes in between", () => {
+    const wf = prepare(pack("qwen_image_21"), normalize({}), { removeMarks: true, removeBackground: true }).workflow;
+    const [splitId] = byClass(wf, "SplitImageWithAlpha")[0];
+    const marks = byClass(wf, REMOVE_MARKS_NODE)[0][1];
+    expect(marks.inputs.images).toEqual([splitId, 0]);
+    expect(byClass(wf, "SaveImage")).toHaveLength(1);
   });
 });

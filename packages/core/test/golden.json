@@ -23,6 +23,9 @@
     "flux2klein_9b",
     "flux2klein_9b_edit",
     "flux2klein_edit",
+    "krea2_turbo",
+    "qwen_image_21",
+    "qwen_image_21_edit",
     "z_image_turbo"
   ],
   "dimensions": [

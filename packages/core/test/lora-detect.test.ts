@@ -9,12 +9,13 @@ const groups = Object.values(LORA_GROUPS);
 /** A header shaped like a real LoRA's (2026-10-18, from Hugging Face): *pairs* of [name, input
  * width] become lora_A (or lora_down) tensors, blocks 0..n-1 of each. */
 function lora(pairs: [string, number, number?][], meta: Record<string, string> = {}, down = "lora_A") {
+  const up = { lora_A: "lora_B", lora_down: "lora_up", "lora_A.default": "lora_B.default", "lora.down": "lora.up" }[down];
   const h: Record<string, any> = { __metadata__: meta };
   for (const [name, width, blocks = 1] of pairs) {
     for (let i = 0; i < blocks; i++) {
       const n = name.replace("N", String(i));
       h[`${n}.${down}.weight`] = { dtype: "BF16", shape: [16, width], data_offsets: [0, 1] };
-      h[`${n}.${down === "lora_A" ? "lora_B" : "lora_up"}.weight`] = { dtype: "BF16", shape: [width, 16], data_offsets: [0, 1] };
+      h[`${n}.${up}.weight`] = { dtype: "BF16", shape: [width, 16], data_offsets: [0, 1] };
     }
   }
   return h;
@@ -53,14 +54,37 @@ describe("which model family a LoRA is for", () => {
     expect(family(lora([["transformer.transformer_blocks.N.attn.to_k", 4096, 8], ["transformer.transformer_blocks.N.attn.to_q", 4096, 8]])).group).toBe("klein9b");
   });
 
-  it("refuses look-alikes: Flux 1 (also 3072 wide), Lumina 2, Krea 2, SDXL", () => {
+  it("refuses look-alikes: Flux 1 (also 3072 wide), Lumina 2, SDXL", () => {
     expect(family(klein(3072, 19, 38, 4))).toMatchObject({ group: null, foreign: true }); // Flux 1: 19 + 38 blocks, MLPs 4x
     expect(family(klein(3072, 5, 20, 4))).toMatchObject({ group: null, foreign: true }); // MLPs 4x even on few blocks
     expect(family(zimage(2304))).toMatchObject({ group: null, foreign: true }); // Lumina 2's names, its width
     // nphSi/Z-Image-Lora's file says Krea-2, whatever its name
-    expect(family(lora([["diffusion_model.blocks.N.attn.gate", 6144, 28]], { "modelspec.architecture": "Krea-2/lora" }))).toMatchObject({ group: null, foreign: true });
     expect(family(lora([["lora_unet_down_blocks_N_attentions_0_proj_in", 320, 2]], {}, "lora_down"))).toMatchObject({ group: null, foreign: true });
     expect(family(lora([["something_else.N.proj", 512, 2]]))).toMatchObject({ group: null, foreign: false }); // can't tell
+  });
+
+  it("Krea 2 and Qwen Image 2.1, in every trainer's naming (real LoRAs, 2026-10-18)", () => {
+    // Krea 2: blocks.N.attn.wq/wk/gate (ComfyUI, ai-toolkit, kohya lora_unet_, PEFT base_model.model.) or diffusers with text_fusion
+    for (const prefix of ["diffusion_model.blocks.N.attn", "base_model.model.blocks.N.attn"]) {
+      expect(family(lora([[`${prefix}.wq`, 6144, 28], [`${prefix}.gate`, 6144, 28]])).group, prefix).toBe("krea2");
+    }
+    expect(family(lora([["lora_unet_blocks_N_attn_wk", 6144, 28]], {}, "lora_down")).group).toBe("krea2");
+    expect(family(lora([["transformer.transformer_blocks.N.attn.to_q", 6144, 28], ["transformer.text_fusion.layerwise_blocks.N.attn.to_q", 2560, 2]])).group).toBe("krea2");
+    // nphSi/Z-Image-Lora says Krea-2 in its file, whatever its name
+    expect(family(lora([["diffusion_model.blocks.N.attn.gate", 6144, 28]], { "modelspec.architecture": "Krea-2/lora" })).group).toBe("krea2");
+    // Qwen Image 2.1: transformer_blocks 0-31 at 4096 (DiffSynth's lora_A.default, lightx2v's lora.down)
+    expect(family(lora([["transformer_blocks.N.attn.to_q", 4096, 32], ["transformer_blocks.N.img_mlp.gate_up", 4096, 32]], {}, "lora_A.default")).group).toBe("qwenimage21");
+    expect(family(lora([["transformer.transformer_blocks.N.attn.to_q", 4096, 32]], {}, "lora.down")).group).toBe("qwenimage21");
+    expect(family(lora([], { base_model: "Qwen/Qwen-Image-2.1" })).group).toBe("qwenimage21");
+    expect(family(lora([], { base_model: "fal/krea-2" })).group).toBe("krea2");
+  });
+
+  it("refuses Qwen Image v1 (60 blocks at 3072) and other versions by name", () => {
+    expect(family(lora([["transformer.transformer_blocks.N.attn.to_q", 3072, 60]], {}, "lora.down"))).toMatchObject({ group: null, foreign: true });
+    expect(family(lora([["transformer_blocks.N.attn.add_q_proj", 3072, 60]], {}, "lora_down"))).toMatchObject({ group: null, foreign: true });
+    expect(family(lora([], { ss_base_model_version: "qwen_image_2512" }))).toMatchObject({ group: null, foreign: true });
+    // Klein 9B's diffusers LoRAs share Qwen's names: 8 blocks and no img_mlp keep them Klein
+    expect(family(lora([["transformer.transformer_blocks.N.attn.to_q", 4096, 8]])).group).toBe("klein9b");
   });
 
   it("keeps the trainer's trigger phrase", () => {
@@ -80,6 +104,7 @@ describe("LoRA groups", () => {
   it("each has a title and is recognisable; the settings pages get them in order", () => {
     expect(settingsMetadata(builtinPacks()).lora_groups.map((g) => [g.id, g.title])).toEqual([
       ["anima", "Anima"], ["zimage", "Z-Image Turbo"], ["klein4b", "Flux 2 Klein 4B"], ["klein9b", "Flux 2 Klein 9B"],
+      ["qwenimage21", "Qwen Image 2.1"], ["krea2", "Krea 2"],
     ]);
     for (const g of groups) expect(g.base_models?.length && g.match, g.id).toBeTruthy();
   });

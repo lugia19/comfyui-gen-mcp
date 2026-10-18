@@ -186,6 +186,7 @@ describe("settings API", () => {
   it("lists and deletes the stored models no selected one uses, in our folder only", async () => {
     const w = world();
     const models = w.comfy.models.ownModels;
+    await w.local("/api/config", { method: "PUT", body: JSON.stringify({ config: { pack_selections: { generate_realistic_image: "z_image_turbo", edit_image: "flux2klein_edit" } } }) }); // the Klein 4B files stay wanted
     const file = (sub: string, name: string, data: string) => (mkdirSync(join(models, sub), { recursive: true }), writeFileSync(join(models, sub, name), data));
     file("text_encoders", "Qwen3-8B-Q5_K_M.gguf", "123"); // the 9B Klein models'
     file("text_encoders", "Qwen3-4B-Q5_K_M.gguf", "45"); // also the selected Klein 4B's: kept

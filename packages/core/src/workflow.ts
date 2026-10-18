@@ -118,7 +118,8 @@ export function buildPrompt(workflow: Workflow, promptText: string, opts: BuildO
   const wf: Workflow = structuredClone(workflow);
   const [promptNode] = nodesTitled(wf, TITLES.prompt);
   if (!promptNode) throw new Error(`the workflow has no node titled ${TITLES.prompt}`);
-  wf[promptNode].inputs.text = promptText;
+  // A text encoder's `text`, or its `prompt` when it has one (Qwen Image 2.1's TextEncodeQwenImage21).
+  wf[promptNode].inputs["prompt" in wf[promptNode].inputs ? "prompt" : "text"] = promptText;
   const negative = opts.negative?.trim();
   if (negative) {
     // The fixed tags stay (quality, watermark...); the caller's replace the rest of the default.
@@ -311,6 +312,8 @@ export function cutoutWorkflow(loadValue: string, { cutout = false } = {}): Work
  * - a copied cg:image chain node (a reference latent) takes its outside input (the conditioning)
  *   from the previous image's matching node, and what consumed that one consumes the copy, so the
  *   images chain in order;
+ * - an outside node's input named `<x>_1` that takes the first image's node gets `<x>_<k>` for image
+ *   k (a node with numbered image inputs: Qwen Image 2.1's encoder, images.image_1, image_2…);
  * - nodes outside the group (the output size, from the first image) stay as they are.
  */
 export function withImages(workflow: Workflow, count: number): [Workflow, { load: string; scale: string | null }[]] {
@@ -340,6 +343,12 @@ export function withImages(workflow: Workflow, count: number): [Workflow, { load
       copies.add(ids[id]);
     }
     for (const [id, consumers] of moving) for (const [c, key] of consumers) wf[c].inputs[key] = [ids[id], 0];
+    for (const node of Object.values(wf)) {
+      for (const [key, val] of Object.entries(node.inputs ?? {})) {
+        const numbered = /^(.*)_1$/.exec(key);
+        if (numbered && Array.isArray(val) && group.includes(val[0] as string)) node.inputs[`${numbered[1]}_${k + 1}`] = [ids[val[0] as string], val[1]];
+      }
+    }
     images.push({ load: ids[load], scale: images[0].scale && ids[images[0].scale] });
     prev = ids;
   }

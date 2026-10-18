@@ -85,7 +85,7 @@ describe("MCP", () => {
     });
     // Another tool's (?tool=): its selected pack's family, here Flux 2 Klein 4B's, Edit's strength.
     const cfg = await app.store.config();
-    await app.store.saveConfig({ ...cfg, pack_loras: { ...cfg.pack_loras, klein4b: [{ name: "k.safetensors", trigger: "kk", strengths: { flux2klein_edit: 0.7 } }] } });
+    await app.store.saveConfig({ ...cfg, pack_selections: { ...cfg.pack_selections, ...{ generate_realistic_image: "z_image_turbo", edit_image: "flux2klein_edit" } }, pack_loras: { ...cfg.pack_loras, klein4b: [{ name: "k.safetensors", trigger: "kk", strengths: { flux2klein_edit: 0.7 } }] } });
     const tool = (name: string) => app.handle(request("GET", `/mcp/${s.mcp_secret}/loras?tool=${name}`));
     expect(await body(await tool("edit_image"))).toEqual({
       loras: [{ name: "k.safetensors", trigger: "kk", strength: 0.7, hidden: false, strengths: { flux2klein: 1, flux2klein_edit: 0.7 } }],
@@ -109,7 +109,7 @@ describe("MCP", () => {
     await app.store.saveConfig({ pack_selections: { generate_illustrated_image: "anima" } });
     expect((await body(await models(s.mcp_secret))).models.map((m: any) => m.selected)).toEqual([true, false]);
     const edit = await body(await app.handle(request("GET", `/mcp/${s.mcp_secret}/models?tool=edit_image`)));
-    expect(edit.models.map((m: any) => [m.name, m.selected])).toEqual([["flux2klein_9b_edit", false], ["flux2klein_edit", true]]);
+    expect(edit.models.map((m: any) => [m.name, m.selected])).toEqual([["flux2klein_9b_edit", false], ["flux2klein_edit", false], ["qwen_image_21_edit", true]]);
   });
 
   it("a scripted caller's hidden model picks the pack; one of another tool, or none, is a plain error", async () => {
@@ -555,7 +555,7 @@ describe("settings API", () => {
     // The selected packs and the rest of their families (Anima beside Anima Turbo).
     // And the watermark and background removal models and the face detector (the setting is on by
     // default; the options are on every call).
-    expect(seeds.map((c) => packName(c[2].pack)).sort()).toEqual(["anima", "anima_turbo", "detect-faces", "flux2klein_edit", "remove-background", "remove-marks", "z_image_turbo"]);
+    expect(seeds.map((c) => packName(c[2].pack)).sort()).toEqual(["anima", "anima_turbo", "detect-faces", "qwen_image_21", "qwen_image_21_edit", "remove-background", "remove-marks"]);
     expect(seeds.every((c) => c[2].models.length)).toBe(true);
   });
 
@@ -611,17 +611,17 @@ describe("Modal models", () => {
     const { app, net } = world();
     await withModal(app);
     const cookie = await login(app);
-    net.seedState = { anima_turbo: { state: "done", done: 9, total: 9 }, z_image_turbo: { state: "downloading", done: 1, total: 4 } };
+    net.seedState = { anima_turbo: { state: "done", done: 9, total: 9 }, qwen_image_21: { state: "downloading", done: 1, total: 4 } };
     const models = await body(await app.handle(request("GET", "/api/models", undefined, cookie)));
     expect(models.gpus).toEqual([{ id: "modal", name: "Modal", kind: "modal" }]);
     const packs = Object.fromEntries(models.packs.map((p: any) => [p.name, p.on.modal]));
-    expect([packs.anima_turbo.state, packs.z_image_turbo.done, packs.flux2klein_edit.state]).toEqual(["done", 1, "missing"]);
+    expect([packs.anima_turbo.state, packs.qwen_image_21.done, packs.qwen_image_21_edit.state]).toEqual(["done", 1, "missing"]);
     expect(models.packs[0].size).toBeGreaterThan(5e9);
     net.adminCalls = [];
     await app.handle(request("GET", "/api/models", undefined, cookie));
-    expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["anima", "flux2klein_edit", "z_image_turbo"].map((n) => `/seed/${keyOf(n)}`)); // anima_turbo is recorded
+    expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["anima", "qwen_image_21", "qwen_image_21_edit"].map((n) => `/seed/${keyOf(n)}`)); // anima_turbo is recorded
     expect(models.packs.map((p: any) => p.name)).not.toContain("remove-marks"); // downloads in the background, never listed
-    const retry = await app.handle(request("POST", "/api/models/seed", { pack: "flux2klein_edit", gpu: "modal" }, cookie));
+    const retry = await app.handle(request("POST", "/api/models/seed", { pack: "qwen_image_21_edit", gpu: "modal" }, cookie));
     expect((await body(retry)).started).toBe(true);
   });
 
@@ -629,7 +629,7 @@ describe("Modal models", () => {
     const { app, net } = world();
     await withModal(app);
     const cookie = await login(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit", "remove-marks", "remove-background", "detect-faces"].map(keyOf) });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "qwen_image_21", "qwen_image_21_edit", "remove-marks", "remove-background", "detect-faces"].map(keyOf) });
     const cfg = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
     const resp = await app.handle(request("PUT", "/api/config", { config: cfg }, cookie));
     expect((await body(resp)).warnings).toEqual([]);
@@ -789,7 +789,7 @@ describe("LoRAs", () => {
     const { app, net, bucket } = world();
     await withModal(app);
     const cookie = await login(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"].map(keyOf) });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "qwen_image_21", "qwen_image_21_edit"].map(keyOf) });
     await bucket.put("lora/here.safetensors", new Uint8Array(1));
     net.loras = { "here.safetensors": 1 };
     const cfg = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
@@ -805,7 +805,7 @@ describe("LoRAs", () => {
     const state = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
     const packs = state.packs.flatMap((g: any) => g.packs);
     expect(packs.every((p: any) => p.supports_loras && p.lora_group)).toBe(true);
-    expect(state.lora_groups.map((g: any) => g.id)).toEqual(["anima", "zimage", "klein4b", "klein9b"]);
+    expect(state.lora_groups.map((g: any) => g.id)).toEqual(["anima", "zimage", "klein4b", "klein9b", "qwenimage21", "krea2"]);
     expect(state.lora_groups[2]).toMatchObject({ title: "Flux 2 Klein 4B", base_models: ["flux2_klein_4b"], match: { layout: "flux2", width: 3072 } });
   });
 });
@@ -1000,7 +1000,7 @@ describe("the PC path", () => {
   it("one config serves every GPU; saving applies it to the PC too; keep-warm is the PC's own", async () => {
     const { app, pc } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"].map(keyOf) });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "qwen_image_21", "qwen_image_21_edit"].map(keyOf) });
     const { cookie } = await pair(app);
     const state = async () => body(await app.handle(request("GET", "/api/state", undefined, cookie)));
     const cfg = { ...(await state()).config, pack_settings: { anima: { artist_list: "@one_artist" } } };
@@ -1008,7 +1008,7 @@ describe("the PC path", () => {
     const put = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
     expect(put.warnings).toEqual([]);
     // The selected packs and their families, and the watermark and background removal models.
-    expect(pc.controlCalls.filter(([op]) => op === "download").map(([, a]) => a.pack.name)).toEqual(["anima", "anima_turbo", "flux2klein_edit", "z_image_turbo", "remove-marks", "remove-background", "detect-faces"]);
+    expect(pc.controlCalls.filter(([op]) => op === "download").map(([, a]) => a.pack.name)).toEqual(["anima", "anima_turbo", "qwen_image_21", "qwen_image_21_edit", "remove-marks", "remove-background", "detect-faces"]);
     expect(pc.controlCalls.at(-1)![0]).toBe("sync"); // and copies LoRAs
 
     const illustrated = async () => (await mcp(app, "tools/list"))[1].result.tools.find((t: any) => t.name === "generate_illustrated_image").description;
@@ -1030,7 +1030,7 @@ describe("the PC path", () => {
   it("warns only about LoRAs that are not in storage, whatever the GPUs hold", async () => {
     const { app, net, pc, bucket } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"].map(keyOf) });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "qwen_image_21", "qwen_image_21_edit"].map(keyOf) });
     const { cookie } = await pair(app);
     await bucket.put("lora/stored.safetensors", new Uint8Array(1));
     net.loras = { "modal.safetensors": 1 };
@@ -1317,7 +1317,7 @@ describe("the PC path", () => {
   it("shows each GPU's LoRA files and model downloads, and learns which packs a PC has", async () => {
     const { app, pc, net } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "z_image_turbo", "flux2klein_edit"].map(keyOf) });
+    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "qwen_image_21", "qwen_image_21_edit"].map(keyOf) });
     const { cookie } = await pair(app);
     net.loras = { "both.safetensors": 7 };
     pc.controls.loras = () => [200, { files: { "mine.safetensors": 123, "both.safetensors": 7 }, syncing: { "x.safetensors": { to: "pc", done: 1, total: 2 } } }];
@@ -1353,6 +1353,7 @@ describe("the PC path", () => {
     const { app, pc, net } = world();
     await withModal(app);
     const nine = ["flux2klein_9b", "flux2klein_9b_edit"];
+    await app.store.saveConfig({ ...(await app.store.config()), pack_selections: { generate_realistic_image: "z_image_turbo", edit_image: "flux2klein_edit" } }); // the Klein 4B files stay wanted
     await app.store.updateSetup({ seeded: ["z_image_turbo", ...nine].map(keyOf) });
     const { cookie } = await pair(app);
     await app.store.updateSetup({ ready: { pc: { flux2klein_9b: true, z_image_turbo: true } } });

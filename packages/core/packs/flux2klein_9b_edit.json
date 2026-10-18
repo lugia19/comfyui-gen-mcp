@@ -301,5 +301,6 @@
       }
     }
   },
-  "is_default": false
+  "is_default": false,
+  "legacy": true
 }

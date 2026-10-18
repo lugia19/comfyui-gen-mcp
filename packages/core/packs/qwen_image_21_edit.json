@@ -1,0 +1,244 @@
+{
+  "name": "qwen_image_21_edit",
+  "display_name": "Qwen Image 2.1 (Edit)",
+  "description": "Edits from one or two images with Qwen Image 2.1 (7B Turbo, Q6; 12GB+ VRAM). The same download serves Qwen Image 2.1 generation.",
+  "tool_name": "edit_image",
+  "lora_group": "qwenimage21",
+  "is_default": true,
+  "models": [
+    {
+      "filename": "qwen-image-2.1-turbo-Q6_K.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen-Image-2.1-Turbo-GGUF/resolve/5d1f9f759ea877ae556cda88dbec958b62ad3809/qwen-image-2.1-turbo-Q6_K.gguf",
+      "subfolder": "diffusion_models",
+      "size_bytes": 6271551296,
+      "sha256": "f4560fb47ad863ffed7e32737d3c42988c44bd0c459606777d7ffe2e895d0a70"
+    },
+    {
+      "filename": "qwen3vl_8b_int8_convrot.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/a8342359c61979b06a8dafb1a47991fe1f30e994/text_encoders/qwen3vl_8b_int8_convrot.safetensors",
+      "subfolder": "text_encoders",
+      "size_bytes": 9350798360,
+      "sha256": "8bfd0f6e12abf2d2d697ecc888e5e90b0d6741d6708f05799f53afa560452e8f"
+    },
+    {
+      "filename": "qwen_image_2.1_vae_bf16.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/a8342359c61979b06a8dafb1a47991fe1f30e994/vae/qwen_image_2.1_vae_bf16.safetensors",
+      "subfolder": "vae",
+      "size_bytes": 675509688,
+      "sha256": "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"
+    }
+  ],
+  "max_pixels": 1048576,
+  "required_nodes": {
+    "UnetLoaderGGUF": "ComfyUI-GGUF"
+  },
+  "workflow": {
+    "1": {
+      "inputs": {
+        "unet_name": "qwen-image-2.1-turbo-Q6_K.gguf"
+      },
+      "class_type": "UnetLoaderGGUF",
+      "_meta": {
+        "title": "cg:model"
+      }
+    },
+    "2": {
+      "inputs": {
+        "clip_name": "qwen3vl_8b_int8_convrot.safetensors",
+        "type": "qwen_image",
+        "device": "default"
+      },
+      "class_type": "CLIPLoader",
+      "_meta": {
+        "title": "Load CLIP"
+      }
+    },
+    "3": {
+      "inputs": {
+        "vae_name": "qwen_image_2.1_vae_bf16.safetensors"
+      },
+      "class_type": "VAELoader",
+      "_meta": {
+        "title": "Load VAE"
+      }
+    },
+    "4": {
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "device": "auto",
+        "dtype": "default"
+      },
+      "class_type": "QwenImage21Cache",
+      "_meta": {
+        "title": "QwenImage21Cache"
+      }
+    },
+    "5": {
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "prompt": "",
+        "negative_prompt": "",
+        "resolution": 0,
+        "vae": [
+          "3",
+          0
+        ],
+        "images.image_1": [
+          "21",
+          0
+        ]
+      },
+      "class_type": "TextEncodeQwenImage21",
+      "_meta": {
+        "title": "cg:prompt"
+      }
+    },
+    "7": {
+      "inputs": {
+        "noise_seed": 0
+      },
+      "class_type": "RandomNoise",
+      "_meta": {
+        "title": "cg:seed"
+      }
+    },
+    "8": {
+      "inputs": {
+        "sampler_name": "euler"
+      },
+      "class_type": "KSamplerSelect",
+      "_meta": {
+        "title": "KSamplerSelect"
+      }
+    },
+    "9": {
+      "inputs": {
+        "sigmas": "1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0"
+      },
+      "class_type": "ManualSigmas",
+      "_meta": {
+        "title": "Turbo schedule"
+      }
+    },
+    "10": {
+      "inputs": {
+        "model": [
+          "4",
+          0
+        ],
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "5",
+          1
+        ],
+        "cfg": 1
+      },
+      "class_type": "CFGGuider",
+      "_meta": {
+        "title": "CFGGuider"
+      }
+    },
+    "11": {
+      "inputs": {
+        "noise": [
+          "7",
+          0
+        ],
+        "guider": [
+          "10",
+          0
+        ],
+        "sampler": [
+          "8",
+          0
+        ],
+        "sigmas": [
+          "9",
+          0
+        ],
+        "latent_image": [
+          "5",
+          2
+        ]
+      },
+      "class_type": "SamplerCustomAdvanced",
+      "_meta": {
+        "title": "SamplerCustomAdvanced"
+      }
+    },
+    "12": {
+      "inputs": {
+        "samples": [
+          "11",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      },
+      "class_type": "VAEDecode",
+      "_meta": {
+        "title": "VAE Decode"
+      }
+    },
+    "13": {
+      "inputs": {
+        "image": [
+          "12",
+          0
+        ]
+      },
+      "class_type": "SplitImageWithAlpha",
+      "_meta": {
+        "title": "Drop alpha (the VAE decodes RGBA)"
+      }
+    },
+    "14": {
+      "inputs": {
+        "filename_prefix": "comfy-gen",
+        "images": [
+          "13",
+          0
+        ]
+      },
+      "class_type": "SaveImage",
+      "_meta": {
+        "title": "Save Image"
+      }
+    },
+    "20": {
+      "inputs": {
+        "image": "example.png"
+      },
+      "class_type": "LoadImage",
+      "_meta": {
+        "title": "cg:image"
+      }
+    },
+    "21": {
+      "inputs": {
+        "upscale_method": "nearest-exact",
+        "megapixels": 1,
+        "resolution_steps": 16,
+        "image": [
+          "20",
+          0
+        ]
+      },
+      "class_type": "ImageScaleToTotalPixels",
+      "_meta": {
+        "title": "cg:image scale"
+      }
+    }
+  }
+}

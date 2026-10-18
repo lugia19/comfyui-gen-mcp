@@ -105,7 +105,7 @@ describe("brain", () => {
     const out = await brain().call("generate_realistic_image", { prompt: "a lighthouse", aspect_ratio: "wide" });
     expect(out).toBeInstanceOf(Done);
     expect((out as Done).promptId).toBe("p1");
-    expect(Object.values<any>(comfy.prompts[0]).map((n) => n.inputs.text)).toContain("a lighthouse");
+    expect(Object.values<any>(comfy.prompts[0]).map((n) => n.inputs.text ?? n.inputs.prompt)).toContain("a lighthouse"); // Qwen's encoder takes `prompt`
   });
 
   it("a hidden negative reaches the illustrated pack, and the tool schemas don't show it", async () => {
@@ -210,7 +210,7 @@ describe("brain", () => {
     expect([hooks.ensured, cleared(comfy)]).toEqual([["remove-background", "anima_turbo"], true]);
     hooks = new PathHooks();
     await brain({ hooks }).call("edit_image", { prompt: "x", image_path: "a.png", remove_background: true });
-    expect([hooks.ensured, cleared(comfy)]).toEqual([["remove-background", "flux2klein_edit"], true]); // edits too
+    expect([hooks.ensured, cleared(comfy)]).toEqual([["remove-background", "qwen_image_21_edit"], true]); // edits too
 
     // Still downloading: a retryable answer, never an image that kept its background.
     class Downloading extends PathHooks {
