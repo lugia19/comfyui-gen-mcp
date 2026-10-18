@@ -30,7 +30,7 @@ overruns. Measured (design doc appendix): ping, tools/list and the settings API 
 warm generation about 6 ms of work (billed 5 to 18 per call), cold 17 to 19; on the PC path about
 12 to 15 (image, five relay calls and the State reads; 2026-10-01 probe). A fetch costs about 0.25 ms, a Durable Object call 0.4.
 Work that can't fit (uploading the Worker, starting Modal's deploy) runs in the State Durable
-Object (`platform.ts` `Job`): its requests get 30 s of CPU, also on the free plan (probed 2026-10-18);
+Object (`platform.ts` `Job`): its requests get 30 s of CPU, also on the free plan (probed 2026-10-18).
 JavaScript loops over image bytes cost the most (base64 by hand was 55 ms per MB). So:
 
 - base64 through `bytes.ts` `toBase64` (native `Uint8Array.toBase64` where available); never loop
