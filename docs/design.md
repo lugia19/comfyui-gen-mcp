@@ -1195,8 +1195,9 @@ that base.
   upload of itself (`App.uploadSelf`). The daily check, Update now and the storage check use it
   alike. The upload makes sure the bucket exists first, so R2 binds with the next upload once it
   is on, as `deploy.py` does at each build; the storage check is an upload of the same version.
-- **A Cloudflare token still logs in** (the way back when the password is forgotten): it only
-  proves the token sees this Worker, and isn't kept.
+- **A Cloudflare token still logs in** (the way back when the setup site can't be reached): it only
+  proves the token sees this Worker, and isn't kept. The password this section started with was
+  replaced by Log in with Cloudflare in Phase 4 (§8).
 
 **End to end on the test account (2026-10-17),** through `comfy-setup.lugia19.com` with dev bundles:
 - Created `comfy-gen-p1test`: every binding, `CLAIM` as a secret, R2 bound, the cron. Claim and
@@ -1362,7 +1363,22 @@ the token stays the way back in when it is forgotten. It can only be set by a lo
 the first claim still goes through Cloudflare. The secrets hold `password: {salt, hash, iterations}`,
 PBKDF2-SHA256 with 20,000 iterations (few for a password hash, for the free plan's CPU budget). The
 guard against guessing is a lockout: 10 wrong passwords within an hour pause password logins for
-the rest of it (`setup.login_fails`), while the token login stays open.
+the rest of it (`setup.login_fails`), while the token login stays open. Only Workers made from a
+repository have one now: on the new setup, Cloudflare is the login (below).
+
+**Log in with Cloudflare** (the new setup, v2.1.0). The login page's button asks the Worker for a
+one-use code (`POST /api/login/cloudflare`, no session needed) and goes to the setup site's
+`/login`, which is Reconnect's sign-in: Cloudflare's consent, the check that the Worker is in an
+account the sign-in reaches, the claim with the code and the new tokens, then `#ticket=` back on
+the Worker. So it proves what the token login proves (control of the Worker's account), with no
+token to make, and every login also brings new tokens (a lost connection comes back with it).
+Starting one needs no session, since only a sign-in to the Worker's account can finish it; the last
+five codes stay valid (15 minutes each), so someone starting logins can't cancel the owner's. The
+claim deletes a password left from before a move, and the new setup can't set one. The pasted token
+stays as the way in when the setup site can't be reached.
+Seen live (2026-10-18): each login shows Cloudflare's full consent screen again, and the user's
+connected applications list Comfy-Gen once however many times they sign in, so the replaced tokens
+aren't revoked (one grant; revoking an old refresh token could cut the new one off).
 
 Any code that calls a Worker from outside (build callbacks, the upload snippet, the agent) sends its own
 `User-Agent`: Cloudflare answers urllib's default `Python-urllib/x.y` with Error 1010 before the

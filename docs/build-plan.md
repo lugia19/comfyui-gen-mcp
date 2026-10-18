@@ -1157,3 +1157,20 @@ Design §6, "Moving an install made from a repository".
   banner for a moved Worker with a Modal GPU and no Modal token.
 - **`/simplify` pass:** create and move share one upload (`install` in the setup site).
 - **End to end** on the real `comfy-gen` (design §6).
+
+## Phase 4: Log in with Cloudflare (2026-10-18)
+
+Design §8, "Log in with Cloudflare".
+
+- **The Worker:** `POST /api/login/cloudflare` (no session) mints a sign-in code and points at the
+  setup site's `/login`; the claim's sign-in branch (also Reconnect's, and a move's) deletes a
+  password; no password on the new setup (`GET /api/login` says which ways in; `needs_password` in
+  the state); the last five sign-in codes kept.
+- **The setup site:** `/login` beside `/reconnect` (still served for v2.0.0 Workers) and `/move`.
+- **Web:** Log in with Cloudflare, the token as "Log in with a Cloudflare token instead"; no
+  password step or setting on the new setup; Reconnect Cloudflare uses the same route.
+- **The setup page:** a new Cloudflare sign-in starts a new Worker (a Worker created before in the
+  same browser left the account list empty).
+- **End to end** on a throwaway Worker created at the setup site (v2.0.0, then this branch
+  uploaded): logout, Log in with Cloudflare, back logged in. CPU: the login route 2 ms, the claim 4,
+  the ticket login 2.
