@@ -25,3 +25,14 @@ describe("keep-warm's idle stop", () => {
     }
   });
 });
+
+describe("custom node packages", () => {
+  it("installs only the ones Comfy-Gen's own packs use: a paired Worker names them, and they are code", async () => {
+    const comfy = new LocalComfy(paths({ COMFY_GEN_HOME: mkdtempSync(join(tmpdir(), "nodes-")) }), () => ({ extra_models_dir: "", keep_warm_minutes: 1, gpu: "" }), {});
+    comfy.nodeClasses = async () => new Set(["KSampler"]);
+    await expect(comfy.ensureNodes({ EvilNode: "evil-package" })).rejects.toThrow("evil-package, which this version of Comfy-Gen doesn't install");
+    // A known one gets past the check (and on to the install, which needs ComfyUI installed).
+    await expect(comfy.ensureNodes({ UnetLoaderGGUF: "ComfyUI-GGUF" })).rejects.toThrow("ComfyUI is not installed");
+    await comfy.ensureNodes({ KSampler: "evil-package" }); // already loaded: nothing to install, nothing refused
+  });
+});

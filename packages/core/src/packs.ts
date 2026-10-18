@@ -133,6 +133,13 @@ export function builtinPacks(): Pack[] {
   return packs;
 }
 
+/** The custom node packages a machine may install: the ones the shipped packs (and model sets) list.
+ * A paired Worker names the packages a pack needs, and a package is code run on the PC, so a machine
+ * installs only these; a pack that needs a new one ships with the release that adds it. */
+export function knownNodePackages(): Set<string> {
+  return new Set([...builtinPacks(), ...MODEL_SETS].flatMap((p) => Object.values((p.required_nodes ?? {}) as Record<string, string>)));
+}
+
 /** The config bucket a pack reads its settings from (pack_settings, pack_loras): its family, else
  * its name. These are the keys stored in users' configs: a pack's family must not change. */
 export function family(pack: Pack): string {

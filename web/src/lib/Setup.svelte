@@ -373,10 +373,10 @@
           {/snippet}
         </WalkStep>
         <WalkStep>
-          On that PC, click <b>Pair with the agent</b>. The agent's page opens with this Worker's pairing link filled in. Check the
-          address it shows, then click <b>Pair</b> there.
+          On that PC, click <b>Pair with the agent</b>. The agent's page opens and pairs with this Worker. (If that PC is paired
+          with another Worker, the agent's page asks first.)
           {#snippet controls()}
-            <!-- The link rides in the address's #fragment: it stays in the browser, and the agent asks before pairing. -->
+            <!-- The link rides in the address's #fragment: it stays in the browser. The agent asks before replacing a pairing. -->
             <OpenButton href="{AGENT_PAGE}#pair={encodeURIComponent(pairing.link)}" label="Pair with the agent" />
             <details class="guide">
               <summary>This page is open on another computer</summary>

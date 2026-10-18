@@ -5,7 +5,7 @@ import type { ChildProcess } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readSync, renameSync, statSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
-import { ComfyUIError } from "@comfy-gen/core";
+import { ComfyUIError, knownNodePackages } from "@comfy-gen/core";
 import { ModelLocator } from "./discover.ts";
 import { ensureExtensionPackages, findInstall, type Install } from "./install.ts";
 import { log } from "./log.ts";
@@ -323,6 +323,12 @@ export class LocalComfy {
     const missing = Object.entries(required).filter(([cls]) => !have.has(cls));
     if (!missing.length) return;
     const packages = [...new Set(missing.map(([, pkg]) => pkg))];
+    // Only packages Comfy-Gen's own packs use: a node package is code, and a paired Worker names them.
+    const known = knownNodePackages();
+    const unknown = packages.filter((pkg) => !known.has(pkg));
+    if (unknown.length) {
+      throw new ComfyUIError(`This model needs the custom node package(s) ${unknown.join(", ")}, which this version of Comfy-Gen doesn't install. Update Comfy-Gen on this PC, then try again.`);
+    }
     if (!this.install) {
       throw new ComfyUIError(`This model needs the custom node package(s) ${packages.join(", ")}, and ComfyUI is not installed.`);
     }

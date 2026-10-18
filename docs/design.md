@@ -952,7 +952,10 @@ past 10 GB at $0.015 per GB a month; Modal per second with $30 free a month and 
    links the launcher downloads.
 3. The user downloads the launcher for their OS from the release and runs it. It installs itself,
    fetches Node, starts the agent and opens the agent's page on `127.0.0.1:9248`.
-4. There they paste the pairing link, then install ComfyUI as in the MCPB (GPU choice; other
+4. There they pair: the Worker page's **Pair with the agent** opens `127.0.0.1:9248/#pair=<link>`
+   (v2.2.2; the link stays in the fragment), which pairs at once while the agent is unpaired, and
+   asks, naming the Worker, before replacing a pairing, since any page can open that address.
+   Pasting the link still works. Then they install ComfyUI as in the MCPB (GPU choice; other
    installs' model folders are found and used, and listed before the install beside a field for
    another models folder, so nothing downloads twice). The agent connects to the Worker and keeps the
    connection; the Worker's page shows it connected, with its GPU and ComfyUI state.
@@ -1511,7 +1514,10 @@ the PC's screen; an offline PC shows as such, with a retry every 10 s.
 The 2026-10-02 allow-list (the agent let the Worker read its state, install, start and stop, and
 nothing else, "as the PC is where remote reach must stop") is gone, because it guarded nothing:
 every `ensure` carries the pack's `required_nodes`, which the agent installs from the Comfy
-Registry, so whoever controls the Worker already runs code on the PC. Pairing alone stays on the
+Registry, so whoever controls the Worker already runs code on the PC. Since v2.2.2 a machine
+installs only the node packages Comfy-Gen's own shipped packs list (`knownNodePackages`, today
+ComfyUI-GGUF alone): a pack needing a new one ships with the release that adds it, and an older
+agent says to update. Pairing alone stays on the
 PC (the agent answers 403 to `/pair` from the relay, whatever the method or path spelling): it is
 what makes the Worker trusted, so it is only done there. The
 agent's answer to a settings save no longer echoes its config file (the pairing secret was in it).

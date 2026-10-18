@@ -38,8 +38,10 @@
     if (looksLikeLink(link) && !pairing.busy) pair()
   }
 
-  // #pair=<link>: the Worker's Pair with the agent button, from its Setup page on this PC. Only filled
-  // in, never paired at once: any page can open this address, so the user checks the Worker first.
+  // #pair=<link>: the Worker's Pair with the agent button, from its Setup page on this PC. Any page
+  // can open this address, and a paired Worker can install custom nodes here (code: the agent
+  // installs only Comfy-Gen's own, design §9). So it pairs at once only while unpaired (setup's
+  // minute or two); a link that would replace a pairing waits for Pair, naming its Worker.
   let offered = $state('') // the Worker's address, while its link waits for Pair
   function takeOffer() {
     const m = /^#pair=(.+)$/.exec(location.hash)
@@ -49,7 +51,8 @@
       const offer = decodeURIComponent(m[1])
       if (!looksLikeLink(offer)) return
       link = offer
-      offered = new URL(offer).host
+      if (worker.paired) offered = new URL(offer).host
+      else pair()
     } catch {}
   }
 
@@ -106,12 +109,13 @@
     </p>
   {:else if !offered}
     <p>
-      On your Worker's page, go to <b>Set up your PC</b> and click <b>Pair with the agent</b>: this page then shows its link,
-      ready to pair. Or copy the pairing link there and paste it below. If there is no link, click <b>Add a PC</b> first.
+      On your Worker's page, go to <b>Set up your PC</b> and click <b>Pair with the agent</b>: this page then pairs
+      with it by itself. Or copy the pairing link there and paste it below. If there is no link, click <b>Add a PC</b> first.
     </p>
   {/if}
   {#if offered}
-    <p><b>Pair this PC with <code>{offered}</code>?</b> Check that this is your Worker's address, then click <b>Pair</b>.</p>
+    <p><b>Pair this PC with <code>{offered}</code> instead?</b> It replaces the Worker it is paired with now. Check that this is
+      your Worker's address, then click <b>Pair</b>.</p>
   {/if}
   <form onsubmit={pair}>
     <label for="link">{worker.paired ? 'Pair again with a new link' : 'Pairing link'}</label>

@@ -516,3 +516,10 @@ describe("seed keys", () => {
     expect(seedKey({ ...pack, models: [...pack.models, { url: "v", subfolder: "comfy_gen", filename: "b.onnx", sha256: "cc" }] })).not.toBe(key);
   });
 });
+
+describe("known node packages", () => {
+  it("are the ones the shipped packs list", async () => {
+    const { knownNodePackages } = await import("../src/packs.ts");
+    expect([...knownNodePackages()]).toEqual(["ComfyUI-GGUF"]);
+  });
+});
