@@ -66,9 +66,9 @@ export const READY_RECHECK_S = 60;
 
 const hmacKey = (s: Secrets) => fromHex(s.hmac_key);
 
-/** The answers to the setup's "where should images be made?" (design §8). */
 /** The setup site (packages/setup): where Reconnect Cloudflare and a move sign in. */
 const SETUP_SITE = "https://comfy-setup.lugia19.com";
+/** The answers to the setup's "where should images be made?" (design §8). */
 const SETUP_MODES = ["cloud", "pc", "both"] as const;
 type SetupMode = (typeof SETUP_MODES)[number];
 

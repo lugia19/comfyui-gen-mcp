@@ -1284,6 +1284,14 @@ password, PCs, images, LoRAs, settings and bucket (the build named it `<worker>-
   for it, and the connect redeploys Modal with the Worker's version. Until then updates pass it
   over.
 
+**End to end (2026-10-18),** on the real `comfy-gen` (made from the template, on a branch build):
+Move, Allow on Cloudflare, and back on its page logged in (the claim 21 s after the click, the Allow included). Its address, connector URL,
+bucket (images, LoRAs), cron and PC kept; the build trigger gone; the note shown. Connect Modal
+redeployed in 7 s (nothing had changed), an image came through the old connector URL (137 s,
+cold), and Update now to the next dev bundle redeployed Modal 9 s later. CPU on the Worker:
+`/api/cloudflare/move` 2 ms, the claim 5, the build callback 10 to 12, Update now 1 (4 in the
+State object), a generation 7.
+
 ## 7. Updates
 
 - **Worker and Modal app:** the Worker's cron checks the latest GitHub release against its own
@@ -1307,6 +1315,8 @@ password, PCs, images, LoRAs, settings and bucket (the build named it `<worker>-
   Update now answers once the new version is live (seconds), and the header offers **Reload for
   vX**. `GET /api/update` answers both paths in one shape: `path`, `blocked` (why it
   can't update: no token, connection lost) and `failed` (the last attempt's reason).
+- **An install made from a repository** offers **Move to the new setup** (§6) and from then on
+  updates itself as above; the build path stays only until those installs have moved.
 - **Agent:** the launcher's shim loads the latest release's bundle, checking daily while
   the agent runs, and the agent restarts into a new one when idle (§2). The launcher changes only
   with a new Node; it is downloaded again by hand.

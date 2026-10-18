@@ -187,13 +187,7 @@ async function reconnect(env: Env, deps: Deps, url: URL, tokens: Tokens, r: NonN
   if (r.move) {
     const tag = await releases.latestTag(f, env.COMFY_GEN_RELEASES);
     if (!tag) return page("Something went wrong", "Could not find the latest release. Try again in a minute.", 502);
-    const bucket = cfapi.bucketName(script);
-    const [release, made] = await Promise.all([releases.loadRelease(f, env.COMFY_GEN_RELEASES, tag), cfapi.createBucket(f, t, account, bucket)]);
-    const vars: releases.WorkerVars = { CF_OAUTH_CLIENT: env.CF_OAUTH_CLIENT, COMFY_GEN_SETUP: url.origin, COMFY_GEN_RELEASES: env.COMFY_GEN_RELEASES };
-    await Promise.all([
-      made === "created" && cfapi.setLifecycle(f, t, account, bucket),
-      releases.uploadRelease(f, t, account, script, release, { bucket: made === "off" ? null : bucket, vars: releases.workerVars(vars), fromTag }),
-    ]);
+    await install(env, f, t, account, script, tag, url, { fromTag });
   }
   const resp = await claim(deps, r.worker, { reconnect: r.code, tokens, account_id: account }, r.move ? CLAIM_WAIT_S : 0);
   if (!resp.ok) return page("Your Worker refused", (await resp.json().catch(() => ({})) as any).error ?? `HTTP ${resp.status}`);
@@ -233,6 +227,26 @@ async function accounts(req: Request, env: Env, deps: Deps): Promise<Response> {
  * storage step), the latest release uploaded with a one-time CLAIM secret, the daily cron, its
  * workers.dev address; then hand it the tokens (its /api/claim) for a login ticket.
  */
+/**
+ * Upload release *tag* as *script* (a new Worker, or over one: *fromTag* its migration tag), with the
+ * new setup's vars and its bucket, created if missing and given its lifecycle rules. A Worker is
+ * made without storage when R2 isn't turned on in the account.
+ */
+async function install(
+  env: Env, f: Fetch, token: string, account: string, script: string, tag: string, url: URL,
+  o: { mode?: string; secrets?: Record<string, string>; fromTag: string | null },
+): Promise<{ release: releases.Release; storage: boolean }> {
+  const bucket = cfapi.bucketName(script);
+  const [release, made] = await Promise.all([releases.loadRelease(f, env.COMFY_GEN_RELEASES, tag), cfapi.createBucket(f, token, account, bucket)]);
+  const storage = made !== "off";
+  const vars: releases.WorkerVars = { SETUP_MODE: o.mode, CF_OAUTH_CLIENT: env.CF_OAUTH_CLIENT, COMFY_GEN_SETUP: url.origin, COMFY_GEN_RELEASES: env.COMFY_GEN_RELEASES };
+  await Promise.all([
+    storage && cfapi.setLifecycle(f, token, account, bucket),
+    releases.uploadRelease(f, token, account, script, release, { bucket: storage ? bucket : null, vars: releases.workerVars(vars), secrets: o.secrets, fromTag: o.fromTag }),
+  ]);
+  return { release, storage };
+}
+
 async function create(req: Request, env: Env, deps: Deps, url: URL): Promise<Response> {
   const t = await tokensOf(req, env, deps);
   if (!t) return notConnected();
@@ -256,19 +270,13 @@ async function create(req: Request, env: Env, deps: Deps, url: URL): Promise<Res
     sub = await cfapi.registerSubdomain(f, token, account, b.subdomain);
   }
 
-  const bucket = cfapi.bucketName(name);
-  const [release, made] = await Promise.all([releases.loadRelease(f, env.COMFY_GEN_RELEASES, tag), cfapi.createBucket(f, token, account, bucket)]);
   const secret = tokenUrlsafe(32);
-  const vars: releases.WorkerVars = { SETUP_MODE: mode, CF_OAUTH_CLIENT: env.CF_OAUTH_CLIENT, COMFY_GEN_SETUP: url.origin, COMFY_GEN_RELEASES: env.COMFY_GEN_RELEASES };
-  await Promise.all([
-    made !== "off" && cfapi.setLifecycle(f, token, account, bucket),
-    releases.uploadRelease(f, token, account, name, release, { bucket: made === "off" ? null : bucket, vars: releases.workerVars(vars), secrets: { CLAIM: secret }, fromTag: null }),
-  ]);
+  const { release, storage } = await install(env, f, token, account, name, tag, url, { mode, secrets: { CLAIM: secret }, fromTag: null });
   await Promise.all([cfapi.setCrons(f, token, account, name, release.manifest.crons), cfapi.enableWorkersDev(f, token, account, name)]);
 
   const worker = `https://${name}.${sub}.workers.dev`;
   const resp = await claim(deps, worker, { claim: secret, tokens: t, account_id: account, script: name }, CLAIM_WAIT_S);
   if (!resp.ok) return error(502, `Your Worker is created, but didn't take the hand-off (${(await resp.json().catch(() => ({})) as any).error ?? `HTTP ${resp.status}`}). Open ${worker} and log in with a Cloudflare token.`);
   const { ticket } = (await resp.json()) as { ticket: string };
-  return json({ url: worker, ticket, version: tag, storage: made !== "off" }, 200, { "Set-Cookie": setCookie(TOKENS, "", "/api", 0) });
+  return json({ url: worker, ticket, version: tag, storage }, 200, { "Set-Cookie": setCookie(TOKENS, "", "/api", 0) });
 }

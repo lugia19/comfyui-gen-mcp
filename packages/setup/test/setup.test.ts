@@ -213,7 +213,7 @@ describe("moving a Worker made from a repository", () => {
       { type: "plain_text", name: "VERSION", text: "v2.0.0" },
     ]));
     expect(meta.bindings.some((b: any) => b.name === "CLAIM" || b.name === "SETUP_MODE")).toBe(false);
-    expect(f.lifecycles).toEqual([]); // the build set them
+    expect(f.lifecycles).toEqual(["other-worker-storage"]); // the same rules the build set
     expect(f.slept).toBe(4); // the new version answers after a moment
     expect(f.claims).toEqual([{ url: "https://other-worker.someone.workers.dev/api/claim", body: { reconnect: "CODE1", tokens: tokens(1), account_id: "acct1" } }]);
   });

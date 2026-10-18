@@ -1141,3 +1141,19 @@ Design §6, "Setup without a repository: the Modal side".
   caches, a smaller codec.
 - **End to end** on the test account: connect, deploy, an image, five self-updates redeploying
   Modal (design §6).
+
+## Phase 3: moving installs made from a repository (2026-10-18)
+
+Design §6, "Moving an install made from a repository".
+
+- **The Worker:** **Move to the new setup** (`POST /api/cloudflare/move`, build path only: the
+  answer to "where?" kept in the setup state, a one-use code, the setup site's `/move`); the claim
+  on a move deletes the Workers Build trigger with the kept token and forgets it; `move_note` and
+  `modal_connected` in the state.
+- **The setup site's `/move`:** `/reconnect`'s sign-in, then the latest release uploaded over the
+  existing script (the bucket kept, the migration tag from the script, the new vars), then the
+  claim.
+- **Web:** the Move banner and its note; **Connect Modal** as one component, in Setup and in a
+  banner for a moved Worker with a Modal GPU and no Modal token.
+- **`/simplify` pass:** create and move share one upload (`install` in the setup site).
+- **End to end** on the real `comfy-gen` (design §6).
