@@ -661,7 +661,7 @@
     "alt": "The agent's page, with the Pairing link field and the Pair button",
     "steps": [
      {
-      "html": "The agent's page opens in your browser. Paste the pairing link into <b>Pairing link</b>. (On your Worker's page, <b>Copy link</b> copies it.) It pairs by itself. If it does not, click <b>Pair</b>.",
+      "html": "On the agent's page, paste the pairing link into <b>Pairing link</b>. (On your Worker's page, <b>Copy link</b> copies it.) It pairs by itself. If it does not, click <b>Pair</b>.",
       "box": [
        65,
        33,

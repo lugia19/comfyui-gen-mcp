@@ -27,6 +27,7 @@
   let { info, refresh, onsettings = null } = $props()
 
   const RELEASE = 'https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/'
+  const AGENT_PAGE = 'http://127.0.0.1:9248/' // the agent's own page on its PC (agent config.ts DEFAULT_AGENT_PORT)
   const MODAL_TOKENS = 'https://modal.com/settings/tokens'
   const MODAL_BILLING = 'https://modal.com/settings/usage' // "Manage payment details" is there
 
@@ -377,6 +378,10 @@
             <div class="row"><code>{pairing.link}</code></div>
             <div class="row"><button type="button" onclick={() => linkCopy.copy(pairing.link)}>{linkCopy.done ? 'Copied' : 'Copy link'}</button></div>
           {/snippet}
+        </WalkStep>
+        <WalkStep>
+          The agent opens its page in your browser when it starts. Closed it? Open it again here, on that PC.
+          {#snippet controls()}<OpenButton href={AGENT_PAGE} label="Open the agent's page" />{/snippet}
         </WalkStep>
         <WalkGuide ids={['agent-pair']}>On the agent's page, paste it into <b>Pairing link</b>. It pairs by itself.</WalkGuide>
         <WalkStep>On the agent's page, click <b>Install ComfyUI</b>. This page moves on when it is installed.</WalkStep>
