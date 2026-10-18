@@ -7,7 +7,8 @@ import type { Fetch } from "./comfyui.ts";
 import { sha256Hex } from "./bytes.ts";
 import * as cfapi from "./cfapi.ts";
 
-const GITHUB = "https://github.com/lugia19/comfyui-gen-mcp/releases";
+export const REPO = "lugia19/comfyui-gen-mcp";
+const GITHUB = `https://github.com/${REPO}/releases`;
 
 /**
  * The latest release's tag, from the redirect github.com/<repo>/releases/latest answers with

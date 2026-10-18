@@ -32,7 +32,7 @@ export type Env = {
   GRPC_UPSTREAM?: string;
 };
 
-export const GRPC_HOST = "grpc.lugia19.com";
+const GRPC_HOST = "grpc.lugia19.com";
 const GRPC_SERVICE = "/modal.client.ModalClient/";
 
 export type Deps = { fetch: Fetch; now: () => number; sleep: (s: number) => Promise<void> };

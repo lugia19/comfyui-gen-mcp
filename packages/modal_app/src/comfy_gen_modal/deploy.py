@@ -66,7 +66,8 @@ def proxy_token(stored: dict | None, create) -> tuple[dict, bool]:
 
 
 def report(result: dict, nonce: str, version: str) -> dict:
-    """The Worker's build-callback body for *result* (deploy/deploy.py sends the same keys)."""
+    """The Worker's build-callback body for *result*: the keys packages/worker/deploy/deploy.py's
+    report has (that file stays stdlib-only at its path, so the two aren't shared)."""
     body = {"nonce": nonce, "stage": "modal", "version": version}
     if "error" in result:
         return {**body, "modal_result": "failed", "modal_error": result["error"]}
@@ -100,7 +101,7 @@ def finish(result: dict, args) -> int:
         with open(args.out, "w") as fh:
             json.dump(result, fh)
     if args.callback:
-        post(args.callback, report(result, args.nonce or "", args.version or ""))
+        post(args.callback, report(result, args.nonce, args.version))
     return 1 if "error" in result else 0
 
 
@@ -113,6 +114,8 @@ def main() -> int:
     args = ap.parse_args()
     if not args.out and not args.callback:
         ap.error("--out or --callback")
+    if args.callback and not (args.nonce and args.version):
+        ap.error("--callback needs --nonce and --version")
 
     code, output = run_deploy()
     if code != 0:

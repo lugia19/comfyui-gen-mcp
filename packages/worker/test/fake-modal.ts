@@ -3,6 +3,8 @@
 // It behaves like Modal for setup: the sign-in is approved after a few waits, the setup image
 // builds on the first join, a Sandbox prints lines and ends.
 
+import { concat, utf8 } from "@comfy-gen/core";
+import { frame } from "../src/modal/client.ts";
 import * as pb from "../src/modal/proto.ts";
 
 export const GRPC = "https://grpc.example";
@@ -32,14 +34,6 @@ export class Status {
   }
 }
 
-function frame(flag: number, bytes: Uint8Array): Uint8Array {
-  const out = new Uint8Array(5 + bytes.length);
-  out[0] = flag;
-  new DataView(out.buffer).setUint32(1, bytes.length);
-  out.set(bytes, 5);
-  return out;
-}
-
 type Handler = (req: any, headers: Headers) => any;
 
 export class FakeModal {
@@ -56,10 +50,10 @@ export class FakeModal {
   chunk = 0; // >0: the response body arrives in pieces this big
   handlers: Record<string, Handler> = {
     AuthTokenGet: () => ({ token: "auth-jwt" }),
-    TokenFlowCreate: () => ({ token_flow_id: "tf-1", web_url: "https://modal.com/token-flow/tf-1", code: "c", wait_secret: "ws-1" }),
+    TokenFlowCreate: () => ({ token_flow_id: "tf-1", web_url: "https://modal.com/token-flow/tf-1", wait_secret: "ws-1" }),
     TokenFlowWait: (r) => {
       if (r.wait_secret !== "ws-1") throw new Status(7, "bad wait secret");
-      return this.waits++ < this.approveAfter ? { timeout: true } : { token_id: "ak-new", token_secret: "as-new", workspace_username: "someone" };
+      return this.waits++ < this.approveAfter ? { timeout: true } : { token_id: "ak-new", token_secret: "as-new" };
     },
     SecretGetOrCreate: (r) => {
       this.secrets[r.deployment_name] = Object.fromEntries(r.env_dict.map((e: any) => [e.key, e.value]));
@@ -69,7 +63,7 @@ export class FakeModal {
     ImageGetOrCreate: () => ({ image_id: "im-1", ...(this.imageBuilt ? { result: { status: 1 } } : {}) }),
     ImageJoinStreaming: () => {
       this.imageBuilt = !this.imageFails;
-      return [{ task_logs: [{ data: "building\n" }], entry_id: "e1" }, { result: this.imageFails ? { status: 2, exception: "pip failed" } : { status: 1 }, eof: true }];
+      return [{ entry_id: "e1" }, { result: this.imageFails ? { status: 2, exception: "pip failed" } : { status: 1 } }];
     },
     SandboxCreate: (r) => {
       const id = `sb-${this.sandboxes.length + 1}`;
@@ -104,10 +98,7 @@ export class FakeModal {
       // A trailers-only answer, as Modal gives for an error.
       return new Response(null, { headers: { "content-type": "application/grpc-web+proto", "grpc-status": String(e.code), "grpc-message": encodeURIComponent(e.message) } });
     }
-    const parts = [...answers.map((a) => frame(0, pb.encode(schemas[1], a))), frame(0x80, new TextEncoder().encode("grpc-status: 0\r\ngrpc-message: \r\n"))];
-    const all = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-    let at = 0;
-    for (const p of parts) (all.set(p, at), (at += p.length));
+    const all = concat([...answers.map((a) => frame(pb.encode(schemas[1], a))), frame(utf8("grpc-status: 0\r\ngrpc-message: \r\n"), 0x80)]);
     const size = this.chunk || all.length;
     const stream = new ReadableStream({
       start(c) {

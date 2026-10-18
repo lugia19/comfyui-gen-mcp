@@ -162,7 +162,7 @@ describe("updating itself", () => {
     expect(await body(await w.app.handle(request("POST", "/api/setup/storage", undefined, cookie)))).toEqual({ storage: true, build: null });
     w.cf.latest = "v1.2.0";
     expect(await w.app.scheduled()).toBe("updating v1.0.0 -> v1.2.0: done");
-    expect(jobs).toEqual([{ kind: "install", tag: "v1.1.0" }, { kind: "install", tag: "v1.0.0" }, { kind: "cron" }]);
+    expect(jobs).toEqual([{ kind: "install", tag: "v1.1.0", modal: true }, { kind: "install", tag: "v1.0.0", modal: false }, { kind: "cron" }]);
   });
 
   it("refuses a bundle that doesn't match its manifest, and says so", async () => {
@@ -210,7 +210,7 @@ describe("Modal without a build", () => {
     const cookie = await claimed(w);
     expect(await api(w, "POST", "/modal/connect", cookie)).toEqual([200, { url: "https://modal.com/token-flow/tf-1" }]);
     expect(await api(w, "POST", "/modal/connect/wait", cookie)).toEqual([200, { connected: false }]);
-    expect(await api(w, "POST", "/modal/connect/wait", cookie)).toEqual([200, { connected: true, workspace: "someone" }]);
+    expect(await api(w, "POST", "/modal/connect/wait", cookie)).toEqual([200, { connected: true }]);
     return { w, cookie };
   }
 
@@ -218,11 +218,12 @@ describe("Modal without a build", () => {
     const { w, cookie } = await connected();
     expect((await w.app.store.secrets()).modal_token).toEqual({ id: "ak-new", secret: "as-new" });
     expect(w.modal.secrets["comfy-gen-token"]).toEqual({ MODAL_TOKEN_ID: "ak-new", MODAL_TOKEN_SECRET: "as-new" });
-    expect((await api(w, "GET", "/state", cookie))[1]).toMatchObject({ update_path: "oauth", modal_connected: true, modal_deploy: null });
+    expect((await api(w, "GET", "/state", cookie))[1]).toMatchObject({ update_path: "oauth", modal_deploy: null });
     expect((await api(w, "POST", "/modal/connect/wait", cookie))[0]).toBe(409); // that sign-in is used
-    // A pasted token instead.
-    expect((await api(w, "POST", "/modal/token", cookie, { token_id: "nope", token_secret: "x" }))[0]).toBe(400);
-    expect(await api(w, "POST", "/modal/token", cookie, { token_id: " ak-2 ", token_secret: "as-2" })).toEqual([200, { connected: true }]);
+    // A pasted token instead: kept, then the deploy starts with it.
+    expect((await api(w, "POST", "/setup/modal", cookie, { token_id: "nope", token_secret: "x" }))[0]).toBe(400);
+    expect(await api(w, "POST", "/setup/modal", cookie, { token_id: " ak-2 ", token_secret: "as-2" })).toEqual([200, { started: true }]);
+    expect((await w.app.store.secrets()).modal_token).toEqual({ id: "ak-2", secret: "as-2" });
     expect(w.modal.secrets["comfy-gen-token"].MODAL_TOKEN_ID).toBe("ak-2");
   });
 
@@ -236,7 +237,7 @@ describe("Modal without a build", () => {
     expect(script).toContain(`'${DEV}/v1.0.0/source.tar.gz'`);
     expect(script).toContain(`--callback 'https://${HOST}/build-callback'`);
     expect(script).toContain("--version 'v1.0.0'");
-    expect((await api(w, "GET", "/state", cookie))[1].modal_deploy).toMatchObject({ tag: "v1.0.0" });
+    expect((await api(w, "GET", "/state", cookie))[1].modal_deploy).toEqual({ started: 1800000000 });
     expect(await api(w, "GET", "/setup/modal/log", cookie)).toEqual([200, { lines: ["Cloning…\n", "Deploying…\n"], cursor: "2", done: false }]);
     expect((await api(w, "GET", "/setup/modal/log?cursor=2", cookie))[1].lines).toEqual([]);
 

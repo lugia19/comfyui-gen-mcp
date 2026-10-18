@@ -257,18 +257,21 @@ export class App {
     }
     try {
       if (job.kind === "modal") {
-        await this.startModalDeploy(s, this.version, job.origin);
+        if (!s.modal_token) return { status: 409, body: { error: "Connect Modal first." } };
+        // Its own address, for the deploy's report when no request names it (the daily update).
         if (s.worker_url !== job.origin) await this.fresh.updateSecrets({ worker_url: job.origin });
+        await this.startModalDeploy(s.modal_token, this.version, job.origin);
         return { status: 200, body: { started: true } };
       }
       const u = this.updater(s);
       const blocked = await u.blocked();
       if (blocked) return { status: 409, body: { error: blocked } };
-      const r = await u.install(job.tag);
+      const r = await u.install(job.tag, { modal: job.modal });
+      if (job.modal) await this.fresh.updateSetup({ update_tried: job.tag, update_error: null });
       return { status: 200, body: { storage: r.storage ?? null, build: r.build ?? null } };
     } catch (e) {
-      if (e instanceof GrpcError) return { status: 502, body: { error: `Modal: ${e.message}` } };
-      if (e instanceof cfapi.CloudflareError) return { status: 502, body: { error: e.message } };
+      const status = upstream(e);
+      if (status) return status;
       throw e;
     }
   }
@@ -290,10 +293,9 @@ export class App {
         const lost = await oauth.isLost(this.p.storage);
         return lost ? `Reconnect Cloudflare first (${lost}).` : null;
       },
-      install: async (tag) => {
+      install: async (tag, o) => {
         const r = await this.uploadSelf(s, tag);
-        // Modal's app follows the Worker's release (not on the storage check: the same version).
-        if (tag !== this.version) await this.redeployModal(s, tag);
+        if (o?.modal !== false) await this.redeployModal(s, tag); // Modal's app follows the release
         return r;
       },
     };
@@ -366,9 +368,7 @@ export class App {
       const claim = this.p.env.CLAIM;
       if (!claim || s.cf_claimed || !safeEqual(String(b.claim ?? ""), claim)) return error(403, "This Worker is already set up, or the claim is wrong.");
       if (typeof b.account_id !== "string" || typeof b.script !== "string") return error(400, "account_id and script missing");
-      // Its own address, for the Modal deploy's report when no request names it (the daily update).
-      const worker_url = new URL(req.url).origin;
-      await this.fresh.updateSecrets({ cf_claimed: this.p.now(), cf_account_id: b.account_id, cf_script: b.script, worker_url });
+      await this.fresh.updateSecrets({ cf_claimed: this.p.now(), cf_account_id: b.account_id, cf_script: b.script });
     }
     await this.p.storage.cfSetTokens(t);
     return json({ ticket: await this.mintOnce("login_ticket", 600) });
@@ -633,27 +633,25 @@ export class App {
 
   /** A Modal token that works (it writes the workspace Secret the deploy reads), kept here too. */
   private async setModalToken(token: ModalToken): Promise<void> {
-    await this.modal(token).secretPut(modalDeploy.TOKEN_SECRET, { MODAL_TOKEN_ID: token.id, MODAL_TOKEN_SECRET: token.secret });
+    await modalDeploy.putTokenSecret(this.modal(token), token);
     await this.fresh.updateSecrets({ modal_token: token });
   }
 
   /** Deploy *tag*'s Modal app from a Sandbox; the result comes back to /build-callback. */
-  private async startModalDeploy(s: Secrets, tag: string, origin: string): Promise<void> {
-    if (!s.modal_token) throw new GrpcError(0, "Connect Modal first.");
+  private async startModalDeploy(token: ModalToken, tag: string, origin: string): Promise<void> {
     const nonce = tokenUrlsafe(24);
     const source = modalDeploy.sourceUrl(this.p.env.COMFY_GEN_RELEASES, tag);
     const script = modalDeploy.deployScript(source, `${origin}/build-callback`, nonce, tag);
-    const sandbox = await modalDeploy.startDeploy(this.modal(s.modal_token), s.modal_token, script);
+    const sandbox = await modalDeploy.startDeploy(this.modal(token), token, script);
     await this.fresh.updateSetup({ build_nonce: nonce, modal_deploy: { sandbox, tag, started: this.p.now() }, modal_error: null });
   }
 
-  /** After an update: the same release on Modal, when Modal is set up. A failure shows as Modal's
-   * (the page's Try again), not as a failed Worker update. */
+  /** After an update: the same release on Modal, when Modal is set up (its deploy recorded the
+   * Worker's address). A failure shows as Modal's (the page's Try again), not as a failed update. */
   private async redeployModal(s: Secrets, tag: string): Promise<void> {
-    if (!s.modal_token || !(await this.gpus()).some((g) => g.kind === "modal")) return;
+    if (!s.modal_token || !s.worker_url || !(s.gpus ?? []).some((g: Gpu) => g.kind === "modal")) return;
     try {
-      if (!s.worker_url) throw new GrpcError(0, "This Worker doesn't know its own address yet: open its page once.");
-      await this.startModalDeploy(s, tag, s.worker_url);
+      await this.startModalDeploy(s.modal_token, tag, s.worker_url);
     } catch (e) {
       if (!(e instanceof GrpcError)) throw e;
       await this.fresh.updateSetup({ modal_error: `Updating Modal to ${tag} didn't start: ${e.message}` });
@@ -661,16 +659,31 @@ export class App {
   }
 
   /**
-   * Connecting Modal and deploying its app, on the OAuth path:
-   *   POST /modal/connect        start Modal's sign-in: {url} to approve it at
-   *   POST /modal/connect/wait   wait for the approval (about 20 s): {connected, workspace}
-   *   POST /modal/token          {token_id, token_secret}: a pasted token instead
-   *   POST /setup/modal          deploy this version's app from a Sandbox
+   * Modal: its deploy, either way a Worker deploys it, and connecting it on the OAuth path.
+   *   POST /setup/modal          deploy this version's app, with {token_id, token_secret} if given
+   *                              (else the token stored): a Workers Build, or a Modal Sandbox
    *   GET  /setup/modal/log      ?cursor=: the deploy's output since *cursor*: {lines, cursor, done}
+   *   POST /modal/connect        Modal's sign-in (the OAuth path): {url} to approve it at
+   *   POST /modal/connect/wait   wait for the approval (about 20 s): {connected}
    */
   private async modalApi(req: Request, url: URL, sub: string, s: Secrets): Promise<Response> {
-    if (!this.oauthPath(s)) return error(409, "This Worker deploys Modal with its Workers Build.");
+    const oauthPath = this.oauthPath(s);
     try {
+      if (sub === "/setup/modal" && req.method === "POST") {
+        const b = await bodyJson(req);
+        const id = String(b.token_id ?? "").trim();
+        const secret = String(b.token_secret ?? "").trim();
+        if ((id || secret) && (!/^ak-\w+$/.test(id) || !/^as-\w+$/.test(secret))) return error(400, "Paste the token id (ak-…) and secret (as-…).");
+        if (!oauthPath) return this.startBuild(url, s, id ? { id, secret } : null);
+        if (id) await this.setModalToken({ id, secret });
+        const r = await this.job({ kind: "modal", origin: url.origin });
+        return json(r.body, r.status);
+      }
+      if (sub === "/setup/modal/log" && req.method === "GET") {
+        const cursor = url.searchParams.get("cursor") ?? "";
+        return oauthPath ? this.modalLog(s, cursor) : this.buildState(cursor, s);
+      }
+      if (!oauthPath) return error(409, "This Worker deploys Modal with its Workers Build.");
       if (sub === "/modal/connect" && req.method === "POST") {
         const f = await this.modal().tokenFlowCreate();
         await this.fresh.updateSetup({ modal_flow: { id: f.token_flow_id, wait_secret: f.wait_secret, exp: this.p.now() + 900 } });
@@ -683,23 +696,11 @@ export class App {
         if (r.timeout || !r.token_id || !r.token_secret) return json({ connected: false });
         await this.setModalToken({ id: r.token_id, secret: r.token_secret });
         await this.fresh.updateSetup({ modal_flow: null });
-        return json({ connected: true, workspace: r.workspace_username ?? null });
-      }
-      if (sub === "/modal/token" && req.method === "POST") {
-        const b = await bodyJson(req);
-        const id = String(b.token_id ?? "").trim();
-        const secret = String(b.token_secret ?? "").trim();
-        if (!/^ak-\w+$/.test(id) || !/^as-\w+$/.test(secret)) return error(400, "Paste the token id (ak-…) and secret (as-…).");
-        await this.setModalToken({ id, secret });
         return json({ connected: true });
       }
-      if (sub === "/setup/modal" && req.method === "POST") {
-        const r = await this.job({ kind: "modal", origin: url.origin });
-        return json(r.body, r.status);
-      }
-      if (sub === "/setup/modal/log" && req.method === "GET") return this.modalLog(s, url.searchParams.get("cursor") ?? "");
     } catch (e) {
-      if (e instanceof GrpcError) return error(502, `Modal: ${e.message}`);
+      const r = upstream(e);
+      if (r) return json(r.body, r.status);
       throw e;
     }
     return error(404, "not found");
@@ -818,11 +819,10 @@ export class App {
     // and GET says when this Worker's version has it.
     if (sub === "/setup/storage" && req.method === "GET") return json({ storage: Boolean(this.p.bucket) });
     if (sub === "/setup/storage" && req.method === "POST") {
-      const r = await this.job({ kind: "install", tag: this.version });
+      const r = await this.job({ kind: "install", tag: this.version, modal: false });
       return json(r.body, r.status);
     }
-    if (sub === "/setup/build" && req.method === "POST") return this.startBuild(req, url, s);
-    if (sub === "/setup/build" && req.method === "GET") return this.buildState(url, s);
+    if (sub === "/setup/build" && req.method === "GET") return this.buildState(url.searchParams.get("cursor"), s);
     if (sub === "/gpus" || sub.startsWith("/gpus/")) return this.gpuApi(req, url, sub);
     if (sub === "/images/encryption" && req.method === "POST") {
       // New images stored encrypted (images.ts). The key is made the first time and never changes:
@@ -871,9 +871,8 @@ export class App {
       cloudflare: s.cf_token || s.cf_claimed ? { account_id: s.cf_account_id ?? null, script: s.cf_script ?? null } : null,
       cf_lost: cfLost, // a Worker made by the setup Worker lost its Cloudflare connection: why
       // How it updates and deploys Modal: "oauth" (itself, and Modal from a Sandbox) or "build".
-      update_path: this.oauthPath(s) ? "oauth" : "build",
-      modal_connected: Boolean(s.modal_token),
-      modal_deploy: setup.modal_deploy ? { tag: setup.modal_deploy.tag, started: setup.modal_deploy.started } : null,
+      update_path: this.updater(s).path,
+      modal_deploy: setup.modal_deploy ? { started: setup.modal_deploy.started } : null,
       gpus,
       storage: Boolean(this.p.bucket),
       encrypt_images: Boolean(s.encrypt_images),
@@ -910,10 +909,8 @@ export class App {
     if (req.method !== "POST") return error(405, "GET or POST");
     if (blocked) return error(409, blocked);
     if (!latest) return error(502, "Could not find the latest release. Try again in a minute.");
-    const r = await this.job({ kind: "install", tag: latest });
-    if (r.status !== 200) return json(r.body, r.status);
-    await this.fresh.updateSetup({ update_tried: latest, update_error: null });
-    return json({ latest, build: (r.body as { build: string | null }).build });
+    const r = await this.job({ kind: "install", tag: latest, modal: true });
+    return json(r.status === 200 ? { latest, build: (r.body as { build: string | null }).build } : r.body, r.status);
   }
 
   /** The last update build: in progress only while Cloudflare says so (a finished update build
@@ -1343,13 +1340,14 @@ export class App {
     }
   }
 
-  private async startBuild(req: Request, url: URL, s: Secrets): Promise<Response> {
+  /** Modal's deploy on the build path: a Workers Build, with *token* stored in the build's secrets
+   * (null: the one stored with the last deploy). */
+  private async startBuild(url: URL, s: Secrets, token: ModalToken | null): Promise<Response> {
     if (!s.cf_token) return error(400, "set up the Cloudflare token first");
-    const data = await bodyJson(req);
     const nonce = tokenUrlsafe(24);
     await cloudflare.setBuildVars(
       this.fetch, s.cf_token, s.cf_account_id, s.cf_trigger,
-      { COMFY_GEN_NONCE: nonce, MODAL_TOKEN_ID: data.modal_token_id, MODAL_TOKEN_SECRET: data.modal_token_secret },
+      { COMFY_GEN_NONCE: nonce, MODAL_TOKEN_ID: token?.id, MODAL_TOKEN_SECRET: token?.secret },
       { COMFY_GEN_CALLBACK: `${url.origin}/build-callback` },
     );
     const build = await cloudflare.startBuild(this.fetch, s.cf_token, s.cf_account_id, s.cf_trigger, s.cf_branch || "main");
@@ -1357,14 +1355,16 @@ export class App {
     return json({ build });
   }
 
-  private async buildState(url: URL, s: Secrets): Promise<Response> {
+  /** The last build's log since *cursor*, and whether it is done: {build, lines, cursor, done,
+   * status, outcome}. */
+  private async buildState(cursor: string | null, s: Secrets): Promise<Response> {
     const build = (await this.fresh.setup()).build;
     if (!build || !s.cf_token) return json({ build: null });
     const [status, logs] = await Promise.all([
       cloudflare.buildStatus(this.fetch, s.cf_token, s.cf_account_id, build),
-      cloudflare.buildLogs(this.fetch, s.cf_token, s.cf_account_id, build, url.searchParams.get("cursor")),
+      cloudflare.buildLogs(this.fetch, s.cf_token, s.cf_account_id, build, cursor || null),
     ]);
-    return json({ build, ...status, ...logs });
+    return json({ build, ...status, ...logs, done: status.status === "stopped" });
   }
 }
 
@@ -1395,4 +1395,11 @@ function redact(g: Gpu, url: URL) {
  * secret is in the fragment, which browsers never send, should the link be opened. */
 export function pairingLink(url: URL, secret: string): string {
   return `${url.origin}/agent#${secret}`;
+}
+
+/** A failure upstream (Cloudflare's API, a release, Modal's API) as the page's answer, else null. */
+function upstream(e: unknown): JobResult | null {
+  if (e instanceof GrpcError) return { status: 502, body: { error: `Modal: ${e.message}` } };
+  if (e instanceof cfapi.CloudflareError) return { status: 502, body: { error: e.message } };
+  return null;
 }

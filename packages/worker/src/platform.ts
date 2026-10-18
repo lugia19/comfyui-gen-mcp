@@ -52,7 +52,8 @@ export interface Bucket {
 
 /** Work over a Worker request's CPU budget (10 ms on the free plan): uploading a version of itself
  * (an update, the storage check), starting Modal's deploy, the daily check. Measured 15 to 51 ms. */
-export type Job = { kind: "install"; tag: string } | { kind: "modal"; origin: string } | { kind: "cron" };
+/** install: an update (*modal*: Modal's app too) or the storage check (the same version again). */
+export type Job = { kind: "install"; tag: string; modal: boolean } | { kind: "modal"; origin: string } | { kind: "cron" };
 export type JobResult = { status: number; body: unknown };
 
 export type Platform = {

@@ -3,6 +3,7 @@
 // headers as its JS SDK (libmodal) sends them. Unary calls and server streams; the protobuf
 // messages are proto.ts's.
 
+import { concat, fromBase64Url, fromUtf8 } from "@comfy-gen/core";
 import type { Fetch } from "../platform.ts";
 import * as pb from "./proto.ts";
 
@@ -21,21 +22,32 @@ export class GrpcError extends Error {
 export type ModalToken = { id: string; secret: string };
 
 // libmodal's version, which Modal checks: looked up on npm, kept a day (plain data, fine at module
-// scope), and looked up again once if Modal says the client is too old.
-let libmodal: { v: string; at: number } | null = null;
+// scope; a failed lookup ten minutes), and looked up again once if Modal says the client is too old.
+let libmodal: { v: string; until: number } | null = null;
 async function libmodalVersion(fetch: Fetch, now: number, fresh: boolean): Promise<string> {
-  if (!fresh && libmodal && now - libmodal.at < 86400) return libmodal.v;
-  const r = await fetch("https://registry.npmjs.org/modal/latest");
-  const v = r.ok ? String(((await r.json()) as any).version ?? "") : "";
-  if (!v) return libmodal?.v ?? "0.0.0";
-  libmodal = { v, at: now };
-  return v;
+  if (!fresh && libmodal && now < libmodal.until) return libmodal.v;
+  const r = await fetch("https://registry.npmjs.org/modal/latest").catch(() => null);
+  const v = r?.ok ? String(((await r.json()) as any).version ?? "") : "";
+  libmodal = v ? { v, until: now + 86400 } : { v: libmodal?.v ?? "0.0.0", until: now + 600 };
+  return libmodal.v;
+}
+
+// Modal's auth tokens (JWTs), per Modal token id, until a minute before they expire: plain data.
+const authTokens = new Map<string, { jwt: string; until: number }>();
+function expiry(jwt: string, now: number): number {
+  try {
+    const exp = Number(JSON.parse(fromUtf8(fromBase64Url(jwt.split(".")[1]))).exp);
+    if (exp > now) return exp - 60;
+  } catch {}
+  return now + 300;
 }
 
 const tooOld = (e: unknown) => e instanceof GrpcError && /version|upgrade|deprecated|too old/i.test(e.message);
 
-function frame(bytes: Uint8Array): Uint8Array {
+/** A gRPC-web frame: a flag byte (0x80: trailers), the length, the message. */
+export function frame(bytes: Uint8Array, flag = 0): Uint8Array {
   const out = new Uint8Array(5 + bytes.length);
+  out[0] = flag;
   new DataView(out.buffer).setUint32(1, bytes.length);
   out.set(bytes, 5);
   return out;
@@ -57,10 +69,12 @@ function trailers(text: string): Record<string, string> {
 
 export type ClientOptions = { fetch: Fetch; now: () => number; token?: ModalToken | null; base?: string };
 
-/** One client per request: it gets an auth token on its first authenticated call. */
+/** A client for a request or a job: it gets an auth token on its first authenticated call (or
+ * finds one still valid from an earlier client with the same token). */
 export class ModalClient {
   private readonly o: ClientOptions;
   private authToken: string | null = null;
+  private authing: Promise<void> | null = null; // calls started together wait for one AuthTokenGet
 
   constructor(o: ClientOptions) {
     this.o = o;
@@ -98,26 +112,32 @@ export class ModalClient {
         const n = new DataView(buf.buffer, buf.byteOffset).getUint32(1);
         if (buf.length < 5 + n) break;
         const flag = buf[0];
-        const payload = buf.slice(5, 5 + n);
-        buf = buf.slice(5 + n);
+        const payload = buf.subarray(5, 5 + n);
+        buf = buf.subarray(5 + n);
         if (flag & 0x80) {
-          const t = trailers(new TextDecoder().decode(payload));
+          const t = trailers(fromUtf8(payload));
           return checkStatus(t["grpc-status"], t["grpc-message"]);
         }
         yield payload;
       }
       const { value, done } = await reader.read();
       if (done) return;
-      const next = new Uint8Array(buf.length + value.length);
-      next.set(buf);
-      next.set(value, buf.length);
-      buf = next;
+      buf = buf.length ? concat([buf, value]) : value;
     }
   }
 
-  private async auth() {
-    if (!this.o.token || this.authToken) return;
-    this.authToken = (await this.unary("AuthTokenGet", pb.Empty, {}, pb.AuthTokenGetResponse)).token || null;
+  private auth(): Promise<void> {
+    const t = this.o.token;
+    if (!t || this.authToken) return Promise.resolve();
+    const cached = authTokens.get(t.id);
+    if (cached && this.o.now() < cached.until) {
+      this.authToken = cached.jwt;
+      return Promise.resolve();
+    }
+    return (this.authing ??= this.unary<{ token?: string }>("AuthTokenGet", pb.Empty, {}, pb.AuthTokenGetResponse).then((r) => {
+      this.authToken = r.token || null;
+      if (r.token) authTokens.set(t.id, { jwt: r.token, until: expiry(r.token, this.o.now()) });
+    }).finally(() => (this.authing = null)));
   }
 
   /** A unary call (*timeoutS* for the whole call). Throws GrpcError. */
@@ -153,7 +173,7 @@ export class ModalClient {
 
   /** Wait up to *waitS* for the approval: the token, or {timeout: true}. */
   tokenFlowWait(flowId: string, waitSecret: string, waitS: number) {
-    return this.unary<{ token_id?: string; token_secret?: string; timeout?: boolean; workspace_username?: string }>(
+    return this.unary<{ token_id?: string; token_secret?: string; timeout?: boolean }>(
       "TokenFlowWait", pb.TokenFlowWaitRequest, { token_flow_id: flowId, wait_secret: waitSecret, timeout: waitS }, pb.TokenFlowWaitResponse, waitS + 15);
   }
 
@@ -179,7 +199,7 @@ export class ModalClient {
     const until = this.o.now() + waitS;
     while (!result?.status) {
       if (this.o.now() >= until) throw new GrpcError(4, "Modal is still building the setup image: try again in a minute.");
-      for await (const m of this.stream<{ result?: { status?: number; exception?: string }; entry_id?: string; eof?: boolean }>(
+      for await (const m of this.stream<{ result?: { status?: number; exception?: string }; entry_id?: string }>(
         "ImageJoinStreaming", pb.ImageJoinStreamingRequest, { image_id: r.image_id, timeout: 25, last_entry_id: last }, pb.ImageJoinStreamingResponse, 40)) {
         if (m.entry_id) last = m.entry_id;
         if (m.result?.status) result = m.result;

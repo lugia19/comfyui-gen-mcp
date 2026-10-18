@@ -50,7 +50,7 @@ describe("the gRPC-web client", () => {
     const flow = await c.tokenFlowCreate();
     expect(flow).toMatchObject({ token_flow_id: "tf-1", wait_secret: "ws-1" });
     expect(await c.tokenFlowWait("tf-1", "ws-1", 20)).toEqual({ timeout: true });
-    expect(await c.tokenFlowWait("tf-1", "ws-1", 20)).toMatchObject({ token_id: "ak-new", workspace_username: "someone" });
+    expect(await c.tokenFlowWait("tf-1", "ws-1", 20)).toMatchObject({ token_id: "ak-new", token_secret: "as-new" });
     const e = await c.tokenFlowWait("tf-1", "nope", 20).catch((e) => e);
     expect(e).toBeInstanceOf(GrpcError);
     expect([e.code, e.message]).toEqual([7, "bad wait secret"]);

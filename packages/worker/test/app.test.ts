@@ -512,14 +512,15 @@ describe("settings API", () => {
   it("build and callback", async () => {
     const { app, net } = world();
     const cookie = await login(app);
-    const resp = await app.handle(request("POST", "/api/setup/build", { modal_token_id: "ak-1", modal_token_secret: "as-1" }, cookie));
+    const resp = await app.handle(request("POST", "/api/setup/modal", { token_id: "ak-1", token_secret: "as-1" }, cookie));
     expect(await body(resp)).toEqual({ build: "build1" });
     expect(net.buildVars.MODAL_TOKEN_SECRET).toEqual({ value: "as-1", is_secret: true });
     expect(net.buildVars.COMFY_GEN_CALLBACK.value).toBe("https://comfy-gen.someone.workers.dev/build-callback");
     const nonce = net.buildVars.COMFY_GEN_NONCE.value;
 
-    const status = await body(await app.handle(request("GET", "/api/setup/build", undefined, cookie)));
-    expect([status.lines, status.status]).toEqual([["hello", "world"], "running"]);
+    const status = await body(await app.handle(request("GET", "/api/setup/modal/log", undefined, cookie)));
+    expect([status.lines, status.status, status.done]).toEqual([["hello", "world"], "running", false]);
+    expect((await app.handle(request("POST", "/api/setup/modal", { token_id: "nope" }, cookie))).status).toBe(400);
 
     expect((await app.handle(request("POST", "/build-callback", { nonce: "wrong" }))).status).toBe(403);
     const ok = await app.handle(
@@ -545,7 +546,7 @@ describe("settings API", () => {
   it("a failed Modal deploy shows its reason, and Try again reuses the stored token", async () => {
     const { app, net } = world();
     const cookie = await login(app);
-    await app.handle(request("POST", "/api/setup/build", { modal_token_id: "ak-1", modal_token_secret: "as-1" }, cookie));
+    await app.handle(request("POST", "/api/setup/modal", { token_id: "ak-1", token_secret: "as-1" }, cookie));
     let nonce = net.buildVars.COMFY_GEN_NONCE.value;
     const reason = "Please add a payment method to use L4 GPU functions.";
     await app.handle(request("POST", "/build-callback", { nonce, stage: "deployed", modal_result: "failed (exit 1)", modal_error: reason }));
@@ -553,7 +554,7 @@ describe("settings API", () => {
     expect([(await state()).modal_error, (await state()).gpus]).toEqual([reason, []]);
 
     // Try again: no token fields, so the stored ones stay; only the nonce changes.
-    const retry = await app.handle(request("POST", "/api/setup/build", {}, cookie));
+    const retry = await app.handle(request("POST", "/api/setup/modal", {}, cookie));
     expect((await body(retry)).build).toBe("build2");
     expect(net.buildVars.MODAL_TOKEN_SECRET).toEqual({ value: "as-1", is_secret: true });
     expect(net.buildVars.COMFY_GEN_NONCE.value).not.toBe(nonce);

@@ -85,6 +85,7 @@ function app(env: Env): App {
   return new App({
     ...platform(env),
     storage: new StateStub(env.STATE),
+    // Not retried as StateStub's calls are: a job (an upload, a deploy) isn't safe to run twice.
     inState: (job) => env.STATE.getByName("state").runJob(job) as unknown as Promise<JobResult>,
   });
 }
@@ -135,10 +136,7 @@ export class State extends DurableObject<Env> {
   /** A Job (platform.ts): here, a request gets 30 s of CPU where a Worker's gets 10 ms. The App
    * runs over this object's own storage. */
   runJob(job: Job): Promise<JobResult> {
-    const storage: StateStorage = {
-      get: (k) => this.read(k), put: (k, v) => this.write(k, v),
-      cfAccessToken: (c) => this.cfAccessToken(c), cfSetTokens: (t) => this.cfSetTokens(t),
-    };
+    const storage: StateStorage = { ...this.kv, cfAccessToken: (c) => this.cfAccessToken(c), cfSetTokens: (t) => this.cfSetTokens(t) };
     return new App({ ...platform(this.env), storage }).runJob(job);
   }
 }

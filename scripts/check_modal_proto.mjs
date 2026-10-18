@@ -5,7 +5,10 @@
 // Without a path it reads modal_proto/api.proto from modal-labs/modal-client's main branch.
 
 import { readFileSync } from "node:fs";
-import { MESSAGES } from "../packages/worker/src/modal/proto.ts";
+import * as proto from "../packages/worker/src/modal/proto.ts";
+
+/** Every message schema proto.ts exports (Empty has no fields to check). */
+const MESSAGES = Object.values(proto).filter((v) => v?.fields && Object.keys(v.fields).length);
 
 const src = process.argv[2]
   ? readFileSync(process.argv[2], "utf8")

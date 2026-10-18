@@ -59,10 +59,10 @@ export type Updater = {
   latest(): Promise<string | null>;
   /** Why it can't update now (no token to start builds with, Cloudflare connection lost), or null. */
   blocked(): Promise<string | null>;
-  /** Install *tag* (also the running version again: the storage check). {build}: a Workers Build
-   * started, which finishes later; {storage}: the version is live, with R2 bound or not. Throws
-   * cfapi.CloudflareError. */
-  install(tag: string): Promise<{ build?: string; storage?: boolean }>;
+  /** Install *tag* (also the running version again: the storage check, *modal* false: Modal's app
+   * stays as it is). {build}: a Workers Build started, which finishes later (and deploys Modal
+   * too); {storage}: the version is live, with R2 bound or not. Throws cfapi.CloudflareError. */
+  install(tag: string, o?: { modal?: boolean }): Promise<{ build?: string; storage?: boolean }>;
 };
 
 export function buildUpdater(fetch: Fetch, store: Store): Updater {

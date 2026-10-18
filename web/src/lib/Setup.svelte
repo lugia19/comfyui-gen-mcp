@@ -42,7 +42,7 @@
   let storage = $derived(info.storage !== false)
   // A step shows for the answer, and for a GPU that already exists (an answer changed later only adds).
   let wantPc = $derived(mode === 'pc' || mode === 'both' || pcs.length > 0)
-  let wantModal = $derived(mode === 'cloud' || mode === 'both' || Boolean(modalGpu) || Boolean(info.build && info.build !== info.update_build))
+  let wantModal = $derived(mode === 'cloud' || mode === 'both' || Boolean(modalGpu) || Boolean(info.modal_deploy) || Boolean(info.build && info.build !== info.update_build))
   // Every PC has paired (a PC waiting to pair keeps the step open).
   let pcsReady = $derived(pcs.length > 0 && pcs.every((g) => g.seen))
   // Where each PC is in its own setup, from its agent's latest hello (re-sent when ComfyUI's state
@@ -179,12 +179,10 @@
   let billingOpened = $state(false)
 
   // With the token given here, or (*withToken* false: Try again) the one stored with the last deploy.
+  // The Worker deploys either way it can: a Workers Build, or a Modal Sandbox (the oauth path).
   function deploy(withToken) {
     buildTask.run(async () => {
-      if (oauth) {
-        if (withToken) await api('POST', '/modal/token', { token_id: modalId.trim(), token_secret: modalSecret.trim() })
-        await api('POST', '/setup/modal')
-      } else await api('POST', '/setup/build', withToken ? { modal_token_id: modalId.trim(), modal_token_secret: modalSecret.trim() } : {})
+      await api('POST', '/setup/modal', withToken ? { token_id: modalId.trim(), token_secret: modalSecret.trim() } : {})
       modalSecret = ''
       modalCommand = ''
       await refresh()
@@ -444,29 +442,12 @@
         {#if deployed}<p class="muted">Until then, your last working setup keeps running.</p>{/if}
       </div>
     {/if}
-    {#if building && oauth}
-      {#key info.modal_deploy.started}<BuildLog path="/setup/modal/log" takes="about 5 minutes the first time" onfinished={refresh} />{/key}
-    {:else if building}
-      {#key info.build}<BuildLog takes="about 5 minutes the first time" onfinished={async () => { await refresh(); finishedBuild = info.build }} />{/key}
+    {#if building}
+      {#key info.modal_deploy?.started ?? info.build}
+        <BuildLog path="/setup/modal/log" takes="about 5 minutes the first time" onfinished={async () => { await refresh(); finishedBuild = info.build }} />
+      {/key}
     {:else if deployed && !modalError}
       <p>Modal is ready.</p>
-    {:else if oauth && !needsCard && !modalError}
-      <p>Images are made on Modal, in your own Modal account. Modal is a cloud service with graphics cards. Modal gives you $30 free each month.</p>
-      <Walk>
-        <WalkStep>
-          No Modal account yet? Sign up first.
-          {#snippet controls()}<OpenButton secondary small href="https://modal.com/signup" label="Sign up at Modal" />{/snippet}
-        </WalkStep>
-        <WalkStep>
-          Connect your Modal account. Modal opens in a new tab and asks you to approve it. Approve it there, then come back here: the setup goes on by itself.
-          {#snippet controls()}
-            <button onclick={connectModal} disabled={connectTask.busy}>{connecting ? 'Waiting for you to approve in Modal…' : connectTask.busy ? 'Opening Modal…' : 'Connect Modal'}</button>
-          {/snippet}
-        </WalkStep>
-      </Walk>
-      {#if connectTask.error}<p class="err">{connectTask.error}</p>{/if}
-      {#if buildTask.error}<p class="err">{buildTask.error}</p>{/if}
-      {@render typedToken()}
     {:else if !needsCard}
       <p>Images are made on Modal, in your own Modal account. Modal is a cloud service with graphics cards. Modal gives you $30 free each month.</p>
       <Walk>
@@ -474,6 +455,15 @@
           No Modal account yet? Sign up first.
           {#snippet controls()}<OpenButton secondary small href="https://modal.com/signup" label="Sign up at Modal" />{/snippet}
         </WalkStep>
+        {#if oauth}
+        <WalkStep>
+          Connect your Modal account. Modal opens in a new tab and asks you to approve it. Approve it there, then come back here: the setup goes on by itself.
+          {#snippet controls()}
+            <button onclick={connectModal} disabled={connectTask.busy}>{connecting ? 'Waiting for you to approve in Modal…' : connectTask.busy ? 'Opening Modal…' : 'Connect Modal'}</button>
+            {@render typedToken()}
+          {/snippet}
+        </WalkStep>
+        {:else}
         <WalkStep>
           Open the API tokens page in Modal.
           {#snippet controls()}<OpenButton href={MODAL_TOKENS} label="Open Modal's API tokens" />{/snippet}
@@ -489,7 +479,9 @@
             {@render typedToken()}
           {/snippet}
         </WalkStep>
+        {/if}
       </Walk>
+      {#if connectTask.error}<p class="err">{connectTask.error}</p>{/if}
       {#if buildTask.error}<p class="err">{buildTask.error}</p>{/if}
     {/if}
     <!-- A new token once Modal is set up (the steps above have it while they show). -->

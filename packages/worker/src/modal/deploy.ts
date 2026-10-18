@@ -17,7 +17,13 @@ const SANDBOX_TIMEOUT_S = 1800;
 
 /** Where *tag*'s source is: GitHub's tag tarball, or the development base's source.tar.gz. */
 export function sourceUrl(base: string | undefined, tag: string): string {
-  return base ? `${releases.trim(base)}/${tag}/source.tar.gz` : `https://codeload.github.com/lugia19/comfyui-gen-mcp/tar.gz/${tag}`;
+  return base ? `${releases.trim(base)}/${tag}/source.tar.gz` : `https://codeload.github.com/${releases.REPO}/tar.gz/${tag}`;
+}
+
+/** The workspace Secret with *token*, which the Sandbox's `modal deploy` signs in with: its id.
+ * Written at every deploy too, so it is the Worker's token even if the Secret was changed in Modal. */
+export function putTokenSecret(c: ModalClient, token: ModalToken): Promise<string> {
+  return c.secretPut(TOKEN_SECRET, { MODAL_TOKEN_ID: token.id, MODAL_TOKEN_SECRET: token.secret });
 }
 
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -37,10 +43,9 @@ export function deployScript(source: string, callback: string, nonce: string, ta
 /** Start the deploy: the token's Secret (kept current), the setup app and image, the Sandbox. Its
  * id. Throws GrpcError. */
 export async function startDeploy(c: ModalClient, token: ModalToken, script: string): Promise<string> {
-  const [secretId, appId] = await Promise.all([
-    c.secretPut(TOKEN_SECRET, { MODAL_TOKEN_ID: token.id, MODAL_TOKEN_SECRET: token.secret }),
-    c.appId(SETUP_APP),
+  const [secretId, [appId, imageId]] = await Promise.all([
+    putTokenSecret(c, token),
+    c.appId(SETUP_APP).then(async (appId) => [appId, await c.image(appId, IMAGE, 50)] as const),
   ]);
-  const imageId = await c.image(appId, IMAGE, 50);
   return c.sandboxCreate(appId, { image_id: imageId, secret_ids: [secretId], entrypoint_args: ["bash", "-c", script], timeout_secs: SANDBOX_TIMEOUT_S });
 }

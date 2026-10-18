@@ -6,7 +6,9 @@
 // A small codec instead of generated code: about twenty messages, and nothing to decode when an
 // isolate starts (the whole api.proto's descriptor cost the spike up to 17 ms of CPU).
 
-type Scalar = "string" | "bytes" | "bool" | "int32" | "uint32" | "uint64" | "enum" | "float" | "double";
+import { concat, fromUtf8, utf8 } from "@comfy-gen/core";
+
+type Scalar = "string" | "bool" | "int32" | "uint32" | "enum" | "float";
 type Kind = Scalar | Schema;
 /** [field number, kind, repeated] */
 type Field = readonly [number, Kind, boolean?];
@@ -22,11 +24,11 @@ export const Empty = msg("Empty", {});
 export const AuthTokenGetResponse = msg("AuthTokenGetResponse", { token: [1, "string"] });
 export const TokenFlowCreateRequest = msg("TokenFlowCreateRequest", { utm_source: [3, "string"] });
 export const TokenFlowCreateResponse = msg("TokenFlowCreateResponse", {
-  token_flow_id: [1, "string"], web_url: [2, "string"], code: [3, "string"], wait_secret: [4, "string"],
+  token_flow_id: [1, "string"], web_url: [2, "string"], wait_secret: [4, "string"],
 });
 export const TokenFlowWaitRequest = msg("TokenFlowWaitRequest", { timeout: [1, "float"], token_flow_id: [2, "string"], wait_secret: [3, "string"] });
 export const TokenFlowWaitResponse = msg("TokenFlowWaitResponse", {
-  token_id: [1, "string"], token_secret: [2, "string"], timeout: [3, "bool"], workspace_username: [4, "string"],
+  token_id: [1, "string"], token_secret: [2, "string"], timeout: [3, "bool"],
 });
 export const SecretGetOrCreateRequest = msg("SecretGetOrCreateRequest", {
   deployment_name: [1, "string"], object_creation_type: [4, "enum"], env_dict: [5, StringEntry, true],
@@ -40,9 +42,7 @@ export const GenericResult = msg("GenericResult", { status: [1, "enum"], excepti
 export const ImageGetOrCreateResponse = msg("ImageGetOrCreateResponse", { image_id: [1, "string"], result: [2, GenericResult] });
 export const ImageJoinStreamingRequest = msg("ImageJoinStreamingRequest", { image_id: [1, "string"], timeout: [2, "float"], last_entry_id: [3, "string"] });
 export const TaskLogs = msg("TaskLogs", { data: [1, "string"] });
-export const ImageJoinStreamingResponse = msg("ImageJoinStreamingResponse", {
-  result: [1, GenericResult], task_logs: [2, TaskLogs, true], entry_id: [3, "string"], eof: [4, "bool"],
-});
+export const ImageJoinStreamingResponse = msg("ImageJoinStreamingResponse", { result: [1, GenericResult], entry_id: [3, "string"] });
 export const NetworkAccess = msg("NetworkAccess", { network_access_type: [1, "enum"] });
 export const Sandbox = msg("Sandbox", {
   entrypoint_args: [1, "string", true], image_id: [3, "string"], secret_ids: [4, "string", true], timeout_secs: [7, "uint32"],
@@ -64,44 +64,35 @@ export const NETWORK_OPEN = 1;
 export const STDOUT = 1;
 export const STATUS_SUCCESS = 1;
 
-/** Each message the client uses, for the check against api.proto. */
-export const MESSAGES: Schema[] = [
-  AuthTokenGetResponse, TokenFlowCreateRequest, TokenFlowCreateResponse, TokenFlowWaitRequest, TokenFlowWaitResponse,
-  SecretGetOrCreateRequest, SecretGetOrCreateResponse, AppGetOrCreateRequest, AppGetOrCreateResponse, Image,
-  ImageGetOrCreateRequest, GenericResult, ImageGetOrCreateResponse, ImageJoinStreamingRequest, TaskLogs,
-  ImageJoinStreamingResponse, NetworkAccess, Sandbox, SandboxCreateRequest, SandboxCreateResponse, SandboxGetLogsRequest,
-  TaskLogsBatch, SandboxWaitRequest, SandboxWaitResponse,
-];
-
 // ── The codec ──
 
 class Writer {
-  private parts: number[] = [];
+  private parts: Uint8Array[] = [];
   varint(v: bigint) {
+    const out: number[] = [];
     v = BigInt.asUintN(64, v);
     while (v > 0x7fn) {
-      this.parts.push(Number(v & 0x7fn) | 0x80);
+      out.push(Number(v & 0x7fn) | 0x80);
       v >>= 7n;
     }
-    this.parts.push(Number(v));
+    out.push(Number(v));
+    this.parts.push(Uint8Array.from(out));
   }
   tag(num: number, wire: number) {
     this.varint(BigInt((num << 3) | wire));
   }
+  /** A length-delimited value. */
   raw(bytes: Uint8Array) {
     this.varint(BigInt(bytes.length));
-    for (const b of bytes) this.parts.push(b);
+    this.parts.push(bytes);
   }
   fixed(bytes: Uint8Array) {
-    for (const b of bytes) this.parts.push(b);
+    this.parts.push(bytes);
   }
   done(): Uint8Array {
-    return Uint8Array.from(this.parts);
+    return concat(this.parts);
   }
 }
-
-const utf8 = new TextEncoder();
-const fromUtf8 = new TextDecoder();
 
 function writeValue(w: Writer, num: number, kind: Kind, v: any) {
   if (typeof kind === "object") {
@@ -109,19 +100,11 @@ function writeValue(w: Writer, num: number, kind: Kind, v: any) {
     w.raw(encode(kind, v));
   } else if (kind === "string") {
     w.tag(num, 2);
-    w.raw(utf8.encode(v));
-  } else if (kind === "bytes") {
-    w.tag(num, 2);
-    w.raw(v);
+    w.raw(utf8(v));
   } else if (kind === "float") {
     const b = new Uint8Array(4);
     new DataView(b.buffer).setFloat32(0, v, true);
     w.tag(num, 5);
-    w.fixed(b);
-  } else if (kind === "double") {
-    const b = new Uint8Array(8);
-    new DataView(b.buffer).setFloat64(0, v, true);
-    w.tag(num, 1);
     w.fixed(b);
   } else {
     w.tag(num, 0);
@@ -167,18 +150,15 @@ class Reader {
 
 function readValue(r: Reader, wire: number, kind: Kind): unknown {
   if (typeof kind === "object") return decode(kind, r.take(Number(r.varint())));
-  if (kind === "string") return fromUtf8.decode(r.take(Number(r.varint())));
-  if (kind === "bytes") return r.take(Number(r.varint())).slice();
-  if (kind === "float" || kind === "double") {
-    const b = r.take(kind === "float" ? 4 : 8);
-    const view = new DataView(b.buffer, b.byteOffset, b.length);
-    return kind === "float" ? view.getFloat32(0, true) : view.getFloat64(0, true);
+  if (kind === "string") return fromUtf8(r.take(Number(r.varint())));
+  if (kind === "float") {
+    const b = r.take(4);
+    return new DataView(b.buffer, b.byteOffset, 4).getFloat32(0, true);
   }
   if (wire !== 0) throw new Error(`protobuf: unexpected wire type ${wire}`);
   const v = r.varint();
   if (kind === "bool") return v !== 0n;
   if (kind === "int32") return Number(BigInt.asIntN(32, v));
-  if (kind === "uint64") return v.toString();
   return Number(v);
 }
 
