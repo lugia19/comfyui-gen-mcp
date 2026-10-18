@@ -6,6 +6,7 @@
   import { onDestroy, onMount } from 'svelte'
   import { api } from './api.js'
   import BuildLog from './BuildLog.svelte'
+  import ConnectModal from './ConnectModal.svelte'
   import ConnectorUrl from './ConnectorUrl.svelte'
   import GpuList from './GpuList.svelte'
   import Models from './Models.svelte'
@@ -137,27 +138,6 @@
   let oauth = $derived(info.update_path === 'oauth')
   let finishedBuild = $state(null)
   let building = $derived(oauth ? Boolean(info.modal_deploy) : Boolean(info.build && info.build !== info.update_build && info.build !== finishedBuild))
-
-  // Connect Modal (the oauth path): Modal's sign-in in a new tab; this page waits for the approval,
-  // then deploys. The tab is opened at the click (a tab opened after a request is often blocked).
-  const connectTask = new Task()
-  let connecting = $state(false)
-  function connectModal() {
-    const tab = window.open('about:blank', '_blank')
-    connectTask.run(async () => {
-      const { url } = await api('POST', '/modal/connect')
-      if (tab) tab.location.href = url
-      else window.open(url, '_blank')
-      connecting = true
-      try {
-        while (!(await api('POST', '/modal/connect/wait')).connected) {}
-      } finally {
-        connecting = false
-      }
-      await api('POST', '/setup/modal')
-      await refresh()
-    })
-  }
 
   // Modal shows a new token only inside `modal token set --token-id ak-… --token-secret as-…`.
   // Pasted whole, it is split here and the deploy starts at once.
@@ -459,7 +439,7 @@
         <WalkStep>
           Connect your Modal account. Modal opens in a new tab and asks you to approve it. Approve it there, then come back here: the setup goes on by itself.
           {#snippet controls()}
-            <button onclick={connectModal} disabled={connectTask.busy}>{connecting ? 'Waiting for you to approve in Modal…' : connectTask.busy ? 'Opening Modal…' : 'Connect Modal'}</button>
+            <ConnectModal {refresh} />
             {@render typedToken()}
           {/snippet}
         </WalkStep>
@@ -481,7 +461,6 @@
         </WalkStep>
         {/if}
       </Walk>
-      {#if connectTask.error}<p class="err">{connectTask.error}</p>{/if}
       {#if buildTask.error}<p class="err">{buildTask.error}</p>{/if}
     {/if}
     <!-- A new token once Modal is set up (the steps above have it while they show). -->

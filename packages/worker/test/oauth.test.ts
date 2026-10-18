@@ -320,7 +320,7 @@ describe("moving an install made from a repository", () => {
     const s = await w.app.store.secrets();
     expect([s.cf_token, s.cf_trigger, Boolean(s.cf_claimed), s.cf_script]).toEqual([undefined, undefined, true, "comfy-gen"]);
     const state = await body(await w.app.handle(request("GET", "/api/state", undefined, w.cookie)));
-    expect(state).toMatchObject({ update_path: "oauth", move_note: null, modal_connected: false, setup_mode: "both" });
+    expect(state).toMatchObject({ update_path: "oauth", move_note: expect.stringContaining("delete that repository"), modal_connected: false, setup_mode: "both" });
     expect((await w.app.handle(request("POST", "/api/cloudflare/move", undefined, w.cookie))).status).toBe(409); // done
   });
 

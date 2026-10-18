@@ -381,16 +381,17 @@ export class App {
    * The end of a move to the new setup (design §6): the setup Worker has uploaded this version over
    * the one the Workers Build deployed and hands over its tokens. The build trigger goes, with the
    * Cloudflare token the build path kept (its template includes Workers Builds edit), and so does
-   * that token. A trigger that won't go is the page's note: the repository could still deploy.
+   * that token. The page's note says what's left in GitHub; a trigger that won't go is in it too,
+   * as the repository could still deploy.
    */
   private async finishMove(s: Secrets): Promise<void> {
-    let note: string | null = null;
+    let note = "This Worker now updates itself. Its GitHub copy is no longer used: you can delete that repository.";
     if (s.cf_token && s.cf_trigger) {
       try {
         await cloudflare.deleteTrigger(this.fetch, s.cf_token, s.cf_account_id, s.cf_trigger);
       } catch (e) {
         if (!(e instanceof cfapi.CloudflareError)) throw e;
-        note = `Cloudflare didn't let this Worker disconnect its GitHub repository (${e.message}). Disconnect it yourself: in Cloudflare, open this Worker's Settings, then Build, and click Disconnect.`;
+        note = `Cloudflare didn't let this Worker disconnect its GitHub repository (${e.message}). Disconnect it yourself: in Cloudflare, open this Worker's Settings, then Build, and click Disconnect. Then you can delete the repository.`;
       }
     }
     await this.fresh.updateSecrets({ cf_claimed: this.p.now(), cf_token: null, cf_trigger: null, cf_branch: null });

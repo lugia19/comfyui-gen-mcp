@@ -4,6 +4,7 @@
   import Login from './lib/Login.svelte'
   import AgentWorker from './lib/AgentWorker.svelte'
   import Checklist from './lib/Checklist.svelte'
+  import ConnectModal from './lib/ConnectModal.svelte'
   import LocalSetup from './lib/LocalSetup.svelte'
   import Setup from './lib/Setup.svelte'
   import Settings from './lib/Settings.svelte'
@@ -120,6 +121,22 @@
   const reconnect = new Task()
   const startReconnect = () => reconnect.run(async () => (location.href = (await api('POST', '/cloudflare/reconnect')).url))
 
+  // An install made from a GitHub copy (update path "build") moves to the new setup the same way:
+  // the setup site uploads the latest release over it and hands it the access, and it comes back
+  // here with the move's note (what's left to delete in GitHub), shown until dismissed.
+  const move = new Task()
+  const startMove = () => move.run(async () => (location.href = (await api('POST', '/cloudflare/move')).url))
+  const NOTE_SEEN = 'comfy-gen-move-note'
+  let noteSeen = $state((() => { try { return localStorage.getItem(NOTE_SEEN) } catch { return null } })())
+  function dismissNote() {
+    noteSeen = info.move_note
+    try { localStorage.setItem(NOTE_SEEN, noteSeen) } catch {}
+  }
+
+  // After a move, Modal's token is still only in the old build's secrets: Modal keeps running, but
+  // updates pass it over until it is connected here.
+  let modalUnlinked = $derived(info?.update_path === 'oauth' && !info.modal_connected && (info.gpus ?? []).some((g) => g.kind === 'modal'))
+
   onMount(async () => {
     await useTicket()
     await loggedIn()
@@ -159,12 +176,33 @@
       </div>
     {/if}
   </header>
-  {#if info?.cf_lost && !local && info.password_set}
-    <p class="lost">
-      <span>Your Worker lost its connection to Cloudflare, so it can't update itself.</span>
-      <button class="small" onclick={startReconnect} disabled={reconnect.busy}>Reconnect Cloudflare</button>
-      {#if reconnect.error}<span class="err">{reconnect.error}</span>{/if}
-    </p>
+  {#if info && !local && info.password_set}
+    {#if info.cf_lost}
+      <p class="banner warn">
+        <span>Your Worker lost its connection to Cloudflare, so it can't update itself.</span>
+        <button class="small" onclick={startReconnect} disabled={reconnect.busy}>Reconnect Cloudflare</button>
+        {#if reconnect.error}<span class="err">{reconnect.error}</span>{/if}
+      </p>
+    {/if}
+    {#if info.update_path === 'build'}
+      <p class="banner">
+        <span>This Worker updates from its copy of Comfy-Gen on GitHub. Move it to the new setup: it then updates itself, and keeps its address, images and settings.</span>
+        <button class="small" onclick={startMove} disabled={move.busy}>Move to the new setup</button>
+        {#if move.error}<span class="err">{move.error}</span>{/if}
+      </p>
+    {/if}
+    {#if info.move_note && info.move_note !== noteSeen}
+      <p class="banner">
+        <span>{info.move_note}</span>
+        <button class="small secondary" onclick={dismissNote}>Got it</button>
+      </p>
+    {/if}
+    {#if modalUnlinked}
+      <p class="banner">
+        <span>Connect Modal, so Modal is updated with your Worker. Until then, it keeps running the version it has.</span>
+        <ConnectModal {refresh} small />
+      </p>
+    {/if}
   {/if}
   </div>
 
@@ -216,14 +254,17 @@
 </main>
 
 <style>
-  .lost {
+  .banner {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 6px 12px;
     margin: 0;
     padding: 8px 16px;
-    border-bottom: 1px solid var(--err);
+    border-bottom: 1px solid var(--border);
     background: var(--panel);
+  }
+  .warn {
+    border-bottom-color: var(--err);
   }
 </style>
