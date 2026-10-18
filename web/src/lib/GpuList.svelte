@@ -3,11 +3,12 @@
   import { api, gpuName, platformName } from './api.js'
   import AgentUpdate from './AgentUpdate.svelte'
   import Icon from './Icon.svelte'
+  import PairPc from './PairPc.svelte'
   import { Task } from './task.svelte.js'
 
   // The Worker's GPUs, in priority order (design §2, "GPUs"): a call goes to the first that is
-  // online, not paused and enabled, and has the model ready. Each PC pairs with its own link (a new
-  // or re-linked PC's steps are PairPc, under the list); Modal is added by its own Setup step. *gpus* is /api/state's list (with each one's live state); *refresh* reloads it.
+  // online, not paused and enabled, and has the model ready. Each PC pairs with its own link: a new
+  // or re-linked PC shows its pairing steps (PairPc) in its own entry; Modal is added by its own Setup step. *gpus* is /api/state's list (with each one's live state); *refresh* reloads it.
   let { gpus, refresh } = $props()
 
   const KIND = { pc: 'PC', modal: 'Modal' }
@@ -46,7 +47,7 @@
   }
 
   function newLink(g) {
-    if (confirm(`Make a new pairing link for ${g.name}? It disconnects until it pairs again; the steps show below the list.`)) {
+    if (confirm(`Make a new pairing link for ${g.name}? It disconnects until it pairs again; the steps show under it.`)) {
       act(g.id, () => api('POST', `/gpus/${g.id}/pair`))
     }
   }
@@ -115,10 +116,15 @@
           <AgentUpdate version={g.info.version} {latest} can label="Update agent to" call={(m, p) => api(m, `/gpus/${g.id}/machine${p}`)} onupdated={refresh} />
         {/if}
       {/if}
-      <!-- The PC's own Comfy-Gen page, through this Worker (design §9, "A page per PC"). -->
-      <a class="button small" href="/gpu/{g.id}" target="_blank" rel="noopener" title="Its ComfyUI, folders and models, as on the PC"><Icon name="external" />Open its page</a>
+      <!-- The PC's own Comfy-Gen page, through this Worker (design §9, "A page per PC"); nothing to
+           open, or re-link, before it has paired once. -->
+      {#if g.seen}
+        <a class="button small" href="/gpu/{g.id}" target="_blank" rel="noopener" title="Its ComfyUI, folders and models, as on the PC"><Icon name="external" />Open its page</a>
+      {/if}
       <span class="spacer"></span>
-      <button type="button" class="danger small" disabled={task.busy === g.id} onclick={() => newLink(g)} title="It disconnects until it pairs again with the new link"><Icon name="link" />New pairing link</button>
+      {#if g.seen}
+        <button type="button" class="danger small" disabled={task.busy === g.id} onclick={() => newLink(g)} title="It disconnects until it pairs again with the new link"><Icon name="link" />New pairing link</button>
+      {/if}
       {@render trash(g)}
     </div>
     {/if}
@@ -133,6 +139,13 @@
       <p class="muted hint">Keep warm: how long the GPU stays up after the last image. On Modal that time is billed.</p>
     {:else if g.kind === 'pc'}
       <p class="muted hint">Keep warm: how long ComfyUI keeps the model loaded after the last image.</p>
+    {/if}
+    {#if g.kind === 'pc' && !g.seen}
+      <!-- Its pairing steps, in its own entry: under the list they read as the last GPU's. -->
+      <div class="pair">
+        <h3>Pair {g.name}</h3>
+        <PairPc pc={g} {refresh} another={gpus.length > 1} />
+      </div>
     {/if}
   </div>
 {/each}
@@ -156,4 +169,6 @@
   .controls { gap: 6px 16px; align-items: center; margin-top: 6px; }
   .minutes { width: 64px; margin: 0; }
   .hint { margin: 4px 0 0; font-size: 13px; }
+  .pair { margin: 12px 0 4px; padding: 4px 0 4px 16px; border-left: 3px solid var(--accent); }
+  .pair h3 { margin-top: 0; }
 </style>

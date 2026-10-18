@@ -3,7 +3,6 @@
   import '../../../site/guide/wizard.css'
   import { api } from './api.js'
   import GpuList from './GpuList.svelte'
-  import PairPc from './PairPc.svelte'
   import LoraSection from './LoraSection.svelte'
   import { ModelStatus } from './models.svelte.js'
   import SettingsModels from './SettingsModels.svelte'
@@ -40,7 +39,7 @@
     unsaved = dirty
   })
   const saving = new Task()
-  // A PC added here pairs here too (PairPc): the first PC whose agent hasn't connected yet.
+  // A PC added here pairs here too (PairPc, in its GpuList entry): the first PC whose agent hasn't connected yet.
   const adding = new Task()
   const addPc = () => adding.run(async () => (await api('POST', '/gpus/pc'), await refresh()))
   let pairing = $derived((info.gpus ?? []).find((g) => g.kind === 'pc' && !g.seen))
@@ -207,9 +206,13 @@
       <section>
         <h2>GPUs</h2>
         <GpuList gpus={info.gpus ?? []} {refresh} />
+      </section>
+      <!-- Its own section, so adding reads as adding, not as part of the last GPU. A PC that is
+           pairing shows its steps in its own entry above. -->
+      <section>
+        <h2>Add a GPU</h2>
         {#if pairing}
-          <h3>Pair {pairing.name}</h3>
-          <PairPc pc={pairing} {refresh} another={(info.gpus ?? []).length > 1} />
+          <p class="muted">Finish pairing {pairing.name} first: its steps are in its entry above.</p>
         {:else}
           <div class="row">
             <button type="button" class="secondary" onclick={addPc} disabled={adding.busy}>{adding.busy ? 'Adding…' : 'Add a PC'}</button>
