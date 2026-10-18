@@ -7,6 +7,8 @@
 //   GET  /oauth/start       sign in (the site's Connect Cloudflare)
 //   GET  /reconnect         sign in again for an existing Worker whose connection was lost:
 //                           ?worker=<its address>&code=<its one-time code>
+//   GET  /move              the same for a Worker made from a repository (the Workers Build path):
+//                           the latest release is uploaded over it first, then it takes the tokens
 //   GET  /oauth/callback    Cloudflare sends the browser back here
 //   GET  /api/accounts      the accounts the sign-in reaches, with their workers.dev subdomains
 //   POST /api/create        {account_id, name, mode, subdomain?}: create the Worker, hand it over,
@@ -74,8 +76,9 @@ const cookie = (req: Request, name: string) => readCookie(req.headers.get("cooki
 const setCookie = (name: string, value: string, path: string, maxAge: number) =>
   `${name}=${value}; Path=${path}; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`;
 
-/** The sign-in in progress: PKCE verifier, state, and for a reconnect the Worker and its code. */
-type Pending = { verifier: string; state: string; reconnect?: { worker: string; code: string } };
+/** The sign-in in progress: PKCE verifier, state, and for a reconnect (or a move) the Worker and its
+ * code. */
+type Pending = { verifier: string; state: string; reconnect?: { worker: string; code: string; move?: boolean } };
 const PENDING = "cg_oauth";
 /** After it: the tokens, until the Worker is created (the access token lasts an hour). */
 type Tokens = cfapi.OAuthTokens;
@@ -111,11 +114,12 @@ export async function handle(req: Request, env: Env, deps: Deps): Promise<Respon
   }
   try {
     if (path === "/oauth/start" && req.method === "GET") return start(env, deps, url, undefined);
-    if (path === "/reconnect" && req.method === "GET") {
+    if ((path === "/reconnect" || path === "/move") && req.method === "GET") {
       const worker = url.searchParams.get("worker") ?? "";
       const code = url.searchParams.get("code") ?? "";
-      if (!workersDev(worker) || !code) return page("That link is incomplete", "Start again from your Worker's page: Reconnect Cloudflare.");
-      return start(env, deps, url, { worker, code });
+      const move = path === "/move";
+      if (!workersDev(worker) || !code) return page("That link is incomplete", `Start again from your Worker's page: ${move ? "Move to the new setup" : "Reconnect Cloudflare"}.`);
+      return start(env, deps, url, { worker, code, move });
     }
     if (path === "/oauth/callback" && req.method === "GET") return callback(req, env, deps, url);
     if (path === "/api/accounts" && req.method === "GET") return accounts(req, env, deps);
@@ -147,7 +151,7 @@ async function callback(req: Request, env: Env, deps: Deps, url: URL): Promise<R
   if (!p || !safeEqual(q.get("state") ?? "", p.state)) return page("That sign-in expired", "Start again: sign-ins last ten minutes, in the same browser.");
   const tokens = await cfapi.exchangeCode(deps.fetch, env.CF_OAUTH_CLIENT, q.get("code") ?? "", `${url.origin}/oauth/callback`, p.verifier);
   const clear = setCookie(PENDING, "", "/oauth", 0);
-  if (p.reconnect) return reconnect(deps, tokens, p.reconnect, clear);
+  if (p.reconnect) return reconnect(env, deps, url, tokens, p.reconnect, clear);
   return redirect("/#connected", [clear, setCookie(TOKENS, await seal(env, tokens, deps.now() + TOKENS_S), "/api", TOKENS_S)]);
 }
 
@@ -162,17 +166,36 @@ function workersDev(worker: string): [string, string] | null {
   }
 }
 
-/** Reconnect: new tokens for a Worker that lost its connection, only if it is in an account this
- * sign-in reaches (a link can name any address; the tokens go only to the user's own Worker). */
-async function reconnect(deps: Deps, tokens: Tokens, r: NonNullable<Pending["reconnect"]>, clear: string): Promise<Response> {
+/**
+ * Reconnect: new tokens for a Worker that lost its connection, only if it is in an account this
+ * sign-in reaches (a link can name any address; the tokens go only to the user's own Worker).
+ * A move first uploads the latest release over that Worker (its version from the Workers Build):
+ * the same bucket (named as the build named it), its Durable Objects' data (migrations from its
+ * tag), and the new setup's vars; routes, the cron and workers.dev stay as they are. Then the new
+ * version takes the tokens, and gives up its build.
+ */
+async function reconnect(env: Env, deps: Deps, url: URL, tokens: Tokens, r: NonNullable<Pending["reconnect"]>, clear: string): Promise<Response> {
   const [script, sub] = workersDev(r.worker)!;
   const t = tokens.access_token;
-  const list = await cfapi.listAccounts(deps.fetch, t);
-  const subs = await Promise.all(list.map((a) => cfapi.workersSubdomain(deps.fetch, t, a.id)));
+  const f = deps.fetch;
+  const list = await cfapi.listAccounts(f, t);
+  const subs = await Promise.all(list.map((a) => cfapi.workersSubdomain(f, t, a.id)));
   const a = list[subs.indexOf(sub)]; // workers.dev subdomains are unique
-  const account = a && (await cfapi.scriptMigrationTag(deps.fetch, t, a.id, script)) !== undefined ? a.id : null;
-  if (!account) return page("That Worker isn't in this account", `${r.worker} isn't a Worker in the Cloudflare account you signed in to. Sign in to the account it's in.`);
-  const resp = await claim(deps, r.worker, { reconnect: r.code, tokens, account_id: account }, 0);
+  const fromTag = a ? await cfapi.scriptMigrationTag(f, t, a.id, script) : undefined;
+  if (!a || fromTag === undefined) return page("That Worker isn't in this account", `${r.worker} isn't a Worker in the Cloudflare account you signed in to. Sign in to the account it's in.`);
+  const account = a.id;
+  if (r.move) {
+    const tag = await releases.latestTag(f, env.COMFY_GEN_RELEASES);
+    if (!tag) return page("Something went wrong", "Could not find the latest release. Try again in a minute.", 502);
+    const bucket = cfapi.bucketName(script);
+    const [release, made] = await Promise.all([releases.loadRelease(f, env.COMFY_GEN_RELEASES, tag), cfapi.createBucket(f, t, account, bucket)]);
+    const vars: releases.WorkerVars = { CF_OAUTH_CLIENT: env.CF_OAUTH_CLIENT, COMFY_GEN_SETUP: url.origin, COMFY_GEN_RELEASES: env.COMFY_GEN_RELEASES };
+    await Promise.all([
+      made === "created" && cfapi.setLifecycle(f, t, account, bucket),
+      releases.uploadRelease(f, t, account, script, release, { bucket: made === "off" ? null : bucket, vars: releases.workerVars(vars), fromTag }),
+    ]);
+  }
+  const resp = await claim(deps, r.worker, { reconnect: r.code, tokens, account_id: account }, r.move ? CLAIM_WAIT_S : 0);
   if (!resp.ok) return page("Your Worker refused", (await resp.json().catch(() => ({})) as any).error ?? `HTTP ${resp.status}`);
   const { ticket } = (await resp.json()) as { ticket: string };
   return redirect(`${r.worker}#ticket=${ticket}`, [clear]);

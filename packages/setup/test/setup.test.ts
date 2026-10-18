@@ -195,3 +195,33 @@ describe("reconnecting a Worker", () => {
     expect(f.claims).toEqual([]);
   });
 });
+
+describe("moving a Worker made from a repository", () => {
+  it("uploads the latest release over it (same bucket, its Durable Objects' data), then hands it the tokens", async () => {
+    const f = new Fake();
+    f.buckets = ["other-worker-storage"]; // the build made it
+    const { back } = await signIn(f, "/move?worker=https%3A%2F%2Fother-worker.someone.workers.dev&code=CODE1");
+    expect(back.headers.get("location")).toBe("https://other-worker.someone.workers.dev#ticket=TICKET");
+    expect(f.uploads).toHaveLength(1);
+    const { script, meta } = f.uploads[0];
+    expect(script).toBe("other-worker");
+    expect(meta.migrations).toEqual({ old_tag: "v2", new_tag: "v2", steps: [] });
+    expect(meta.bindings).toEqual(expect.arrayContaining([
+      { type: "r2_bucket", name: "STORE", bucket_name: "other-worker-storage" },
+      { type: "plain_text", name: "CF_OAUTH_CLIENT", text: "cid" },
+      { type: "plain_text", name: "COMFY_GEN_SETUP", text: ORIGIN },
+      { type: "plain_text", name: "VERSION", text: "v2.0.0" },
+    ]));
+    expect(meta.bindings.some((b: any) => b.name === "CLAIM" || b.name === "SETUP_MODE")).toBe(false);
+    expect(f.lifecycles).toEqual([]); // the build set them
+    expect(f.slept).toBe(4); // the new version answers after a moment
+    expect(f.claims).toEqual([{ url: "https://other-worker.someone.workers.dev/api/claim", body: { reconnect: "CODE1", tokens: tokens(1), account_id: "acct1" } }]);
+  });
+
+  it("uploads nothing over a Worker outside the signed-in account", async () => {
+    const f = new Fake();
+    const { back } = await signIn(f, "/move?worker=https%3A%2F%2Fnot-in-account.someone.workers.dev&code=C");
+    expect(back.status).toBe(400);
+    expect([f.uploads, f.claims]).toEqual([[], []]);
+  });
+});
