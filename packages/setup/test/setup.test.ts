@@ -175,13 +175,22 @@ describe("grpc.lugia19.com", () => {
   });
 });
 
-describe("reconnecting a Worker", () => {
+describe("logging in to a Worker", () => {
   it("hands new tokens to a Worker in the signed-in account, which answers a login ticket", async () => {
+    for (const path of ["/login", "/reconnect"]) { // /reconnect: what Workers before v2.1.0 send
+      const f = new Fake();
+      f.notYet = 0;
+      const { back } = await signIn(f, `${path}?worker=https%3A%2F%2Fother-worker.someone.workers.dev&code=CODE1`);
+      expect(back.headers.get("location")).toBe("https://other-worker.someone.workers.dev#ticket=TICKET");
+      expect(f.claims[0].body).toEqual({ reconnect: "CODE1", tokens: tokens(1), account_id: "acct1" });
+      expect(f.uploads).toEqual([]); // only a move uploads
+    }
+  });
+
+  it("an incomplete link names the button to start again from", async () => {
     const f = new Fake();
-    f.notYet = 0;
-    const { back } = await signIn(f, "/reconnect?worker=https%3A%2F%2Fother-worker.someone.workers.dev&code=CODE1");
-    expect(back.headers.get("location")).toBe("https://other-worker.someone.workers.dev#ticket=TICKET");
-    expect(f.claims[0].body).toEqual({ reconnect: "CODE1", tokens: tokens(1), account_id: "acct1" });
+    expect(await (await f.call("GET", "/login?code=C")).text()).toContain("Log in with Cloudflare");
+    expect(await (await f.call("GET", "/move?code=C")).text()).toContain("Move to the new setup");
   });
 
   it("refuses a Worker outside the account, or an address that isn't a workers.dev Worker", async () => {

@@ -66,8 +66,15 @@ export const READY_RECHECK_S = 60;
 
 const hmacKey = (s: Secrets) => fromHex(s.hmac_key);
 
-/** The setup site (packages/setup): where Reconnect Cloudflare and a move sign in. */
+/** The setup site (packages/setup): where Log in with Cloudflare and a move sign in. */
 const SETUP_SITE = "https://comfy-setup.lugia19.com";
+
+/** The setup record's one-use codes, and how many of each are kept at once. */
+type OnceField = "login_ticket" | "reconnect";
+const ONCE_KEEP: Record<OnceField, number> = { login_ticket: 1, reconnect: 5 };
+type OnceCode = { hash: string; exp: number };
+/** A field's codes: a list, or (before 2026-10-18) one code or none. */
+const onceCodes = (v: OnceCode | OnceCode[] | null | undefined): OnceCode[] => (!v ? [] : Array.isArray(v) ? v : [v]);
 /** The answers to the setup's "where should images be made?" (design §8). */
 const SETUP_MODES = ["cloud", "pc", "both"] as const;
 type SetupMode = (typeof SETUP_MODES)[number];
@@ -331,19 +338,36 @@ export class App {
     return { storage: made !== "off" };
   }
 
-  /** A one-use code kept, hashed, in the setup record's *field* for *ttl* seconds. */
-  private async mintOnce(field: "login_ticket" | "reconnect", ttl: number): Promise<string> {
+  /** A one-use code kept, hashed, in the setup record's *field* for *ttl* seconds, beside the last
+   * few unexpired ones (ONCE_KEEP): a sign-in code is minted without a session (Log in with
+   * Cloudflare), so minting another mustn't cancel one in progress. */
+  private async mintOnce(field: OnceField, ttl: number): Promise<string> {
     const code = tokenUrlsafe(24);
-    await this.fresh.updateSetup({ [field]: { hash: await sha256Hex(utf8(code)), exp: this.p.now() + ttl } });
+    const now = this.p.now();
+    const live = onceCodes((await this.fresh.setup())[field]).filter((c) => c.exp >= now);
+    const kept = ONCE_KEEP[field] > 1 ? live.slice(1 - ONCE_KEEP[field]) : [];
+    await this.fresh.updateSetup({ [field]: [...kept, { hash: await sha256Hex(utf8(code)), exp: now + ttl }] });
     return code;
   }
 
-  /** Whether *code* is *field*'s code, unexpired; a match uses it up. */
-  private async takeOnce(field: "login_ticket" | "reconnect", code: unknown): Promise<boolean> {
-    const r = (await this.fresh.setup())[field];
-    if (typeof code !== "string" || !r || r.exp < this.p.now() || !safeEqual(await sha256Hex(utf8(code)), r.hash)) return false;
-    await this.fresh.updateSetup({ [field]: null });
+  /** Whether *code* is one of *field*'s codes, unexpired; a match uses it up. */
+  private async takeOnce(field: OnceField, code: unknown): Promise<boolean> {
+    if (typeof code !== "string") return false;
+    const hash = await sha256Hex(utf8(code));
+    const codes = onceCodes((await this.fresh.setup())[field]);
+    const i = codes.findIndex((c) => c.exp >= this.p.now() && safeEqual(hash, c.hash));
+    if (i < 0) return false;
+    codes.splice(i, 1);
+    await this.fresh.updateSetup({ [field]: codes.length ? codes : null });
     return true;
+  }
+
+  /** The setup site's page that signs in to Cloudflare for this Worker and comes back logged in,
+   * with a fresh one-use code: *kind* "login" (also a reconnect: the sign-in brings new tokens) or
+   * "move" (design §6). */
+  private async setupLink(kind: "login" | "move", origin: string): Promise<string> {
+    const q = new URLSearchParams({ worker: origin, code: await this.mintOnce("reconnect", 900) });
+    return `${releases.trim(this.p.env.COMFY_GEN_SETUP || SETUP_SITE)}/${kind}?${q}`;
   }
 
   /** A logged-in answer: the session cookie. */
@@ -354,9 +378,11 @@ export class App {
 
   /**
    * The setup Worker hands a Worker it created over (design §6): {claim, tokens, account_id, script},
-   * checked against the CLAIM secret it set at upload, once. Or a reconnect after the connection
-   * was lost: {reconnect, tokens, account_id}, with the one-time code this page made, from the
-   * same account. Answers a login ticket for the browser it sends here (#ticket=…).
+   * checked against the CLAIM secret it set at upload, once. Or a sign-in from this page (Log in
+   * with Cloudflare, which also reconnects, or a move): {reconnect, tokens, account_id}, with a
+   * one-time code this page made, from the same account. Its tokens replace the stored ones, and on
+   * the new setup a password is no longer used. Answers a login ticket for the browser it sends
+   * here (#ticket=…).
    */
   private async claim(req: Request): Promise<Response> {
     const b = await bodyJson(req);
@@ -365,8 +391,9 @@ export class App {
     const s = await this.fresh.secrets();
     if (b.reconnect !== undefined) {
       if (b.account_id !== s.cf_account_id) return error(403, "Sign in to the Cloudflare account this Worker is in.");
-      if (!(await this.takeOnce("reconnect", b.reconnect))) return error(403, "That reconnect link has expired: start again from the Worker's page.");
+      if (!(await this.takeOnce("reconnect", b.reconnect))) return error(403, "That sign-in link has expired: start again from the Worker's page.");
       if (!s.cf_claimed) await this.finishMove(s);
+      if (s.password) await this.fresh.updateSecrets({ password: null });
     } else {
       const claim = this.p.env.CLAIM;
       if (!claim || s.cf_claimed || !safeEqual(String(b.claim ?? ""), claim)) return error(403, "This Worker is already set up, or the claim is wrong.");
@@ -813,9 +840,15 @@ export class App {
   private async api(req: Request, url: URL, sub: string): Promise<Response> {
     if (sub === "/login" && req.method === "POST") return this.login(req, url);
     if (sub === "/claim" && req.method === "POST") return this.claim(req);
-    // The login screen asks which way in to offer: a password once one is set, else a token.
-    if (sub === "/login" && req.method === "GET") return json({ password: Boolean((await this.fresh.secrets()).password) });
     const s = await this.fresh.secrets();
+    // The login screen asks which way in to offer: on the new setup Cloudflare (and a token), else
+    // a password once one is set (and a token).
+    if (sub === "/login" && req.method === "GET") return json({ cloudflare: this.oauthPath(s), password: !this.oauthPath(s) && Boolean(s.password) });
+    if (sub === "/login/cloudflare" && req.method === "POST") {
+      // No session needed: only a Cloudflare sign-in to this Worker's account finishes it.
+      if (!this.oauthPath(s)) return error(409, "This Worker wasn't made by the setup site: log in with a Cloudflare token instead.");
+      return json({ url: await this.setupLink("login", url.origin) });
+    }
     if (sub === "/logout" && req.method === "POST") return json({ ok: true }, 200, { "Set-Cookie": auth.cookieHeader("", 0) });
     if (!(await auth.sessionOk(auth.readCookie(req.headers.get("cookie")), s.cookie_key, this.p.now()))) {
       return error(401, "log in first");
@@ -823,6 +856,7 @@ export class App {
 
     if (sub === "/state" && req.method === "GET") return json(await this.state(url, s));
     if (sub === "/password" && req.method === "PUT") {
+      if (this.oauthPath(s)) return error(409, "This Worker logs in with Cloudflare: it has no password.");
       const password = String((await bodyJson(req)).password ?? "");
       if (password.length < auth.PASSWORD_MIN) return error(400, `Use at least ${auth.PASSWORD_MIN} characters.`);
       await this.fresh.updateSecrets({ password: await auth.makePassword(password) });
@@ -858,21 +892,15 @@ export class App {
     }
     if (sub === "/update") return this.update(req, s);
     if (sub.startsWith("/modal/") || sub.startsWith("/setup/modal")) return this.modalApi(req, url, sub, s);
-    if (sub === "/cloudflare/reconnect" || sub === "/cloudflare/move") {
-      if (req.method !== "POST") return error(405, "POST");
-      // Reconnect: new tokens after the connection was lost. Move: an install made from a
-      // repository goes over to the new setup (the setup Worker uploads the latest release over
-      // it, then hands over the tokens). Both come back through claim() with this one-time code.
-      const move = sub === "/cloudflare/move";
-      if (move !== !this.oauthPath(s)) return error(409, move ? "This Worker is on the new setup already." : "This Worker wasn't made by the setup site: log in with a Cloudflare token instead.");
-      if (move && !s.cf_account_id) return error(400, "Log in with a Cloudflare token first.");
-      if (move) {
-        // The answer to "where?" came from the template's vars, which the new version won't have.
-        const setup = await this.fresh.setup();
-        if (!setup.mode && this.mode(setup)) await this.fresh.updateSetup({ mode: this.mode(setup) });
-      }
-      const q = new URLSearchParams({ worker: url.origin, code: await this.mintOnce("reconnect", 900) });
-      return json({ url: `${releases.trim(this.p.env.COMFY_GEN_SETUP || SETUP_SITE)}/${move ? "move" : "reconnect"}?${q}` });
+    if (sub === "/cloudflare/move" && req.method === "POST") {
+      // An install made from a repository goes over to the new setup: the setup Worker uploads the
+      // latest release over it, then hands over the tokens through claim() with this one-time code.
+      if (this.oauthPath(s)) return error(409, "This Worker is on the new setup already.");
+      if (!s.cf_account_id) return error(400, "Log in with a Cloudflare token first.");
+      // The answer to "where?" came from the template's vars, which the new version won't have.
+      const setup = await this.fresh.setup();
+      if (!setup.mode && this.mode(setup)) await this.fresh.updateSetup({ mode: this.mode(setup) });
+      return json({ url: await this.setupLink("move", url.origin) });
     }
     if (sub === "/setup/rotate-connector" && req.method === "POST") {
       await this.fresh.updateSecrets({ mcp_secret: tokenUrlsafe(24) });
@@ -920,7 +948,8 @@ export class App {
       modal_error: setup.modal_error ?? null,
       connector_url: `${url.origin}/mcp/${s.mcp_secret}`,
       claude_seen: setup.claude_seen ?? null,
-      password_set: Boolean(s.password),
+      // The first login on a Worker made from a repository sets a password; the new setup has none.
+      needs_password: !this.oauthPath(s) && !s.password,
       config,
       ...SETTINGS_METADATA,
     };
@@ -1054,11 +1083,11 @@ export class App {
    * stays open). */
   private async login(req: Request, url: URL): Promise<Response> {
     const body = await bodyJson(req);
-    if (typeof body.password === "string") return this.passwordLogin(body.password);
     if (body.ticket !== undefined) {
       // A login ticket from claim(): one use, ten minutes.
-      return (await this.takeOnce("login_ticket", body.ticket)) ? this.session() : error(401, "That link has expired: log in with your password.");
+      return (await this.takeOnce("login_ticket", body.ticket)) ? this.session() : error(401, "That link has expired: log in again.");
     }
+    if (typeof body.password === "string") return this.passwordLogin(body.password);
     const token = String(body.token ?? "").trim();
     if (!token) return error(400, "paste a token");
     // Under wrangler dev the host is 127.0.0.1; DEV_WORKER_HOST names a deployed Worker instead.
@@ -1087,6 +1116,7 @@ export class App {
 
   private async passwordLogin(password: string): Promise<Response> {
     const s = await this.fresh.secrets();
+    if (this.oauthPath(s)) return error(400, "This Worker logs in with Cloudflare: it has no password.");
     if (!s.password) return error(400, "No password is set yet: log in with a Cloudflare token.");
     const now = this.p.now();
     const fails: number[] = ((await this.fresh.setup()).login_fails ?? []).filter((t: number) => now - t < LOGIN_WINDOW_S);

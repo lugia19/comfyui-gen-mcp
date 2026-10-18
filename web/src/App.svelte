@@ -57,7 +57,7 @@
   // The Worker's pages are full-window (wizard.css): its login and Setup are wizards, Settings has a
   // section bar. The header stays on top and the page under it uses the whole width. --app-top is
   // the header's height, for what sticks below it.
-  let wide = $derived(!checking && !local && (!info || info.password_set))
+  let wide = $derived(!checking && !local && (!info || !info.needs_password))
   let topH = $state(0)
 
   // Three pages look alike (the Worker's, the agent's, the extension's): their tabs say which.
@@ -102,7 +102,7 @@
     info = null
   }
 
-  // #ticket=…: the setup site created this Worker (or reconnected it) and sent the browser here
+  // #ticket=…: the setup site created this Worker (or logged in to it) and sent the browser here
   // with a one-use login (design §6). An expired one leaves the usual login.
   let ticketError = $state('')
   async function useTicket() {
@@ -116,10 +116,10 @@
     }
   }
 
-  // The Worker's Cloudflare connection is gone (revoked, or unused too long): signing in again on
-  // the setup site hands it new access, and comes back here.
+  // The Worker's Cloudflare connection is gone (revoked, or unused too long): logging in with
+  // Cloudflare again hands it new access, and comes back here.
   const reconnect = new Task()
-  const startReconnect = () => reconnect.run(async () => (location.href = (await api('POST', '/cloudflare/reconnect')).url))
+  const startReconnect = () => reconnect.run(async () => (location.href = (await api('POST', '/login/cloudflare')).url))
 
   // An install made from a GitHub copy (update path "build") moves to the new setup the same way:
   // the setup site uploads the latest release over it and hands it the access, and it comes back
@@ -169,14 +169,14 @@
     {/if}
     {#if info}
       <div class="row">
-        {#if !local && info.password_set}<Update {info} {refresh} />
+        {#if !local && !info.needs_password}<Update {info} {refresh} />
         {:else if agent}<AgentUpdate version={info.version} call={api} showVersion reload />
         {:else}<span class="muted">{info.version}</span>{/if}
         {#if !local}<button class="secondary" onclick={logout}>Log out</button>{/if}
       </div>
     {/if}
   </header>
-  {#if info && !local && info.password_set}
+  {#if info && !local && !info.needs_password}
     {#if info.cf_lost}
       <p class="banner warn">
         <span>Your Worker lost its connection to Cloudflare, so it can't update itself.</span>
@@ -217,7 +217,7 @@
     </section>
   {:else if !info}
     <Login onlogin={loggedIn} notice={ticketError} />
-  {:else if !local && !info.password_set}
+  {:else if !local && info.needs_password}
     <!-- Required once, right after the first (token) login. -->
     <section><SetPassword required ondone={loggedIn} /></section>
   {:else if agent && pcPage}

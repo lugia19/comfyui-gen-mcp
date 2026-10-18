@@ -5,8 +5,9 @@
 // which keeps them (its /api/claim).
 //
 //   GET  /oauth/start       sign in (the site's Connect Cloudflare)
-//   GET  /reconnect         sign in again for an existing Worker whose connection was lost:
-//                           ?worker=<its address>&code=<its one-time code>
+//   GET  /login             Log in with Cloudflare, for an existing Worker (also how a lost
+//                           connection comes back): ?worker=<its address>&code=<its one-time code>
+//   GET  /reconnect         the same (the address Workers before v2.1.0 send)
 //   GET  /move              the same for a Worker made from a repository (the Workers Build path):
 //                           the latest release is uploaded over it first, then it takes the tokens
 //   GET  /oauth/callback    Cloudflare sends the browser back here
@@ -76,9 +77,11 @@ const cookie = (req: Request, name: string) => readCookie(req.headers.get("cooki
 const setCookie = (name: string, value: string, path: string, maxAge: number) =>
   `${name}=${value}; Path=${path}; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`;
 
-/** The sign-in in progress: PKCE verifier, state, and for a reconnect (or a move) the Worker and its
- * code. */
+/** The sign-in in progress: PKCE verifier, state, and for an existing Worker (a login, or a move)
+ * the Worker and its code. */
 type Pending = { verifier: string; state: string; reconnect?: { worker: string; code: string; move?: boolean } };
+/** What each existing-Worker sign-in is called on that Worker's page. */
+const BUTTONS: Record<string, string> = { "/login": "Log in with Cloudflare", "/reconnect": "Reconnect Cloudflare", "/move": "Move to the new setup" };
 const PENDING = "cg_oauth";
 /** After it: the tokens, until the Worker is created (the access token lasts an hour). */
 type Tokens = cfapi.OAuthTokens;
@@ -114,12 +117,11 @@ export async function handle(req: Request, env: Env, deps: Deps): Promise<Respon
   }
   try {
     if (path === "/oauth/start" && req.method === "GET") return start(env, deps, url, undefined);
-    if ((path === "/reconnect" || path === "/move") && req.method === "GET") {
+    if (BUTTONS[path] && req.method === "GET") {
       const worker = url.searchParams.get("worker") ?? "";
       const code = url.searchParams.get("code") ?? "";
-      const move = path === "/move";
-      if (!workersDev(worker) || !code) return page("That link is incomplete", `Start again from your Worker's page: ${move ? "Move to the new setup" : "Reconnect Cloudflare"}.`);
-      return start(env, deps, url, { worker, code, move });
+      if (!workersDev(worker) || !code) return page("That link is incomplete", `Start again from your Worker's page: ${BUTTONS[path]}.`);
+      return start(env, deps, url, { worker, code, move: path === "/move" });
     }
     if (path === "/oauth/callback" && req.method === "GET") return callback(req, env, deps, url);
     if (path === "/api/accounts" && req.method === "GET") return accounts(req, env, deps);
@@ -145,7 +147,7 @@ async function callback(req: Request, env: Env, deps: Deps, url: URL): Promise<R
   const q = url.searchParams;
   if (q.get("error")) {
     const denied = q.get("error") === "access_denied";
-    return page(denied ? "Not connected" : "Cloudflare refused the sign-in", denied ? "You chose not to allow access. Comfy-Gen can't create your Worker without it." : `${q.get("error")}: ${q.get("error_description") ?? ""}`);
+    return page(denied ? "Not connected" : "Cloudflare refused the sign-in", denied ? "You chose not to allow access, so nothing changed. Comfy-Gen needs it to create your Worker, or to log you in to it." : `${q.get("error")}: ${q.get("error_description") ?? ""}`);
   }
   const p = await open<Pending>(env, cookie(req, PENDING), deps.now());
   if (!p || !safeEqual(q.get("state") ?? "", p.state)) return page("That sign-in expired", "Start again: sign-ins last ten minutes, in the same browser.");
@@ -167,8 +169,9 @@ function workersDev(worker: string): [string, string] | null {
 }
 
 /**
- * Reconnect: new tokens for a Worker that lost its connection, only if it is in an account this
- * sign-in reaches (a link can name any address; the tokens go only to the user's own Worker).
+ * A sign-in for an existing Worker (Log in with Cloudflare, which also brings new tokens to one
+ * that lost its connection): only if it is in an account this sign-in reaches (a link can name any
+ * address; the tokens go only to the user's own Worker).
  * A move first uploads the latest release over that Worker (its version from the Workers Build):
  * the same bucket (named as the build named it), its Durable Objects' data (migrations from its
  * tag), and the new setup's vars; routes, the cron and workers.dev stay as they are. Then the new

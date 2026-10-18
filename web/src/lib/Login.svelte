@@ -1,28 +1,34 @@
 <script>
   import { onMount } from 'svelte'
   import { api, TOKEN_TEMPLATE_URL } from './api.js'
+  import { Task } from './task.svelte.js'
   import OpenButton from './OpenButton.svelte'
   import Walk from './Walk.svelte'
   import WalkGuide from './WalkGuide.svelte'
   import WalkStep from './WalkStep.svelte'
 
-  // The first login is a Cloudflare token (it proves the Worker is yours); it then sets a password,
-  // and later logins use that. The token stays the way back in, should the password be forgotten.
+  // A Worker made by the setup site logs in with Cloudflare: the setup site's sign-in to the account
+  // the Worker is in brings the browser back logged in (#ticket=…). One made from a repository logs
+  // in with a Cloudflare token the first time, then sets a password for later logins. Either way a
+  // pasted token is the way back in (the setup site down, the password forgotten).
   // *notice*: why a login link from the setup site didn't work.
   let { onlogin, notice = '' } = $props()
   let token = $state('')
   let password = $state('')
   let error = $state('')
   let busy = $state(false)
-  let hasPassword = $state(null) // null while asking
+  let ways = $state(null) // GET /api/login: {cloudflare, password}; null while asking
+  let hasPassword = $derived(Boolean(ways?.password))
   let useToken = $state(false)
+  const cloudflare = new Task()
+  const withCloudflare = () => cloudflare.run(async () => (location.href = (await api('POST', '/login/cloudflare')).url))
   let shot = $state(false) // the token walkthrough's screenshot shows: it takes the left of the window
 
   onMount(async () => {
     try {
-      hasPassword = (await api('GET', '/login')).password
+      ways = await api('GET', '/login')
     } catch {
-      hasPassword = false
+      ways = { cloudflare: false, password: false }
     }
   })
 
@@ -50,8 +56,18 @@
 </script>
 
 {#if notice}<p class="err">{notice}</p>{/if}
-{#if hasPassword === null}
+{#if ways === null}
   <p class="muted">Loading…</p>
+{:else if ways.cloudflare && !useToken}
+  <section>
+    <h2>Log in</h2>
+    <p>Cloudflare asks you to sign in and allow Comfy-Gen, then sends you back here, logged in. It proves this Worker is yours.</p>
+    <button onclick={withCloudflare} disabled={cloudflare.busy}>{cloudflare.busy ? 'Opening Cloudflare…' : 'Log in with Cloudflare'}</button>
+    {#if cloudflare.error}<p class="err">{cloudflare.error}</p>{/if}
+    <p class="muted">
+      Cloudflare unreachable from here? <button type="button" class="link" onclick={() => ((useToken = true), (error = ''))}>Log in with a Cloudflare token instead</button>.
+    </p>
+  </section>
 {:else if hasPassword && !useToken}
   <section>
     <h2>Log in</h2>
@@ -71,9 +87,9 @@
 <section class="login" class:wz-split={shot} style="--wz-top: var(--app-top, 0px)">
   <h2>Log in with Cloudflare</h2>
   <p>
-    {#if hasPassword}
+    {#if ways.cloudflare || hasPassword}
       A Cloudflare token proves this Worker is yours.
-      <button type="button" class="link" onclick={() => ((useToken = false), (error = ''))}>Back to the password</button>
+      <button type="button" class="link" onclick={() => ((useToken = false), (error = ''))}>{ways.cloudflare ? 'Back to Log in with Cloudflare' : 'Back to the password'}</button>
     {:else}
       The first time, a Cloudflare token proves this Worker is yours. After this you set a password for next time.
     {/if}

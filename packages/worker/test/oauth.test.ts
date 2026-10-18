@@ -97,7 +97,7 @@ describe("the OAuth tokens", () => {
     expect(w.cf.refreshes).toEqual(["r1"]);
   });
 
-  it("invalid_grant: the connection is lost until Reconnect Cloudflare hands over new tokens", async () => {
+  it("invalid_grant: the connection is lost until a Cloudflare login hands over new tokens", async () => {
     const w = created();
     const cookie = await claimed(w);
     w.cf.refuse = true;
@@ -109,9 +109,9 @@ describe("the OAuth tokens", () => {
     expect((await body(await w.app.handle(request("GET", "/api/state", undefined, cookie)))).cf_lost).toContain("invalid_grant");
     expect((await w.app.handle(request("POST", "/api/update", undefined, cookie))).status).toBe(409);
 
-    const { url } = await body(await w.app.handle(request("POST", "/api/cloudflare/reconnect", undefined, cookie)));
+    const { url } = await body(await w.app.handle(request("POST", "/api/login/cloudflare")));
     const u = new URL(url);
-    expect(u.origin + u.pathname).toBe("https://setup.example/reconnect");
+    expect(u.origin + u.pathname).toBe("https://setup.example/login");
     expect(u.searchParams.get("worker")).toBe("https://comfy-gen.someone.workers.dev");
     const code = u.searchParams.get("code")!;
     expect((await w.app.handle(request("POST", "/api/claim", { reconnect: "wrong", tokens: tokens(7) }))).status).toBe(403);
@@ -341,6 +341,64 @@ describe("moving an install made from a repository", () => {
     const cookie = await claimed(w);
     expect((await w.app.handle(request("POST", "/api/cloudflare/move", undefined, cookie))).status).toBe(409);
     const legacyW = await legacy();
-    expect((await legacyW.app.handle(request("POST", "/api/cloudflare/reconnect", undefined, legacyW.cookie))).status).toBe(409);
+    expect((await legacyW.app.handle(request("POST", "/api/login/cloudflare"))).status).toBe(409);
+  });
+
+  it("a moved Worker's password goes at the claim: it logs in with Cloudflare from then on", async () => {
+    const w = await legacy();
+    expect((await w.app.handle(request("PUT", "/api/password", { password: "long enough!" }, w.cookie))).status).toBe(200);
+    const { url } = await body(await w.app.handle(request("POST", "/api/cloudflare/move", undefined, w.cookie)));
+    uploaded(w.env);
+    const code = new URL(url).searchParams.get("code");
+    expect((await w.app.handle(request("POST", "/api/claim", { reconnect: code, tokens: tokens(1), account_id: "acct1" }))).status).toBe(200);
+    expect((await w.app.store.secrets()).password).toBeUndefined();
+    expect(await body(await w.app.handle(request("GET", "/api/login")))).toEqual({ cloudflare: true, password: false });
+    expect((await w.app.handle(request("POST", "/api/login", { password: "long enough!" }))).status).toBe(400);
+    expect((await w.app.handle(request("PUT", "/api/password", { password: "long enough!" }, w.cookie))).status).toBe(409);
+    expect((await body(await w.app.handle(request("GET", "/api/state", undefined, w.cookie)))).needs_password).toBe(false);
+  });
+});
+
+describe("Log in with Cloudflare", () => {
+  const code = async (w: ReturnType<typeof created>) =>
+    new URL((await body(await w.app.handle(request("POST", "/api/login/cloudflare")))).url).searchParams.get("code")!;
+  const signIn = (w: ReturnType<typeof created>, c: string, account = "acct1") =>
+    w.app.handle(request("POST", "/api/claim", { reconnect: c, tokens: tokens(5), account_id: account }));
+
+  it("needs no session: the setup site's sign-in to this Worker's account comes back with a ticket", async () => {
+    const w = created();
+    await claim(w);
+    expect(await body(await w.app.handle(request("GET", "/api/login")))).toEqual({ cloudflare: true, password: false });
+    const c = await code(w);
+    expect((await signIn(w, c, "other")).status).toBe(403); // another account's sign-in
+    const r = await signIn(w, c);
+    expect(r.status).toBe(200);
+    const login = await w.app.handle(request("POST", "/api/login", { ticket: (await body(r)).ticket }));
+    expect(login.status).toBe(200);
+    const cookie = { cookie: login.headers.get("set-cookie")!.split(";")[0] };
+    expect((await body(await w.app.handle(request("GET", "/api/state", undefined, cookie)))).needs_password).toBe(false);
+    expect((await w.app.handle(request("POST", "/api/login", { password: "anything at all" }))).status).toBe(400);
+  });
+
+  it("keeps the last five codes, so starting another doesn't cancel one in progress; each lasts 15 minutes", async () => {
+    const w = created();
+    await claim(w);
+    const codes = [];
+    for (let i = 0; i < 6; i++) codes.push(await code(w));
+    expect((await signIn(w, codes[0])).status).toBe(403); // the sixth pushed it out
+    expect((await signIn(w, codes[1])).status).toBe(200);
+    expect((await signIn(w, codes[5])).status).toBe(200);
+    expect((await signIn(w, codes[5])).status).toBe(403); // one use
+    w.clock.t += 901;
+    expect((await signIn(w, codes[2])).status).toBe(403); // expired
+  });
+
+  it("reads a code stored the old way (one object)", async () => {
+    const w = created();
+    await claim(w);
+    const c = await code(w);
+    const [only] = (await w.app.store.setup()).reconnect;
+    await w.app.store.updateSetup({ reconnect: only });
+    expect((await signIn(w, c)).status).toBe(200);
   });
 });

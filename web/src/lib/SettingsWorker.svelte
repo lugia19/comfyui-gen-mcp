@@ -53,9 +53,13 @@
   </section>
 
   <section>
-    <h2>Password</h2>
-    <p class="muted">The password for this page. Logging in with a Cloudflare token works too, and replaces the stored token.</p>
-    <SetPassword />
+    <h2>Logging in</h2>
+    {#if info.update_path === 'oauth'}
+      <p class="muted">This page logs in with Cloudflare: whoever can sign in to the Cloudflare account this Worker is in. There is no password.</p>
+    {:else}
+      <p class="muted">The password for this page. Logging in with a Cloudflare token works too, and replaces the stored token.</p>
+      <SetPassword />
+    {/if}
     {#if info.cloudflare}
       <h3>This Worker</h3>
       <p class="muted">

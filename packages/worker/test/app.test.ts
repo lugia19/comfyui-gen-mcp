@@ -1440,18 +1440,18 @@ describe("password login", () => {
   it("is set after a token login, then logs in, and pauses after too many wrong ones", async () => {
     const { app, clock } = world();
     const loginWith = (password: string) => app.handle(request("POST", "/api/login", { password }));
-    expect(await body(await app.handle(request("GET", "/api/login")))).toEqual({ password: false });
+    expect(await body(await app.handle(request("GET", "/api/login")))).toEqual({ cloudflare: false, password: false });
     expect((await loginWith("anything at all")).status).toBe(400); // none set: the token is the way in
     expect((await app.handle(request("PUT", "/api/password", { password: "long enough!" }))).status).toBe(401); // logged in only
 
     const cookie = await login(app);
-    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).password_set).toBe(false);
+    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).needs_password).toBe(true);
     expect((await app.handle(request("PUT", "/api/password", { password: "short" }, cookie))).status).toBe(400);
     expect((await app.handle(request("PUT", "/api/password", { password: "7 chars" }, cookie))).status).toBe(400);
     expect((await app.handle(request("PUT", "/api/password", { password: "8 chars!" }, cookie))).status).toBe(200); // the minimum
     expect((await app.handle(request("PUT", "/api/password", { password: "long enough!" }, cookie))).status).toBe(200);
-    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).password_set).toBe(true);
-    expect(await body(await app.handle(request("GET", "/api/login")))).toEqual({ password: true });
+    expect((await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).needs_password).toBe(false);
+    expect(await body(await app.handle(request("GET", "/api/login")))).toEqual({ cloudflare: false, password: true });
     const stored = (await secretsOf(app)).password;
     expect(Object.keys(stored).sort()).toEqual(["hash", "iterations", "salt"]); // never the password itself
     expect(JSON.stringify(stored)).not.toContain("long enough");
