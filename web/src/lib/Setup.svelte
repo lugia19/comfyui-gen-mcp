@@ -220,7 +220,7 @@
     pc: { title: 'Set up your PC', short: 'PC', waiting: 'Waiting for your PC to pair.' },
     deploy: { title: 'Set up Modal', short: 'Modal', waiting: 'Waiting for Modal to be ready.' },
     models: { title: 'Download the models', short: 'Models', waiting: 'Waiting for Modal.' },
-    claude: { title: 'Connect Claude', short: 'Claude', waiting: 'Waiting for Claude to ask for an image.' },
+    claude: { title: 'Connect Claude', short: 'Claude', waiting: 'Waiting for Claude (or your app) to connect.' },
     finish: { title: "You're set", short: 'Done' },
   }
   let steps = $derived.by(() => {
@@ -243,7 +243,9 @@
   let wizardSteps = $derived(
     steps.map((id) => ({
       id, ...STEP[id], ...(id === 'pc' ? { waiting: pcWaiting } : {}), done: done[id],
-      canLeave: id === 'models' ? deployed : done[id],
+      // Claude: on once the connector is added; the first image in a chat (which ends the step by
+      // itself) is a check, not a requirement (another app, or no chat yet).
+      canLeave: id === 'models' ? deployed : id === 'claude' ? Boolean(info.claude_seen) || done[id] : done[id],
       skip: done[id] || (id === 'models' && deployed),
     })),
   )
@@ -487,7 +489,7 @@
     {/if}
   {:else if current === 'claude'}
     {#if !generatorReady}<p class="err">Finish the steps before this one first. Claude needs a place to make images.</p>{/if}
-    {#if info.claude_seen && !info.claude_used}<p class="ok"><b>✓ Comfy-Gen is connected to Claude.</b> Now try it in a chat:</p>{/if}
+    {#if info.claude_seen && !info.claude_used}<p class="ok"><b>✓ Comfy-Gen is connected.</b> Try it in a chat, or click <b>Next</b> to finish.</p>{/if}
     <Walk start={info.claude_seen ? 1 : 0}>
       <WalkStep>
         Click <b>Add to claude.ai</b>. This opens <b>Add custom connector</b> on claude.ai, already filled in. Click <b>Add</b>.
