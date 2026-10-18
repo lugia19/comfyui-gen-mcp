@@ -401,7 +401,9 @@ export class App {
       await this.fresh.updateSecrets({ cf_claimed: this.p.now(), cf_account_id: b.account_id, cf_script: b.script });
     }
     await this.p.storage.cfSetTokens(t);
-    return json({ ticket: await this.mintOnce("login_ticket", 600) });
+    // Half an hour: a brand-new workers.dev address can take minutes to answer (its certificate), and
+    // the setup page holds the link until it does.
+    return json({ ticket: await this.mintOnce("login_ticket", 1800) });
   }
 
   /**
@@ -1092,7 +1094,7 @@ export class App {
   private async login(req: Request, url: URL): Promise<Response> {
     const body = await bodyJson(req);
     if (body.ticket !== undefined) {
-      // A login ticket from claim(): one use, ten minutes.
+      // A login ticket from claim(): one use, half an hour.
       return (await this.takeOnce("login_ticket", body.ticket)) ? this.session() : error(401, "That link has expired: log in again.");
     }
     if (typeof body.password === "string") return this.passwordLogin(body.password);

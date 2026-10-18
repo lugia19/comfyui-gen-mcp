@@ -52,10 +52,10 @@ describe("the claim", () => {
     expect((await w.app.handle(request("POST", "/api/login", { ticket }))).status).toBe(401); // used
   });
 
-  it("a ticket lasts ten minutes; a Worker without CLAIM (made from a repository) refuses claims", async () => {
+  it("a ticket lasts half an hour; a Worker without CLAIM (made from a repository) refuses claims", async () => {
     const w = created();
     const { ticket } = await body(await claim(w));
-    w.clock.t += 601;
+    w.clock.t += 1801;
     expect((await w.app.handle(request("POST", "/api/login", { ticket }))).status).toBe(401);
     const legacy = world();
     expect((await legacy.app.handle(request("POST", "/api/claim", { claim: "", tokens: tokens(1), account_id: "a", script: "s" }))).status).toBe(403);
