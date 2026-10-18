@@ -275,8 +275,14 @@ the two packs share every file, ~16.3 GB). **Krea 2 Turbo** (12B, byteshape GGUF
 fp8 encoder, Anima's VAE, ~13.4 GB) is the other realistic choice: a stronger aesthetic, slower,
 text-to-image only. Both are 8-step Turbo checkpoints at cfg 1 (base models take 25 to 52 steps),
 native in ComfyUI 0.37.0. Text encoders stay Comfy-Org safetensors: the GGUF ones lack the vision
-tower ComfyUI keys on. Z-Image Turbo and the Flux 2 Klein models are `legacy`: still selectable,
-listed "(older)", deletable from Stored models. Quants were chosen for a 16 GB card fitting 12 GB:
+tower ComfyUI keys on. The lineup (the user's call, after side-by-side runs on a 16 GB card,
+2026-10-18): realistic Qwen 2.1, Krea 2 ("higher quality") and Flux 2 Klein 4B ("lower quality, low
+VRAM": the one that fits 8 GB cards comfortably, but less reliable); edit Qwen 2.1, Klein 9B Edit
+and Klein 4B Edit (the same low-VRAM role). Z-Image Turbo and Klein 9B's text-to-image are `legacy`:
+still selectable, listed "(older)", deletable from Stored models. The pickers list the default,
+then the other current models by size, then the older ones. On Visual Novelist's pose edits
+(waist-up Anima sprites, "the free hand" while a prop stays put), Qwen got 14/14 clean cases, Klein
+4B 11 and Klein 9B 10: the Kleins moved the hand holding the prop. Quants were chosen for a 16 GB card fitting 12 GB:
 unsloth's LPIPS for Qwen Turbo against bf16 is 0.153 at Q4_K_M, 0.055 at Q6_K and 0.036 at Q8_0;
 ComfyUI unloads the encoder before sampling, so the peak is the larger of the two, not their sum. The
 tools themselves are defined once, in `packs/tools.json`: each one's settings-page title, the line

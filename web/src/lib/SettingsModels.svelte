@@ -16,8 +16,10 @@
     return group.packs.find((p) => p.name === wanted) || group.packs.find((p) => p.is_default) || group.packs[0]
   }
 
-  // Older models (legacy) stay selectable, listed after the current ones.
-  const ordered = (group) => [...group.packs.filter((p) => !p.legacy), ...group.packs.filter((p) => p.legacy)]
+  // The tool's default first, then its other current models, the bigger (better) ones first, then the
+  // older (legacy) ones, which stay selectable.
+  const rank = (p) => (p.is_default ? 0 : p.legacy ? 2 : 1)
+  const ordered = (group) => [...group.packs].sort((a, b) => rank(a) - rank(b) || (a.legacy ? 0 : b.download_size - a.download_size))
 
   function packSettings(pack) {
     cfg.pack_settings[pack.family] ??= {}

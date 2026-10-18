@@ -1,11 +1,10 @@
 {
   "name": "flux2klein",
   "display_name": "Flux 2 Klein 4B",
-  "description": "Fast, general-purpose image model with strong prompt understanding (4B Q8 quantized, ~6GB VRAM)",
+  "description": "Lower quality, low VRAM: the smallest and fastest, for 8GB cards, but less reliable than Qwen Image 2.1 or Krea 2 (4B Q8, ~6GB VRAM)",
   "tool_name": "generate_realistic_image",
   "lora_group": "klein4b",
   "is_default": false,
-  "legacy": true,
   "models": [
     {
       "filename": "flux-2-klein-4b-Q8_0.gguf",

@@ -565,9 +565,13 @@ describe("Qwen Image 2.1 and Krea 2", () => {
     const groups = groupByTool(builtinPacks());
     expect(select(groups, {}).map((p) => p.name)).toEqual(["anima_turbo", "qwen_image_21", "qwen_image_21_edit"]);
     expect(builtinPacks().filter((p) => p.legacy).map((p) => p.name).sort()).toEqual(
-      ["flux2klein", "flux2klein_9b", "flux2klein_9b_edit", "flux2klein_edit", "z_image_turbo"],
+      ["flux2klein_9b", "z_image_turbo"], // Klein 4B stays as the low-VRAM choice, Klein 9B Edit as an edit choice
     );
     expect(select(groups, { generate_realistic_image: "z_image_turbo" })[1].name).toBe("z_image_turbo");
+    // Each tool's current choices: the realistic tool's Qwen and Krea, plus Klein 4B for small cards; the edit tool's Qwen and Klein 9B, plus 4B.
+    const current = (tool: string) => groups[tool].filter((p) => !p.legacy).map((p) => p.name).sort();
+    expect(current("generate_realistic_image")).toEqual(["flux2klein", "krea2_turbo", "qwen_image_21"]);
+    expect(current("edit_image")).toEqual(["flux2klein_9b_edit", "flux2klein_edit", "qwen_image_21_edit"]);
     // One download serves both Qwen tools; Krea shares Anima's VAE.
     expect(pack("qwen_image_21").models).toEqual(pack("qwen_image_21_edit").models);
     expect(pack("krea2_turbo").models.find((m) => m.subfolder === "vae")).toEqual(

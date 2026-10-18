@@ -1,7 +1,7 @@
 {
   "name": "krea2_turbo",
   "display_name": "Krea 2 Turbo",
-  "description": "Photorealistic images with a strong aesthetic (12B Turbo, Q4; 12GB+ VRAM). Slower than Qwen Image 2.1.",
+  "description": "Higher quality: the most photographic look and the richest detail (12B Turbo, Q4; 12GB+ VRAM). Slower than Qwen Image 2.1.",
   "tool_name": "generate_realistic_image",
   "lora_group": "krea2",
   "is_default": false,

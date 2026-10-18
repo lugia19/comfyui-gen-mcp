@@ -1,7 +1,7 @@
 {
   "name": "qwen_image_21",
   "display_name": "Qwen Image 2.1",
-  "description": "Fast, high-quality photos and text in images (7B Turbo, Q6; 12GB+ VRAM). The same download serves Qwen Image 2.1 editing.",
+  "description": "Fast, high-quality photos, good at text in images (7B Turbo, Q6; 12GB+ VRAM, 8GB works but slower). The same download serves Qwen Image 2.1 editing.",
   "tool_name": "generate_realistic_image",
   "lora_group": "qwenimage21",
   "is_default": true,

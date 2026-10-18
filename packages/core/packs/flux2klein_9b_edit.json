@@ -1,7 +1,7 @@
 {
   "name": "flux2klein_9b_edit",
   "display_name": "Flux 2 Klein 9B (Edit)",
-  "description": "img2img editing workflow using Flux 2 Klein 9B (higher quality, ~12GB+ VRAM)",
+  "description": "Edits from one or two images with Flux 2 Klein 9B (~12GB+ VRAM)",
   "tool_name": "edit_image",
   "lora_group": "klein9b",
   "models": [
@@ -301,6 +301,5 @@
       }
     }
   },
-  "is_default": false,
-  "legacy": true
+  "is_default": false
 }
