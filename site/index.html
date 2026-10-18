@@ -173,9 +173,9 @@
       <div class="body">
         <p>Create each account you don't have yet. Then tick its box.</p>
         <ul class="wz-checks">
-          <li><label class="acct"><input type="checkbox" data-tick="cloudflare"> <span>A Cloudflare account (the free plan)</span>
+          <li><label class="acct"><input type="checkbox" data-tick="cloudflare"> <span>A Cloudflare account (the free plan), with a card on file</span>
             <a class="button secondary small" href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noopener">Sign up at Cloudflare</a></label></li>
-          <li data-where="cloud both"><label class="acct"><input type="checkbox" data-tick="modal"> <span>A Modal account</span>
+          <li data-where="cloud both"><label class="acct"><input type="checkbox" data-tick="modal"> <span>A Modal account, with a card on file</span>
             <a class="button secondary small" href="https://modal.com/signup" target="_blank" rel="noopener">Sign up at Modal</a></label></li>
           <li data-where="pc both"><label class="acct"><input type="checkbox" data-tick="pc"> <span>A PC with an NVIDIA graphics card (AMD on Linux) or a Mac with Apple silicon</span></label></li>
           <li class="optional"><div class="acct"><span>A claude.ai account (optional)<br>
@@ -533,9 +533,7 @@
     byName.accounts.addEventListener('change', function (e) {
       if (!e.target.dataset.tick) return
       state.ticks[e.target.dataset.tick] = e.target.checked
-      render()
-      // The last one ticked: on to the next step by itself.
-      if (e.target.checked && ticksDone() && state.open === 'accounts') setTimeout(function () { if (state.open === 'accounts' && ticksDone()) forward() }, 600)
+      render() // no moving on by itself here: the costs below are worth a read first
     })
     render()
   })()
