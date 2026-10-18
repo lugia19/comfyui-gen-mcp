@@ -67,6 +67,8 @@ export const READY_RECHECK_S = 60;
 const hmacKey = (s: Secrets) => fromHex(s.hmac_key);
 
 /** The answers to the setup's "where should images be made?" (design §8). */
+/** The setup site (packages/setup): where Reconnect Cloudflare and a move sign in. */
+const SETUP_SITE = "https://comfy-setup.lugia19.com";
 const SETUP_MODES = ["cloud", "pc", "both"] as const;
 type SetupMode = (typeof SETUP_MODES)[number];
 
@@ -364,6 +366,7 @@ export class App {
     if (b.reconnect !== undefined) {
       if (b.account_id !== s.cf_account_id) return error(403, "Sign in to the Cloudflare account this Worker is in.");
       if (!(await this.takeOnce("reconnect", b.reconnect))) return error(403, "That reconnect link has expired: start again from the Worker's page.");
+      if (!s.cf_claimed) await this.finishMove(s);
     } else {
       const claim = this.p.env.CLAIM;
       if (!claim || s.cf_claimed || !safeEqual(String(b.claim ?? ""), claim)) return error(403, "This Worker is already set up, or the claim is wrong.");
@@ -372,6 +375,26 @@ export class App {
     }
     await this.p.storage.cfSetTokens(t);
     return json({ ticket: await this.mintOnce("login_ticket", 600) });
+  }
+
+  /**
+   * The end of a move to the new setup (design §6): the setup Worker has uploaded this version over
+   * the one the Workers Build deployed and hands over its tokens. The build trigger goes, with the
+   * Cloudflare token the build path kept (its template includes Workers Builds edit), and so does
+   * that token. A trigger that won't go is the page's note: the repository could still deploy.
+   */
+  private async finishMove(s: Secrets): Promise<void> {
+    let note: string | null = null;
+    if (s.cf_token && s.cf_trigger) {
+      try {
+        await cloudflare.deleteTrigger(this.fetch, s.cf_token, s.cf_account_id, s.cf_trigger);
+      } catch (e) {
+        if (!(e instanceof cfapi.CloudflareError)) throw e;
+        note = `Cloudflare didn't let this Worker disconnect its GitHub repository (${e.message}). Disconnect it yourself: in Cloudflare, open this Worker's Settings, then Build, and click Disconnect.`;
+      }
+    }
+    await this.fresh.updateSecrets({ cf_claimed: this.p.now(), cf_token: null, cf_trigger: null, cf_branch: null });
+    await this.fresh.updateSetup({ move_note: note });
   }
 
   // ── GPUs ──────────────────────────────────────────────────────────
@@ -834,11 +857,21 @@ export class App {
     }
     if (sub === "/update") return this.update(req, s);
     if (sub.startsWith("/modal/") || sub.startsWith("/setup/modal")) return this.modalApi(req, url, sub, s);
-    if (sub === "/cloudflare/reconnect" && req.method === "POST") {
-      // Back from the setup Worker's sign-in with new tokens (claim(), {reconnect}).
-      if (!this.p.env.COMFY_GEN_SETUP) return error(400, "This Worker wasn't made by the setup site: log in with a Cloudflare token instead.");
+    if (sub === "/cloudflare/reconnect" || sub === "/cloudflare/move") {
+      if (req.method !== "POST") return error(405, "POST");
+      // Reconnect: new tokens after the connection was lost. Move: an install made from a
+      // repository goes over to the new setup (the setup Worker uploads the latest release over
+      // it, then hands over the tokens). Both come back through claim() with this one-time code.
+      const move = sub === "/cloudflare/move";
+      if (move !== !this.oauthPath(s)) return error(409, move ? "This Worker is on the new setup already." : "This Worker wasn't made by the setup site: log in with a Cloudflare token instead.");
+      if (move && !s.cf_account_id) return error(400, "Log in with a Cloudflare token first.");
+      if (move) {
+        // The answer to "where?" came from the template's vars, which the new version won't have.
+        const setup = await this.fresh.setup();
+        if (!setup.mode && this.mode(setup)) await this.fresh.updateSetup({ mode: this.mode(setup) });
+      }
       const q = new URLSearchParams({ worker: url.origin, code: await this.mintOnce("reconnect", 900) });
-      return json({ url: `${releases.trim(this.p.env.COMFY_GEN_SETUP)}/reconnect?${q}` });
+      return json({ url: `${releases.trim(this.p.env.COMFY_GEN_SETUP || SETUP_SITE)}/${move ? "move" : "reconnect"}?${q}` });
     }
     if (sub === "/setup/rotate-connector" && req.method === "POST") {
       await this.fresh.updateSecrets({ mcp_secret: tokenUrlsafe(24) });
@@ -873,6 +906,9 @@ export class App {
       // How it updates and deploys Modal: "oauth" (itself, and Modal from a Sandbox) or "build".
       update_path: this.updater(s).path,
       modal_deploy: setup.modal_deploy ? { started: setup.modal_deploy.started } : null,
+      // Moved from the build path, whose Modal token stays in the build: Connect Modal to update it.
+      modal_connected: Boolean(s.modal_token),
+      move_note: setup.move_note ?? null,
       gpus,
       storage: Boolean(this.p.bucket),
       encrypt_images: Boolean(s.encrypt_images),

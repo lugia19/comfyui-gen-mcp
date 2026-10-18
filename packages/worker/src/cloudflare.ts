@@ -56,6 +56,12 @@ export async function setBuildVars(
   await call(fetch, token, "PATCH", `/accounts/${accountId}/builds/triggers/${trigger}/environment_variables`, body);
 }
 
+/** Remove the Workers Build trigger: the repository no longer deploys this Worker (a move to the
+ * new setup, design §6). */
+export async function deleteTrigger(fetch: Fetch, token: string, accountId: string, trigger: string): Promise<void> {
+  await call(fetch, token, "DELETE", `/accounts/${accountId}/builds/triggers/${trigger}`);
+}
+
 export async function startBuild(fetch: Fetch, token: string, accountId: string, trigger: string, branch: string): Promise<string> {
   const result = await call(fetch, token, "POST", `/accounts/${accountId}/builds/triggers/${trigger}/builds`, { branch });
   return result.build_uuid;

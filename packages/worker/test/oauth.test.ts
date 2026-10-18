@@ -292,3 +292,55 @@ describe("Modal without a build", () => {
     expect((await w.app.handle(request("POST", "/api/modal/connect", undefined, cookie))).status).toBe(409);
   });
 });
+
+describe("moving an install made from a repository", () => {
+  /** A Worker on the build path, logged in with a Cloudflare token (which found its build trigger). */
+  async function legacy() {
+    const w = world();
+    w.env.SETUP_MODE = "both";
+    const resp = await w.app.handle(request("POST", "/api/login", { token: TOKEN }));
+    const cookie = { cookie: resp.headers.get("set-cookie")!.split(";")[0] };
+    return { ...w, cookie };
+  }
+  /** What the setup Worker's upload of the latest release brings: the new setup's vars. */
+  const uploaded = (env: Record<string, string | undefined>) => Object.assign(env, { CF_OAUTH_CLIENT: "cid", COMFY_GEN_SETUP: "https://setup.example" });
+
+  it("Move signs in on the setup site; the claim deletes the build trigger and forgets the token", async () => {
+    const w = await legacy();
+    const { url } = await body(await w.app.handle(request("POST", "/api/cloudflare/move", undefined, w.cookie)));
+    const u = new URL(url);
+    expect(u.origin + u.pathname).toBe("https://comfy-setup.lugia19.com/move");
+    expect(u.searchParams.get("worker")).toBe(`https://${HOST}`);
+    expect((await w.app.store.setup()).mode).toBe("both"); // kept: the template's var goes with the old version
+    uploaded(w.env);
+    expect((await w.app.handle(request("POST", "/api/claim", { reconnect: u.searchParams.get("code"), tokens: tokens(1), account_id: "other" }))).status).toBe(403);
+    const r = await w.app.handle(request("POST", "/api/claim", { reconnect: u.searchParams.get("code"), tokens: tokens(1), account_id: "acct1" }));
+    expect(r.status).toBe(200);
+    expect(w.net.triggersDeleted).toEqual(["trig1"]);
+    const s = await w.app.store.secrets();
+    expect([s.cf_token, s.cf_trigger, Boolean(s.cf_claimed), s.cf_script]).toEqual([undefined, undefined, true, "comfy-gen"]);
+    const state = await body(await w.app.handle(request("GET", "/api/state", undefined, w.cookie)));
+    expect(state).toMatchObject({ update_path: "oauth", move_note: null, modal_connected: false, setup_mode: "both" });
+    expect((await w.app.handle(request("POST", "/api/cloudflare/move", undefined, w.cookie))).status).toBe(409); // done
+  });
+
+  it("a trigger Cloudflare won't delete leaves a note, and the move still completes", async () => {
+    const w = await legacy();
+    w.net.refuseTriggerDelete = true;
+    const { url } = await body(await w.app.handle(request("POST", "/api/cloudflare/move", undefined, w.cookie)));
+    uploaded(w.env);
+    const code = new URL(url).searchParams.get("code");
+    expect((await w.app.handle(request("POST", "/api/claim", { reconnect: code, tokens: tokens(1), account_id: "acct1" }))).status).toBe(200);
+    const state = await body(await w.app.handle(request("GET", "/api/state", undefined, w.cookie)));
+    expect(state.update_path).toBe("oauth");
+    expect(state.move_note).toContain("Disconnect it yourself");
+  });
+
+  it("a Worker made by the setup site reconnects instead, and can't move", async () => {
+    const w = created();
+    const cookie = await claimed(w);
+    expect((await w.app.handle(request("POST", "/api/cloudflare/move", undefined, cookie))).status).toBe(409);
+    const legacyW = await legacy();
+    expect((await legacyW.app.handle(request("POST", "/api/cloudflare/reconnect", undefined, legacyW.cookie))).status).toBe(409);
+  });
+});

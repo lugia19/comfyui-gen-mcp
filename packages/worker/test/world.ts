@@ -137,6 +137,8 @@ export class FakeNet {
   tokenStatus = "active";
   scripts: Record<string, string> = { "comfy-gen": "tag1" }; // what the token can see
   buildsStarted: any[] = [];
+  triggersDeleted: string[] = [];
+  refuseTriggerDelete = false;
   buildState = "running"; // what a build's status says
   buildOutcome = "success"; // and, once stopped, how it ended
   buildStatusCalls = 0;
@@ -185,6 +187,11 @@ export class FakeNet {
       return cf(ok ? { id: "t", status: "active" } : null, ok);
     }
     if (path === "/accounts") return cf([{ id: "acct1", name: "Someone" }]);
+    if (method === "DELETE" && path.includes("/builds/triggers/")) {
+      if (this.refuseTriggerDelete) return cf(null, false);
+      this.triggersDeleted.push(path.split("/").pop()!);
+      return cf(null);
+    }
     if (path.includes("/workers/scripts-search")) return cf(Object.entries(this.scripts).map(([name, id]) => ({ id, script_name: name })));
     if (path.endsWith("/builds/workers/tag1/triggers")) return cf([{ trigger_uuid: "trig1", branch_includes: ["main"] }]);
     if (path.endsWith("/environment_variables") && method === "PATCH") {
