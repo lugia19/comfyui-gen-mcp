@@ -1378,7 +1378,9 @@ claim deletes a password left from before a move, and the new setup can't set on
 stays as the way in when the setup site can't be reached.
 Seen live (2026-10-18): each login shows Cloudflare's full consent screen again, and the user's
 connected applications list Comfy-Gen once however many times they sign in, so the replaced tokens
-aren't revoked (one grant; revoking an old refresh token could cut the new one off).
+aren't revoked (one grant; revoking an old refresh token could cut the new one off). Other
+sign-ins don't end a Worker's tokens either: the moved `comfy-gen`'s refresh token from 00:41 still
+renewed at 01:52, after two sign-ins for another Worker, for its update to v2.1.0.
 
 Any code that calls a Worker from outside (build callbacks, the upload snippet, the agent) sends its own
 `User-Agent`: Cloudflare answers urllib's default `Python-urllib/x.y` with Error 1010 before the
