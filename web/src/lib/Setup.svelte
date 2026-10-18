@@ -437,23 +437,27 @@
       <p>Modal is ready.</p>
     {:else if !needsCard}
       <p>Images are made on Modal, in your own Modal account. Modal is a cloud service with graphics cards. Modal gives you $30 free each month.</p>
+      <!-- Signing up and connecting in one step: an account made, the next click is Connect. -->
+      {#snippet signUp()}
+        <p class="muted">No Modal account yet? <OpenButton secondary small href="https://modal.com/signup" label="Sign up at Modal" /> Then come back here.</p>
+      {/snippet}
       <Walk>
-        <WalkStep>
-          No Modal account yet? Sign up first.
-          {#snippet controls()}<OpenButton secondary small href="https://modal.com/signup" label="Sign up at Modal" />{/snippet}
-        </WalkStep>
         {#if oauth}
         <WalkStep>
           Connect your Modal account. Modal opens in a new tab and asks you to approve it. Approve it there, then come back here: the setup goes on by itself.
           {#snippet controls()}
             <ConnectModal {refresh} />
+            {@render signUp()}
             {@render typedToken()}
           {/snippet}
         </WalkStep>
         {:else}
         <WalkStep>
           Open the API tokens page in Modal.
-          {#snippet controls()}<OpenButton href={MODAL_TOKENS} label="Open Modal's API tokens" />{/snippet}
+          {#snippet controls()}
+            <OpenButton href={MODAL_TOKENS} label="Open Modal's API tokens" />
+            {@render signUp()}
+          {/snippet}
         </WalkStep>
         <WalkGuide ids={['modal-token']}>
           Click <b>New Token</b>. Then click <b>Create token</b>. Copy the command that Modal shows. Then you can close the Modal tab.
