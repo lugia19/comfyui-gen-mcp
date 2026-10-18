@@ -35,6 +35,7 @@
   }
   function linkInput() {
     offered = ''
+    offerFrom = '' // typed or pasted: not from the button
     if (looksLikeLink(link) && !pairing.busy) pair()
   }
 
@@ -43,6 +44,10 @@
   // installs only Comfy-Gen's own, design §9). So it pairs at once only while unpaired (setup's
   // minute or two); a link that would replace a pairing waits for Pair, naming its Worker.
   let offered = $state('') // the Worker's address, while its link waits for Pair
+  // Paired from that button: setup goes on on the Worker's page, back there once ComfyUI is installed
+  // here (at once if it was already; else after the install below).
+  let fromWorker = $state('') // the Worker's origin, once paired
+  let offerFrom = '' // the offered link's Worker, until it pairs
   function takeOffer() {
     const m = /^#pair=(.+)$/.exec(location.hash)
     if (!m) return
@@ -51,6 +56,7 @@
       const offer = decodeURIComponent(m[1])
       if (!looksLikeLink(offer)) return
       link = offer
+      offerFrom = new URL(offer).origin
       if (worker.paired) offered = new URL(offer).host
       else pair()
     } catch {}
@@ -62,7 +68,9 @@
       await api('POST', '/pair', { link: link.trim() })
       link = ''
       offered = ''
+      fromWorker = offerFrom
       await refresh()
+      if (fromWorker && installed) location.href = `${fromWorker}/`
     })
   }
 
@@ -97,7 +105,11 @@
       <p><b>Paused:</b> this PC makes no images now. To resume, use the Comfy-Gen tray icon.</p>
     {/if}
     <p>While this PC is connected, Claude makes images on it through your Worker.</p>
-    {#if installed}
+    {#if fromWorker && !installed}
+      <p><b>Paired.</b> Next: install ComfyUI below. Then go back to your Worker's page to finish setting up.</p>
+    {:else if fromWorker}
+      <p><a class="button" href="{fromWorker}/">Back to your Worker</a></p>
+    {:else if installed}
       <p><OpenButton href="{worker.url}/#settings" label="Open your Worker's settings" /></p>
       <p class="muted">You choose models, styles and LoRAs there. They apply to all your GPUs.</p>
     {:else}

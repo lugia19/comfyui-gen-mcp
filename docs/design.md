@@ -955,7 +955,8 @@ past 10 GB at $0.015 per GB a month; Modal per second with $30 free a month and 
 4. There they pair: the Worker page's **Pair with the agent** opens `127.0.0.1:9248/#pair=<link>`
    (v2.2.2; the link stays in the fragment), which pairs at once while the agent is unpaired, and
    asks, naming the Worker, before replacing a pairing, since any page can open that address.
-   Pasting the link still works. Then they install ComfyUI as in the MCPB (GPU choice; other
+   Paired that way, the page goes back to the Worker's page once ComfyUI is installed here (at
+   once when it already was). Pasting the link still works. Then they install ComfyUI as in the MCPB (GPU choice; other
    installs' model folders are found and used, and listed before the install beside a field for
    another models folder, so nothing downloads twice). The agent connects to the Worker and keeps the
    connection; the Worker's page shows it connected, with its GPU and ComfyUI state.
