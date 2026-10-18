@@ -1201,3 +1201,14 @@ Design §4, "LoRAs in R2"; plan in the session (`lora-families`).
 - **Web:** a Model family list in place of the tabs; uploads filed by the file's family, a foreign
   one asked about; the file's trigger phrase; Move under the name; each model card links to its
   family's LoRAs; the table scrolls inside the card when wide.
+
+## Qwen Image 2.1 and Krea 2 (2026-10-18)
+
+Design §3, "The models", and §4 (LoRA groups).
+
+- **Packs:** `qwen_image_21` (realistic, default) and `qwen_image_21_edit` (edit, default), one
+  download for both; `krea2_turbo` (realistic). Z-Image Turbo and the Klein packs `legacy`.
+- **Core:** the prompt into `prompt` where the encoder has it; `withImages` numbers image inputs
+  (`images.image_2`); LoRA groups `qwenimage21` and `krea2`, detection checked on 13 real LoRAs.
+- **`scripts/fill_pack_models.py`** works again (it read `head()`'s old return value).
+- **End to end** on the dev Worker with the user's PC (16 GB).

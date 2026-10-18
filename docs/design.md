@@ -263,8 +263,22 @@ fill in by their title (`_meta.title`, set by renaming the node in ComfyUI befor
 an edit's first-image nodes `cg:image`, `cg:image scale`, `cg:image encode`, `cg:image chain`;
 `withImages` (`workflow.ts`) builds a second image by copying those, chaining its reference
 latents after the first image's (2026-10-03: titles replaced the node-id fields, and the generated
-two-image graph the shipped `workflow_multi`, the same graph). `docs/adding-a-model.md` has the
-steps. The
+two-image graph the shipped `workflow_multi`, the same graph); a node with numbered image inputs
+outside the copies (Qwen Image 2.1's encoder, `images.image_1`) gets `images.image_2` for the
+second. The prompt goes into the `cg:prompt` node's `text`, or its `prompt` where it has one.
+`docs/adding-a-model.md` has the steps.
+
+**The models (2026-10-18):** the realistic tool's default is **Qwen Image 2.1 Turbo** (7B, unsloth
+GGUF Q6_K, its own Qwen3-VL-8B int8 encoder and RGBA VAE: `SplitImageWithAlpha` makes the decode RGB
+before the save and our cleaning nodes), and the edit tool's is the same model (one model does both;
+the two packs share every file, ~16.3 GB). **Krea 2 Turbo** (12B, byteshape GGUF Q4_K_M, Qwen3-VL-4B
+fp8 encoder, Anima's VAE, ~13.4 GB) is the other realistic choice: a stronger aesthetic, slower,
+text-to-image only. Both are 8-step Turbo checkpoints at cfg 1 (base models take 25 to 52 steps),
+native in ComfyUI 0.37.0. Text encoders stay Comfy-Org safetensors: the GGUF ones lack the vision
+tower ComfyUI keys on. Z-Image Turbo and the Flux 2 Klein models are `legacy`: still selectable,
+listed "(older)", deletable from Stored models. Quants were chosen for a 16 GB card fitting 12 GB:
+unsloth's LPIPS for Qwen Turbo against bf16 is 0.153 at Q4_K_M, 0.055 at Q6_K and 0.036 at Q8_0;
+ComfyUI unloads the encoder before sampling, so the peak is the larger of the two, not their sum. The
 tools themselves are defined once, in `packs/tools.json`: each one's settings-page title, the line
 that routes between them (illustration or photo), and a default prompting guide; a tool's
 description is that line, the selected pack's `prompt_guide` (else the default), then the part all
@@ -738,8 +752,8 @@ in our folder first, then in the others; deleting one from a shared folder only 
 
 LoRAs are uploaded from the settings page, and each belongs to one **LoRA group**: the model
 family it was trained for (`lora_group` on a pack). Since 2026-10-18 every family has one:
-`anima` (Anima, Anima Turbo), `zimage`, `klein4b` (Flux 2 Klein 4B and its Edit: one base model)
-and `klein9b`; before, Anima's was the only one. `packs/tools.json` defines them in order, the first
+`anima` (Anima, Anima Turbo), `zimage`, `klein4b` (Flux 2 Klein 4B and its Edit: one base model),
+`klein9b`, `qwenimage21` (Qwen Image 2.1, both tools) and `krea2`; before, Anima's was the only one. `packs/tools.json` defines them in order, the first
 the default: a title, the base model names trainers write (`base_models`), the tensor layout and
 width that recognise a file without them (`match`), and optionally `trigger_note`, what the tool
 description says its triggers are (Anima's: "@artist styles or concept tags"). The engine needs
@@ -748,13 +762,20 @@ ComfyUI-GGUF patches LoRAs into GGUF models.
 
 **Which family a file is for** (core `lora-detect.ts`, run by the page on the file before it
 uploads, so the Worker spends nothing): its safetensors header's `ss_base_model_version` or
-`modelspec.architecture` when present, else its tensor names (Anima `blocks.N.cross_attn`, Z-Image
-`layers.N.attention`, Flux 2 `double_blocks`/`single_blocks` or diffusers `transformer_blocks`)
-and most common input width (2048, 3840, 3072 for Klein 4B, 4096 for 9B). Flux 1 looks like Klein
+`modelspec.architecture` or `base_model` (an `org/` prefix dropped; a name matches its base or a
+variant of it, not another version: `qwen_image_2512` is no `qwen_image_2`) when present, else its
+tensor names (Anima `blocks.N.cross_attn`, Krea 2 `blocks.N.attn.wq`/`gate` or `text_fusion`,
+Z-Image `layers.N.attention`, Qwen Image 2.1 `transformer_blocks` 0–31 with no single-stream blocks
+(v1 has 60, with `add_q_proj` and `txt_mlp`), Flux 2 `double_blocks`/`single_blocks` or diffusers
+`transformer_blocks`, 8 of them) and most common input width (2048, 6144, 3840, 4096, and 3072 for
+Klein 4B, 4096 for 9B). Flux 1 looks like Klein
 4B (`double_blocks`, 3072) and is told apart by its per-block modulation, block count and MLPs 4×
 the width (Flux 2's are 3×); Lumina 2 has Z-Image's names at 2304. Checked against ten LoRAs from
 Hugging Face (2026-10-18): every Z-Image, Klein 4B/9B and Anima one right with or without its
-metadata, Flux 1, SD 1.5 and a Krea 2 one (named "Z-Image-Lora") refused. An upload goes into the
+metadata, Flux 1 and SD 1.5 refused; and against 13 more for the new models: five Krea 2 (ComfyUI,
+ai-toolkit, kohya, PEFT, Krea's diffusers) and six Qwen Image 2.1 (DiffSynth, lightx2v, ai-toolkit,
+PAI) recognised, two Qwen Image v1 refused. The one named "Z-Image-Lora" says Krea-2 in its file
+and is one. An upload goes into the
 family found, saying so; one made for another model asks first; one it can't tell goes into the
 open family. The file's `modelspec.trigger_phrase`, when it has one, becomes the trigger. `pack_loras` is keyed by
 group, and each entry is file, enabled, strength, trigger (it applies only when the prompt

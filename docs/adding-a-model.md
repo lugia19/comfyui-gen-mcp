@@ -26,6 +26,9 @@ the extension and the agent all build it in. Packs are ours; there are no user w
    | `cg:image chain` | the nodes that chain images: their input from outside the image (the conditioning) takes the previous image's matching node |
 
    Leave the output size on the first image (a GetImageSize reading `cg:image scale`, untitled).
+   A node outside those that takes the images as numbered inputs (Qwen Image 2.1's
+   `TextEncodeQwenImage21`, `images.image_1`) gets `images.image_2` for the second image.
+   A `cg:prompt` node with a `prompt` input (that same encoder) gets the prompt there instead of `text`.
    If a model needs a different shape for several images, `withImages` in `workflow.ts` is the
    place to change.
 3. **Export it in API format** (Workflow → Export (API)) and put it under `"workflow"` in a new
