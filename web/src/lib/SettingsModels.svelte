@@ -16,6 +16,9 @@
     return group.packs.find((p) => p.name === wanted) || group.packs.find((p) => p.is_default) || group.packs[0]
   }
 
+  // Older models (legacy) stay selectable, listed after the current ones.
+  const ordered = (group) => [...group.packs.filter((p) => !p.legacy), ...group.packs.filter((p) => p.legacy)]
+
   function packSettings(pack) {
     cfg.pack_settings[pack.family] ??= {}
     return cfg.pack_settings[pack.family]
@@ -40,7 +43,7 @@
     <section class="card">
       <h2>{group.title || group.tool_name}</h2>
       {#if group.packs.length > 1}
-        {#each group.packs as pack (pack.name)}
+        {#each ordered(group) as pack (pack.name)}
           <label class="choice">
             <input
               type="radio"
@@ -51,6 +54,7 @@
             />
             <span>
               <b>{pack.display_name}</b>
+              {#if pack.legacy}<span class="muted">(older)</span>{/if}
               <span class="muted">{formatBytes(pack.download_size)}</span><br />
               <span class="muted">{pack.description}</span>
             </span>

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from comfy_gen_modal.deploy import modal_error, post, proxy_token, report
-from comfy_gen_modal.models import needed, rel_path, validate_models, validate_pack_name
+from comfy_gen_modal.models import delete_models, needed, rel_path, stored, validate_files, validate_models, validate_pack_name
 
 MODEL = {"url": "https://huggingface.co/x/y/resolve/main/m.safetensors", "subfolder": "vae",
          "filename": "m.safetensors", "size_bytes": 100, "sha256": "A" * 64}
@@ -72,6 +72,21 @@ def test_needed_skips_complete_files_only():
     present = {rel_path(a): 100, rel_path(b): 42, rel_path(c): 7}
     assert needed([a, b, c], present) == [b]  # b is truncated; c has no size to check
     assert needed([a], {}) == [a]
+
+
+def test_stored_and_deleted_models_are_only_the_named_ones(tmp_path):
+    (tmp_path / "vae").mkdir()
+    (tmp_path / "vae" / "a.safetensors").write_bytes(b"123")
+    (tmp_path / "vae" / "b.safetensors").write_bytes(b"45")
+    assert stored(str(tmp_path), ["vae/a.safetensors", "vae/missing.gguf"]) == {"vae/a.safetensors": 3}
+    assert delete_models(str(tmp_path), ["vae/a.safetensors", "vae/missing.gguf"]) == {"vae/a.safetensors": 3}
+    assert sorted(p.name for p in (tmp_path / "vae").iterdir()) == ["b.safetensors"]
+
+
+@pytest.mark.parametrize("bad", [["loras/a.safetensors"], ["vae/../x"], ["vae/"], ["etc/passwd"], ["vae/a/b"], "vae/a", [3], ["x"] * 101])
+def test_stored_model_files_are_checked(bad):
+    with pytest.raises(ValueError):
+        validate_files(bad)
 
 
 def test_proxy_token_is_minted_once():

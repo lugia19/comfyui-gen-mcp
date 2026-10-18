@@ -1335,6 +1335,48 @@ describe("the PC path", () => {
     expect((await body(await app.handle(request("GET", "/api/models", undefined, cookie)))).packs[0].on.pc).toEqual({ state: "offline" });
     expect(pc.controlCalls).toEqual([]);
   });
+  it("lists the stored models no selected one uses, and deletes one from every GPU", async () => {
+    const { app, pc, net } = world();
+    await withModal(app);
+    const nine = ["flux2klein_9b", "flux2klein_9b_edit"];
+    await app.store.updateSetup({ seeded: ["z_image_turbo", ...nine].map(keyOf) });
+    const { cookie } = await pair(app);
+    await app.store.updateSetup({ ready: { pc: { flux2klein_9b: true, z_image_turbo: true } } });
+    const files = ["diffusion_models/flux-2-klein-9b-Q8_0.gguf", "text_encoders/Qwen3-8B-Q5_K_M.gguf"];
+    // Shared with the selected models, so never listed: Klein 4B's text encoder, the VAE.
+    net.volumeModels = { [files[0]]: 9, [files[1]]: 5, "text_encoders/Qwen3-4B-Q5_K_M.gguf": 4, "vae/flux2-vae.safetensors": 1 };
+    const onPc: Record<string, number> = { [files[1]]: 5 };
+    pc.controls.models_stored = (args) => [200, Object.fromEntries(args.files.filter((f: string) => f in onPc).map((f: string) => [f, onPc[f]]))];
+    pc.controls.models_delete = (args) => {
+      const deleted = pc.controls.models_stored(args)[1] as Record<string, number>;
+      for (const f of Object.keys(deleted)) delete onPc[f];
+      return [200, { deleted, busy: [] }];
+    };
+    const stored = await body(await app.handle(request("GET", "/api/models/stored", undefined, cookie)));
+    expect(stored.packs.map((p: any) => [p.name, p.on])).toEqual(nine.map((n) => [n, { pc: { bytes: 5 }, modal: { bytes: 14 } }]));
+
+    expect((await app.handle(request("POST", "/api/models/delete", { pack: "z_image_turbo" }, cookie))).status).toBe(409); // selected
+    net.adminCalls.length = 0;
+    const done = await body(await app.handle(request("POST", "/api/models/delete", { pack: "flux2klein_9b" }, cookie)));
+    expect(done).toEqual({ deleted: "flux2klein_9b", from: ["pc", "modal"], bytes: 19, busy: [], offline: [], errors: [] });
+    expect(net.adminCalls).toEqual([["POST", "/models/delete", { files, seeds: nine.map(keyOf) }]]);
+    expect(Object.keys(net.volumeModels).sort()).toEqual(["text_encoders/Qwen3-4B-Q5_K_M.gguf", "vae/flux2-vae.safetensors"]);
+    // Both 9B models lost their files: choosing either again downloads it again.
+    const setup = await app.store.setup();
+    expect([setup.seeded, setup.ready.pc]).toEqual([[keyOf("z_image_turbo")], { z_image_turbo: true }]);
+    expect((await body(await app.handle(request("GET", "/api/models/stored", undefined, cookie)))).packs).toEqual([]);
+
+    // An agent from before this release, and an offline PC: said so, Modal's copy still goes.
+    net.volumeModels = { [files[0]]: 9 };
+    delete pc.controls.models_stored;
+    delete pc.controls.models_delete;
+    expect((await body(await app.handle(request("GET", "/api/models/stored", undefined, cookie)))).packs[0].on).toEqual({ pc: { state: "old_agent" }, modal: { bytes: 9 } });
+    expect((await body(await app.handle(request("POST", "/api/models/delete", { pack: "flux2klein_9b_edit" }, cookie)))).errors).toEqual(["Your PC: update its agent to delete stored models"]);
+    net.volumeModels = { [files[0]]: 9 };
+    pc.connected = false;
+    expect((await body(await app.handle(request("GET", "/api/models/stored", undefined, cookie)))).packs[0].on.pc).toEqual({ state: "offline" });
+    expect(await body(await app.handle(request("POST", "/api/models/delete", { pack: "flux2klein_9b" }, cookie)))).toMatchObject({ from: ["modal"], offline: ["Your PC"] });
+  });
 });
 
 describe("the GPU list", () => {

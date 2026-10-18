@@ -126,7 +126,8 @@ export class LoraRegistry {
 }
 
 /** Delete a file: true once it is gone, false while another program holds it open (Windows). */
-function removeFile(path: string): boolean {
+/** Delete a file; false when it is held open (Windows) or not ours to delete. */
+export function removeFile(path: string): boolean {
   try {
     rmSync(path, { force: true });
     return true;

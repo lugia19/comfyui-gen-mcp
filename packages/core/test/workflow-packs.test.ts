@@ -3,7 +3,7 @@ import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize, tagLoras } from "../src/config.ts";
-import { BG_MODELS, builtinPacks, canRedraw, seedKey, DEFAULT_LORA_GROUP, FACE_MODELS, MARK_MODELS, redrawPack, wantedModelSets, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
+import { BG_MODELS, builtinPacks, fileKey, MODEL_SETS, removableFiles, canRedraw, seedKey, DEFAULT_LORA_GROUP, FACE_MODELS, MARK_MODELS, redrawPack, wantedModelSets, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
 import { describe as describeTool } from "../src/tools.ts";
 import { OutputImage } from "../src/comfyui.ts";
 import { previewImage } from "../src/results.ts";
@@ -521,5 +521,31 @@ describe("known node packages", () => {
   it("are the ones the shipped packs list", async () => {
     const { knownNodePackages } = await import("../src/packs.ts");
     expect([...knownNodePackages()]).toEqual(["ComfyUI-GGUF"]);
+  });
+});
+
+describe("stored models", () => {
+  const packs = builtinPacks();
+  const pack = (name: string) => packs.find((p) => p.name === name)!;
+  const files = (p: ReturnType<typeof pack>, wanted: ReturnType<typeof pack>[]) => removableFiles(p, wanted).map(fileKey);
+
+  it("a file another wanted pack uses stays; with nothing else using it, it goes", () => {
+    const z = pack("z_image_turbo");
+    expect(files(z, [pack("flux2klein_edit"), pack("anima_turbo")])).toEqual(["diffusion_models/z-image-turbo-Q5_K_M.gguf", "vae/ae.safetensors"]);
+    expect(files(z, [pack("flux2klein_9b_edit"), pack("anima_turbo")])).toEqual(z.models.map(fileKey));
+  });
+
+  it("a wanted pack and a model set have nothing to delete", () => {
+    expect(removableFiles(pack("anima_turbo"), [pack("anima_turbo")])).toEqual([]);
+    for (const set of MODEL_SETS) expect(removableFiles(set, [])).toEqual([]);
+    const withSetFile = { ...pack("anima"), name: "x", models: [...pack("anima").models, ...BG_MODELS.models] };
+    expect(files(withSetFile, [])).not.toContain(fileKey(BG_MODELS.models[0]));
+  });
+
+  it("each tool keeps a current default; an older model can't be the default", () => {
+    for (const [tool, group] of Object.entries(groupByTool(packs))) {
+      expect(group.filter((p) => p.is_default && !p.legacy), tool).toHaveLength(1);
+    }
+    expect(() => validate({ ...pack("anima"), legacy: true, is_default: true })).toThrow(/legacy/);
   });
 });

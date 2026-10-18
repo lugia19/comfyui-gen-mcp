@@ -147,6 +147,7 @@ export class FakeNet {
   seedState: Record<string, any> = {};
   adminUp = true;
   loras: Record<string, number> = {};
+  volumeModels: Record<string, number> = {}; // model files on the Volume: subfolder/filename -> size
   fetches: { name: string; url: string; size: number }[] = []; // LoRAs the Volume was told to copy from R2
   /** Answers first when it returns a response (a test's own fake service). */
   intercept: ((url: string, init: RequestInit) => Promise<Response | null>) | null = null;
@@ -220,6 +221,13 @@ export class FakeNet {
     }
     if (method === "GET" && path.startsWith("/seed/")) return jsonResp(this.seedState[packName(path.split("/").at(-1)!)] ?? { state: "missing" });
     if (method === "POST" && path === "/idle") return jsonResp({ seconds: body.seconds });
+    if (method === "POST" && (path === "/models/stored" || path === "/models/delete")) {
+      const found = Object.fromEntries(body.files.filter((f: string) => f in this.volumeModels).map((f: string) => [f, this.volumeModels[f]]));
+      if (path === "/models/stored") return jsonResp(found);
+      for (const f of Object.keys(found)) delete this.volumeModels[f];
+      for (const key of body.seeds) delete this.seedState[packName(key)];
+      return jsonResp({ deleted: found });
+    }
     if (method === "GET" && path === "/loras") return jsonResp(this.loras);
     if (method === "POST" && path === "/loras/fetch") {
       this.fetches.push(body);
@@ -271,7 +279,7 @@ export class FakeRelay implements RelayStub {
     this.controlCalls.push([op, args]);
     if (!this.connected) return { status: 503, body: utf8("offline"), offline: true };
     const handler = this.controls[op];
-    if (!handler) return { status: 400, body: utf8(`unknown op ${op}`) };
+    if (!handler) return { status: 400, body: utf8(`The agent does not know the operation ${op}. Update it.`) };
     const [status, data] = handler(args, body);
     return { status, body: utf8(status === 200 ? JSON.stringify(data) : String(data)) };
   }

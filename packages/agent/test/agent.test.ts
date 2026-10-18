@@ -213,6 +213,8 @@ describe("agent handlers", () => {
       loraRegistry: registry,
       deleteLora: async (name: string) => ({ deleted: name, pending: registry.delete(name) }),
       downloads: { status: () => ({ state: "done", done: 0, total: 0 }) },
+      storedModels: (files: string[]) => ({ [files[0]]: 3 }),
+      deleteModels: async (files: string[]) => ({ deleted: { [files[0]]: 3 }, busy: [] }),
     } as unknown as Machine;
     let keepWarm = 0;
     let syncs = 0;
@@ -246,6 +248,8 @@ describe("agent handlers", () => {
     expect(await call({ kind: "control", id: "12", op: "lora_delete", args: { name: "u.safetensors" } })).toEqual([200, '{"deleted":"u.safetensors","pending":false}']);
     expect((await call({ kind: "control", id: "13", op: "lora_delete", args: { name: "u.safetensors" } }))[0]).toBe(404);
     expect((await call({ kind: "control", id: "6", op: "nope" }))[0]).toBe(400);
+    expect(await call({ kind: "control", id: "14", op: "models_stored", args: { files: ["vae/a.safetensors"] } })).toEqual([200, '{"vae/a.safetensors":3}']);
+    expect(await call({ kind: "control", id: "15", op: "models_delete", args: { files: ["vae/a.safetensors"] } })).toEqual([200, '{"deleted":{"vae/a.safetensors":3},"busy":[]}']);
     srv.close();
   });
 });

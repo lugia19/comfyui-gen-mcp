@@ -1174,3 +1174,17 @@ Design §8, "Log in with Cloudflare".
 - **End to end** on a throwaway Worker created at the setup site (v2.0.0, then this branch
   uploaded): logout, Log in with Cloudflare, back logged in. CPU: the login route 2 ms, the claim 4,
   the ticket login 2.
+
+## Stored models, and older models listed last (2026-10-18)
+
+Design §2, "GPUs" (stored models, older models).
+
+- **Core:** `removableFiles(pack, wanted)` and `fileKey`; `legacy` in pack metadata and `packRow`;
+  `validate` refuses a legacy default.
+- **Modal app:** `stored` and `delete_models` (checked names, never `loras`); admin
+  `/models/stored`, `/models/delete` (commit, drop the seeds, ask ComfyUI to reload).
+- **Machine side:** `Machine.storedModels` and `deleteModels`, our models folder only; agent ops
+  `models_stored`, `models_delete`.
+- **Worker and extension:** `GET /api/models/stored`, `POST /api/models/delete {pack}`, deleting
+  everywhere; download state of every pack that lost a file cleared.
+- **Web:** a **Stored models** section under the model cards; legacy packs last with "(older)".

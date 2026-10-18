@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -181,6 +181,21 @@ describe("settings API", () => {
     expect(packs.map((p: any) => p.name)).toEqual(expect.arrayContaining(["anima", "anima_turbo"]));
     expect(packs[0]).toMatchObject({ state: "missing" });
     expect(packs.map((p: any) => p.name)).not.toContain("remove-marks"); // downloads in the background, never listed
+  });
+
+  it("lists and deletes the stored models no selected one uses, in our folder only", async () => {
+    const w = world();
+    const models = w.comfy.models.ownModels;
+    const file = (sub: string, name: string, data: string) => (mkdirSync(join(models, sub), { recursive: true }), writeFileSync(join(models, sub, name), data));
+    file("text_encoders", "Qwen3-8B-Q5_K_M.gguf", "123"); // the 9B Klein models'
+    file("text_encoders", "Qwen3-4B-Q5_K_M.gguf", "45"); // also the selected Klein 4B's: kept
+    const stored = await (await w.local("/api/models/stored")).json();
+    expect(stored.packs.map((p: any) => [p.name, p.on])).toEqual([["flux2klein_9b", { local: { bytes: 3 } }], ["flux2klein_9b_edit", { local: { bytes: 3 } }]]);
+    const post = (pack: string) => w.local("/api/models/delete", { method: "POST", body: JSON.stringify({ pack }) });
+    expect((await post("flux2klein_edit")).status).toBe(409);
+    expect(await (await post("flux2klein_9b")).json()).toEqual({ deleted: "flux2klein_9b", from: ["local"], bytes: 3, busy: [], offline: [], errors: [] });
+    expect((await (await w.local("/api/models/stored")).json()).packs).toEqual([]);
+    expect(existsSync(join(models, "text_encoders", "Qwen3-4B-Q5_K_M.gguf"))).toBe(true);
   });
 
   it("the watermark removal's models: wanted while it is on", async () => {

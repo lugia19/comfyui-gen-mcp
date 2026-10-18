@@ -132,6 +132,19 @@ the list leaves a stored one out, so the next write drops it, and its `fetch_res
   starts again. Before v1.21.1 it held until the settings page asked: a PC that once answered
   "downloading" with Modal behind it was skipped for good (found live after v1.21.0). None
   available: the tools say which GPUs are offline or paused.
+- **Stored models (2026-10-18):** a model's files stay on every GPU it downloaded to; Settings →
+  Models lists the ones no wanted pack uses (`GET /api/models/stored`) and deletes one model from
+  every GPU at once (`POST /api/models/delete {pack}`). The Worker picks the files itself, never
+  the page: core `removableFiles` leaves out every file a wanted pack (the selected ones and their
+  families) or a model set also uses, since packs share text encoders and VAEs, and refuses a
+  wanted pack (409). Modal deletes on the Volume (admin `/models/stored`, `/models/delete`, which
+  also drops the `seed:` entries); a PC only in our own models folder, never a discovered one
+  (agent ops `models_stored`, `models_delete`; a held file gets the LoRA delete's free-and-retry).
+  Every pack that lost a file leaves `setup.seeded` and `setup.ready`, so choosing it again
+  downloads it again. An offline PC keeps its copy and is named in the answer; an agent from before
+  this says "update its agent". The extension has the same two routes for its one machine.
+- **Older models:** a pack's `legacy: true` keeps it selectable but lists it last, "(older)"; one
+  can't be the default. For replacing a tool's model without taking the old one away.
 - **`fetch_result` tokens** are `<gpuId>:<prompt_id>`: only that GPU has the job, so the call goes
   there, or says it is offline.
 - **Keep-warm** is per GPU (§5).

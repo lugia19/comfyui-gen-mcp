@@ -30,7 +30,8 @@ import modal
 from comfy_gen_modal import loras
 from comfy_gen_modal.download import download
 from comfy_gen_modal.models import (
-    INPUT_DIR, MODELS_DIR, OUTPUT_DIR, SUBFOLDERS, VOL, needed, rel_path, validate_models, validate_pack_name,
+    INPUT_DIR, MODELS_DIR, OUTPUT_DIR, SUBFOLDERS, VOL, delete_models, needed, rel_path, stored, validate_models,
+    validate_pack_name,
 )
 
 APP_NAME = "comfy-gen"
@@ -303,6 +304,33 @@ def admin():
         await volume.commit.aio()
         await state.put.aio("reload_requested_at", time.time())
         return {"deleted": name}
+
+    @api.post("/models/stored")
+    async def stored_models(body: dict = Body(...)):
+        await volume.reload.aio()
+        try:
+            return stored(MODELS_DIR, body.get("files"))
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+
+    @api.post("/models/delete")
+    async def delete_stored(body: dict = Body(...)):
+        """Delete model files the Worker picked (none a selected model uses), and forget the seeds
+        of the packs they belonged to, so choosing one again downloads it again."""
+        seeds = body.get("seeds") or []
+        try:
+            for key in seeds:
+                validate_pack_name(key)
+            await volume.reload.aio()
+            deleted = delete_models(MODELS_DIR, body.get("files"))
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        if deleted:
+            await volume.commit.aio()
+            await state.put.aio("reload_requested_at", time.time())
+        for key in seeds:
+            await state.pop.aio(f"seed:{key}", None)
+        return {"deleted": deleted}
 
     @api.post("/idle")
     async def set_idle(body: dict = Body(...)):

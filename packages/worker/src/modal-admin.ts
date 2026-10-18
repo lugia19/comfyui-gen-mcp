@@ -1,5 +1,5 @@
 // The Modal app's admin API (comfy_gen_modal.app.admin), as the Worker uses it: download a pack's
-// models onto the Volume, read the progress, set keep-warm, list, fetch and delete LoRAs. Same proxy
+// models onto the Volume, read the progress, delete unused ones, set keep-warm, list, fetch and delete LoRAs. Same proxy
 // token as ComfyUI. LoRAs come from R2: the Volume downloads them from the Worker's storage links.
 
 import { seedKey, type Pack } from "@comfy-gen/core";
@@ -73,6 +73,17 @@ export class ModalAdmin {
 
   deleteLora(name: string): Promise<any> {
     return this.call("DELETE", `/loras/${encodeURIComponent(name)}`);
+  }
+
+  /** Those of *files* (`subfolder/filename`) on the Volume: file -> size. */
+  storedModels(files: string[]): Promise<Record<string, number>> {
+    return this.call("POST", "/models/stored", { files });
+  }
+
+  /** Delete *files* from the Volume and forget the *seeds* (seedKeys) of the packs that used them:
+   * {deleted: {file: size}}. */
+  deleteModels(files: string[], seeds: string[]): Promise<{ deleted: Record<string, number> }> {
+    return this.call("POST", "/models/delete", { files, seeds });
   }
 
   idle(minutes: number): Promise<any> {

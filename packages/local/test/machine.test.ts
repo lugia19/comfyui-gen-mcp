@@ -132,3 +132,26 @@ describe("model sets kept in the background", () => {
     expect(started).toEqual(["remove-background"]);
   });
 });
+
+describe("stored model files", () => {
+  it("are reported and deleted in our own models folder only", async () => {
+    const extra = dir();
+    const p = paths({ COMFY_GEN_HOME: dir() });
+    const machine = new Machine({ paths: p, settings: () => ({ ...loadConfig(p.config), extra_models_dir: extra }), saveGpu: () => {}, waitExtension: {} });
+    const own = machine.comfy.models.ownModels;
+    for (const d of [own, extra]) {
+      mkdirSync(join(d, "vae"), { recursive: true });
+      writeFileSync(join(d, "vae", "a.safetensors"), "abc");
+    }
+    writeFileSync(join(extra, "vae", "b.safetensors"), "de"); // found by ComfyUI, but not ours
+    const files = ["vae/a.safetensors", "vae/b.safetensors"];
+    expect(machine.storedModels(files)).toEqual({ "vae/a.safetensors": 3 });
+    expect(await machine.deleteModels(files)).toEqual({ deleted: { "vae/a.safetensors": 3 }, busy: [] });
+    expect(existsSync(join(own, "vae", "a.safetensors"))).toBe(false);
+    expect(existsSync(join(extra, "vae", "a.safetensors"))).toBe(true);
+    expect(existsSync(join(extra, "vae", "b.safetensors"))).toBe(true);
+    for (const bad of [["loras/a.safetensors"], ["vae/../a"], ["../vae/a"], ["vae/a/b"], ["nope/a"], "vae/a"]) {
+      expect(() => machine.storedModels(bad), JSON.stringify(bad)).toThrow(/model file|list/);
+    }
+  });
+});

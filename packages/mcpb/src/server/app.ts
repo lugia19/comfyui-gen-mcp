@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import {
   Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, UnknownTool,
-  builtinPacks, HIDDEN_TOOLS, isModelSet, MARK_MODELS, MODEL_SETS, wantedModelSets, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
+  builtinPacks, fileKey, HIDDEN_TOOLS, isModelSet, removableFiles, MARK_MODELS, MODEL_SETS, wantedModelSets, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
   type Config, type OutputImage, type Pack, type Rendered,
 } from "@comfy-gen/core";
 import {
@@ -47,6 +47,8 @@ export function wantedPacks(cfg: LocalConfig): Pack[] {
   const packs = withFamilies(selectedPacks(cfg), PACKS);
   return [...packs, ...wantedModelSets(cfg)];
 }
+
+const LOCAL_GPU = { id: "local", name: "This computer", kind: "pc" };
 
 export class LocalApp {
   readonly s: Services;
@@ -147,6 +149,8 @@ export class LocalApp {
       if (!pack) return error(400, "no such pack");
       return json(this.s.machine.downloads.start(pack.name, pack.models ?? [], pack.display_name));
     }
+    if (sub === "/models/stored" && m === "GET") return json(this.storedModels());
+    if (sub === "/models/delete" && m === "POST") return this.deleteModels((await bodyJson(req)).pack);
     return error(404, "not found");
   }
 
@@ -202,6 +206,28 @@ export class LocalApp {
       rows.push({ ...job, name: job.key, display_name: `${pack?.display_name ?? job.key} (not selected)`, size: job.total });
     }
     return rows;
+  }
+
+  /** The stored models no wanted one uses, in the Worker's shape (one GPU: this computer), so the
+   * page's Stored models section is the same: only the files no wanted pack or model set uses, in
+   * our own models folder. */
+  private storedModels() {
+    const wanted = wantedPacks(this.s.config());
+    const packs = PACKS.map((pack) => ({ pack, files: removableFiles(pack, wanted).map(fileKey) })).filter((p) => p.files.length);
+    const sizes = this.s.machine.storedModels([...new Set(packs.flatMap((p) => p.files))]);
+    const rows = packs.map(({ pack, files }) => ({ ...packRow(pack), on: { [LOCAL_GPU.id]: { bytes: files.reduce((n, f) => n + (sizes[f] ?? 0), 0) } } }));
+    return { gpus: [LOCAL_GPU], packs: rows.filter((r) => r.on[LOCAL_GPU.id].bytes > 0) };
+  }
+
+  /** Delete a model's files that no wanted pack uses (picked here, never by the page). */
+  private async deleteModels(name: unknown): Promise<Response> {
+    const pack = PACKS.find((p) => p.name === name);
+    if (!pack) return error(400, "no such model");
+    const wanted = wantedPacks(this.s.config());
+    if (wanted.includes(pack)) return error(409, `${pack.display_name ?? pack.name} is in use (selected, or in a selected model's family): choose another model first.`);
+    const { deleted, busy } = await this.s.machine.deleteModels(removableFiles(pack, wanted).map(fileKey));
+    const bytes = Object.values(deleted).reduce((a, b) => a + b, 0);
+    return json({ deleted: pack.name, from: bytes ? [LOCAL_GPU.id] : [], bytes, busy: busy.length ? [LOCAL_GPU.name] : [], offline: [], errors: [] });
   }
 
   private missingLoras(cfg: LocalConfig): string[] {

@@ -7,13 +7,15 @@
   import LoraSection from './LoraSection.svelte'
   import { ModelStatus } from './models.svelte.js'
   import SettingsModels from './SettingsModels.svelte'
+  import StoredModels from './StoredModels.svelte'
   import SettingsWorker from './SettingsWorker.svelte'
   import { Task } from './task.svelte.js'
   import { tagLoras } from '../../../packages/core/src/config.ts'
 
   // The settings (design §5): the extension's, for this computer, or the Worker's, for every GPU it
   // has. One config: Claude sees one set of tools. In sections, one at a time under a bar:
-  //   Models     a card per image tool: its model and options, and that model's downloads
+  //   Models     a card per image tool: its model and options, and that model's downloads; then the
+//              stored models not selected, to delete
   //   LoRAs      per model group
   //   GPUs       the Worker's GPU list (the Worker only)
   //   Worker     encryption, password, account (the Worker only)
@@ -194,6 +196,7 @@
 
     {#if section === 'models'}
       <SettingsModels bind:cfg {saved} packs={fixed.info.packs} status={models} {marks} />
+      <StoredModels {saved} />
     {:else if section === 'loras'}
       <section>
         <LoraSection {cfg} groups={loraGroups} listing={loraListing} reload={loadLoras} />

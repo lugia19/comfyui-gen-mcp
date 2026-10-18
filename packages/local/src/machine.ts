@@ -12,7 +12,8 @@ import { ModelDownloads, type ModelFile } from "./downloads.ts";
 import { bodyJson, error, json } from "./http.ts";
 import { detectGpu, GPUS, install, isGpu } from "./install.ts";
 import { log } from "./log.ts";
-import { LoraRegistry, LoraUploads } from "./lora-uploads.ts";
+import { LoraRegistry, LoraUploads, removeFile } from "./lora-uploads.ts";
+import { SHARED_SUBFOLDERS } from "./models.ts";
 import type { Paths } from "./paths.ts";
 import { openExternal } from "./proc.ts";
 
@@ -85,6 +86,37 @@ export class Machine {
     }
     log.info(pending ? `LoRA deleted: ${name} (its file is in use; deleted when ComfyUI stops)` : `LoRA deleted: ${name}`);
     return { deleted: name, pending };
+  }
+
+  /** The sizes of those of *files* (`subfolder/filename`, as the Worker names them) present in our
+   * own models folder. A copy in a discovered folder isn't ours, so it isn't reported. */
+  storedModels(files: unknown): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [file, path] of ownModelPaths(this.comfy.models.ownModels, files)) {
+      if (existsSync(path)) out[file] = statSync(path).size;
+    }
+    return out;
+  }
+
+  /**
+   * Delete those of *files* present in our own models folder (the Worker picks them: none a
+   * selected model uses). A file ComfyUI holds open (Windows) gets the same retry as a LoRA's;
+   * *busy* lists the ones still there.
+   */
+  async deleteModels(files: unknown): Promise<{ deleted: Record<string, number>; busy: string[] }> {
+    const paths = new Map(ownModelPaths(this.comfy.models.ownModels, files));
+    const sizes = this.storedModels(files);
+    let busy = Object.keys(sizes).filter((f) => !removeFile(paths.get(f)!));
+    if (busy.length && (await this.comfy.free())) {
+      for (let i = 0; i < 5 && busy.length; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        busy = busy.filter((f) => !removeFile(paths.get(f)!));
+      }
+    }
+    const deleted = Object.fromEntries(Object.entries(sizes).filter(([f]) => !busy.includes(f)));
+    if (Object.keys(deleted).length) log.info(`Model files deleted: ${Object.keys(deleted).join(", ")}`);
+    if (busy.length) log.warn(`Model files in use, not deleted: ${busy.join(", ")}`);
+    return { deleted, busy };
   }
 
   get install(): InstallState {
@@ -291,4 +323,19 @@ export function checkMachineSettings(cfg: Record<string, any>): string | null {
   const extra = String(cfg.extra_models_dir ?? "").trim();
   if (extra && (!existsSync(extra) || !statSync(extra).isDirectory())) return `${extra} is not a folder`;
   return null;
+}
+
+const MODEL_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/;
+
+/** `subfolder/filename` names checked (a model subfolder, not loras, and a plain file name), with
+ * their paths in our models folder. Throws UploadError (400) on a bad one. */
+function ownModelPaths(ownModels: string, files: unknown): [string, string][] {
+  if (!Array.isArray(files) || files.length > 100) throw new UploadError("files must be a list of at most 100");
+  return files.map((f) => {
+    const [sub, name, ...rest] = typeof f === "string" ? f.split("/") : [];
+    if (!SHARED_SUBFOLDERS.includes(sub) || sub === "loras" || rest.length || !MODEL_FILE.test(name ?? "") || name.includes("..")) {
+      throw new UploadError(`not a model file: ${JSON.stringify(f)}`);
+    }
+    return [`${sub}/${name}`, join(ownModels, sub, name)];
+  });
 }

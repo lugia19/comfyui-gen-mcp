@@ -113,6 +113,10 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
         }
         case "lora_delete":
           return ok(await machine.deleteLora(String(args.name)));
+        case "models_stored":
+          return ok(machine.storedModels(args.files));
+        case "models_delete":
+          return ok(await machine.deleteModels(args.files));
         default:
           return [400, `The agent does not know the operation ${h.op}. Update it.`];
       }

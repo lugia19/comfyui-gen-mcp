@@ -7,7 +7,7 @@
 import {
   Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
   builtinPacks, cfapi, releases, isModelSet, wantedModelSets, fromHex, fromUtf8, sha256Hex, utf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
-  withoutLora, tagLooseLoras, wantedLoras, strengthIn, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, BG_MODELS, HIDDEN_TOOLS, type Config, type Content, type Pack,
+  withoutLora, tagLooseLoras, wantedLoras, strengthIn, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, fileKey, removableFiles, BG_MODELS, HIDDEN_TOOLS, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
@@ -56,6 +56,9 @@ export function wantedPacks(cfg: Config): Pack[] {
   const packs = withFamilies(selectedPacks(cfg), PACKS);
   return [...packs, ...wantedModelSets(cfg)];
 }
+
+// An agent older than the operation it was sent (handlers.ts' answer).
+const OLD_AGENT = /does not know the operation/;
 
 // A sync plan creates one Modal session per file: keep it well inside the subrequest limit. The
 // agent asks again once a round is done, for the rest.
@@ -882,6 +885,8 @@ export class App {
     if (sub === "/config" && req.method === "PUT") return this.saveConfig(req);
     if (sub === "/loras" || sub.startsWith("/loras/")) return this.loras(req, url, sub, s);
     if (sub === "/models" && req.method === "GET") return this.models(url);
+    if (sub === "/models/stored" && req.method === "GET") return this.storedModels();
+    if (sub === "/models/delete" && req.method === "POST") return this.deleteModels(req);
     if (sub === "/models/seed" && req.method === "POST") return this.seedPack(req);
     if (sub === "/setup/mode" && req.method === "POST") {
       const mode = (await bodyJson(req)).mode;
@@ -1403,6 +1408,110 @@ export class App {
       gpus: gpus.map((g) => ({ id: g.id, name: g.name, kind: g.kind })),
       packs: packs.map((p, i) => ({ ...packRow(p), on: on[i] })),
     });
+  }
+
+  /**
+   * The models stored but not wanted, whose files may be deleted (Settings → Models): {gpus, packs:
+   * [{name, display_name, tool_name, size, legacy, on: {gpu id: {bytes} | {state: offline | old_agent
+   * | unknown, error?}}}]}. Only the files no wanted pack or model set uses count (packs share text
+   * encoders and VAEs), and on a PC only those in its own models folder. Packs with bytes somewhere.
+   */
+  private async storedModels(): Promise<Response> {
+    const wanted = wantedPacks(await this.fresh.config());
+    const packs = PACKS.map((pack) => ({ pack, files: removableFiles(pack, wanted).map(fileKey) })).filter((p) => p.files.length);
+    const files = [...new Set(packs.flatMap((p) => p.files))];
+    const gpus = files.length ? await this.gpus() : [];
+    const found = await Promise.all(gpus.map((gpu) => this.storedOn(gpu, files)));
+    const rows = packs.map(({ pack, files }) => {
+      const on = Object.fromEntries(gpus.map((gpu, i) => {
+        const f = found[i];
+        return [gpu.id, "sizes" in f ? { bytes: files.reduce((n, k) => n + (f.sizes[k] ?? 0), 0) } : f];
+      }));
+      return { ...packRow(pack), on };
+    });
+    return json({
+      gpus: gpus.map((g) => ({ id: g.id, name: g.name, kind: g.kind })),
+      packs: rows.filter((r) => Object.values(r.on).some((o: any) => o.bytes > 0)),
+    });
+  }
+
+  /** A GPU's sizes of *files*, or why it can't tell. */
+  private async storedOn(gpu: Gpu, files: string[]): Promise<{ sizes: Record<string, number> } | { state: string; error?: string }> {
+    if (gpu.kind === "pc") {
+      if (!(await this.status(gpu)).online) return { state: "offline" };
+      const r = await this.control(gpu, "models_stored", { files });
+      if (r.ok) return { sizes: r.data ?? {} };
+      return OLD_AGENT.test(r.message) ? { state: "old_agent" } : { state: "unknown", error: r.message };
+    }
+    const admin = this.admin(gpu);
+    if (!admin) return { state: "unknown", error: "this Modal has no admin API: deploy it again from the Setup tab" };
+    try {
+      return { sizes: await admin.storedModels(files) };
+    } catch (e) {
+      if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+      return { state: "unknown", error: e.message };
+    }
+  }
+
+  /**
+   * Delete a model's files from every GPU: {pack}. The Worker picks the files itself, never the
+   * page: those no wanted pack or model set uses. A wanted pack is refused (409). Every pack that
+   * loses a file forgets it was downloaded (Modal's seed, the ready flags), so choosing it again
+   * downloads it again. An offline PC keeps its copy: it is listed under *offline*.
+   */
+  private async deleteModels(req: Request): Promise<Response> {
+    const name = (await bodyJson(req)).pack;
+    const pack = PACKS.find((p) => p.name === name);
+    if (!pack) return error(400, "no such model");
+    const wanted = wantedPacks(await this.fresh.config());
+    const label = pack.display_name ?? pack.name;
+    if (wanted.includes(pack)) return error(409, `${label} is in use (selected, or in a selected model's family): choose another model first.`);
+    const files = removableFiles(pack, wanted).map(fileKey);
+    const lost = new Set(files);
+    const affected = PACKS.filter((p) => (p.models ?? []).some((m: Pack["models"][number]) => lost.has(fileKey(m))));
+    const from: string[] = [];
+    const busy: string[] = []; // PCs whose ComfyUI holds a file open (Windows)
+    const offline: string[] = [];
+    const errors: string[] = [];
+    let bytes = 0;
+    const deleted = (gpu: Gpu, sizes: Record<string, number>) => {
+      const n = Object.values(sizes).reduce((a, b) => a + b, 0);
+      if (n) from.push(gpu.id);
+      bytes += n;
+    };
+    for (const gpu of await this.gpus()) {
+      if (gpu.kind === "pc") {
+        if (!(await this.status(gpu)).online) {
+          offline.push(gpu.name);
+          continue;
+        }
+        const r = await this.control(gpu, "models_delete", { files });
+        if (!r.ok) {
+          errors.push(OLD_AGENT.test(r.message) ? `${gpu.name}: update its agent to delete stored models` : `${gpu.name}: ${r.message}`);
+          continue;
+        }
+        deleted(gpu, r.data?.deleted ?? {});
+        if (r.data?.busy?.length) busy.push(gpu.name);
+        continue;
+      }
+      const admin = this.admin(gpu);
+      if (!admin) continue;
+      try {
+        deleted(gpu, (await admin.deleteModels(files, affected.map(seedKey))).deleted ?? {});
+      } catch (e) {
+        if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+        errors.push(`${gpu.name}: ${e.message}`);
+      }
+    }
+    const setup = await this.fresh.setup();
+    const seeds = new Set(affected.map(seedKey));
+    const names = new Set(affected.map((p) => p.name));
+    const ready = Object.fromEntries(Object.entries((setup.ready ?? {}) as Record<string, Record<string, unknown>>).map(
+      ([id, known]) => [id, Object.fromEntries(Object.entries(known).filter(([n]) => !names.has(n)))],
+    ));
+    await this.fresh.updateSetup({ seeded: (setup.seeded ?? []).filter((k: string) => !seeds.has(k)), ready });
+    console.log(`stored model deleted: ${pack.name} (${(bytes / 1e9).toFixed(1)} GB from ${from.join(", ") || "nowhere"})`);
+    return json({ deleted: pack.name, from, bytes, busy, offline, errors });
   }
 
   /** Start downloading a pack on one GPU: {pack, gpu: id}. */

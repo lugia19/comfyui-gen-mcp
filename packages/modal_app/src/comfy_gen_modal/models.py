@@ -62,3 +62,44 @@ def needed(models: list[dict], present: dict[str, int]) -> list[dict]:
         if size is None or (m.get("size_bytes") and size != m["size_bytes"]):
             todo.append(m)
     return todo
+
+
+# ── stored models: what the Worker may delete (it picks the files; these only check them) ─────────
+
+
+def validate_files(files: object) -> list[str]:
+    """Model files named as `subfolder/filename`, checked: a known subfolder other than loras (LoRA
+    management owns that one) and a plain file name. Raises ValueError."""
+    if not isinstance(files, list) or len(files) > 100:
+        raise ValueError("files must be a list of at most 100")
+    out = []
+    for f in files:
+        sub, _, name = f.partition("/") if isinstance(f, str) else ("", "", "")
+        if sub not in SUBFOLDERS or sub == "loras":
+            raise ValueError(f"bad subfolder: {f!r}")
+        if not _SAFE_NAME.fullmatch(name) or ".." in name:
+            raise ValueError(f"bad filename: {f!r}")
+        out.append(f"{sub}/{name}")
+    return out
+
+
+def stored(root: str, files: list[str]) -> dict[str, int]:
+    """The sizes of those of *files* present under *root* (the Volume's models folder)."""
+    import os
+
+    sizes = {}
+    for f in validate_files(files):
+        path = os.path.join(root, f)
+        if os.path.isfile(path):
+            sizes[f] = os.path.getsize(path)
+    return sizes
+
+
+def delete_models(root: str, files: list[str]) -> dict[str, int]:
+    """Delete those of *files* present under *root*; returns the deleted ones with their sizes."""
+    import os
+
+    deleted = stored(root, files)
+    for f in deleted:
+        os.remove(os.path.join(root, f))
+    return deleted

@@ -105,6 +105,7 @@ export function validate(pack: unknown, source = "pack"): Pack {
     throw new Error(`${source}: unknown LoRA group ${pack.lora_group} (packs/tools.json)`);
   }
   if (pack.negative_fixed !== undefined && typeof pack.negative_fixed !== "string") throw new Error(`${source}: negative_fixed must be a string`);
+  if (pack.legacy && pack.is_default) throw new Error(`${source}: an older (legacy) model can't be the default`);
   if (pack.inpaint_control !== undefined) {
     const c = pack.inpaint_control as Record<string, unknown>;
     const listed = Array.isArray(pack.models) && pack.models.some((m: any) => m?.filename === c?.file && m?.subfolder === "comfy_gen");
@@ -204,6 +205,19 @@ export function withFamilies(selected: Pack[], packs: Pack[]): Pack[] {
   return packs.filter((p) => families.has(family(p)));
 }
 
+/** A model file's place under a models folder, `subfolder/filename`: how packs share files. */
+export const fileKey = (m: { subfolder: string; filename: string }) => `${m.subfolder}/${m.filename}`;
+
+/** The files of *pack* that can be deleted to free space while *wanted* (the selected packs and
+ * their families) stay: none of a wanted pack or a model set (background removal and the like),
+ * and of another pack only the files no wanted pack and no model set also uses (packs share text
+ * encoders and VAEs). */
+export function removableFiles(pack: Pack, wanted: Pack[]): Pack["models"] {
+  if (isModelSet(pack) || wanted.some((p) => p.name === pack.name)) return [];
+  const kept = new Set([...wanted, ...MODEL_SETS].flatMap((p) => (p.models ?? []).map(fileKey)));
+  return (pack.models ?? []).filter((m) => !kept.has(fileKey(m)));
+}
+
 /** Whether the pack takes the user's LoRAs: it has a LoRA group. */
 export function supportsLoras(pack: Pack): boolean {
   return Boolean(pack.lora_group);
@@ -267,7 +281,7 @@ export function settingsMetadata(packs: Pack[]) {
 }
 
 /** A pack's row in a /models answer (each frontend adds where its models are). */
-export const packRow = (p: Pack) => ({ name: p.name, display_name: p.display_name ?? p.name, tool_name: p.tool_name, size: downloadSize(p) });
+export const packRow = (p: Pack) => ({ name: p.name, display_name: p.display_name ?? p.name, tool_name: p.tool_name, size: downloadSize(p), legacy: Boolean(p.legacy) });
 
 function packMetadata(packs: Pack[]) {
   return Object.entries(groupByTool(packs)).map(([tool, group]) => ({
@@ -279,6 +293,7 @@ function packMetadata(packs: Pack[]) {
       description: p.description ?? "",
       download_size: downloadSize(p),
       is_default: Boolean(p.is_default),
+      legacy: Boolean(p.legacy), // an older model, kept selectable: listed last
       family: family(p),
       max_pixels: p.max_pixels ?? null,
       max_pixels_limit: p.max_pixels_limit ?? null,
