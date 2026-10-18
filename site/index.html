@@ -282,6 +282,9 @@
       state.connected = Date.now()
       state.done.connect = true
       state.open = 'create'
+      // A new sign-in is for a new Worker: one created before in this browser is done with.
+      state.created = null
+      state.done.create = false
       history.replaceState(null, '', location.pathname)
     }
     var connected = function () { return Date.now() - state.connected < SIGN_IN_MS }
