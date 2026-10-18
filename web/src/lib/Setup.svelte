@@ -156,7 +156,7 @@
   // offers Modal's billing page, and tries again when the user comes back from it.
   // Shown after a redeploy too (an update build, a new token): the last one that worked keeps running.
   let modalError = $derived(info.modal_error || '')
-  let needsCard = $derived(/payment method|billing|card/i.test(modalError))
+  let needsCard = $derived(/payment method|billing|card|spend limit/i.test(modalError))
   let billingOpened = $state(false)
 
   // With the token given here, or (*withToken* false: Try again) the one stored with the last deploy.
@@ -407,7 +407,8 @@
     {#if modalError && !building}
       <div class="failed">
         {#if needsCard}
-          <p><b>Modal needs a card before it runs anything.</b> Modal still uses the free $30 each month first.</p>
+          <p><b>Modal needs a card before it runs anything</b> (or, with a card on file, a higher spending limit).</p>
+          <p class="muted">Modal said: {modalError}</p>
           <Walk>
             <WalkStep>
               Open the billing page in Modal.

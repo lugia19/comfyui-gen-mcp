@@ -269,7 +269,15 @@ export class App {
         if (!s.modal_token) return { status: 409, body: { error: "Connect Modal first." } };
         // Its own address, for the deploy's report when no request names it (the daily update).
         if (s.worker_url !== job.origin) await this.fresh.updateSecrets({ worker_url: job.origin });
-        await this.startModalDeploy(s.modal_token, this.version, job.origin);
+        try {
+          await this.startModalDeploy(s.modal_token, this.version, job.origin);
+        } catch (e) {
+          // Refused before the deploy ran (no card or spend left, seen 2026-10-18: the setup image
+          // won't build): Modal's error, as a failed deploy's, so the page offers the card steps.
+          if (!(e instanceof GrpcError)) throw e;
+          await this.fresh.updateSetup({ modal_error: e.message, modal_deploy: null });
+          return { status: 200, body: { started: false } };
+        }
         return { status: 200, body: { started: true } };
       }
       const u = this.updater(s);

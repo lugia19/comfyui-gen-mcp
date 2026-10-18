@@ -285,6 +285,15 @@ describe("Modal without a build", () => {
     expect((await w.app.store.setup()).modal_error).toContain("Updating Modal to v1.1.0 didn't start");
   });
 
+  it("Modal refusing before the deploy runs (no card, no spend left) is Modal's error, for the card steps", async () => {
+    const { w, cookie } = await connected();
+    w.modal.imageFails = true;
+    w.modal.handlers.ImageJoinStreaming = () => [{ result: { status: 2, exception: "Container terminated due to reaching billing cycle spend limit" } }];
+    expect(await api(w, "POST", "/setup/modal", cookie)).toEqual([200, { started: false }]);
+    const st = await body(await w.app.handle(request("GET", "/api/state", undefined, cookie)));
+    expect([st.modal_error, st.modal_deploy]).toEqual([expect.stringContaining("billing cycle spend limit"), null]);
+  });
+
   it("a Worker made from a repository keeps its build", async () => {
     const w = world();
     const resp = await w.app.handle(request("POST", "/api/login", { token: TOKEN }));
