@@ -17,23 +17,32 @@
 <body>
 <main>
   <h1>Privacy</h1>
-  <p>This setup page (comfy-setup.lugia19.com) creates Comfy-Gen in your own Cloudflare account. It is run by the
+  <p>This setup page (comfy-setup.lugia19.com) creates Comfy-Gen in your own Cloudflare account, or moves a Comfy-Gen made from a GitHub copy over to
+    this setup. It is run by the
     author of Comfy-Gen, <a href="https://github.com/lugia19">lugia19</a>.</p>
   <h2>What it gets, and what it does with it</h2>
   <ul>
     <li>When you click <b>Connect Cloudflare</b> and allow it, Cloudflare gives this page access to your account:
       creating and updating Workers and R2 storage, and reading the account's name.</li>
-    <li>It uses that access once: to create your Worker, its storage and its address, in your account.</li>
+    <li>It uses that access once: to create your Worker, its storage and its address, in your account (or, for a
+      move, to install the latest version over your existing Worker, keeping its storage and settings).</li>
     <li>It then hands the access to your new Worker, which keeps it in your account and uses it to install
       Comfy-Gen's updates. This page keeps no copy. Until your Worker is created, the access waits in a cookie in
       your browser, encrypted, for at most 50 minutes.</li>
     <li>It stores nothing about you and uses no analytics. Cloudflare, which runs it, keeps its usual request
       logs.</li>
   </ul>
+  <h2>Modal</h2>
+  <p>When you click <b>Connect Modal</b> on your Worker's page, your Worker sets up and updates Comfy-Gen in your
+    Modal account itself. Workers can't speak Modal's API directly, so those calls go through a relay run by the
+    same author (grpc.lugia19.com, on Cloudflare and Google Cloud). The relay passes them through unchanged and
+    stores nothing; like any call to Modal, they carry your Modal token. Only setup and update calls go this way:
+    your prompts and images go straight from your Worker to your Modal account, never through the relay.</p>
   <h2>Taking it back</h2>
   <p>In Cloudflare, under <b>Manage Account → Connected applications</b> (or your profile's access settings), you can
     revoke Comfy-Gen's access at any time. Your Worker then stops updating itself until you reconnect it from its
-    page. Deleting the Worker deletes everything it stored.</p>
+    page. Deleting the Worker deletes everything it stored. Modal's token can be deleted in Modal's settings, under
+    API tokens.</p>
   <p class="muted"><a href="/">Back to the setup page</a> · Source: <a href="https://github.com/lugia19/comfyui-gen-mcp">github.com/lugia19/comfyui-gen-mcp</a></p>
 </main>
 </body>
