@@ -11,11 +11,12 @@
   import GpuList from './GpuList.svelte'
   import Models from './Models.svelte'
   import OpenButton from './OpenButton.svelte'
+  import PairPc from './PairPc.svelte'
   import Walk from './Walk.svelte'
   import WalkGuide from './WalkGuide.svelte'
   import WalkStep from './WalkStep.svelte'
   import Wizard from './Wizard.svelte'
-  import { Copy, onReturn, Task } from './task.svelte.js'
+  import { onReturn, Task } from './task.svelte.js'
 
   // The Worker's setup, one step at a time (design §8): log in, turn on storage (R2), then the
   // answer to "where should images be made?" (asked on the setup site, which the Deploy button
@@ -27,7 +28,6 @@
   let { info, refresh, onsettings = null } = $props()
 
   const RELEASE = 'https://github.com/lugia19/comfyui-gen-mcp/releases/latest/download/'
-  const AGENT_PAGE = 'http://127.0.0.1:9248/' // the agent's own page on its PC (agent config.ts DEFAULT_AGENT_PORT)
   const MODAL_TOKENS = 'https://modal.com/settings/tokens'
   const MODAL_BILLING = 'https://modal.com/settings/usage' // "Manage payment details" is there
 
@@ -108,24 +108,6 @@
   // The PC being paired: the first one its agent hasn't connected from yet. The step shows its
   // download and pairing link until it has.
   let pairing = $derived(pcs.find((g) => !g.seen))
-  const linkCopy = new Copy()
-  function removePairing() {
-    if (confirm(`Remove ${pairing.name}? Its pairing link stops working.`)) addTask.run(async () => (await api('DELETE', `/gpus/${pairing.id}`), await refresh()))
-  }
-  // The agent for this browser's system first; what each needs to run an app that isn't signed yet.
-  const AGENTS = [
-    { os: 'windows', label: 'Windows', file: 'comfy-gen-agent-windows.exe',
-      run: 'Windows may say that it protected your PC. If it does, click More info. Then click Run anyway.' },
-    { os: 'mac', label: 'macOS (Apple silicon)', file: 'comfy-gen-agent-macos.zip',
-      run: 'Unzip it and open it. The first time, macOS blocks it. Click Done. Open System Settings → Privacy & Security. Click Open Anyway. Then click Open Anyway again.' },
-    { os: 'linux', label: 'Linux', file: 'comfy-gen-agent-linux',
-      run: 'Make it executable with chmod +x comfy-gen-agent-linux. Then run it.' },
-  ]
-  const ua = navigator.userAgent
-  const thisOs = /Windows/.test(ua) ? 'windows' : /Mac/.test(ua) ? 'mac' : /Linux|X11/.test(ua) ? 'linux' : 'windows'
-  let agentOs = $state(thisOs)
-  let agent = $derived(AGENTS.find((a) => a.os === agentOs))
-
   // Modal
   let modalId = $state('')
   let modalSecret = $state('')
@@ -188,14 +170,14 @@
     `https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=Comfy-Gen&connectorUrl=${encodeURIComponent(info.connector_url || '')}`,
   )
 
-  // Waiting on something outside this page: a PC pairing, Claude adding the connector.
+  // Waiting on something outside this page: Claude adding the connector (a PC pairing: PairPc).
   let timer = null
   // Every 5 s while waiting on something; every 20 s while a PC is paired, so its status (paused,
   // offline, a new agent version) follows without a reload.
   let lastSlow = 0
   function poll() {
     timer = setTimeout(async () => {
-      const waiting = pcs.some((g) => !g.seen) || (generatorReady && !info.claude_used)
+      const waiting = generatorReady && !info.claude_used
       const slow = pcs.length > 0 && Date.now() - lastSlow >= 20_000
       if (waiting || slow) {
         lastSlow = Date.now()
@@ -361,36 +343,7 @@
     {/if}
     {#if pcsReady && allPaused}<p class="err">{pcs.length > 1 ? 'Every PC is' : 'This PC is'} paused. It makes no images until you resume it. Resume it here or from its tray icon.</p>{/if}
     {#if pairing}
-      <Walk>
-        <WalkStep>
-          On {pcs.length > 1 ? 'the new PC' : 'the PC with the graphics card'}, download the Comfy-Gen agent. Then open it.
-          {#snippet controls()}
-            <div class="row">
-              <a class="button" href="{RELEASE}{agent.file}">Download for {agent.label}</a>
-              {#each AGENTS.filter((a) => a.os !== agentOs) as other (other.os)}
-                <button type="button" class="link" onclick={() => (agentOs = other.os)}>{other.label}</button>
-              {/each}
-            </div>
-            <p>{agent.run}</p>
-          {/snippet}
-        </WalkStep>
-        <WalkStep>
-          On that PC, click <b>Pair with the agent</b>. The agent's page opens and pairs with this Worker. (If that PC is paired
-          with another Worker, the agent's page asks first.)
-          {#snippet controls()}
-            <!-- The link rides in the address's #fragment: it stays in the browser. The agent asks before replacing a pairing. -->
-            <OpenButton href="{AGENT_PAGE}#pair={encodeURIComponent(pairing.link)}" label="Pair with the agent" />
-            <details class="guide">
-              <summary>This page is open on another computer</summary>
-              <p>Copy the pairing link. On the PC, paste it into <b>Pairing link</b> on the agent's page.</p>
-              <div class="row"><code>{pairing.link}</code></div>
-              <div class="row"><button type="button" onclick={() => linkCopy.copy(pairing.link)}>{linkCopy.done ? 'Copied' : 'Copy link'}</button></div>
-            </details>
-          {/snippet}
-        </WalkStep>
-        <WalkStep>On the agent's page, click <b>Install ComfyUI</b>. This page moves on when it is installed.</WalkStep>
-      </Walk>
-      <p class="muted">Keep the pairing link secret, like a password. <button type="button" class="link" onclick={removePairing}>Remove {pairing.name}</button></p>
+      <PairPc pc={pairing} {refresh} another={pcs.length > 1} />
     {:else if pcs.length}
       <GpuList {gpus} {refresh} />
       <div class="row">

@@ -6,8 +6,8 @@
   import { Task } from './task.svelte.js'
 
   // The Worker's GPUs, in priority order (design §2, "GPUs"): a call goes to the first that is
-  // online, not paused and enabled, and has the model ready. Each PC pairs with its own link; Modal
-  // is added by its own step (the PC step shows a new PC's download and link). *gpus* is /api/state's list (with each one's live state); *refresh* reloads it.
+  // online, not paused and enabled, and has the model ready. Each PC pairs with its own link (a new
+  // or re-linked PC's steps are PairPc, under the list); Modal is added by its own Setup step. *gpus* is /api/state's list (with each one's live state); *refresh* reloads it.
   let { gpus, refresh } = $props()
 
   const KIND = { pc: 'PC', modal: 'Modal' }
@@ -46,7 +46,7 @@
   }
 
   function newLink(g) {
-    if (confirm(`Make a new pairing link for ${g.name}? It disconnects until you paste the new link into its agent.`)) {
+    if (confirm(`Make a new pairing link for ${g.name}? It disconnects until it pairs again; the steps show below the list.`)) {
       act(g.id, () => api('POST', `/gpus/${g.id}/pair`))
     }
   }
@@ -118,7 +118,7 @@
       <!-- The PC's own Comfy-Gen page, through this Worker (design §9, "A page per PC"). -->
       <a class="button small" href="/gpu/{g.id}" target="_blank" rel="noopener" title="Its ComfyUI, folders and models, as on the PC"><Icon name="external" />Open its page</a>
       <span class="spacer"></span>
-      <button type="button" class="danger small" disabled={task.busy === g.id} onclick={() => newLink(g)} title="It disconnects until the new link is pasted into its agent"><Icon name="link" />New pairing link</button>
+      <button type="button" class="danger small" disabled={task.busy === g.id} onclick={() => newLink(g)} title="It disconnects until it pairs again with the new link"><Icon name="link" />New pairing link</button>
       {@render trash(g)}
     </div>
     {/if}

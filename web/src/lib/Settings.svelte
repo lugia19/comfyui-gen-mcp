@@ -3,6 +3,7 @@
   import '../../../site/guide/wizard.css'
   import { api } from './api.js'
   import GpuList from './GpuList.svelte'
+  import PairPc from './PairPc.svelte'
   import LoraSection from './LoraSection.svelte'
   import { ModelStatus } from './models.svelte.js'
   import SettingsModels from './SettingsModels.svelte'
@@ -20,7 +21,7 @@
   // What the config holds (models, options, LoRA choices, keep-warm) is a working copy, saved with
   // the footer's Save, which shows only while something differs from the last save. Everything
   // else (uploads, downloads, GPUs, the Worker's settings) acts at once.
-  // *onsetup* opens the Setup tab (adding a GPU is done there). *unsaved* (bindable): whether
+  // *onsetup* opens the Setup tab (Modal is added there; a PC here, in GPUs). *unsaved* (bindable): whether
   // something waits for Save, so the app can ask before leaving the tab.
   let { info, refresh, onsetup, unsaved = $bindable(false) } = $props()
   // Read once: the page is remounted each time its tab is opened.
@@ -37,6 +38,10 @@
     unsaved = dirty
   })
   const saving = new Task()
+  // A PC added here pairs here too (PairPc): the first PC whose agent hasn't connected yet.
+  const adding = new Task()
+  const addPc = () => adding.run(async () => (await api('POST', '/gpus/pc'), await refresh()))
+  let pairing = $derived((info.gpus ?? []).find((g) => g.kind === 'pc' && !g.seen))
   let message = $state('') // after a save, for a while
   let warnings = $state([])
 
@@ -197,8 +202,17 @@
       <section>
         <h2>GPUs</h2>
         <GpuList gpus={info.gpus ?? []} {refresh} />
+        {#if pairing}
+          <h3>Pair {pairing.name}</h3>
+          <PairPc pc={pairing} {refresh} another={(info.gpus ?? []).length > 1} />
+        {:else}
+          <div class="row">
+            <button type="button" class="secondary" onclick={addPc} disabled={adding.busy}>{adding.busy ? 'Adding…' : 'Add a PC'}</button>
+          </div>
+          {#if adding.error}<p class="err">{adding.error}</p>{/if}
+        {/if}
         <p class="muted">
-          To add a PC or Modal, use
+          To add Modal, use
           <button type="button" class="link" onclick={onsetup}>the Setup tab</button>.
         </p>
       </section>
