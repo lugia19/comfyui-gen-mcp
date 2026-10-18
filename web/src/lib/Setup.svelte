@@ -195,7 +195,7 @@
   let lastSlow = 0
   function poll() {
     timer = setTimeout(async () => {
-      const waiting = pcs.some((g) => !g.seen) || (generatorReady && !info.claude_seen)
+      const waiting = pcs.some((g) => !g.seen) || (generatorReady && !info.claude_used)
       const slow = pcs.length > 0 && Date.now() - lastSlow >= 20_000
       if (waiting || slow) {
         lastSlow = Date.now()
@@ -220,7 +220,7 @@
     pc: { title: 'Set up your PC', short: 'PC', waiting: 'Waiting for your PC to pair.' },
     deploy: { title: 'Set up Modal', short: 'Modal', waiting: 'Waiting for Modal to be ready.' },
     models: { title: 'Download the models', short: 'Models', waiting: 'Waiting for Modal.' },
-    claude: { title: 'Connect Claude', short: 'Claude', waiting: 'Waiting for Claude to connect.' },
+    claude: { title: 'Connect Claude', short: 'Claude', waiting: 'Waiting for Claude to ask for an image.' },
     finish: { title: "You're set", short: 'Done' },
   }
   let steps = $derived.by(() => {
@@ -235,7 +235,7 @@
     pc: pcsSetUp,
     deploy: deployed && !modalError,
     models: modelsReady,
-    claude: Boolean(info.claude_seen),
+    claude: Boolean(info.claude_used), // the first image asked for in a chat, not just the connector added
     finish: false, // where it ends: never ticked
   })
   // Moving on passes over what needs nothing: a step already done (the answer the setup site gave),
@@ -373,17 +373,19 @@
           {/snippet}
         </WalkStep>
         <WalkStep>
-          Copy this pairing link.
+          On that PC, click <b>Pair with the agent</b>. The agent's page opens with this Worker's pairing link filled in. Check the
+          address it shows, then click <b>Pair</b> there.
           {#snippet controls()}
-            <div class="row"><code>{pairing.link}</code></div>
-            <div class="row"><button type="button" onclick={() => linkCopy.copy(pairing.link)}>{linkCopy.done ? 'Copied' : 'Copy link'}</button></div>
+            <!-- The link rides in the address's #fragment: it stays in the browser, and the agent asks before pairing. -->
+            <OpenButton href="{AGENT_PAGE}#pair={encodeURIComponent(pairing.link)}" label="Pair with the agent" />
+            <details class="guide">
+              <summary>This page is open on another computer</summary>
+              <p>Copy the pairing link. On the PC, paste it into <b>Pairing link</b> on the agent's page.</p>
+              <div class="row"><code>{pairing.link}</code></div>
+              <div class="row"><button type="button" onclick={() => linkCopy.copy(pairing.link)}>{linkCopy.done ? 'Copied' : 'Copy link'}</button></div>
+            </details>
           {/snippet}
         </WalkStep>
-        <WalkStep>
-          The agent opens its page in your browser when it starts. Closed it? Open it again here, on that PC.
-          {#snippet controls()}<OpenButton href={AGENT_PAGE} label="Open the agent's page" />{/snippet}
-        </WalkStep>
-        <WalkGuide ids={['agent-pair']}>On the agent's page, paste it into <b>Pairing link</b>. It pairs by itself.</WalkGuide>
         <WalkStep>On the agent's page, click <b>Install ComfyUI</b>. This page moves on when it is installed.</WalkStep>
       </Walk>
       <p class="muted">Keep the pairing link secret, like a password. <button type="button" class="link" onclick={removePairing}>Remove {pairing.name}</button></p>
@@ -480,7 +482,8 @@
     {/if}
   {:else if current === 'claude'}
     {#if !generatorReady}<p class="err">Finish the steps before this one first. Claude needs a place to make images.</p>{/if}
-    <Walk>
+    {#if info.claude_seen && !info.claude_used}<p class="ok"><b>✓ Comfy-Gen is connected to Claude.</b> Now try it in a chat:</p>{/if}
+    <Walk start={info.claude_seen ? 1 : 0}>
       <WalkStep>
         Click <b>Add to claude.ai</b>. This opens <b>Add custom connector</b> on claude.ai, already filled in. Click <b>Add</b>.
         Then click <b>Connect</b>. Keep claude.ai open. You do the next step there.
@@ -488,7 +491,7 @@
       </WalkStep>
       <WalkGuide ids={['claude-chat']}>
         In a chat, click <b>+</b>, then <b>Connectors</b>. Turn on Comfy-Gen. Ask Claude for an image. When Claude asks, click
-        <b>Always allow</b>. This page moves on when Claude connects.
+        <b>Always allow</b>. This page moves on when Claude asks for its first image.
       </WalkGuide>
     </Walk>
     <details class="guide">

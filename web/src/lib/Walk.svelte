@@ -10,7 +10,9 @@
   // them: in a Wizard step its Back / Next (registered as the Wizard's walkthrough, which also pins
   // the screenshot on the left), elsewhere the Back / Next here. Clicking a step goes to it.
   // *shot* (bindable): whether a screenshot is showing, for a page that lays itself out around it.
-  let { shot = $bindable(false), children } = $props()
+  // *start*: the step to make current, again whenever it changes (something outside this page
+  // finished the steps before it).
+  let { shot = $bindable(false), start = 0, children } = $props()
 
   // The items come in groups (a WalkStep is one item, a WalkGuide one per guide step), in document
   // order: each group takes its place as it is created, and sets its items from an effect.
@@ -18,6 +20,9 @@
   let groups = $state.raw({}) // group id -> [{ view?, mark?, fail? }]
   let seq = 0
   let current = $state(0)
+  $effect(() => {
+    current = start
+  })
 
   let items = $derived((groups, order.flatMap((id) => groups[id] ?? [{}]))) // *order* is plain: *groups* changes with it
   let at = $derived(Math.min(current, Math.max(0, items.length - 1)))

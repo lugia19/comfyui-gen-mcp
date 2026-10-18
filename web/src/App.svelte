@@ -71,7 +71,7 @@
     !local ? []
     : [
         ...(agent && !pcPage
-          ? [{ title: 'Pair with your Worker', done: info.worker.state === 'connected', hint: !info.worker.paired ? "Copy the pairing link from your Worker's page. Paste it below." : info.worker.state === 'refused' ? 'The Worker refused this link. Paste a new link below.' : 'Waiting for the Worker to accept the connection.' }]
+          ? [{ title: 'Pair with your Worker', done: info.worker.state === 'connected', hint: !info.worker.paired ? "On your Worker's page, click Pair with the agent. Or copy its pairing link and paste it below." : info.worker.state === 'refused' ? 'The Worker refused this link. Paste a new link below.' : 'Waiting for the Worker to accept the connection.' }]
           : []),
         { title: 'Install ComfyUI', done: installed, hint: 'Choose your graphics card below. Then click Install ComfyUI. It takes a few minutes.' },
       ],

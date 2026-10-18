@@ -34,7 +34,23 @@
     }
   }
   function linkInput() {
+    offered = ''
     if (looksLikeLink(link) && !pairing.busy) pair()
+  }
+
+  // #pair=<link>: the Worker's Pair with the agent button, from its Setup page on this PC. Only filled
+  // in, never paired at once: any page can open this address, so the user checks the Worker first.
+  let offered = $state('') // the Worker's address, while its link waits for Pair
+  function takeOffer() {
+    const m = /^#pair=(.+)$/.exec(location.hash)
+    if (!m) return
+    history.replaceState(null, '', location.pathname)
+    try {
+      const offer = decodeURIComponent(m[1])
+      if (!looksLikeLink(offer)) return
+      link = offer
+      offered = new URL(offer).host
+    } catch {}
   }
 
   function pair(e) {
@@ -42,6 +58,7 @@
     pairing.run(async () => {
       await api('POST', '/pair', { link: link.trim() })
       link = ''
+      offered = ''
       await refresh()
     })
   }
@@ -58,7 +75,10 @@
       poll()
     }, 3000)
   }
-  onMount(poll)
+  onMount(() => {
+    takeOffer()
+    poll()
+  })
   onDestroy(() => clearTimeout(timer))
 </script>
 
@@ -84,11 +104,14 @@
       <b>Do not also install the Claude Desktop extension on this PC.</b> One graphics card is not enough for both. Claude
       Desktop can use your Worker instead.
     </p>
-  {:else}
+  {:else if !offered}
     <p>
-      On your Worker's page, go to <b>Set up your PC</b> and click <b>Copy link</b>. Paste the link below. It pairs by itself.
-      If there is no link, click <b>Add a PC</b> first.
+      On your Worker's page, go to <b>Set up your PC</b> and click <b>Pair with the agent</b>: this page then shows its link,
+      ready to pair. Or copy the pairing link there and paste it below. If there is no link, click <b>Add a PC</b> first.
     </p>
+  {/if}
+  {#if offered}
+    <p><b>Pair this PC with <code>{offered}</code>?</b> Check that this is your Worker's address, then click <b>Pair</b>.</p>
   {/if}
   <form onsubmit={pair}>
     <label for="link">{worker.paired ? 'Pair again with a new link' : 'Pairing link'}</label>

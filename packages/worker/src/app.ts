@@ -665,9 +665,16 @@ export class App {
     };
 
     const handler = new McpHandler("Comfy-Gen-MCP", this.version, specs, call, INSTRUCTIONS);
-    let listed = false; // claude.ai lists the tools once the connector is added: setup's last step
-    const resp = await handler.respond(req, (m) => (listed ||= m === "tools/list"));
-    if (listed && !(await this.store.setup()).claude_seen) await this.store.updateSetup({ claude_seen: this.p.now() });
+    // Setup's last step: claude.ai lists the tools once the connector is added (claude_seen), and
+    // the first tool call is the first image asked for in a chat (claude_used), which ends it.
+    const seen = new Set<string>();
+    const resp = await handler.respond(req, (m) => seen.add(m));
+    const marks = { claude_seen: seen.has("tools/list") || seen.has("tools/call"), claude_used: seen.has("tools/call") };
+    if (marks.claude_seen) {
+      const setup = await this.store.setup();
+      const now = Object.fromEntries(Object.entries(marks).filter(([k, v]) => v && !setup[k]).map(([k]) => [k, this.p.now()]));
+      if (Object.keys(now).length) await this.store.updateSetup(now);
+    }
     return resp;
   }
 
@@ -904,7 +911,7 @@ export class App {
     }
     if (sub === "/setup/rotate-connector" && req.method === "POST") {
       await this.fresh.updateSecrets({ mcp_secret: tokenUrlsafe(24) });
-      await this.fresh.updateSetup({ claude_seen: null }); // the new URL has to be added again
+      await this.fresh.updateSetup({ claude_seen: null, claude_used: null }); // the new URL has to be added again
       return json({ ok: true });
     }
     return error(404, "not found");
@@ -948,6 +955,7 @@ export class App {
       modal_error: setup.modal_error ?? null,
       connector_url: `${url.origin}/mcp/${s.mcp_secret}`,
       claude_seen: setup.claude_seen ?? null,
+      claude_used: setup.claude_used ?? null,
       // The first login on a Worker made from a repository sets a password; the new setup has none.
       needs_password: !this.oauthPath(s) && !s.password,
       config,
