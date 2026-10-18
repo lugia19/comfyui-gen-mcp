@@ -1,16 +1,19 @@
 <script>
   import { strengthIn } from '../../../packages/core/src/config.ts'
+  import { detectLora, loraHeaderLength } from '../../../packages/core/src/lora-detect.ts'
   import { api, formatBytes } from './api.js'
   import { uploadLora } from './upload.js'
   import Icon from './Icon.svelte'
 
   // One place for LoRAs, a table: each file, its setup, its size and where it is. A LoRA belongs to
-  // one group, the models it was trained for (Anima and Anima Turbo share theirs); with several
-  // groups, each is a tab. *cfg* is the page's working config: its pack_loras ({group: [{name,
+  // one group, the model family it was trained for (Anima and Anima Turbo share theirs, as do Flux 2
+  // Klein 4B and its Edit); the Model family list at the top picks the group shown
+  // (#settings/loras/<group> opens one). An upload is filed under the family its file says it is
+  // for (core lora-detect.ts). *cfg* is the page's working config: its pack_loras ({group: [{name,
   // strength, strengths?, trigger, hidden, enabled}]}) is edited in place and saved with the page.
   // Each model of the group has its own strength column (they take LoRAs differently): strengths
   // {pack: n}, folded back into plain strength while every model has the same. *groups* are the LoRA
-  // groups that have models, [{id, title, packs, artistPrefix}], the first being where a LoRA
+  // groups that have models, [{id, title, packs, artistPrefix, base_models, match}], the first being where a LoRA
   // without a group goes. *listing* is null while loading, then
   //   {backends, gpus: [{id, name, kind}], files: {name: {backend: size}}, syncing: {name: {to, done,
   //    total, error}}, errors, offline: backends not reachable now (a PC off), nothing listed for them}
@@ -24,8 +27,22 @@
   // *reload(watch)*: list again; watch keeps re-checking for a while (a copy to the PC may follow).
   let { cfg, groups, listing, reload } = $props()
 
-  let tab = $state(groups[0]?.id)
+  const fromHash = () => /^#settings\/loras\/([\w-]+)/.exec(location.hash)?.[1]
+  let tab = $state(groups.find((g) => g.id === fromHash())?.id ?? groups[0]?.id)
   let group = $derived(groups.find((g) => g.id === tab) ?? groups[0])
+  function open(id) {
+    tab = id
+    history.replaceState(null, '', `#settings/loras/${id}`)
+  }
+
+  // A family is in use when one of its models is selected (else the tool's default is).
+  const chosen = (p) => (cfg.pack_selections[p.tool_name] ?? p.tool_default) === p.name
+  const inUse = (g) => g.packs.some(chosen)
+  const enabledIn = (g) => (cfg.pack_loras[g.id] ?? []).filter((e) => e.enabled).length
+  const label = (g) => {
+    const n = enabledIn(g)
+    return `${g.title}${n ? ` (${n} on)` : ''}${inUse(g) ? '' : ', not selected'}`
+  }
 
   let progress = $state(null) // {name, phase, done, total} while an upload runs
   let error = $state('')
@@ -62,7 +79,7 @@
   const entryOf = (g, name) => entries(g).find((e) => e.name === name)
   const grouped = (name) => groups.some((g) => entryOf(g, name))
 
-  // The LoRAs shown in a tab: its group's, then, in the first tab, any listed file in no group (a
+  // The LoRAs shown for a family: its group's, then, in the first, any listed file in no group (a
   // copy on a GPU from before storage; one in storage the page has already put in a group).
   const namesIn = (g) => {
     const out = entries(g).map((e) => e.name)
@@ -71,14 +88,26 @@
   }
   let names = $derived(group ? namesIn(group) : [])
 
-  // On or off in *g*. Turned on with no trigger yet, it gets one from the file name.
-  function toggle(g, name, on) {
+  // On or off in *g*. Turned on with no trigger yet, it gets *trigger* (the file's own), else one
+  // from the file name.
+  function toggle(g, name, on, trigger = '') {
     cfg.pack_loras[g.id] ??= []
     const entry = entryOf(g, name)
-    if (!entry) cfg.pack_loras[g.id].push({ name, strength: 1, trigger: on ? triggerFor(g, name) : '', hidden: false, enabled: on })
+    if (!entry) cfg.pack_loras[g.id].push({ name, strength: 1, trigger: on ? trigger || triggerFor(g, name) : '', hidden: false, enabled: on })
     else {
-      if (on && !entry.enabled && !entry.trigger) entry.trigger = triggerFor(g, name)
+      if (on && !entry.enabled && !entry.trigger) entry.trigger = trigger || triggerFor(g, name)
       entry.enabled = on
+    }
+  }
+
+  // The family a file says it is for, from its safetensors header (read here, before uploading):
+  // {group, foreign, base, trigger}, or null when it can't tell.
+  async function familyOf(file) {
+    try {
+      const n = loraHeaderLength(new Uint8Array(await file.slice(0, 8).arrayBuffer()))
+      return n ? detectLora(JSON.parse(await file.slice(8, 8 + n).text()), groups) : null
+    } catch {
+      return null
     }
   }
 
@@ -107,14 +136,25 @@
     if (!file) return
     error = ''
     if (files[file.name] && !confirm(`${file.name} is already uploaded. Replace it?`)) return
+    note = ''
+    // Into the family the file says it is for, else the open one (the server files it there too,
+    // off until this page saves it on); the Worker then copies it to each GPU.
+    const found = await familyOf(file)
+    const detected = groups.find((g) => g.id === found?.group)
+    if (!detected && found?.foreign) {
+      const made = found.base ? ` for ${found.base}` : ' for another model'
+      if (!confirm(`${file.name} looks made${made}, none of these model families, so it likely won't work. Upload it to ${group.title} anyway?`)) return
+    }
+    const into = detected ?? group
+    if (detected && detected.id !== group?.id) {
+      open(detected.id)
+      note = `${file.name} is a ${detected.title} LoRA (its file says so): it is filed under ${detected.title}.`
+    }
     try {
-      // Into the open tab's group (the server files it there too, off until this page saves it on);
-      // the Worker then copies it to each GPU.
-      const into = group
       await uploadLora(file, (p) => (progress = { name: file.name, ...p }), into?.id)
       if (into) {
         if (grouped(file.name) && !entryOf(into, file.name)) move(file.name, into.id)
-        toggle(into, file.name, true)
+        toggle(into, file.name, true, found?.trigger ?? '')
       }
     } catch (err) {
       error = `${file.name}: ${err.message}`
@@ -185,30 +225,31 @@
 
   let packs = $derived(group?.packs ?? [])
   let packNames = $derived(packs.map((p) => p.display_name).join(', '))
-  // The table's columns: file, enabled, a strength per model, trigger, hidden, size, each place,
-  // delete, and Move to… with tabs.
+  // The table's columns: file (with Move to… under it, with several families), enabled, a strength
+  // per model, trigger, hidden, size, each place, delete.
   let columns = $derived(
     [
-      'minmax(160px, 2fr)', 'auto', ...packs.map(() => 'minmax(84px, max-content)'), 'minmax(120px, 1fr)', 'auto', 'auto',
-      ...backends.map(() => 'auto'), '44px', ...(tabs ? ['auto'] : []),
+      'minmax(130px, 2fr)', 'auto', ...packs.map(() => 'minmax(56px, 80px)'), 'minmax(100px, 1fr)', 'auto', 'auto',
+      ...backends.map(() => 'auto'), '44px',
     ].join(' '),
   )
   const placeName = (b) => place(b) || 'This computer'
-  // With one group (Anima's), no tabs: the section is that group's list.
-  let tabs = $derived(groups.length > 1)
+  // With one group, no family list: the section is that group's list.
+  let several = $derived(groups.length > 1)
   let errors = $derived(Object.entries(listing?.errors ?? {}).map(([b, m]) => `${place(b) || b}: ${m}`))
 </script>
 
 <h2>LoRAs</h2>
-{#if tabs}
-  <nav class="tabs" aria-label="LoRA groups">
-    {#each groups as g (g.id)}
-      <button type="button" class:active={g.id === tab} aria-pressed={g.id === tab} onclick={() => (tab = g.id)}>{g.title}</button>
-    {/each}
-  </nav>
+{#if several}
+  <div class="family">
+    <label for="lora-family">Model family</label>
+    <select id="lora-family" value={tab} onchange={(e) => open(e.currentTarget.value)}>
+      {#each groups as g (g.id)}<option value={g.id}>{label(g)}</option>{/each}
+    </select>
+  </div>
 {/if}
 <p class="muted">
-  {tabs ? 'A LoRA works only with the models it was trained for: each tab is one group of models. ' : ''}For {packNames}.
+  {several ? 'A LoRA works only with the model family it was trained for. ' : ''}{packNames === group.title ? '' : `For ${packNames}. `}
   Tick Enabled to use a LoRA. With a trigger it applies only when the prompt contains that word, and Claude is told
   the trigger unless the LoRA is hidden; without one it always applies.{packs.length > 1 ? ' Strength is per model: they take LoRAs differently.' : ''}
   Save to apply.
@@ -232,6 +273,7 @@
 {/if}
 
 {#if names.length}
+  <div class="scroll">
   <div class="table" role="table" aria-label="LoRAs" style="grid-template-columns: {columns}">
     <div class="tr th" role="row">
       <span role="columnheader">File</span>
@@ -242,12 +284,19 @@
       <span role="columnheader" class="num">Size</span>
       {#each backends as where (where)}<span role="columnheader">{placeName(where)}</span>{/each}
       <span role="columnheader" aria-label="Delete"></span>
-      {#if tabs}<span role="columnheader" aria-label="Group"></span>{/if}
     </div>
     {#each names as name (name)}
       {@const entry = entryOf(group, name)}
       <div class="tr" role="row">
-        <b class="name" role="cell">{name}</b>
+        <span class="name" role="cell">
+          <b>{name}</b>
+          {#if several}
+            <select class="move" aria-label="Move {name} to another model family" value="" onchange={(e) => (move(name, e.currentTarget.value), (e.currentTarget.value = ''))}>
+              <option value="" disabled>Move to…</option>
+              {#each groups.filter((g) => g.id !== group.id) as g (g.id)}<option value={g.id}>{g.title}</option>{/each}
+            </select>
+          {/if}
+        </span>
         <label class="use center" role="cell" data-label="Enabled"><input type="checkbox" checked={!!entry?.enabled} onchange={(e) => toggle(group, name, e.currentTarget.checked)} aria-label="Enabled" /></label>
         {#each packs as p (p.name)}
           <span role="cell" data-label="Strength, {p.display_name}" class:off={!entry?.enabled}>
@@ -274,16 +323,9 @@
             </button>
           {/if}
         </span>
-        {#if tabs}
-          <span role="cell">
-            <select class="move" aria-label="Move to another group" value="" onchange={(e) => (move(name, e.currentTarget.value), (e.currentTarget.value = ''))}>
-              <option value="" disabled>Move to…</option>
-              {#each groups.filter((g) => g.id !== group.id) as g (g.id)}<option value={g.id}>{g.title}</option>{/each}
-            </select>
-          </span>
-        {/if}
       </div>
     {/each}
+  </div>
   </div>
 {/if}
 
@@ -308,22 +350,29 @@
 <style>
   /* A grid table: the rows share the header's columns (display: contents). Every cell stretches to
    * its row's height, so the row lines meet, and centres what it holds. */
-  .table { display: grid; column-gap: 14px; margin-top: 8px; }
+  /* Many columns (a strength per model, a place per GPU) scroll inside the card, not past it. */
+  .scroll { overflow-x: auto; }
+  .table { display: grid; column-gap: 10px; margin-top: 8px; }
   .tr { display: contents; }
   .tr > * { display: flex; align-items: center; min-height: 40px; padding: 6px 0; border-top: 1px solid var(--border); min-width: 0; margin: 0; }
-  .th > * { border-top: 0; min-height: 0; padding-top: 0; font-size: 0.85rem; color: var(--muted); font-weight: 600; white-space: nowrap; }
-  .name { overflow-wrap: anywhere; }
+  /* Headers wrap (two strength columns, Flux 2 Klein 4B and its Edit) and keep their words' width. */
+  .th > * { border-top: 0; min-height: 0; padding-top: 0; font-size: 0.85rem; color: var(--muted); font-weight: 600; min-width: auto; align-items: flex-end; }
+  .name { overflow-wrap: anywhere; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; }
   .num { justify-content: flex-end; }
   .center { justify-content: center; }
   .place { white-space: nowrap; }
+  .num { white-space: nowrap; }
   .use { font-weight: normal; }
   .tr input[type='checkbox'] { margin: 0; }
   .strength, .trigger { width: 100%; margin: 0; }
   .del button { margin: 0; padding: 4px 8px; }
-  .move { width: auto; margin: 0; }
+  .move { width: auto; max-width: 100%; margin: 0; padding: 0 2px; font-size: 0.8rem; color: var(--muted); background: transparent; border-color: transparent; }
+  .move:hover, .move:focus { border-color: var(--border); }
   progress { width: 100%; }
   .upload { display: inline-block; margin-top: 10px; font-weight: normal; }
-  .tabs { margin: 0 0 8px; flex-wrap: wrap; }
+  .family { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 8px; }
+  .family label { margin: 0; font-weight: 600; }
+  .family select { width: auto; margin: 0; }
   .upload input { display: none; }
   /* Narrow: a card per file, each value on its own labelled line. */
   @media (max-width: 760px) {

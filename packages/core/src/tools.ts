@@ -9,7 +9,7 @@
 //            come in through request_upload and the code-execution sandbox.
 
 import type { Config } from "./config.ts";
-import { canRedraw, family, groupByTool, packLoras, select, TOOLS, type Pack } from "./packs.ts";
+import { canRedraw, family, groupByTool, LORA_GROUPS, packLoras, select, TOOLS, type Pack } from "./packs.ts";
 
 export type ImageMode = "paths" | "refs";
 export type ToolSpec = { name: string; description: string; inputSchema: Record<string, any> };
@@ -254,9 +254,10 @@ export function describe(pack: Pack, cfg: Config): string {
     const trig = String(e.trigger || "").trim();
     if (trig && !triggers.includes(trig)) triggers.push(trig);
   }
+  const note = LORA_GROUPS[pack.lora_group ?? ""]?.trigger_note; // what its triggers are like (Anima's: @artists or tags)
   const text = triggers.length
-    ? "\n\nThe following trigger words will cause a LoRA to be applied to the prompt " +
-      "(these can be either artist styles, usually prefixed with @, or concept tags). " +
+    ? "\n\nThe following trigger words will cause a LoRA to be applied to the prompt" +
+      (note ? ` (${note})` : "") + ". " +
       "These triggers must be used verbatim: " + triggers.join(", ") + "."
     : "";
   if (desc.includes("{lora_triggers}")) desc = desc.replaceAll("{lora_triggers}", text);

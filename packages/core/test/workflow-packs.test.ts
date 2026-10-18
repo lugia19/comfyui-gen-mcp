@@ -362,16 +362,20 @@ describe("packs and config", () => {
     expect(() => validate({ ...builtin[0], tool_name: "nope" })).toThrow(/unknown tool/);
   });
 
-  it("only the Anima family takes LoRAs", () => {
-    expect(builtinPacks().filter(supportsLoras).map((p) => p.name).sort()).toEqual(["anima", "anima_turbo"]);
+  it("every model family takes LoRAs, a group per base model", () => {
+    // A group is the key a family's LoRA list is stored under: these must never change.
+    expect(Object.fromEntries(builtinPacks().map((p) => [p.name, p.lora_group]))).toEqual({
+      anima: "anima", anima_turbo: "anima", z_image_turbo: "zimage",
+      flux2klein: "klein4b", flux2klein_edit: "klein4b", flux2klein_9b: "klein9b", flux2klein_9b_edit: "klein9b",
+    });
     // A family is the key users' settings are stored under: these must never change.
     expect(Object.fromEntries(builtinPacks().map((p) => [p.name, family(p)]))).toEqual({
       anima: "anima", anima_turbo: "anima", flux2klein: "flux2klein", flux2klein_9b: "flux2klein_9b",
       flux2klein_9b_edit: "flux2klein_9b_edit", flux2klein_edit: "flux2klein_edit", z_image_turbo: "z_image_turbo",
     });
-    // The Anima packs' LoRA group is the key their LoRA lists were stored under before groups.
-    expect(builtinPacks().filter(supportsLoras).map((p) => p.lora_group)).toEqual(["anima", "anima"]);
+    // Anima's is the key its LoRA lists were stored under before groups, and where loose ones go.
     expect(DEFAULT_LORA_GROUP).toBe("anima");
+    expect(builtinPacks().every(supportsLoras)).toBe(true);
     expect(() => validate({ ...builtinPacks()[0], lora_group: "nope" })).toThrow(/unknown LoRA group/);
   });
 

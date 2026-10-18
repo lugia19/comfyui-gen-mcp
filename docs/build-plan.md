@@ -1188,3 +1188,16 @@ Design §2, "GPUs" (stored models, older models).
 - **Worker and extension:** `GET /api/models/stored`, `POST /api/models/delete {pack}`, deleting
   everywhere; download state of every pack that lost a file cleared.
 - **Web:** a **Stored models** section under the model cards; legacy packs last with "(older)".
+
+## LoRAs for every model family (2026-10-18)
+
+Design §4, "LoRAs in R2"; plan in the session (`lora-families`).
+
+- **Core:** LoRA groups for Z-Image Turbo, Flux 2 Klein 4B (with its Edit) and 9B beside Anima;
+  `tools.json` groups as objects (`base_models`, `match`, `trigger_note`); `lora-detect.ts`
+  (metadata, else layout and width), checked on real LoRAs from Hugging Face; the tool
+  description's trigger sentence per group.
+- **Worker:** `?tool=` on `/mcp/<secret>/loras` and `/models` (the illustrated tool by default).
+- **Web:** a Model family list in place of the tabs; uploads filed by the file's family, a foreign
+  one asked about; the file's trigger phrase; Move under the name; each model card links to its
+  family's LoRAs; the table scrolls inside the card when wide.

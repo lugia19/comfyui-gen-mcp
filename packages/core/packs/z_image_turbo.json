@@ -3,6 +3,7 @@
   "display_name": "Z-Image Turbo",
   "description": "High quality turbo image generation model (8GB+ VRAM required)",
   "tool_name": "generate_realistic_image",
+  "lora_group": "zimage",
   "is_default": true,
   "models": [
     {

@@ -269,9 +269,9 @@ tools themselves are defined once, in `packs/tools.json`: each one's settings-pa
 that routes between them (illustration or photo), and a default prompting guide; a tool's
 description is that line, the selected pack's `prompt_guide` (else the default), then the part all
 generation tools share (aspect ratios, "may not appear inline"). Packs of one `family` (Anima and
-Anima Turbo) share their settings, stored under the family's name; a `lora_group` marks the packs
-that take LoRAs, and which (2026-10-02/03: these replaced per-pack tool descriptions, `config_key`
-and the artist-list test for LoRA support). This is
+Anima Turbo) share their settings, stored under the family's name; a `lora_group` says which
+LoRAs a pack takes (2026-10-02/03: these replaced per-pack tool descriptions, `config_key` and the
+artist-list test for LoRA support; every pack has one since 2026-10-18, §4). This is
 the old `workflow.py`, `model_pack.py` and `tool_specs.py`, ported to TypeScript with Web-platform APIs
 only, plus the MCP handler.
 
@@ -328,12 +328,13 @@ results stay as they are:
   `structuredContent` in v1.12.0, but Claude Code gives that to the model in place of the text
   blocks (seen 2026-10-13), which changed what Claude read. Clients don't show `_meta`.
 - **`GET /mcp/<secret>/loras`**, behind the same secret: `{loras: [{name, trigger, strength,
-  hidden, strengths}]}`. These are the switched-on LoRAs of the pack the illustrated tool uses, or
-  `[]`. `strength` is that pack's; `strengths` (v1.19.0) has every pack of its LoRA group, for a
-  caller that names another `model` (Anima and Anima Turbo take LoRAs differently).
+  hidden, strengths}]}`. These are the switched-on LoRAs of the pack a tool uses (`?tool=`, the
+  illustrated tool by default: Visual Novelist reads that), or `[]`. `strength` is that pack's;
+  `strengths` (v1.19.0) has every pack of its LoRA group, for a caller that names another `model`
+  (Anima and Anima Turbo take LoRAs differently).
 - **`GET /mcp/<secret>/models`**, behind the same secret: `{models: [{name, display_name,
-  selected}]}`. These are the packs backing `generate_illustrated_image`, in pack order;
-  `selected` marks the one the settings page picked.
+  selected}]}`. These are the packs backing a tool (`?tool=`, `generate_illustrated_image` by
+  default), in pack order; `selected` marks the one the settings page picked.
 
 A family downloads whole: every GPU gets each selected pack and the rest of its family (core
 `withFamilies`). Base models are never deleted, so a call naming a family member finds it ready.
@@ -735,9 +736,27 @@ when the file is in a LoRA folder ComfyUI reads, ours or a shared one. The regis
 in our folder first, then in the others; deleting one from a shared folder only forgets it. (With
 "Your own ComfyUI", removed 2026-10-15, LoRAs were typed in by name.)
 
-LoRAs are uploaded from the settings page, and each belongs to one **LoRA group**: the models it
-was trained for (`lora_group` on a pack; Anima and Anima Turbo share `anima`, the only group so
-far; `packs/tools.json` names the groups, and the first is the default). `pack_loras` is keyed by
+LoRAs are uploaded from the settings page, and each belongs to one **LoRA group**: the model
+family it was trained for (`lora_group` on a pack). Since 2026-10-18 every family has one:
+`anima` (Anima, Anima Turbo), `zimage`, `klein4b` (Flux 2 Klein 4B and its Edit: one base model)
+and `klein9b`; before, Anima's was the only one. `packs/tools.json` defines them in order, the first
+the default: a title, the base model names trainers write (`base_models`), the tensor layout and
+width that recognise a file without them (`match`), and optionally `trigger_note`, what the tool
+description says its triggers are (Anima's: "@artist styles or concept tags"). The engine needs
+nothing per family: `injectLoras` chains `LoraLoaderModelOnly` after the `cg:model` loader, and
+ComfyUI-GGUF patches LoRAs into GGUF models.
+
+**Which family a file is for** (core `lora-detect.ts`, run by the page on the file before it
+uploads, so the Worker spends nothing): its safetensors header's `ss_base_model_version` or
+`modelspec.architecture` when present, else its tensor names (Anima `blocks.N.cross_attn`, Z-Image
+`layers.N.attention`, Flux 2 `double_blocks`/`single_blocks` or diffusers `transformer_blocks`)
+and most common input width (2048, 3840, 3072 for Klein 4B, 4096 for 9B). Flux 1 looks like Klein
+4B (`double_blocks`, 3072) and is told apart by its per-block modulation, block count and MLPs 4×
+the width (Flux 2's are 3×); Lumina 2 has Z-Image's names at 2304. Checked against ten LoRAs from
+Hugging Face (2026-10-18): every Z-Image, Klein 4B/9B and Anima one right with or without its
+metadata, Flux 1, SD 1.5 and a Krea 2 one (named "Z-Image-Lora") refused. An upload goes into the
+family found, saying so; one made for another model asks first; one it can't tell goes into the
+open family. The file's `modelspec.trigger_phrase`, when it has one, becomes the trigger. `pack_loras` is keyed by
 group, and each entry is file, enabled, strength, trigger (it applies only when the prompt
 contains the trigger; no trigger means always), hidden (the trigger is not listed in the tool
 description); a switched-off LoRA is not loaded, advertised or warned about. **Strength per pack**
@@ -745,9 +764,10 @@ description); a switched-off LoRA is not loaded, advertised or warned about. **S
 `strengths: {pack: n}`, and a pack's strength is its own there, else `strength` (core
 `strengthIn`; `packLoras` hands each pack its own, so generate, edit and redraw all use it, a
 scripted caller's `model` included). The page keeps the map only while the packs differ, and
-`strength` as the first pack's, so a config without it, or a version before it, reads the same. With several groups,
-the settings page shows a tab per group, an upload goes into the open tab's group, and a LoRA can
-be moved to another. A stored LoRA in no group (from before groups, or pushed from a PC) joins the
+`strength` as the first pack's, so a config without it, or a version before it, reads the same. The
+settings page picks the group shown from a **Model family** list (each with how many are on, and
+"not selected" when none of its models is; `#settings/loras/<group>` opens one, and each model
+card links there), and a LoRA can be moved to another family from under its name. A stored LoRA in no group (from before groups, or pushed from a PC) joins the
 default group switched off (`tagLoras`): the Worker on listing, saving and an upload's finish (which
 names its group), the extension at start and likewise, and the page on its working copy so a save
 doesn't undo it (2026-10-03; before, being in a family's list meant both "for these models" and
@@ -794,8 +814,9 @@ and failing that the file waits in `loras-pending-delete.json` until ComfyUI sto
     model's state on each GPU (ready, downloading, missing with a Download button). Saving starts
     the downloads on every GPU, and a model picked but not saved says so (`GET /api/models` returns
     `{gpus, packs: [{…, on: {gpuId: status}}]}`; `?gpu=` for one; one poll serves every card).
-  - **LoRAs:** a table (v1.19.0) with column headers: file, Enabled, a strength column per pack of
-    the group (Anima, Anima Turbo), Trigger, Hidden, the size once, then a column per place
+  - **LoRAs:** the Model family list (§4), then a table (v1.19.0) with column headers: file (Move
+    to… under it), Enabled, a strength column per pack of the family (Anima, Anima Turbo), Trigger,
+    Hidden, the size once, then a column per place
     (Stored, each GPU) showing only ✓ or the copy's state, and delete; upload below. Narrower than
     760 px, a card per file with each value labelled. Packs sharing a settings key
     share their LoRAs (Anima and Anima Turbo). A new trigger is the file name, with the `@` that

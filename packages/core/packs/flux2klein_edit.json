@@ -3,6 +3,7 @@
   "display_name": "Flux 2 Klein 4B (Edit)",
   "description": "img2img editing workflow using Flux 2 Klein 4B",
   "tool_name": "edit_image",
+  "lora_group": "klein4b",
   "is_default": true,
   "models": [
     {

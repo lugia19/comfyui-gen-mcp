@@ -57,6 +57,13 @@ export function wantedPacks(cfg: Config): Pack[] {
   return [...packs, ...wantedModelSets(cfg)];
 }
 
+/** The ?tool= of a scripted caller's list (a tool packs back), the illustrated tool by default;
+ * null for another name. */
+function mcpTool(req: Request): string | null {
+  const tool = new URL(req.url).searchParams.get("tool") ?? "generate_illustrated_image";
+  return tool in GROUPS ? tool : null;
+}
+
 // An agent older than the operation it was sent (handlers.ts' answer).
 const OLD_AGENT = /does not know the operation/;
 
@@ -552,12 +559,15 @@ export class App {
 
   // ── MCP ───────────────────────────────────────────────────────────
 
-  /** The switched-on LoRAs of the illustrated tool's pack, for a scripted caller to suggest their
-   * triggers (design §3, Scripted callers). Claude reads the visible ones in the tool description. */
+  /** The switched-on LoRAs of a tool's selected pack (?tool=, the illustrated tool by default: what
+   * callers before every family took LoRAs read), for a scripted caller to suggest their triggers
+   * (design §3, Scripted callers). Claude reads the visible ones in the tool description. */
   private async mcpLoras(req: Request): Promise<Response> {
     if (req.method !== "GET") return new Response(null, { status: 405, headers: { Allow: "GET" } });
+    const tool = mcpTool(req);
+    if (!tool) return error(400, `tool: one of ${Object.keys(GROUPS).join(", ")}`);
     const cfg = await this.store.config();
-    const pack = selectedPacks(cfg).find((p) => p.tool_name === "generate_illustrated_image");
+    const pack = selectedPacks(cfg).find((p) => p.tool_name === tool);
     const list = pack ? packLoras(pack, cfg) : [];
     // strength is the selected pack's; strengths has every pack of its group (a caller's `model`
     // picks another, and Anima and Anima Turbo take LoRAs differently).
@@ -571,12 +581,15 @@ export class App {
     });
   }
 
-  /** The packs a scripted caller may name in the illustrated tool's hidden `model` argument, and
-   * which one the settings page picked (design §3, Scripted callers). */
+  /** The packs a scripted caller may name in a tool's hidden `model` argument (?tool=, the
+   * illustrated tool by default), and which one the settings page picked (design §3, Scripted
+   * callers). */
   private async mcpModels(req: Request): Promise<Response> {
     if (req.method !== "GET") return new Response(null, { status: 405, headers: { Allow: "GET" } });
+    const tool = mcpTool(req);
+    if (!tool) return error(400, `tool: one of ${Object.keys(GROUPS).join(", ")}`);
     const picked = selectedPacks(await this.store.config()).map((p) => p.name);
-    const packs = PACKS.filter((p) => p.tool_name === "generate_illustrated_image");
+    const packs = PACKS.filter((p) => p.tool_name === tool);
     return json({ models: packs.map((p) => ({ name: p.name, display_name: p.display_name, selected: picked.includes(p.name) })) });
   }
 

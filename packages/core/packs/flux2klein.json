@@ -3,6 +3,7 @@
   "display_name": "Flux 2 Klein 4B",
   "description": "Fast, general-purpose image model with strong prompt understanding (4B Q8 quantized, ~6GB VRAM)",
   "tool_name": "generate_realistic_image",
+  "lora_group": "klein4b",
   "is_default": false,
   "models": [
     {

@@ -3,6 +3,7 @@
   "display_name": "Flux 2 Klein 9B",
   "description": "Higher-quality Flux 2 Klein with stronger prompt understanding (9B Q8 quantized, ~12GB+ VRAM)",
   "tool_name": "generate_realistic_image",
+  "lora_group": "klein9b",
   "is_default": false,
   "models": [
     {

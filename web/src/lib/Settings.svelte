@@ -53,7 +53,8 @@
   // The LoRA groups that have models, in order (the first takes LoRAs without a group): packs of a
   // group share its LoRAs (Anima and Anima Turbo). artistPrefix: its models take @artist tags, so
   // a LoRA's trigger is one too.
-  const allPacks = fixed.info.packs.flatMap((g) => g.packs)
+  // Each with its tool's default, which the tool uses while none is chosen.
+  const allPacks = fixed.info.packs.flatMap((g) => g.packs.map((p) => ({ ...p, tool_default: (g.packs.find((d) => d.is_default) ?? g.packs[0]).name })))
   const loraGroups = (fixed.info.lora_groups ?? [])
     .map((g) => ({ ...g, packs: allPacks.filter((p) => p.lora_group === g.id) }))
     .filter((g) => g.packs.length)
@@ -66,7 +67,8 @@
     ...(!machine ? [{ id: 'gpus', title: 'GPUs' }, { id: 'worker', title: 'Worker' }] : []),
     ...(keepWarms.length ? [{ id: 'computer', title: 'This computer' }] : []),
   ]
-  const fromHash = () => SECTIONS.find((s) => location.hash === `#settings/${s.id}`)?.id ?? SECTIONS[0].id
+  // (#settings/loras/<group> opens the LoRAs section at that model family.)
+  const fromHash = () => SECTIONS.find((s) => new RegExp(`^#settings/${s.id}(/|$)`).test(location.hash))?.id ?? SECTIONS[0].id
   let section = $state(fromHash())
   function show(id) {
     section = id

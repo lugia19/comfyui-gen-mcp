@@ -9,6 +9,7 @@ import { PACK_FILES, TOOL_FILE } from "../packs/index.ts";
 import { isPlainObject } from "./bytes.ts";
 import { SETTINGS_SCHEMA, strengthIn, tagLoras, type Config, type LoraEntry } from "./config.ts";
 import { injectLoras, nodesTitled, redrawSampler, TITLES, withBackgroundRemoval, withMarkRemoval } from "./workflow.ts";
+import type { LoraGroupMatch } from "./lora-detect.ts";
 
 export type Pack = Record<string, any> & {
   name: string;
@@ -38,7 +39,7 @@ export type Tool = { title: string; description?: string; default_guide?: string
 
 const TOOL_DEFS = TOOL_FILE as {
   tools: Record<string, Tool>;
-  lora_groups: Record<string, string>;
+  lora_groups: Record<string, string | Omit<LoraGroup, "id">>;
   remove_marks: Pick<Pack, "name" | "display_name" | "models">;
   remove_background: Pick<Pack, "name" | "display_name" | "models">;
   detect_faces: Pick<Pack, "name" | "display_name" | "models">;
@@ -47,9 +48,17 @@ const TOOL_DEFS = TOOL_FILE as {
 /** The tools packs back, by name (packs/tools.json). */
 export const TOOLS = TOOL_DEFS.tools;
 
-/** The LoRA groups, id → the settings page's tab name, in order. The first is where a LoRA without
- * a group goes (tagLoras). */
-export const LORA_GROUPS = TOOL_DEFS.lora_groups;
+/** A LoRA group: the models that share LoRAs (a model family: Anima and Anima Turbo, or Flux 2
+ * Klein 4B and its Edit, one base model), as packs/tools.json lists them. *base_models* and *match*
+ * recognise its LoRAs from their files (lora-detect.ts); *trigger_note* says in the tool description
+ * what its triggers are like. */
+export type LoraGroup = LoraGroupMatch & { title: string; trigger_note?: string };
+
+/** The LoRA groups by id, in order. The first is where a LoRA without a group goes (tagLoras). A
+ * plain string in tools.json is a title. */
+export const LORA_GROUPS: Record<string, LoraGroup> = Object.fromEntries(
+  Object.entries(TOOL_DEFS.lora_groups).map(([id, g]) => [id, { id, ...(typeof g === "string" ? { title: g } : g) }]),
+);
 export const DEFAULT_LORA_GROUP = Object.keys(LORA_GROUPS)[0];
 
 /** The models the signature and watermark removal needs (packs/tools.json), downloaded like a pack
@@ -277,7 +286,7 @@ export function downloadSize(pack: Pack): number {
 /** What every settings page renders the settings from: the global fields' schema, the pack choices
  * per tool, and the LoRA groups ([{id, title}], the first the default). */
 export function settingsMetadata(packs: Pack[]) {
-  return { schema: SETTINGS_SCHEMA, packs: packMetadata(packs), lora_groups: Object.entries(LORA_GROUPS).map(([id, title]) => ({ id, title })) };
+  return { schema: SETTINGS_SCHEMA, packs: packMetadata(packs), lora_groups: Object.values(LORA_GROUPS) };
 }
 
 /** A pack's row in a /models answer (each frontend adds where its models are). */

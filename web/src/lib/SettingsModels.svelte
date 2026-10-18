@@ -94,6 +94,14 @@
         </p>
       {/if}
 
+      {#if current.lora_group}
+        {@const on = (cfg.pack_loras[current.lora_group] ?? []).filter((e) => e.enabled).length}
+        <p class="muted loras">
+          LoRAs: {on ? `${on} on` : 'none on'} ·
+          <a href="#settings/loras/{current.lora_group}">{on ? 'Manage' : 'Add'} LoRAs</a>
+        </p>
+      {/if}
+
       {#if unsaved || (row && status.backends.length)}
       <div class="foot">
         {#if unsaved}
@@ -140,6 +148,9 @@
   }
   .card h2 {
     margin-top: 4px;
+  }
+  .loras {
+    margin: 10px 0 0;
   }
   .foot {
     border-top: 1px solid var(--border);

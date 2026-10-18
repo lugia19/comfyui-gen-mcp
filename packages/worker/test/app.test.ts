@@ -83,6 +83,15 @@ describe("MCP", () => {
         { name: "secret.safetensors", trigger: "@s", strength: 0.6, hidden: true, strengths: { anima: 0.6, anima_turbo: 1 } },
       ],
     });
+    // Another tool's (?tool=): its selected pack's family, here Flux 2 Klein 4B's, Edit's strength.
+    const cfg = await app.store.config();
+    await app.store.saveConfig({ ...cfg, pack_loras: { ...cfg.pack_loras, klein4b: [{ name: "k.safetensors", trigger: "kk", strengths: { flux2klein_edit: 0.7 } }] } });
+    const tool = (name: string) => app.handle(request("GET", `/mcp/${s.mcp_secret}/loras?tool=${name}`));
+    expect(await body(await tool("edit_image"))).toEqual({
+      loras: [{ name: "k.safetensors", trigger: "kk", strength: 0.7, hidden: false, strengths: { flux2klein: 1, flux2klein_edit: 0.7 } }],
+    });
+    expect(await body(await tool("generate_realistic_image"))).toEqual({ loras: [] }); // Z-Image's: none
+    expect((await tool("nope")).status).toBe(400);
   });
 
   it("lists the models a scripted caller may name, behind the same secret", async () => {
@@ -99,6 +108,8 @@ describe("MCP", () => {
     });
     await app.store.saveConfig({ pack_selections: { generate_illustrated_image: "anima" } });
     expect((await body(await models(s.mcp_secret))).models.map((m: any) => m.selected)).toEqual([true, false]);
+    const edit = await body(await app.handle(request("GET", `/mcp/${s.mcp_secret}/models?tool=edit_image`)));
+    expect(edit.models.map((m: any) => [m.name, m.selected])).toEqual([["flux2klein_9b_edit", false], ["flux2klein_edit", true]]);
   });
 
   it("a scripted caller's hidden model picks the pack; one of another tool, or none, is a plain error", async () => {
@@ -788,11 +799,14 @@ describe("LoRAs", () => {
     expect(resp.config.pack_loras.anima[0]).toEqual({ name: "here.safetensors", strength: 1, trigger: "@a", hidden: false, enabled: true });
   });
 
-  it("the settings page learns which packs take LoRAs", async () => {
+  it("the settings page learns each pack's LoRA group, and the groups", async () => {
     const { app } = world();
     const cookie = await login(app);
-    const packs = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).packs.flatMap((g: any) => g.packs);
-    expect(packs.filter((p: any) => p.supports_loras).map((p: any) => p.name).sort()).toEqual(["anima", "anima_turbo"]);
+    const state = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
+    const packs = state.packs.flatMap((g: any) => g.packs);
+    expect(packs.every((p: any) => p.supports_loras && p.lora_group)).toBe(true);
+    expect(state.lora_groups.map((g: any) => g.id)).toEqual(["anima", "zimage", "klein4b", "klein9b"]);
+    expect(state.lora_groups[2]).toMatchObject({ title: "Flux 2 Klein 4B", base_models: ["flux2_klein_4b"], match: { layout: "flux2", width: 3072 } });
   });
 });
 
