@@ -1255,6 +1255,35 @@ and five self-updates each redeploying Modal (the Sandbox reports within about 3
 cached). CPU on the Worker: `/api/modal/connect` 3 ms, `/connect/wait` 5, the log 3 to 4, Update
 now 7 to 9 (the job in the State object).
 
+### Moving an install made from a repository (Phase 3, built 2026-10-18)
+
+An install made with the Deploy button (a GitHub copy of the template, a Workers Build, a pasted
+Cloudflare token) moves to the new setup from its own page, keeping its address, connector URL,
+password, PCs, images, LoRAs, settings and bucket (the build named it `<worker>-storage`, as
+`cfapi.bucketName` does). After that the GitHub route is legacy, kept until the installs have moved.
+
+- **Move to the new setup** is a banner on a Worker whose update path is "build". The Worker
+  writes its answer to "where?" into its setup state (it came from the template's `SETUP_MODE`
+  var, which the new version won't carry), mints a one-use code and sends the browser to
+  `<setup site>/move?worker=<origin>&code=…`. The setup site's address is a constant there
+  (`SETUP_SITE`): a Worker made from a repository has no `COMFY_GEN_SETUP`.
+- **The setup site's `/move`** is `/reconnect`'s sign-in, with the same check that the workers.dev
+  address is a Worker in an account the sign-in reaches. It then uploads the latest release over
+  that script, as create does (the bucket kept and bound, the Durable Objects' migration tag from
+  the script, `WORKER_VARS`; routes, the cron and workers.dev are separate resources and stay), and
+  claims it with the code and the tokens, waiting while the new version rolls out. The setup site
+  does the upload because only it holds the OAuth token then; a failed claim leaves a Worker that
+  still updates through its build, so Move can be tried again.
+- **The claim, on a move** (a reconnect code while `cf_claimed` is unset), deletes the Workers
+  Build trigger with the token the build path kept (its template includes Workers Builds edit, so
+  no OAuth scope is added), then forgets `cf_token`, `cf_trigger` and `cf_branch`. Its note
+  (`move_note`, shown until dismissed) says the GitHub copy can be deleted, or, when Cloudflare
+  refused the delete, how to disconnect the build by hand.
+- **Modal after a move:** its token was only in the build's secrets, which can't be read back.
+  Modal keeps running what it has; a banner (**Connect Modal**, the Setup step's component) asks
+  for it, and the connect redeploys Modal with the Worker's version. Until then updates pass it
+  over.
+
 ## 7. Updates
 
 - **Worker and Modal app:** the Worker's cron checks the latest GitHub release against its own
