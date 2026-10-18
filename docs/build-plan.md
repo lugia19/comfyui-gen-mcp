@@ -1121,3 +1121,23 @@ Design §6, "Setup without a repository". No numbered release until Phases 1 to 
   setup Worker reads its own `/dev` through ASSETS, and static files go up with their content type.
   R2 off is covered by tests only (it can't be turned off on the account). Still to check: a
   token refresh after the first hour; then the test Worker is torn down.
+
+## Phase 2: setup without a repository, the Modal side (2026-10-18)
+
+Design §6, "Setup without a repository: the Modal side".
+
+- **Proxy address:** `grpc.lugia19.com` on the setup Worker, passing Modal's client API through to
+  the Cloud Run Envoy.
+- **The Worker's Modal client** (`packages/worker/src/modal/`): gRPC-web transport, a small codec
+  over the fields used (`scripts/check_modal_proto.mjs` checks them against `api.proto`).
+- **Connect Modal** (Modal's sign-in, or a pasted token; kept in the Worker and a workspace
+  Secret), the deploy from a Modal Sandbox reporting to `/build-callback`
+  (`comfy_gen_modal.deploy --callback`), the deploy's log, and updates redeploying Modal. Dev
+  bundles carry `source.tar.gz`.
+- **Jobs in the State object:** uploads, Modal's deploy and the daily check (CPU probe: the State
+  object's requests get 30 s on the free plan).
+- **Web:** Connect Modal; one deploy route pair and log for both deploy paths.
+- **`/simplify` pass:** one Modal deploy route pair, explicit jobs, the client's shared auth and
+  caches, a smaller codec.
+- **End to end** on the test account: connect, deploy, an image, five self-updates redeploying
+  Modal (design §6).

@@ -1209,8 +1209,51 @@ that base.
   serves them with none and the browser won't run the settings app.
 - CPU (Workers Logs `cpuTimeMs`): setup `/api/create` median 7 ms (max 12), `/oauth/callback`
   3.5; the Worker's `/api/claim` 4, `/api/state` 2.5; a self-upload (Update now, the storage
-  check) 16 to 17 ms, over the 10 ms budget but rare. If Cloudflare starts refusing those, the
-  upload moves into the State object.
+  check) 16 to 17 ms, over the 10 ms budget but rare. Phase 2 moved those into the State object
+  (below).
+
+### Setup without a repository: the Modal side (Phase 2, built 2026-10-18)
+
+A Worker made by the setup site has no Workers Build to run `modal deploy`, so it connects and
+deploys Modal itself, through our gRPC-web proxy (the spike above):
+
+- **The proxy's address** is `grpc.lugia19.com`, a second custom domain on the setup Worker: it
+  passes `/modal.client.ModalClient/*` POSTs through to the Cloud Run Envoy (`GRPC_UPSTREAM`), whose
+  method allowlist is unchanged. Moving the proxy is a change to that one var. (Its static files
+  answer on that address too; nobody looks there.)
+- **The Worker's Modal client** (`packages/worker/src/modal/`): `client.ts` is the spike's
+  transport with libmodal's headers (one AuthTokenGet shared by concurrent calls, auth tokens kept
+  per Modal token until they expire, the npm-looked-up version retried once on a version error);
+  `proto.ts` is a small codec over only the fields used, with Modal's field numbers, instead of
+  generated code (nothing to decode at isolate start); `scripts/check_modal_proto.mjs` checks every
+  field against `api.proto`.
+- **Connect Modal:** Modal's sign-in (`TokenFlowCreate`, then `TokenFlowWait` polled by the page
+  while the person approves on modal.com) or a pasted token. The token is kept twice: in the
+  Worker's secrets (`modal_token`) and as the workspace Secret `comfy-gen-token`.
+- **The deploy** runs in a Modal Sandbox (app `comfy-gen-setup`, image `python:3.12-slim` + uv): it
+  downloads the release's source (GitHub's tag tarball; the dev base's `source.tar.gz` in
+  development), runs `comfy_gen_modal.deploy --callback`, which runs the real `modal deploy` and
+  posts the same report the build's `deploy.py` sends to `/build-callback`. So the result arrives
+  with no page open, and `buildCallback` is unchanged. A Sandbox that ends without its report shows
+  as Modal's error.
+- **One route pair for both ways a Worker deploys Modal:** `POST /setup/modal` (with a token, or
+  the stored one) starts a Workers Build or a Sandbox; `GET /setup/modal/log` answers
+  `{lines, cursor, done}` from either.
+- **Updates:** an update uploads the Worker, then redeploys Modal with the same release (the
+  storage check doesn't); a failed start shows as Modal's error, not a failed update.
+- **The heavy work runs in the State object.** Measured live, Update now took up to 51 ms of CPU
+  and a deploy start 15, against a Worker request's 10 ms. Jobs (`platform.ts` `Job`: an install,
+  Modal's deploy, the daily check) go to the State Durable Object (`State.runJob`), which runs
+  the same App over its own storage. A CPU probe on the free plan (2026-10-18): a Durable Object
+  request ran 12.7 s, 3.7 s and 1.5 s of CPU without error, while a Worker request was killed at
+  1.6 s once and once at exactly 10 ms (most bursts up to about 1 s passed). Jobs aren't retried
+  on a broken stub, as an upload or a deploy isn't safe to run twice.
+
+**End to end (2026-10-18),** on `comfy-gen-p1test` in the usual Modal workspace: Connect Modal
+(approved on modal.com), the Sandbox's deploy and its report, an image in 73 s from a cold start,
+and five self-updates each redeploying Modal (the Sandbox reports within about 30 s, the image
+cached). CPU on the Worker: `/api/modal/connect` 3 ms, `/connect/wait` 5, the log 3 to 4, Update
+now 7 to 9 (the job in the State object).
 
 ## 7. Updates
 
@@ -1231,8 +1274,9 @@ that base.
   hour (`latest_seen` in the setup state, `updates.steadyLatest`), even when a later answer is
   older.
 - **A Worker made by the setup Worker** uploads the release itself instead (§6, "Setup without a
-  repository"): Update now answers once the new version is live (seconds), and the header offers
-  **Reload for vX**. `GET /api/update` answers both paths in one shape: `path`, `blocked` (why it
+  repository"), in its State object, then redeploys Modal from a Sandbox with the same release:
+  Update now answers once the new version is live (seconds), and the header offers **Reload for
+  vX**. `GET /api/update` answers both paths in one shape: `path`, `blocked` (why it
   can't update: no token, connection lost) and `failed` (the last attempt's reason).
 - **Agent:** the launcher's shim loads the latest release's bundle, checking daily while
   the agent runs, and the agent restarts into a new one when idle (§2). The launcher changes only
@@ -1248,7 +1292,8 @@ that base.
 | MCP secret path | Worker state | The connector URL. OAuth is a later upgrade |
 | Cloudflare user token | Worker state | Login to the settings pages; Workers Builds API for setup and updates |
 | Session cookie key | Worker state | Signs the settings pages' session cookie (a year) |
-| Modal token pair | Build secrets only | `modal deploy` during builds |
+| Modal token pair | Build secrets (made from a repository); Worker state (`modal_token`) and the workspace Secret `comfy-gen-token` (made by the setup site) | `modal deploy` in the build, or in the Worker's Modal Sandbox |
+| Modal sign-in | Worker state (`modal_flow`: flow id, wait secret) | Connect Modal's pending approval (15 min) |
 | Modal proxy token | Worker state, Modal Dict | Calls to the ComfyUI server and admin endpoint |
 | Ref HMAC key | Worker state | Signs upload tokens and storage links |
 | Agent pairing secret | Worker state, `agent.json` | Authenticates the relay: the agent's `Authorization: Bearer`, checked before the WebSocket upgrade. It travels in the pairing link's fragment, which browsers do not send |
