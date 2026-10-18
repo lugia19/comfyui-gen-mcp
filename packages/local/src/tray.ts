@@ -195,15 +195,17 @@ const STATE_COLORS: Record<string, TrayColor> = {
   running: "green", stopped: "yellow", starting: "yellow", failed: "red", not_installed: "red",
 };
 
-/** An extra tray item for one program (the agent's pause), and the note it adds to the status. */
-export type TrayExtra = { title: () => string; onClick: () => void; note: () => string | null; name?: string };
+/** An extra tray item for one program (the agent's pause), and the note it adds to the status.
+ * *localPage*: the program's own page, when Open settings can lead elsewhere (the agent's goes to its
+ * Worker while connected): its item, Open this PC's settings, follows Open settings. */
+export type TrayExtra = { title: () => string; onClick: () => void; note: () => string | null; name?: string; localPage?: string };
 
 /** A menu separator, in the tray helper's protocol. */
 const SEPARATOR: TrayItem = { title: "<SEPARATOR>", tooltip: "", enabled: true };
 
 /**
- * The tray for a machine: Open settings, Open images folder (the generated images, kept on this
- * machine), the status (greyed: it is information, not an action),
+ * The tray for a machine: Open settings (and *extra*'s local page), Open images folder (the
+ * generated images, kept on this machine), the status (greyed: it is information, not an action),
  * then Stop ComfyUI and *extra*, a program's own item (the agent's Pause agent). No Start or
  * Restart: ComfyUI starts by itself with the first image. The icon's color is the state at a
  * glance: green running, yellow stopped or starting, red when something needs the user (ComfyUI
@@ -236,23 +238,29 @@ export async function machineTray(
   let shownTip = `${name}: ${status()}`;
   const stoppable = () => !action && (comfy.state === "running" || comfy.state === "starting");
   const hasImages = () => "output" in machine.folders(); // ComfyUI installed (its output folder kept)
+  const local = extra?.localPage;
+  const images: TrayItem = { title: "Open images folder", enabled: hasImages(), onClick: () => machine.openFolder("output") };
+  const state: TrayItem = { title: status(), enabled: false }; // greyed (2026-10-02: the user's choice, over legibility on Windows)
+  const stop: TrayItem = { title: "Stop ComfyUI", enabled: stoppable(), onClick: () => run("stopping", () => comfy.stop()) };
+  const own: TrayItem | null = extra ? { title: extra.title(), onClick: () => (extra.onClick(), refresh()) } : null;
   const items: TrayItem[] = [
     { title: "Open settings", onClick: () => openExternal(typeof settingsUrl === "function" ? settingsUrl() : settingsUrl) },
-    { title: "Open images folder", enabled: hasImages(), onClick: () => machine.openFolder("output") },
-    { title: status(), enabled: false }, // greyed (2026-10-02: the user's choice, over legibility on Windows)
+    ...(local ? [{ title: "Open this PC's settings", onClick: () => openExternal(local) }] : []),
+    images,
+    state,
     SEPARATOR,
-    { title: "Stop ComfyUI", enabled: stoppable(), onClick: () => run("stopping", () => comfy.stop()) },
-    ...(extra ? [{ title: extra.title(), onClick: () => (extra.onClick(), refresh()) }] : []),
+    stop,
+    ...(own ? [own] : []),
   ];
   const { icons, helper } = look;
   const t = await Tray.start(machine.p, helper, icons[shown], shownTip, items);
 
   function refresh(): void {
     if (!t) return;
-    t.update(1, { title: "Open images folder", enabled: hasImages() });
-    t.update(2, { title: status(), enabled: false });
-    t.update(4, { title: "Stop ComfyUI", enabled: stoppable() });
-    if (extra) t.update(5, { title: extra.title() });
+    t.update(items.indexOf(images), { title: "Open images folder", enabled: hasImages() });
+    t.update(items.indexOf(state), { title: status(), enabled: false });
+    t.update(items.indexOf(stop), { title: "Stop ComfyUI", enabled: stoppable() });
+    if (own && extra) t.update(items.indexOf(own), { title: extra.title() });
     const now = color();
     const tip = `${name}: ${status()}`;
     if (now !== shown || tip !== shownTip) t.setIcon(icons[(shown = now)], (shownTip = tip));

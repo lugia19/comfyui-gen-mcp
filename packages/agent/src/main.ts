@@ -181,6 +181,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
         note: () => (paused ? "paused until resumed or restarted" : null),
         onClick: () => setPaused(!paused, "the tray"),
         name: p.instance ? `Comfy-Gen agent ${p.instance.n}` : "Comfy-Gen agent",
+        localPage: settingsUrl, // pairing and unpairing, and the folders, are only here
       })
     : null;
 
