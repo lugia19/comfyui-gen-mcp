@@ -195,13 +195,14 @@ def _present(models: list[dict]) -> dict[str, int]:
 
 def _download(m: dict, part_suffix: str, on_bytes) -> None:
     path = f"{MODELS_DIR}/{rel_path(m)}"
-    # The .part per pack: two packs may fetch a shared file at once.
+    # The .part per pack: a pack seeded again (a stale entry) may run beside its first seed.
     download(m["url"], path, f"{path}.part-{part_suffix}", sha256=m.get("sha256"), on_bytes=on_bytes)
 
 
-# Seeds run in parallel. Two packs may fetch a shared file at once; each writes a complete .part and
-# renames it, so whichever commit lands last leaves the same complete file.
-@app.function(image=admin_image, volumes={VOL: volume}, timeout=3 * 3600, cpu=2.0)
+# Seeds run one at a time, as a PC's queue does: packs share files (Qwen Image 2.1's generate and
+# edit packs all three of theirs), and a seed fetches only what isn't on the Volume when it starts.
+# In parallel, both Qwen packs downloaded the same 16 GB (2026-10-19). The next waits "queued".
+@app.function(image=admin_image, volumes={VOL: volume}, timeout=3 * 3600, cpu=2.0, max_containers=1)
 def seed(pack: str, models: list[dict]) -> None:
     key = f"seed:{pack}"
     volume.reload()
