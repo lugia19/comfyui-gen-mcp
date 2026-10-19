@@ -594,7 +594,7 @@ describe("Qwen Image 2.1 and Krea 2", () => {
     expect([source(encoder.inputs["images.image_1"]), source(encoder.inputs["images.image_2"])]).toEqual(["a.png", "b.png"]);
     expect(encoder.inputs["images.image_3"]).toBeUndefined();
     expect(byClass(wf, "SamplerCustomAdvanced")[0][1].inputs.latent_image).toEqual([encId, 2]);
-    expect(byClass(wf, "ImageScaleToTotalPixels").map(([, n]) => n.inputs.megapixels)).toEqual([0.7629, 1]); // native, then the budget
+    expect(byClass(wf, "ImageScaleToTotalPixels").map(([, n]) => n.inputs.megapixels)).toEqual([0.7629, 2]); // native, then the budget (2 MP: 4 MP took 2 minutes on a 16 GB card)
     // Klein's edit still chains its reference latents.
     const klein = editWorkflow(pack("flux2klein_edit"), [["a.png", null], ["b.png", null]]);
     expect(byClass(klein, "ReferenceLatent").length).toBe(4);

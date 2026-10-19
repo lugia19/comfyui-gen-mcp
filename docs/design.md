@@ -282,7 +282,11 @@ and Klein 4B Edit (the same low-VRAM role). Z-Image Turbo and Klein 9B's text-to
 still selectable, listed "(older)", deletable from Stored models. The pickers list the default,
 then the other current models by size, then the older ones. On Visual Novelist's pose edits
 (waist-up Anima sprites, "the free hand" while a prop stays put), Qwen got 14/14 clean cases, Klein
-4B 11 and Klein 9B 10: the Kleins moved the hand holding the prop. Quants were chosen for a 16 GB card fitting 12 GB:
+4B 11 and Klein 9B 10: the Kleins moved the hand holding the prop. Resolution (16 GB card, 2026-10-19): Qwen
+generates in about 13 s at 1 MP, 22 s at 2 MP and 42 s at 4 MP, Krea in 20, 36–46 and 77–128 s,
+both fine at every size, so generation keeps 1 MP by default with the setting up to 4 MP. Qwen edits
+took 20 s at 1 MP, 41 s at 2 MP and about 2 minutes at 4 MP (correct each time), so its edit budget
+is 2 MP (an input within it keeps its size, a larger one is scaled down); Klein's stays 4 MP. Quants were chosen for a 16 GB card fitting 12 GB:
 unsloth's LPIPS for Qwen Turbo against bf16 is 0.153 at Q4_K_M, 0.055 at Q6_K and 0.036 at Q8_0;
 ComfyUI unloads the encoder before sampling, so the peak is the larger of the two, not their sum. The
 tools themselves are defined once, in `packs/tools.json`: each one's settings-page title, the line
