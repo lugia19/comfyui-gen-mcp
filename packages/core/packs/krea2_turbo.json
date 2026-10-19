@@ -5,7 +5,7 @@
   "tool_name": "generate_realistic_image",
   "lora_group": "krea2",
   "is_default": false,
-  "prompt_guide": "This tool generates images with Krea 2. Describe the image in plain, detailed natural language, as a photographer would: the subject, the setting, the light, the lens and framing, the mood and the textures. Concrete visual detail works better than lists of quality words.",
+  "prompt_guide": "This tool generates images with Krea 2. Write one flowing paragraph of natural language, not a list of tags. Start with the subject and what it is doing, keeping each subject's attributes with it. Then give the setting and where things are, then the framing, lens and light, then the medium or style (say \"photograph\" for a photo). Long, detailed prompts give the best results, but describe what the image needs rather than inventing details. Put any words that must appear in the image in quotes, exactly as they should read.",
   "models": [
     {
       "filename": "Krea-2-Turbo-Q4_K_M-4.93bpw.gguf",
