@@ -52,8 +52,11 @@
   // The LoRA groups that have models, in order (the first takes LoRAs without a group): packs of a
   // group share its LoRAs (Anima and Anima Turbo). artistPrefix: its models take @artist tags, so
   // a LoRA's trigger is one too.
-  // Each with its tool's default, which the tool uses while none is chosen.
-  const allPacks = fixed.info.packs.flatMap((g) => g.packs.map((p) => ({ ...p, tool_default: (g.packs.find((d) => d.is_default) ?? g.packs[0]).name })))
+  // Each with its tool (the metadata has it on the group) and that tool's default, which the tool
+  // uses while none is chosen: what the LoRA page needs to tell a family in use.
+  const allPacks = fixed.info.packs.flatMap((g) =>
+    g.packs.map((p) => ({ ...p, tool_name: g.tool_name, tool_default: (g.packs.find((d) => d.is_default) ?? g.packs[0]).name })),
+  )
   const loraGroups = (fixed.info.lora_groups ?? [])
     .map((g) => ({ ...g, packs: allPacks.filter((p) => p.lora_group === g.id) }))
     .filter((g) => g.packs.length)
