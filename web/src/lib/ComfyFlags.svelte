@@ -36,7 +36,7 @@
       const r = await save(args)
       saved = JSON.stringify(args)
       startError = null
-      note = ['Saved. They apply from the next image.', ...(r?.warnings || [])].join(' ')
+      note = ['Saved.', ...(r?.warnings || [])].join(' ')
     })
   }
 </script>
