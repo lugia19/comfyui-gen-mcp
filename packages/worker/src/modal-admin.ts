@@ -86,6 +86,16 @@ export class ModalAdmin {
     return this.call("POST", "/models/delete", { files, seeds });
   }
 
+  /** Set the ComfyUI flags; a warm ComfyUI restarts with them once idle. */
+  comfyArgs(args: string[]): Promise<{ args: string[] }> {
+    return this.call("POST", "/comfy-args", { args });
+  }
+
+  /** The flags, and why ComfyUI last had to start without them: {args, error: {at, args, output} | null}. */
+  comfyArgsStatus(): Promise<{ args: string[]; error: { at: number; args: string[]; output: string } | null }> {
+    return this.call("GET", "/comfy-args");
+  }
+
   idle(minutes: number): Promise<any> {
     return this.call("POST", "/idle", { seconds: Math.max(60, Math.min(3600, minutes * 60)) });
   }

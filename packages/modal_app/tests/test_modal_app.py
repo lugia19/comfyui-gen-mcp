@@ -112,6 +112,47 @@ def test_app_defines_what_deploy_looks_up():
     assert "comfy_gen:" in mod.EXTRA_PATHS and "  diffusion_models: diffusion_models" in mod.EXTRA_PATHS
 
 
+def test_comfy_args_go_after_ours_as_a_list():
+    from comfy_gen_modal import app as mod
+
+    argv = mod.comfy_argv(["--reserve-vram", "2", "--some-dir", "/a b"])
+    assert argv[:3] == ["comfy", "launch", "--"]
+    assert argv[-7:] == ["--cache-ram", "4", "6", "--reserve-vram", "2", "--some-dir", "/a b"]  # no shell: a space stays
+
+
+def test_comfy_args_refuse_where_comfyui_listens_and_keeps_files():
+    from comfy_gen_modal.comfy_args import validate_comfy_args
+
+    assert validate_comfy_args(["--lowvram", "--cache-ram", "8"]) == ["--lowvram", "--cache-ram", "8"]
+    assert validate_comfy_args([]) == []
+    for bad in (["--listen", "0.0.0.0"], ["--liste"], ["--output-directory=/x"], "--lowvram", [1], ["lowvram"],
+                ["--a\nb"], ["--fast"] * 41, ["--x", "a" * 301]):
+        with pytest.raises(ValueError):
+            validate_comfy_args(bad)
+
+
+def test_comfyui_that_wont_run_with_the_flags_starts_again_without_them(monkeypatch):
+    import sys
+    import time
+
+    from comfy_gen_modal import app as mod
+
+    # A ComfyUI that refuses any flag of the user's, as argparse does, and otherwise keeps running.
+    script = "import sys, time\nif sys.argv[1:]: print('main.py: error: unrecognized arguments:', *sys.argv[1:]); sys.exit(2)\ntime.sleep(60)"
+    monkeypatch.setattr(mod, "comfy_argv", lambda user: [sys.executable, "-c", script, *user])
+    monkeypatch.setattr(mod, "state", {"comfy_args": ["--bogus"]})
+    mod._launch()
+    deadline = time.monotonic() + 20
+    while "comfy_args_error" not in mod.state and time.monotonic() < deadline:
+        time.sleep(0.1)
+    try:
+        error = mod.state["comfy_args_error"]
+        assert error["args"] == ["--bogus"] and "unrecognized arguments: --bogus" in error["output"]
+        assert mod._proc_args == [] and mod._proc.poll() is None  # running, without them
+    finally:
+        mod._stop()
+
+
 PAYMENT_LOG = """Built image im-gefkBmufHh1oFqRfPbgzr9 in 4.65s
 
 

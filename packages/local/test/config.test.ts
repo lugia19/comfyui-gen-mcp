@@ -27,6 +27,15 @@ describe("loadConfig", () => {
     expect(cfg.pack_selections).toEqual({ generate_illustrated_image: "anima" });
   });
 
+  it("keeps ComfyUI flags that pass, and drops ones that don't (edited in by hand)", () => {
+    const path = join(dir(), "config.json");
+    expect(loadConfig(path).comfy_args).toEqual([]);
+    writeFileSync(path, JSON.stringify({ comfy_args: ["--lowvram"] }));
+    expect(loadConfig(path).comfy_args).toEqual(["--lowvram"]);
+    writeFileSync(path, JSON.stringify({ comfy_args: "--lowvram" }));
+    expect(loadConfig(path).comfy_args).toEqual([]);
+  });
+
   it("does not rewrite a file that needs nothing", () => {
     const path = join(dir(), "config.json");
     loadConfig(path);

@@ -2,7 +2,7 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { isPlainObject, normalize, tokenUrlsafe, type Config } from "@comfy-gen/core";
+import { checkComfyArgs, isPlainObject, normalize, tokenUrlsafe, type Config } from "@comfy-gen/core";
 import { log } from "./log.ts";
 
 export const DEFAULT_MCP_PORT = 9247;
@@ -13,6 +13,7 @@ export type LocalConfig = Config & {
   mcp_network: boolean; // the MCP route on every interface, for other computers; false: this one only
   extra_models_dir: string; // another models folder to read from
   gpu: string; // "nvidia" | "amd" | "mac" | "cpu", chosen at install; empty until then
+  comfy_args: string[]; // extra ComfyUI flags (core comfy-args.ts)
 };
 
 function withLocalDefaults(raw: Record<string, any>): LocalConfig {
@@ -25,6 +26,7 @@ function withLocalDefaults(raw: Record<string, any>): LocalConfig {
   // A ComfyUI of the user's own (removed 2026-10-15, design §11): the managed one takes over, and
   // the file is rewritten without it.
   delete (cfg as Record<string, unknown>).comfyui_url;
+  if (checkComfyArgs(cfg.comfy_args)) cfg.comfy_args = [];
   cfg.mcp_network = cfg.mcp_network === true;
   return cfg;
 }

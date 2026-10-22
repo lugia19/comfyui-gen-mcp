@@ -105,7 +105,7 @@ goes through a Worker, with the PC agent when the GPU is at home. The agent uses
 A Worker's GPUs are one list in priority order (`secrets.gpus`, decided 2026-10-01): any number of
 PCs and at most one Modal app. Each is plain compute: images and LoRAs live in R2 (§4), so nothing
 depends on which GPU made an image. An entry is `{id, kind: "pc"|"modal", name, enabled,
-keep_warm_minutes}` plus, by kind, a PC's pairing secret, or Modal's base URL, headers, admin URL
+keep_warm_minutes, comfy_args?}` plus, by kind, a PC's pairing secret, or Modal's base URL, headers, admin URL
 and cold start. A third kind, a ComfyUI by URL (id `url`), was removed on 2026-10-15 (§11): reading
 the list leaves a stored one out, so the next write drops it, and its `fetch_result` tokens answer
 "its GPU was removed".
@@ -114,7 +114,7 @@ the list leaves a stored one out, so the next write drops it, and its `fetch_res
   first PC's id is `pc`, later ones `pc-<random>`; it goes after the other PCs and before Modal, so
   a later, smaller PC doesn't take over from the first: an 8 GB Mac did, 2026-10-02); Modal by its
   deploy's build callback (id `modal`, added at the end).
-- **Managing** (`/api/gpus`): `PATCH /<id>` sets name, enabled and keep-warm; `PUT /order` the
+- **Managing** (`/api/gpus`): `PATCH /<id>` sets name, enabled, keep-warm and ComfyUI flags; `PUT /order` the
   order; `POST /<id>/pair` a new pairing link; `POST /<id>/pause` pauses a PC; `DELETE /<id>`
   removes one (a PC's agent is disconnected). `/api/state` lists them with their live state, never
   their secrets.
@@ -148,6 +148,29 @@ the list leaves a stored one out, so the next write drops it, and its `fetch_res
 - **`fetch_result` tokens** are `<gpuId>:<prompt_id>`: only that GPU has the job, so the call goes
   there, or says it is offline.
 - **Keep-warm** is per GPU (§5).
+- **ComfyUI flags (2026-10-22)** are per GPU too: `comfy_args`, a list of arguments that goes after
+  ours, so ours can be overridden (`--cache-ram`: argparse takes the last). It is stored and sent
+  as a list, never re-split, so a path with spaces stays one argument. The page edits it as one
+  line typed as in a terminal (core `splitArgs`, `joinArgs`), showing the arguments ComfyUI will
+  get, one box each, before saving.
+  - **Checked** by core `checkComfyArgs` on the Worker, in the extension and in the agent, and
+    again in Python by Modal's admin app. It refuses the flags that set where ComfyUI listens and
+    keeps its files (`--listen`, `--port`, the directories, `--extra-model-paths-config`, TLS,
+    CORS), also abbreviated, since argparse takes `--liste`. `--listen` would open a PC's ComfyUI
+    to the network.
+  - **Modal:** `PATCH` sends them to admin `POST /comfy-args`, which keeps them in the `state`
+    Dict (it survives deploys; the build callback sends them again for a new account). The server
+    reads them at start, and the reload watcher restarts a warm ComfyUI with changed ones once it
+    is idle (`restart_requested_at`). A ComfyUI that exits by itself with the flags (an unknown
+    one: "unrecognized arguments") starts again without them. The reason is kept
+    (`comfy_args_error`, `GET /api/gpus/modal/comfy-args`) and shown under the field, so the
+    container doesn't wait out its 300 s start-up timeout.
+  - **PC:** the flags go with each `ensure`, like keep-warm. An agent keeps them in `agent.json`;
+    a Worker from before them sends none, and the PC keeps its own. Shared `LocalComfy` notes the
+    flags it started with, and restarts ComfyUI before the next image once they change and its
+    queue is empty. A ComfyUI that won't start with them fails that image with ComfyUI's own
+    message, naming the flags.
+  - **Extension:** its own `comfy_args` in config.json, on its page's ComfyUI section.
 
 ### The MCPB process
 
@@ -582,7 +605,7 @@ node outputs, the loaded model included, after every prompt. It treats them as "
 them until free RAM reaches 100% of total RAM, which never happens. So calls alternating packs
 reloaded each time. On Modal (2026-10-14, v1.12.2), Z-Image Turbo took about 10 s warm and about
 20 s after an Anima call. Both launches (Modal's `app.py`, local `comfyui.ts`) now pass
-`--cache-ram 4 6`:
+`--cache-ram 4 6` (a GPU's own ComfyUI flags come after it and may override it: §2, "GPUs"):
 - An earlier prompt's outputs stay while 6 GB of RAM is free.
 - The current prompt's outputs stay while 4 GB is free.
 
@@ -829,7 +852,7 @@ and failing that the file waits in `loras-pending-delete.json` until ComfyUI sto
   JSON file for the MCPB.
 - One Svelte settings app, rendered from the declarative settings schema, served by the Worker
   (behind a Cloudflare-token login and a cookie session) and by the MCPB's local server.
-- Keep-warm is set per GPU in the GPU list (§2, "GPUs"): Modal's applies to its
+- Keep-warm and ComfyUI flags are set per GPU in the GPU list (§2, "GPUs"). Keep-warm: Modal's applies to its
   `scaledown_window` (live, through `update_autoscaler`, S5), a PC's to its agent's idle stop (idle
   time on a PC costs nothing, so a new PC starts at 10 minutes and Modal at 5). The extension keeps `keep_warm_minutes` in its settings for its idle
   stop.

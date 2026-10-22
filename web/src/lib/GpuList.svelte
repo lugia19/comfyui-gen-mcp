@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { api, gpuName, platformName } from './api.js'
   import AgentUpdate from './AgentUpdate.svelte'
+  import ComfyFlags from './ComfyFlags.svelte'
   import Icon from './Icon.svelte'
   import PairPc from './PairPc.svelte'
   import { Task } from './task.svelte.js'
@@ -34,6 +35,12 @@
   const act = (id, fn) => task.run(async () => (await fn(), await refresh()), id)
 
   const patch = (g, changes) => act(g.id, () => api('PATCH', `/gpus/${g.id}`, changes))
+  // ComfyFlags shows the answer's warnings itself.
+  async function saveFlags(g, comfy_args) {
+    const r = await api('PATCH', `/gpus/${g.id}`, { comfy_args })
+    await refresh()
+    return r
+  }
 
   function move(i, by) {
     const ids = gpus.map((g) => g.id)
@@ -140,6 +147,8 @@
     {:else if g.kind === 'pc'}
       <p class="muted hint">Keep warm: how long ComfyUI keeps the model loaded after the last image.</p>
     {/if}
+    <ComfyFlags value={g.comfy_args ?? []} save={(list) => saveFlags(g, list)}
+      status={g.kind === 'modal' ? () => api('GET', `/gpus/${g.id}/comfy-args`) : null} />
     {#if g.kind === 'pc' && !g.seen}
       <!-- Its pairing steps, in its own entry: under the list they read as the last GPU's. -->
       <div class="pair">

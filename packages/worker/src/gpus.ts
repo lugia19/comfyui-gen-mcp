@@ -17,6 +17,7 @@ export type Gpu = {
   name: string;
   enabled: boolean;
   keep_warm_minutes: number;
+  comfy_args?: string[]; // its own ComfyUI flags, after ours (core comfy-args.ts); none until set
   // modal
   base_url?: string;
   admin_url?: string | null;

@@ -644,6 +644,27 @@ describe("Modal models", () => {
     expect((await app.handle(request("PATCH", "/api/gpus/modal", { keep_warm_minutes: 0 }, cookie))).status).toBe(400);
   });
 
+  it("a GPU's ComfyUI flags: checked, sent to Modal at once, kept by a deploy", async () => {
+    const { app, net } = world();
+    await withModal(app);
+    const cookie = await login(app);
+    const patch = (comfy_args: unknown) => app.handle(request("PATCH", "/api/gpus/modal", { comfy_args }, cookie));
+    const set = await body(await patch(["--reserve-vram", "2", "--some-dir", "C:\\My Models"]));
+    expect([set.gpu.comfy_args, set.warnings]).toEqual([["--reserve-vram", "2", "--some-dir", "C:\\My Models"], []]);
+    expect(net.adminCalls).toContainEqual(["POST", "/comfy-args", { args: ["--reserve-vram", "2", "--some-dir", "C:\\My Models"] }]);
+    expect((await patch("--lowvram")).status).toBe(400); // a list, never a line to split
+    expect((await patch(["--listen", "0.0.0.0"])).status).toBe(400);
+    // Why ComfyUI last had to start without them, for the GPU's card.
+    net.comfyArgsError = { at: 1, args: ["--bogus"], output: "unrecognized arguments: --bogus" };
+    expect((await body(await app.handle(request("GET", "/api/gpus/modal/comfy-args", undefined, cookie)))).error.output).toContain("--bogus");
+    // A deploy keeps them, and sends them again (a new Modal account has none).
+    await app.store.updateSetup({ build_nonce: "n" });
+    net.adminCalls.length = 0;
+    await app.handle(request("POST", "/build-callback", { nonce: "n", modal: { server_url: "https://m", admin_url: ADMIN } }));
+    expect((await app.gpus())[0].comfy_args).toEqual(["--reserve-vram", "2", "--some-dir", "C:\\My Models"]);
+    expect(net.adminCalls.filter((c) => c[1] === "/comfy-args")).toHaveLength(1);
+  });
+
   it("a generation waits for its models", async () => {
     const { app, net, comfy } = world();
     await withModal(app);
@@ -1018,6 +1039,11 @@ describe("the PC path", () => {
     pc.controlCalls.length = 0;
     await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } });
     expect(pc.controlCalls.find(([op]) => op === "ensure")![1].keep_warm_minutes).toBe(12); // the PC's keep-warm
+    expect(pc.controlCalls.find(([op]) => op === "ensure")![1].comfy_args).toEqual([]);
+    await app.handle(request("PATCH", "/api/gpus/pc", { comfy_args: ["--lowvram"] }, cookie));
+    pc.controlCalls.length = 0;
+    await mcp(app, "tools/call", { name: "generate_illustrated_image", arguments: { prompt: "a cat" } });
+    expect(pc.controlCalls.find(([op]) => op === "ensure")![1].comfy_args).toEqual(["--lowvram"]); // and its flags
     expect((await state()).gpus[0].name).toBe("Desk PC");
 
     pc.connected = false; // saving while the PC is off: no warning, and no wait for it

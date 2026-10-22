@@ -147,6 +147,8 @@ export class FakeNet {
   seedState: Record<string, any> = {};
   adminUp = true;
   loras: Record<string, number> = {};
+  comfyArgs: string[] = [];
+  comfyArgsError: Record<string, unknown> | null = null;
   volumeModels: Record<string, number> = {}; // model files on the Volume: subfolder/filename -> size
   fetches: { name: string; url: string; size: number }[] = []; // LoRAs the Volume was told to copy from R2
   /** Answers first when it returns a response (a test's own fake service). */
@@ -221,6 +223,8 @@ export class FakeNet {
     }
     if (method === "GET" && path.startsWith("/seed/")) return jsonResp(this.seedState[packName(path.split("/").at(-1)!)] ?? { state: "missing" });
     if (method === "POST" && path === "/idle") return jsonResp({ seconds: body.seconds });
+    if (method === "POST" && path === "/comfy-args") return jsonResp({ args: (this.comfyArgs = body.args) });
+    if (method === "GET" && path === "/comfy-args") return jsonResp({ args: this.comfyArgs, error: this.comfyArgsError });
     if (method === "POST" && (path === "/models/stored" || path === "/models/delete")) {
       const found = Object.fromEntries(body.files.filter((f: string) => f in this.volumeModels).map((f: string) => [f, this.volumeModels[f]]));
       if (path === "/models/stored") return jsonResp(found);

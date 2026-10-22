@@ -3,7 +3,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { isPlainObject } from "@comfy-gen/core";
+import { checkComfyArgs, isPlainObject } from "@comfy-gen/core";
 import { saveConfig, type ComfySettings, type Paths } from "@comfy-gen/local";
 
 export const DEFAULT_AGENT_PORT = 9248; // the MCPB's is 9247
@@ -39,6 +39,7 @@ export function loadAgentConfig(p: Paths): AgentConfig {
     worker_url: str("worker_url"), secret: str("secret"), port,
     extra_models_dir: str("extra_models_dir"), gpu: str("gpu"),
     keep_warm_minutes: keepWarm,
+    comfy_args: checkComfyArgs(raw.comfy_args) ? [] : raw.comfy_args, // the Worker's, from its last ensure
   };
   // A ComfyUI of the user's own (removed 2026-10-15, design §11): the managed one takes over, and
   // the file is rewritten without it.

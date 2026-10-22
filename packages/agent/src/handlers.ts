@@ -3,7 +3,7 @@
 
 import { readFile } from "node:fs/promises";
 import { resolve, sep } from "node:path";
-import { ComfyUIError, type relay } from "@comfy-gen/core";
+import { checkComfyArgs, ComfyUIError, type relay } from "@comfy-gen/core";
 import { UploadError } from "@comfy-gen/core";
 import { log, type Machine, type PackNeeds } from "@comfy-gen/local";
 import type { SyncJob } from "./lora-sync.ts";
@@ -15,6 +15,8 @@ export type HandlerOptions = {
   machine: Machine;
   /** The Worker's keep-warm setting, sent with each ensure; the agent's idle stop follows it. */
   setKeepWarm(minutes: number): void;
+  /** The Worker's ComfyUI flags for this PC, sent with each ensure (a Worker before them sends none). */
+  setComfyArgs?(args: string[]): void;
   /** Where the user sees download progress, for "downloading" answers. */
   settingsNote: string;
   /** Pause or resume taking image requests, from the Worker's page (the tray's flag). */
@@ -85,6 +87,7 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
       switch (h.op) {
         case "ensure": {
           if (Number.isInteger(args.keep_warm_minutes) && args.keep_warm_minutes > 0) o.setKeepWarm(args.keep_warm_minutes);
+          if (args.comfy_args !== undefined && !checkComfyArgs(args.comfy_args)) o.setComfyArgs?.(args.comfy_args);
           await machine.ensurePack(args.pack as PackNeeds, o.settingsNote);
           return ok({ ready: true });
         }

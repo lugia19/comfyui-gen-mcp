@@ -190,6 +190,7 @@ export class LocalApp {
     if (current.extra_models_dir !== cfg.extra_models_dir) {
       if (this.s.machine.comfy.state === "running") warnings.push("Restart ComfyUI (Setup tab) for the change to take effect.");
     }
+    // (Changed ComfyUI flags restart it at the next image, by themselves.)
     return json({ config: cfg, warnings });
   }
 

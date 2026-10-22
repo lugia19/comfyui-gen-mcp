@@ -143,6 +143,9 @@ describe("settings API", () => {
     await put({ pack_selections: { generate_illustrated_image: "anima" } });
     expect(w.downloaded).toEqual(["anima", "anima_turbo"]); // a newly chosen one starts at once, with its family
     expect((await put({ extra_models_dir: "/no/such/dir" })).status).toBe(400);
+    expect((await (await put({ comfy_args: ["--reserve-vram", "2"] })).json()).config.comfy_args).toEqual(["--reserve-vram", "2"]);
+    expect((await put({ comfy_args: ["--listen", "0.0.0.0"] })).status).toBe(400);
+    expect((await put({ comfy_args: "--lowvram" })).status).toBe(400); // a list, never a line to split
   });
 
   it("lists LoRAs, opens folders, starts installs", async () => {

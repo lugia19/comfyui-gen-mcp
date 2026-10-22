@@ -217,10 +217,11 @@ describe("agent handlers", () => {
       deleteModels: async (files: string[]) => ({ deleted: { [files[0]]: 3 }, busy: [] }),
     } as unknown as Machine;
     let keepWarm = 0;
+    let comfyArgs: string[] | null = null;
     let syncs = 0;
     const sync = { sync: async () => void syncs++, jobs: { "b.safetensors": { to: "pc" as const, done: 1, total: 2 } } };
     let paused = false;
-    const handle = agentHandler({ machine, setKeepWarm: (m) => (keepWarm = m), settingsNote: "x", sync, setPaused: (v) => (paused = v), page: async () => [200, "{}"] });
+    const handle = agentHandler({ machine, setKeepWarm: (m) => (keepWarm = m), setComfyArgs: (a) => (comfyArgs = a), settingsNote: "x", sync, setPaused: (v) => (paused = v), page: async () => [200, "{}"] });
     const call = async (header: any, body: Uint8Array = new Uint8Array()) => {
       const [status, out] = await handle({ header, body });
       return [status, typeof out === "string" ? out : fromUtf8(out)];
@@ -228,6 +229,11 @@ describe("agent handlers", () => {
     expect(await call({ kind: "http", id: "1", method: "POST", path: "/prompt", params: { a: "1" } }, utf8("{}"))).toEqual([200, "POST /prompt?a=1 {}"]);
     expect(await call({ kind: "control", id: "2", op: "ensure", args: { pack: { name: "p" }, keep_warm_minutes: 12 } })).toEqual([200, '{"ready":true}']);
     expect(keepWarm).toBe(12);
+    expect(comfyArgs).toBeNull(); // a Worker from before ComfyUI flags sends none: the PC keeps its own
+    await call({ kind: "control", id: "2b", op: "ensure", args: { pack: { name: "p" }, comfy_args: ["--listen", "0.0.0.0"] } });
+    expect(comfyArgs).toBeNull(); // refused here too
+    await call({ kind: "control", id: "2c", op: "ensure", args: { pack: { name: "p" }, comfy_args: ["--lowvram"] } });
+    expect(comfyArgs).toEqual(["--lowvram"]);
     expect(await call({ kind: "control", id: "3", op: "ensure", args: { pack: { name: "big" } } })).toEqual([500, "The Big model is downloading: 5% of 9.0 GB."]);
     expect((await call({ kind: "control", id: "4", op: "inventory" }))[0]).toBe(400); // custom workflows were removed
     expect(JSON.parse((await call({ kind: "control", id: "5", op: "loras" }))[1] as string)).toEqual({
@@ -291,6 +297,11 @@ describe("the page's settings", () => {
     expect("comfyui_url" in cfg).toBe(false);
     expect(cfg.worker_url).toBe("https://w.example");
     expect(readFileSync(file, "utf8")).not.toContain("comfyui_url");
+    expect(cfg.comfy_args).toEqual([]);
+    writeFileSync(file, JSON.stringify({ comfy_args: ["--reserve-vram", "2"] }));
+    expect(loadAgentConfig(p).comfy_args).toEqual(["--reserve-vram", "2"]); // the Worker's, from its last ensure
+    writeFileSync(file, JSON.stringify({ comfy_args: ["--listen"] }));
+    expect(loadAgentConfig(p).comfy_args).toEqual([]);
   });
 
   it("saves the models folder, and answers with it only: never the pairing secret", async () => {

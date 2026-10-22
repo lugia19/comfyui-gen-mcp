@@ -1,6 +1,7 @@
 <script>
   import { onDestroy, onMount, untrack } from 'svelte'
   import { api, pcPage } from './api.js'
+  import ComfyFlags from './ComfyFlags.svelte'
   import Models from './Models.svelte'
   import { Copy, masked, Task } from './task.svelte.js'
 
@@ -131,6 +132,8 @@
       {/if}
     </div>
     <p class="muted">When it makes no images for the keep-warm time, it stops by itself. This frees the GPU.</p>
+    <!-- An agent's flags are its GPU's, on the Worker's GPU list. -->
+    {#if !agent}<ComfyFlags value={info.config.comfy_args ?? []} save={(list) => api('PUT', '/config', { config: { comfy_args: list } })} />{/if}
   {/if}
 </section>
 

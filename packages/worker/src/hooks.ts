@@ -159,6 +159,7 @@ export class PcHooks extends WorkerHooks {
     const args = {
       pack: packNeeds(pack),
       keep_warm_minutes: this.gpu.keep_warm_minutes,
+      comfy_args: this.gpu.comfy_args ?? [],
     };
     const r = await this.relay.control("ensure", args, ENSURE_TIMEOUT_S);
     if (r.offline) throw new ComfyUIError(offlineMessage([this.gpu]));

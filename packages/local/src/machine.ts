@@ -5,7 +5,7 @@
 import { existsSync, statSync } from "node:fs";
 import { totalmem } from "node:os";
 import { join } from "node:path";
-import { ComfyUIError, downloadSize, MODEL_SETS, UploadError } from "@comfy-gen/core";
+import { checkComfyArgs, ComfyUIError, downloadSize, MODEL_SETS, UploadError } from "@comfy-gen/core";
 import { LocalComfy, type ComfySettings } from "./comfyui.ts";
 import type { ExtensionFiles } from "./nodes.ts";
 import { ModelDownloads, type ModelFile } from "./downloads.ts";
@@ -317,12 +317,12 @@ export class Machine {
   }
 }
 
-/** The machine settings a page may change (extra_models_dir), checked. Returns an error message,
- * or null. */
+/** The machine settings a page may change (extra_models_dir, comfy_args), checked. Returns an
+ * error message, or null. */
 export function checkMachineSettings(cfg: Record<string, any>): string | null {
   const extra = String(cfg.extra_models_dir ?? "").trim();
   if (extra && (!existsSync(extra) || !statSync(extra).isDirectory())) return `${extra} is not a folder`;
-  return null;
+  return cfg.comfy_args === undefined ? null : checkComfyArgs(cfg.comfy_args);
 }
 
 const MODEL_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/;

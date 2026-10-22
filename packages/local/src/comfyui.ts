@@ -5,7 +5,7 @@ import type { ChildProcess } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readSync, renameSync, statSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
-import { ComfyUIError, knownNodePackages } from "@comfy-gen/core";
+import { checkComfyArgs, ComfyUIError, knownNodePackages } from "@comfy-gen/core";
 import { ModelLocator } from "./discover.ts";
 import { ensureExtensionPackages, findInstall, type Install } from "./install.ts";
 import { log } from "./log.ts";
@@ -23,7 +23,8 @@ const LAUNCH_TIMEOUT_S = 300; // a first start compiles and caches; later ones t
 
 export type ComfyState = "not_installed" | "stopped" | "starting" | "running" | "failed";
 
-export type ComfySettings = { extra_models_dir: string; keep_warm_minutes: number; gpu: string };
+/** *comfy_args*: the GPU's own ComfyUI flags (core comfy-args.ts), after ours. */
+export type ComfySettings = { extra_models_dir: string; keep_warm_minutes: number; gpu: string; comfy_args?: string[] };
 
 /** True if *port* can be bound on *host* right now. A real bind, which also catches Windows'
  * reserved port ranges (error 10013) that a connect probe misses. */
@@ -78,6 +79,7 @@ export class LocalComfy {
   onStopped: (() => void) | null = null;
   private child: ChildProcess | null = null;
   private starting: Promise<string> | null = null;
+  private launchedArgs: string | null = null; // the comfy_args it runs with, as JSON
   private objectInfo: Set<string> | null = null;
   private busy = 0;
   // 0: not used since this program started, so an update restarts into it at once (an agent showed
@@ -121,9 +123,29 @@ export class LocalComfy {
 
   /** The ComfyUI URL, starting the managed ComfyUI if needed. Throws ComfyUIError for the user. */
   async ensureRunning(): Promise<string> {
-    if (this.state === "running" && this.child && this.url) return this.url;
+    if (this.state === "running" && this.child && this.url) {
+      if (JSON.stringify(this.userArgs()) === this.launchedArgs) return this.url;
+      this.starting ??= this.relaunch().finally(() => (this.starting = null));
+    }
     this.starting ??= this.launch().finally(() => (this.starting = null));
     return this.starting;
+  }
+
+  /** The GPU's own flags; none if they don't pass (config.json edited by hand). */
+  private userArgs(): string[] {
+    const args = this.settings().comfy_args ?? [];
+    const bad = checkComfyArgs(args);
+    if (bad) log.warn(`Ignoring the ComfyUI flags in the settings: ${bad}`);
+    return bad ? [] : args;
+  }
+
+  /** Start again with the flags changed since this ComfyUI started, once its queue is empty, so
+   * a change applies from the next image. Busy, it keeps its flags until a later call. */
+  private async relaunch(): Promise<string> {
+    if (!(await this.queueEmpty())) return this.url!;
+    log.info("ComfyUI's flags changed; restarting it with them");
+    await this.kill();
+    return this.launch();
   }
 
   private async launch(): Promise<string> {
@@ -159,6 +181,10 @@ export class LocalComfy {
       for (const d of Object.values(dirs)) mkdirSync(d, { recursive: true });
       args.push("--output-directory", dirs.output, "--input-directory", dirs.input, "--temp-directory", data, "--user-directory", dirs.user);
     }
+    const user = this.userArgs(); // last, so they can override ours
+    args.push(...user);
+    this.launchedArgs = JSON.stringify(user);
+    const flagsNote = user.length ? ` It was started with this GPU's ComfyUI flags (${user.join(" ")}): check them in the settings.` : "";
     mkdirSync(this.p.logs, { recursive: true });
     // The previous run's log is kept as comfyui.prev.log: after a crash, the next start would
     // otherwise overwrite the evidence.
@@ -189,7 +215,7 @@ export class LocalComfy {
 
     const deadline = Date.now() + LAUNCH_TIMEOUT_S * 1000;
     while (Date.now() < deadline) {
-      if (exited) return this.failed(`ComfyUI exited while starting (${exited}).`);
+      if (exited) return this.failed(`ComfyUI exited while starting (${exited}).${flagsNote}`);
       if (await answers(url)) {
         this.url = url;
         this.state = "running";
@@ -216,6 +242,10 @@ export class LocalComfy {
   /** Stop the managed ComfyUI, if it runs. */
   async stop(): Promise<void> {
     if (this.starting) await this.starting.catch(() => {});
+    await this.kill();
+  }
+
+  private async kill(): Promise<void> {
     const child = this.child;
     this.child = null;
     if (this.idleTimer) clearInterval(this.idleTimer);

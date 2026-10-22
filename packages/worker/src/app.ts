@@ -7,7 +7,7 @@
 import {
   Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
   builtinPacks, cfapi, releases, isModelSet, wantedModelSets, fromHex, fromUtf8, sha256Hex, utf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
-  withoutLora, tagLooseLoras, wantedLoras, strengthIn, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, fileKey, removableFiles, BG_MODELS, HIDDEN_TOOLS, type Config, type Content, type Pack,
+  withoutLora, tagLooseLoras, wantedLoras, strengthIn, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, fileKey, removableFiles, BG_MODELS, HIDDEN_TOOLS, checkComfyArgs, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
@@ -819,6 +819,7 @@ export class App {
       const gpu = await this.putGpu("modal", (old) => ({
         id: "modal", kind: "modal", name: old?.name ?? "Modal", enabled: old?.enabled ?? true,
         keep_warm_minutes: old?.keep_warm_minutes ?? DEFAULT_KEEP_WARM,
+        ...(old?.comfy_args ? { comfy_args: old.comfy_args } : {}),
         base_url: modal.server_url,
         admin_url: modal.admin_url ?? null,
         headers: { "Modal-Key": modal.proxy_token_id ?? "", "Modal-Secret": modal.proxy_token_secret ?? "" },
@@ -826,6 +827,8 @@ export class App {
       }));
       // A deploy resets keep-warm to the app's default, and a fresh install has no models yet.
       warnings = await this.applyToModal(this.admin(gpu)!, await this.fresh.config(), gpu.keep_warm_minutes);
+      // Modal keeps the flags across deploys; a new Modal account doesn't have them yet.
+      if (gpu.comfy_args?.length) warnings.push(...(await this.applyComfyArgs(this.admin(gpu)!, gpu.comfy_args)));
       warnings.push(...(await this.spreadLoras(new URL(req.url).origin)));
       await this.fresh.updateSetup({ modal_error: null, modal_deploy: null });
     } else if (typeof data.modal_error === "string" || String(data.modal_result ?? "").startsWith("failed")) {
@@ -850,6 +853,17 @@ export class App {
     } catch (e) {
       if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
       return [`Could not apply keep-warm: ${e.message}`];
+    }
+  }
+
+  /** Set Modal's ComfyUI flags. Returns warnings (best effort). */
+  private async applyComfyArgs(admin: modalAdmin.ModalAdmin, args: string[]): Promise<string[]> {
+    try {
+      await admin.comfyArgs(args);
+      return [];
+    } catch (e) {
+      if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+      return [`Could not apply the ComfyUI flags: ${e.message}`];
     }
   }
 
@@ -1042,7 +1056,8 @@ export class App {
    *   POST   /gpus/<id>/pair     a new pairing link; the old one stops working, its agent is dropped
    *   POST   /gpus/<id>/pause    {paused}: the tray's pause, from here. The agent keeps it in memory
    *                              only, so a forgotten pause cannot send every image elsewhere for days
-   *   PATCH  /gpus/<id>          {name, enabled, keep_warm_minutes}
+   *   PATCH  /gpus/<id>          {name, enabled, keep_warm_minutes, comfy_args}
+   *   GET    /gpus/modal/comfy-args  Modal's flags and why ComfyUI last started without them
    *   PUT    /gpus/order         {ids}: the priority order
    *   DELETE /gpus/<id>          remove it (a PC's agent is dropped; Modal's app stays deployed)
    */
@@ -1064,7 +1079,7 @@ export class App {
       await this.saveGpus(ids.map((id: string) => gpus.find((g) => g.id === id)!));
       return json({ ok: true });
     }
-    const m = /^\/gpus\/([\w-]+)(?:\/(pair|pause))?$/.exec(sub);
+    const m = /^\/gpus\/([\w-]+)(?:\/(pair|pause|comfy-args))?$/.exec(sub);
     const gpu = m ? gpus.find((g) => g.id === m[1]) : undefined;
     if (!m || !gpu) return error(404, "no such GPU");
     if (m[2] === "pair" && req.method === "POST" && gpu.kind === "pc") {
@@ -1076,6 +1091,14 @@ export class App {
     if (m[2] === "pause" && req.method === "POST" && gpu.kind === "pc") {
       return this.controlResponse(gpu, await this.control(gpu, "pause", { paused: (await bodyJson(req)).paused === true }));
     }
+    if (m[2] === "comfy-args" && req.method === "GET" && this.admin(gpu)) {
+      try {
+        return json(await this.admin(gpu)!.comfyArgsStatus());
+      } catch (e) {
+        if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
+        return error(502, e.message);
+      }
+    }
     if (!m[2] && req.method === "PATCH") {
       const body = await bodyJson(req);
       const changes: Partial<Gpu> = {};
@@ -1086,9 +1109,15 @@ export class App {
         if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) return error(400, "keep_warm_minutes must be 1 to 60");
         changes.keep_warm_minutes = minutes;
       }
+      if (body.comfy_args !== undefined) {
+        const bad = checkComfyArgs(body.comfy_args);
+        if (bad) return error(400, bad);
+        changes.comfy_args = body.comfy_args; // a PC gets them with its next ensure
+      }
       const updated = (await this.updateGpu(gpu.id, changes))!;
       const admin = this.admin(updated);
       const warnings = admin && changes.keep_warm_minutes !== undefined ? await this.applyKeepWarm(admin, updated.keep_warm_minutes) : [];
+      if (admin && changes.comfy_args) warnings.push(...(await this.applyComfyArgs(admin, changes.comfy_args)));
       return json({ gpu: redact(updated, url), warnings });
     }
     if (!m[2] && req.method === "DELETE") {

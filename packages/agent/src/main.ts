@@ -93,6 +93,12 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
         saveAgentConfig(p, cfg);
       }
     },
+    setComfyArgs: (args) => {
+      if (JSON.stringify(args) !== JSON.stringify(cfg.comfy_args)) {
+        cfg = { ...cfg, comfy_args: args }; // ComfyUI restarts with them at its next use
+        saveAgentConfig(p, cfg);
+      }
+    },
     settingsNote: `${settingsUrl} on your PC (the Comfy-Gen tray icon opens it)`,
     // The Worker's page, managing this PC: a call of this page's own API, as if made here.
     page: async (method, path, body) => {

@@ -3,8 +3,8 @@
 - Comfy: ComfyUI's own HTTP API on an L4, behind proxy auth, plus our /comfy-gen/wait route
   (comfy_node/). The Worker is its only client.
 - seed: downloads a pack's model files onto the Volume (a CPU container, not the GPU).
-- admin: a small proxy-auth'd API for the Worker: start a seed, read its progress, set keep-warm,
-  list, fetch and delete LoRAs.
+- admin: a small proxy-auth'd API for the Worker: start a seed, read its progress, set keep-warm and
+  the ComfyUI flags, list, fetch and delete LoRAs.
 - fetch_lora: copies a LoRA from the Worker's R2 storage onto the Volume (loras.py).
 
 The Volume holds models, input and output (images themselves are kept by the Worker, in R2). A warm ComfyUI only sees files written by other containers after volume.reload(), which
@@ -24,10 +24,12 @@ import subprocess
 import threading
 import time
 import urllib.request
+from collections import deque
 
 import modal
 
 from comfy_gen_modal import loras
+from comfy_gen_modal.comfy_args import validate_comfy_args
 from comfy_gen_modal.download import download
 from comfy_gen_modal.models import (
     INPUT_DIR, MODELS_DIR, OUTPUT_DIR, SUBFOLDERS, VOL, delete_models, needed, rel_path, stored, validate_models,
@@ -37,7 +39,7 @@ from comfy_gen_modal.models import (
 APP_NAME = "comfy-gen"
 SERVER_NAME = "comfy"
 VOLUME_NAME = "comfy-gen-data"
-STATE_DICT = "comfy-gen-state"  # seed progress, reload requests, the proxy token (deploy.py)
+STATE_DICT = "comfy-gen-state"  # seed progress, reload and restart requests, ComfyUI's flags, the proxy token (deploy.py)
 
 COMFY_PORT = 8188
 KEEP_WARM_S = 300  # the default keep_warm_minutes; the Worker applies the user's setting via /idle
@@ -85,24 +87,61 @@ def _comfy_busy() -> bool:
 
 
 _proc: subprocess.Popen | None = None
+_proc_args: list[str] = []  # the user's flags it runs with
+_stopped: subprocess.Popen | None = None  # stopped on purpose: not a crash
+_tail: deque[str] = deque(maxlen=20)  # its last lines of output
 # Keep an earlier prompt's outputs (its loaded model) while at least 6 GB of RAM is free, so calls
 # alternating Anima and Anima Turbo don't reload either. ComfyUI 0.37's default frees them after
 # every prompt; its LRU cache would keep them with no regard for RAM. As on a PC (design §3).
-CACHE_ARGS = "--cache-ram 4 6"
+CACHE_ARGS = ["--cache-ram", "4", "6"]
 
 
-def _launch() -> None:
-    global _proc
+def _user_args() -> list[str]:
+    """The GPU's own ComfyUI flags, set by the Worker (admin /comfy-args)."""
+    try:
+        return validate_comfy_args(state.get("comfy_args") or [])
+    except Exception:  # a Dict hiccup, or a value from elsewhere: none
+        return []
+
+
+def comfy_argv(user: list[str]) -> list[str]:
+    """ComfyUI's command line: ours, then the user's flags (argparse: the last one wins)."""
+    return [
+        "comfy", "launch", "--", "--listen", "0.0.0.0", "--port", str(COMFY_PORT),
+        "--input-directory", INPUT_DIR, "--output-directory", OUTPUT_DIR,
+        "--extra-model-paths-config", "/root/extra_model_paths.yaml", *CACHE_ARGS, *user,
+    ]
+
+
+def _launch(user: list[str] | None = None) -> None:
+    global _proc, _proc_args
+    user = _user_args() if user is None else user
     _proc = subprocess.Popen(
-        f"comfy launch -- --listen 0.0.0.0 --port {COMFY_PORT} "
-        f"--input-directory {INPUT_DIR} --output-directory {OUTPUT_DIR} "
-        "--extra-model-paths-config /root/extra_model_paths.yaml "
-        f"{CACHE_ARGS}",
-        shell=True, start_new_session=True,  # its own process group: comfy launch starts a child
+        comfy_argv(user),
+        start_new_session=True,  # its own process group: comfy launch starts a child
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
     )
+    _proc_args = user
+    threading.Thread(target=_watch_proc, args=(_proc, user), daemon=True).start()
+
+
+def _watch_proc(proc: subprocess.Popen, user: list[str]) -> None:
+    """Pass ComfyUI's output on to the container's log, keeping its end. If it exits by itself with
+    the user's flags (one it doesn't know: "unrecognized arguments"), start it again without them,
+    so the container doesn't wait out its start-up timeout; the Worker shows why."""
+    for line in proc.stdout:
+        print(line, end="", flush=True)
+        _tail.append(line.rstrip())
+    proc.wait()
+    if proc is _stopped or proc is not _proc or not user:
+        return
+    state["comfy_args_error"] = {"at": time.time(), "args": user, "output": "\n".join(_tail)}
+    _launch([])
 
 
 def _stop() -> None:
+    global _stopped
+    _stopped = _proc
     os.killpg(_proc.pid, signal.SIGTERM)
     try:
         _proc.wait(timeout=20)
@@ -128,19 +167,39 @@ def _reload() -> str:
         return "restarted ComfyUI"
 
 
+def _restart() -> None:
+    """Start ComfyUI again with the flags changed since it started (none changed: nothing)."""
+    if _user_args() == _proc_args:
+        return
+    try:
+        _stop()
+    finally:
+        _launch()
+
+
 def _watch_reloads(started: float) -> None:
-    """Reload the Volume when a seed asks and ComfyUI is idle. A request is a timestamp, so nothing
-    needs clearing and a request that lands mid-reload is not lost."""
-    done_upto = started  # the Volume was mounted fresh at start
+    """Reload the Volume when a seed asks, and restart ComfyUI when its flags change, once ComfyUI
+    is idle. A request is a timestamp, so nothing needs clearing and a request that lands mid-reload
+    is not lost."""
+    done_upto = restarted_upto = started  # the Volume was mounted fresh at start, the flags read
     while True:
         time.sleep(RELOAD_POLL_S)
         try:
             requested = state.get("reload_requested_at") or 0
-            if requested <= done_upto:
+            restart = state.get("restart_requested_at") or 0
+            if requested <= done_upto and restart <= restarted_upto:
                 continue
             if _comfy_busy():
                 continue
         except Exception:  # ComfyUI still booting, or a Dict hiccup: look again next poll
+            continue
+        if restart > restarted_upto:
+            try:
+                _restart()
+            except Exception as e:
+                state["restart"] = {"at": time.time(), "ok": False, "error": f"{type(e).__name__}: {e}"}
+            restarted_upto = restart
+        if requested <= done_upto:
             continue
         try:
             t = time.monotonic()
@@ -332,6 +391,23 @@ def admin():
         for key in seeds:
             await state.pop.aio(f"seed:{key}", None)
         return {"deleted": deleted}
+
+    @api.post("/comfy-args")
+    async def set_comfy_args(body: dict = Body(...)):
+        try:
+            args = validate_comfy_args(body.get("args"))
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        if args != (await state.get.aio("comfy_args") or []):
+            await state.put.aio("comfy_args", args)
+            await state.pop.aio("comfy_args_error", None)
+            await state.put.aio("restart_requested_at", time.time())  # a warm ComfyUI, once idle
+        return {"args": args}
+
+    @api.get("/comfy-args")
+    async def get_comfy_args():
+        """The flags, and why ComfyUI last had to start without them (null: it didn't)."""
+        return {"args": await state.get.aio("comfy_args") or [], "error": await state.get.aio("comfy_args_error")}
 
     @api.post("/idle")
     async def set_idle(body: dict = Body(...)):
