@@ -188,6 +188,20 @@ process per window or reload); each process tries to bind the port (9247, as in 
   Desktop ends the extension without a catchable signal, so this is the usual way it stops there).
   Tested: ComfyUI gone within 4 s of a SIGKILL at the old interval, the next message
   to a relay made it the owner.
+- **Windows memory reads (2026-10-22).** On Windows the same extension switches
+  `psutil.virtual_memory()` to `GlobalMemoryStatusEx` at load, before any prompt (`winmem.py`).
+  - **Why:** psutil (6.x to 7.2.2) builds it from `GetPerformanceInfo`, which counts every handle
+    on the system. ComfyUI 0.37.0 calls it at least twice per pinned weight. After a game leaked
+    handles (Ace Combat 8: 346k system-wide), each call took about 200 ms until a reboot, so a
+    first generation sat at "Model Initializing" for minutes. `GlobalMemoryStatusEx` took 0.00 ms
+    and gave the same total and available RAM.
+  - **What it replaces:** psutil's platform backend (`psutil._psplatform.virtual_memory`, looked
+    up at each call), so every caller gets it, including `comfy_execution/caching.py`'s by-name
+    import.
+  - **Shape:** psutil's own on Windows (total, available, percent, used, free; free is
+    available).
+  - **Fail-safe:** a different shape, a failed call or a total more than 1% off leaves psutil as it
+    is, with a warning. `COMFY_GEN_FAST_MEMINFO=0` in the environment switches it off.
 
 The server binds `127.0.0.1`, or `0.0.0.0` when the user lets other computers use it (Connect
 Claude → Advanced, `mcp_network`, read at start), for a client such as LibreChat on another machine:

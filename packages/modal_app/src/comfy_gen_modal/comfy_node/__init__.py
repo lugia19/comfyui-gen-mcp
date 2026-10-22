@@ -39,6 +39,10 @@ background enclosed by the silhouette (which BiRefNet models keep) cleared where
 the light ring generated images have around their lineart, and the edge colours cleaned of the
 background's.
 
+Windows: psutil.virtual_memory() from GlobalMemoryStatusEx (winmem.py), switched at load, before
+any prompt: psutil's own takes about 200 ms a call once a game has leaked handles, and ComfyUI calls
+it for every weight it pins.
+
 Loaded by ComfyUI from custom_nodes/, where it can import `server`. The nodes' heavy imports
 (torch, ultralytics, spandrel, onnxruntime, scipy) are inside them: tests import this module without ComfyUI.
 """
@@ -887,6 +891,10 @@ try:
 except ImportError:
     pass
 else:
+    if sys.platform == "win32":
+        from . import winmem
+
+        winmem.install()
     _register()
     _register_mark_folder()
     _start_watchdog()
