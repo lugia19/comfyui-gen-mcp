@@ -55,6 +55,8 @@ export class FakeComfy implements Transport {
   calls: [string, string, Record<string, string> | undefined][] = [];
   uploads: Uint8Array[] = [];
   viewBody: Uint8Array = utf8("RIFF\x00\x00\x00\x00WEBPVP8 fake");
+  /** /view's answer to a `preview` conversion, when set; else viewBody. */
+  previewBody: Uint8Array | null = null;
   private state = "running";
 
   async request(method: string, path: string, opts: RequestOptions = {}): Promise<Response> {
@@ -96,7 +98,7 @@ export class FakeComfy implements Transport {
         this.viewBootFails -= 1;
         return new Response(503);
       }
-      return new Response(200, this.viewBody);
+      return new Response(200, opts.params?.preview && this.previewBody ? this.previewBody : this.viewBody);
     }
     if (path === "/upload/image") {
       if (this.uploadBootFails) {

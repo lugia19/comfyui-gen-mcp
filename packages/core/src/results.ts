@@ -4,12 +4,14 @@
 // Inline WebP: claude.ai shows inline images and ignores resource_link (S2, S2c). Outputs are saved
 // as WebP by ComfyUI itself (workflow.ts withWebpSave), with the prompt in their EXIF, and fetched
 // as they are, so the brain's host only base64s the bytes. The Worker also stores those same bytes
-// as the image's copy in R2.
+// as the image's copy in R2. One too big to send inline is re-encoded smaller by ComfyUI, and gets
+// the original's EXIF back (metadata.ts withExifOf).
 
 import { toBase64 } from "./bytes.ts";
 import type { Outcome } from "./brain.ts";
 import { ComfyUIError, type ComfyUIClient, type OutputImage, type Response } from "./comfyui.ts";
 import { imageSize, sniffMime } from "./images.ts";
+import { withExifOf } from "./metadata.ts";
 import type { Content } from "./mcp.ts";
 
 export const PREVIEW = "webp;90";
@@ -19,12 +21,12 @@ export const MAX_INLINE_BYTES = 1_400_000;
 export const textBlock = (s: string): Content => ({ type: "text", text: s });
 
 /** The image as WebP: the saved file when it is one (prompt metadata included), else ComfyUI's
- * conversion at quality 90; either way quality 75, without metadata, when over MAX_INLINE_BYTES.
- * Throws ComfyUIError if ComfyUI cannot serve it. */
+ * conversion at quality 90; either way quality 75 when over MAX_INLINE_BYTES, with the saved file's
+ * metadata put back (ComfyUI's conversion drops it). Throws ComfyUIError if ComfyUI cannot serve it. */
 export async function previewImage(client: ComfyUIClient, image: OutputImage): Promise<Uint8Array> {
-  let resp: Response = await client.view(image, image.filename.toLowerCase().endsWith(".webp") ? undefined : PREVIEW);
-  if (resp.content.length > MAX_INLINE_BYTES) resp = await client.view(image, PREVIEW_SMALLER);
-  return resp.content;
+  const resp: Response = await client.view(image, image.filename.toLowerCase().endsWith(".webp") ? undefined : PREVIEW);
+  if (resp.content.length <= MAX_INLINE_BYTES) return resp.content;
+  return withExifOf((await client.view(image, PREVIEW_SMALLER)).content, resp.content);
 }
 
 /** Image bytes as an MCP image block. */

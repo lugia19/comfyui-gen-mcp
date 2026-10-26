@@ -369,8 +369,10 @@ results stay as they are:
     0 to 2^53 - 1 (exact as a JSON number, within ComfyUI's range), or one as a string of digits;
     anything else is an error result, and left out it is random as before (core `callSeed`). The
     same seed, prompt, model, size, LoRAs and input images give the same image, or very nearly
-    (some GPU kernels aren't bit-exact; another GPU or ComfyUI version may differ more). The seed a run used is in its image's
-    embedded prompt.
+    (some GPU kernels aren't bit-exact; another GPU or ComfyUI version may differ more). Every
+    run has one seeded node. The seed a run used is in its image's embedded prompt (`seed` or
+    `noise_seed`), also when the image was re-encoded to fit inline (§4, "The prompt travels in
+    the file").
   - On `redraw`, `model` names any pack that can redraw, and `negative` works as above. Leave it
     out unless sure which model drew the image: unnamed, redraw reads that from the image's
     embedded prompt (v1.18.0), and a redraw by another model than the image's mixes two styles,
@@ -739,7 +741,10 @@ workflows already run ComfyUI themselves.
   submitting; one image makes a plain still WebP, alpha kept), and fetched from `/view` as they
   are. The Worker base64s them with the runtime's native encoder (about 3 ms of Worker CPU per MB,
   appendix). Over 1.4 MB (700 KB before v1.18.0, doubled for the metadata), the Worker asks again
-  for `/view`'s `preview=webp;75` conversion, which drops the metadata. Those bytes are also what
+  for `/view`'s `preview=webp;75` conversion. That conversion drops the metadata, so the saved
+  file's EXIF chunk is put back in (2026-10-26, core `withExifOf`). It walks chunk headers only and
+  adds a VP8X header where the conversion wrote a plain VP8/VP8L file. Pillow and Chromium decoded
+  the same pixels and alpha after it. Those bytes are also what
   it stores in R2 (one `put`, about 1 ms of CPU). The MCPB does the same against its local
   ComfyUI, without storing; its saved_paths are those WebPs.
 - **The prompt travels in the file** (v1.18.0, the user's call). SaveAnimatedWEBP writes ComfyUI's
