@@ -364,6 +364,13 @@ results stay as they are:
     `edit_image` and `fetch_result` ignore it. The pack's own settings, LoRA group and negative
     come with it (core `packFor`, in the Brain and, for routing, the Worker). It also works on
     the MCPB.
+  - `seed` (2026-10-26), on the generate tools, `edit_image` and `redraw`, makes a run repeatable:
+    every seeded node (`cg:seed`) gets it, in place of a random one each. It is a whole number from
+    0 to 2^53 - 1 (exact as a JSON number, within ComfyUI's range), or one as a string of digits;
+    anything else is an error result, and left out it is random as before (core `callSeed`). The
+    same seed, prompt, model, size, LoRAs and input images give the same image, or very nearly
+    (some GPU kernels aren't bit-exact; another GPU or ComfyUI version may differ more). The seed a run used is in its image's
+    embedded prompt.
   - On `redraw`, `model` names any pack that can redraw, and `negative` works as above. Leave it
     out unless sure which model drew the image: unnamed, redraw reads that from the image's
     embedded prompt (v1.18.0), and a redraw by another model than the image's mixes two styles,
@@ -509,7 +516,7 @@ grey or coloured background in the prompt, never white.
 face, an expression, a small detail. Visual Novelist makes a sprite's expressions with it, so the
 body, outfit and pose stay identical across them. Arguments: the image, a prompt, an optional
 `box` (`[left, top, right, bottom]`, fractions of the image; none means the largest face),
-and `strength` (0.3 to 1, default 0.9); hidden, `model` and `negative` (Scripted callers).
+and `strength` (0.3 to 1, default 0.9); hidden, `model`, `negative` and `seed` (Scripted callers).
 
 - **The technique.** The pack's own generation graph, with its empty latent replaced by the image:
   VAE-encoded, a soft mask as the latent's noise mask (`SetLatentNoiseMask`), the model through

@@ -98,6 +98,7 @@ export type BuildOptions = {
   maxPixels?: number;
   loraToggles?: LoraToggle[] | null;
   rng?: Rng;
+  seed?: number | null; // a caller's seed (hidden argument), for every seeded node; else each gets rng's
   outputName?: string; // the save nodes' filename_prefix; a new one per call by default
   negative?: string; // a caller's negative (hidden argument): with negativeFixed, the cg:negative node's text when not blank
   negativeFixed?: string; // the pack's always-on negative tags, kept before the caller's
@@ -134,7 +135,7 @@ export function buildPrompt(workflow: Workflow, promptText: string, opts: BuildO
 
   for (const id of nodesTitled(wf, TITLES.seed)) {
     const field = "noise_seed" in wf[id].inputs ? "noise_seed" : "seed";
-    wf[id].inputs[field] = rng();
+    wf[id].inputs[field] = opts.seed ?? rng();
   }
 
   const sizeNodes = nodesTitled(wf, TITLES.size);

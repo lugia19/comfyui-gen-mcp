@@ -121,6 +121,39 @@ describe("brain", () => {
     }
   });
 
+  it("a hidden seed makes a call repeatable, on every tool that samples; none is random", async () => {
+    const { comfy, brain } = setup({ canRedraw: true, cfg: { remove_marks: false } });
+    const hooks = new PathHooks();
+    const seeds = () => Object.values<any>(comfy.prompts.at(-1)!).filter((n) => n._meta?.title === "cg:seed").map((n) => n.inputs.seed ?? n.inputs.noise_seed);
+    for (const [tool, args] of [
+      ["generate_illustrated_image", { prompt: "x" }],
+      ["generate_realistic_image", { prompt: "x" }],
+      ["edit_image", { prompt: "x", image_path: "a.png" }],
+      ["redraw", { prompt: "x", image_path: "a.png", box: [0.1, 0.1, 0.5, 0.5] }],
+    ] as const) {
+      expect(await brain({ hooks }).call(tool, { ...args, seed: 1234 }), tool).toBeInstanceOf(Done);
+      expect(seeds().length, tool).toBeGreaterThan(0);
+      expect(new Set(seeds()), tool).toEqual(new Set([1234]));
+      await brain({ hooks }).call(tool, { ...args, seed: "1234" }); // a string of digits too
+      expect(new Set(seeds()), tool).toEqual(new Set([1234]));
+      await brain({ hooks }).call(tool, args);
+      expect(seeds(), tool).not.toContain(1234);
+    }
+    expect(await brain().call("generate_illustrated_image", { prompt: "x", seed: 0 })).toBeInstanceOf(Done);
+    expect(seeds()).toEqual([0]);
+    expect(await brain().call("generate_illustrated_image", { prompt: "x", seed: Number.MAX_SAFE_INTEGER })).toBeInstanceOf(Done);
+    const before = comfy.prompts.length;
+    for (const seed of [-1, 1.5, 2 ** 53, "12abc", true, {}]) {
+      const out = await brain().call("generate_illustrated_image", { prompt: "x", seed });
+      expect((out as Failed).message, String(seed)).toMatch(/^seed must be a whole number/);
+      expect((out as Failed).retryable).toBe(false);
+    }
+    expect(comfy.prompts.length).toBe(before); // nothing ran
+    for (const mode of ["refs", "paths"] as const) {
+      for (const spec of toolSpecs(BUILTIN, normalize({}), mode)) expect(spec.inputSchema.properties, spec.name).not.toHaveProperty("seed");
+    }
+  });
+
   it("remove_background is offered on every image tool, in both modes", () => {
     for (const mode of ["refs", "paths"] as const) {
       const specs = toolSpecs(BUILTIN, normalize({}), mode).filter((s) => s.name.startsWith("generate_") || s.name === "edit_image");

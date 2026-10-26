@@ -181,10 +181,13 @@ export class Brain {
     const prompt = String(args.prompt || "").trim();
     if (!prompt) return new Failed("prompt is required.");
     const aspect = String(args.aspect_ratio || "square");
+    const seed = callSeed(args.seed);
+    if (seed instanceof Failed) return seed;
     const removeBackground = args.remove_background === true;
     if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
     const pack = prepare(rawPack, this.cfg, { removeMarks: await this.marksReady(), removeBackground, cutout: this.canCutout });
     const wf = buildPrompt(pack.workflow, prompt, {
+      seed,
       aspectRatio: aspect,
       maxPixels: pack.max_pixels ?? 1_048_576,
       loraToggles: pack.lora_toggles,
@@ -205,6 +208,8 @@ export class Brain {
     const first = String(args.image_path || args.image || "").trim();
     const second = String(args.second_image_path || args.second_image || "").trim();
     if (!prompt || !first) return new Failed("prompt and an image are required.");
+    const seed = callSeed(args.seed);
+    if (seed instanceof Failed) return seed;
     const removeBackground = args.remove_background === true;
     if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
     const pack = prepare(this.selected.edit_image, this.cfg, { removeMarks: await this.marksReady(), removeBackground, cutout: this.canCutout });
@@ -220,7 +225,7 @@ export class Brain {
     }
     const wf = editWorkflow(pack, images);
     // LoRAs gated on their triggers here too (an edit pack in a LoRA group).
-    return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles }), null);
+    return this.run(pack, buildPrompt(wf, prompt, { seed, loraToggles: pack.lora_toggles }), null);
   }
 
   private async redraw(args: Record<string, any>): Promise<Outcome> {
@@ -235,6 +240,8 @@ export class Brain {
     if (scope !== "image" && scope !== "area") return new Failed('prompt_scope must be "image" (the default) or "area".');
     const extend = redrawExtend(args.extend);
     if (extend instanceof Failed) return extend;
+    const seed = callSeed(args.seed);
+    if (seed instanceof Failed) return seed;
     if (extend && box) return new Failed("extend and box can't be combined: extend redraws the new border. Fix a part of the image with a second redraw.");
     if (extend && scope === "area") return new Failed('extend can\'t be combined with prompt_scope "area".');
     if (!this.canRedraw) return new Failed(REDRAW_UNAVAILABLE);
@@ -268,7 +275,7 @@ export class Brain {
     // under it and gets the old edge pasted back.
     if (removeMarks) withMarkRemoval(wf);
     if (removeBackground) withBackgroundRemoval(wf, { cutout: this.canCutout });
-    return this.run(pack, buildPrompt(wf, prompt, { loraToggles: pack.lora_toggles, negative: String(args.negative ?? ""), negativeFixed: pack.negative_fixed }), null);
+    return this.run(pack, buildPrompt(wf, prompt, { seed, loraToggles: pack.lora_toggles, negative: String(args.negative ?? ""), negativeFixed: pack.negative_fixed }), null);
   }
 
   /** The hidden remove_background tool: *image* as stored, its background cut out, nothing repainted. */
@@ -351,6 +358,17 @@ export function redrawExtend(extend: unknown): string | Failed {
   if (l + r > 1 || t + b > 1) return new Failed("extend can at most double the width and the height in one call (left + right and top + bottom up to 1): extend again for more.");
   if (Math.max(l, t, r, b) < MIN_BOX_SIDE) return new Failed("extend adds nothing: give at least one side a share above 0.");
   return [l, t, r, b].map((v) => String(roundHalfEven(v * 1e4) / 1e4)).join(",");
+}
+
+/** A call's hidden `seed` (scripted callers' repeatable runs): a whole number from 0 to 2^53 - 1
+ * (exact as a JSON number, within ComfyUI's range), or one as a string; null for a random one. */
+export function callSeed(seed: unknown): number | null | Failed {
+  if (seed === undefined || seed === null || seed === "") return null;
+  const n = typeof seed === "string" && /^\s*\d+\s*$/.test(seed) ? Number(seed) : seed;
+  if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 0) {
+    return new Failed(`seed must be a whole number from 0 to ${Number.MAX_SAFE_INTEGER}, or left out for a random one.`);
+  }
+  return n;
 }
 
 /** A redraw call's box for the node: "left,top,right,bottom" fractions, "" for the largest face; a
