@@ -1,6 +1,7 @@
 """Check every pack's model entries (and the model sets in tools.json) against Hugging Face: the size and sha256 in the pack must match
 what the URL serves (HEAD, x-linked-size / x-linked-etag). The Modal seed skips files whose size
-matches, so a wrong size means a re-download on every seed.
+matches, so a wrong size means a re-download on every seed. A URL whose repository was renamed
+redirects to the new name (the downloads follow it); that is checked at the new name and noted.
 
     python scripts/check_pack_models.py
 """
@@ -11,6 +12,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 PACKS = os.path.join(os.path.dirname(__file__), "..", "packages", "core", "packs")
@@ -21,9 +23,12 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # the LFS headers are on the redirect itself
 
 
-def head(url: str):
-    """(status, headers) of the file's redirect. A refusal (429, 5xx: CI runners share their IPs and
-    get rate limited) is asked again a few times."""
+MAX_MOVES = 3
+
+
+def head_once(url: str):
+    """(status, headers) of one HEAD, not following redirects. A refusal (429, 5xx: CI runners share
+    their IPs and get rate limited) is asked again a few times."""
     opener = urllib.request.build_opener(NoRedirect)
     req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "comfy-gen-ci"})
     for attempt in range(4):
@@ -35,6 +40,25 @@ def head(url: str):
         if headers.get("x-linked-size") or not (status == 429 or status >= 500) or attempt == 3:
             return status, headers
         time.sleep(2 ** (attempt + 1))
+
+
+def head(url: str, once=head_once):
+    """(status, headers, url) of the file's redirect: the response with its x-linked-size. Redirects
+    on the same site come first when its repository was renamed (Comfy-Org's z_image_turbo became
+    Z-Image-Turbo, 2026-10-26: a 307 with no file headers); those are followed, a few at most, and
+    *url* is where the file is now. Never to another site: the file's own redirect, to the CDN,
+    carries the headers and ends it."""
+    host = urllib.parse.urlsplit(url).netloc
+    for hop in range(MAX_MOVES + 1):
+        status, headers = once(url)
+        location = headers.get("location")
+        if headers.get("x-linked-size") or status not in (301, 302, 303, 307, 308) or not location or hop == MAX_MOVES:
+            break
+        moved = urllib.parse.urljoin(url, location)
+        if urllib.parse.urlsplit(moved).netloc != host:
+            break
+        url = moved
+    return status, headers, url
 
 
 MODEL_SETS = ("remove_marks", "remove_background", "detect_faces")  # tools.json's model sets (core packs.ts)
@@ -57,7 +81,9 @@ def main() -> int:
     for source, models in model_lists():
         for m in models:
             if m["url"] not in seen:
-                status, h = head(m["url"])
+                status, h, now = head(m["url"])
+                if now != m["url"]:
+                    print(f"note: {m['url']} has moved to {now}: worth updating the packs that use it")
                 # Not the file's redirect (no x-linked-size): say what came back, not a size mismatch.
                 seen[m["url"]] = (int(h.get("x-linked-size") or 0), (h.get("x-linked-etag") or "").strip('"'), status)
             size, sha, status = seen[m["url"]]

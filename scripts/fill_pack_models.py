@@ -18,7 +18,7 @@ from check_pack_models import head  # noqa: E402
 
 def filled(model: dict) -> dict:
     url = model["url"]
-    _, h = head(url)
+    _, h, _ = head(url)
     size = int(h.get("x-linked-size") or h.get("content-length") or 0)
     sha = (h.get("x-linked-etag") or "").strip('"')
     if not size:
