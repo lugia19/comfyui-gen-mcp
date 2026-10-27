@@ -219,6 +219,16 @@ describe("MCP", () => {
     const snippet: string = r.result.content[0].text;
     expect(snippet).toContain("comfy-gen-upload"); // its own User-Agent
     const token = snippet.split("/upload/")[1].split("'")[0];
+    // Scripted callers (Visual Novelist) get the link itself, the snippet's own
+    const meta = r.result._meta["comfy-gen/result"];
+    expect(meta).toEqual({ status: "done", upload_url: `https://comfy-gen.someone.workers.dev/upload/${token}`, expires_in_s: 600 });
+    // and may leave out the filename, which only names the file in the snippet
+    [, r] = await mcp(app, "tools/call", { name: "request_upload", arguments: {} });
+    expect(r.result.isError).toBe(false);
+    expect(r.result.content[0].text).not.toContain("python");
+    const scripted = r.result._meta["comfy-gen/result"].upload_url;
+    expect(scripted).not.toBe(meta.upload_url); // a new link each call
+    expect((await app.handle(request("POST", new URL(scripted).pathname, png()))).status).toBe(200);
     const up = await app.handle(request("POST", `/upload/${token}`, png(640, 480)));
     expect(up.status).toBe(200);
     const imageId = (await body(up)).image_id;

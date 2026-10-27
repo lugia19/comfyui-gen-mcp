@@ -388,6 +388,10 @@ results stay as they are:
   that has them; a GPU that can't remove backgrounds answers as the option does.
 - **`_meta["comfy-gen/result"]`** on every tool result, beside the unchanged content blocks:
   - `{status: "done", images: [{image_id, url, width, height}]}`
+  - `{status: "done", upload_url, expires_in_s}` from `request_upload` (2026-10-27, for Visual
+    Novelist's crops): POST the image's bytes to `upload_url` once, within `expires_in_s` (600);
+    the answer is `{image_id, bytes, mime}`. A scripted caller may leave out `filename`, which only
+    names the file in Claude's Python snippet.
   - `{status: "pending", request_token}`
   - `{status: "error", message, retryable}`
 
