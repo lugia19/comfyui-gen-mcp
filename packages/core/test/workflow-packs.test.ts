@@ -169,6 +169,15 @@ describe("WebP saves", () => {
 describe("packs and config", () => {
   const builtin = builtinPacks();
 
+  it("Anima's guides make an @artist tag mandatory on every call, Turbo's too (the user's call, 2026-10-27)", () => {
+    for (const name of ["anima", "anima_turbo"]) {
+      const d = describeTool(builtin.find((p) => p.name === name)!, normalize({}));
+      expect(d, name).toContain("ALWAYS start the prompt with an @artist tag");
+      expect(d, name).toContain("preferred default: @");
+      expect(d, name).not.toMatch(/optional/i);
+    }
+  });
+
   it("every pack JSON file is listed, in file-name order", () => {
     const dir = new URL("../packs/", import.meta.url);
     const files = readdirSync(dir).filter((f) => f.endsWith(".json") && f !== "tools.json").sort();

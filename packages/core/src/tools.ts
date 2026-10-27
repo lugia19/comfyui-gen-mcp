@@ -179,10 +179,11 @@ const REDRAW_BODY =
   "can (crop the image or lay a grid over it); otherwise estimate it, erring larger. The area is " +
   "padded and its edge blended, so a loose box works where a tight one may miss.\n\n" +
   "The prompt describes the whole image, not only the area: the model repaints the area to fit the " +
-  "picture the prompt describes. If you made the image, reuse its prompt and change only what should " +
-  "differ (for another expression, swap the expression tags; for a broken hand, say what the hand is " +
-  "doing). Otherwise describe the whole image the way generate_illustrated_image's prompts are " +
-  "written.\n\n" +
+  "picture the prompt describes. If you made the image, reuse its prompt, @artist tag first, and change " +
+  "only what should differ (for another expression, swap the expression tags; for a broken hand, say " +
+  "what the hand is doing). Otherwise describe the whole image the way generate_illustrated_image's " +
+  "prompts are written, ALWAYS starting with an @artist tag (the image's own style, else the preferred " +
+  "default).\n\n" +
   "prompt_scope: leave it out. The default redraws with the whole picture in view, which is what keeps " +
   "the result consistent; use it for every expression change, face, pose fix and ordinary repair. " +
   "\"area\" crops out just the area and draws it on its own at higher resolution, blind to the rest " +
