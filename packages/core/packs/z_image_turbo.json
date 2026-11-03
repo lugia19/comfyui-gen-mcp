@@ -10,9 +10,9 @@
     {
       "filename": "z-image-turbo-Q5_K_M.gguf",
       "subfolder": "diffusion_models",
-      "url": "https://huggingface.co/unsloth/Z-Image-Turbo-GGUF/resolve/6c80814333b7b6a70a2e5b469a7c6437ce65de0f/z-image-turbo-Q5_K_M.gguf",
-      "size_bytes": 5574444096,
-      "sha256": "847e33003ae6e85121c62785d7f7213958d58287c932d0c2189a1c9a2d1f093a"
+      "url": "https://huggingface.co/unsloth/Z-Image-Turbo-GGUF/resolve/b40f712c569ecfff42f2307dcc43399ae1d71318/z-image-turbo-Q5_K_M.gguf",
+      "size_bytes": 4619474496,
+      "sha256": "53b6f401c922192403e362e342d84e80b39703a4debd93a45191b4dcee9a1bff"
     },
     {
       "filename": "Qwen3-4B-Q5_K_M.gguf",

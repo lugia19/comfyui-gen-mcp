@@ -8,9 +8,9 @@
     {
       "filename": "flux-2-klein-9b-Q8_0.gguf",
       "subfolder": "diffusion_models",
-      "url": "https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF/resolve/fde8634245fe6b749a221c25b34672b5b8fbd079/flux-2-klein-9b-Q8_0.gguf",
-      "size_bytes": 9978304800,
-      "sha256": "dfa8908dd58c5af6479b944f80558e226ee40a8fe0903729309e8d1b98fe5297"
+      "url": "https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF/resolve/6db9b2d0479c98795589c94c9beef5cc818c6966/flux-2-klein-9b-Q8_0.gguf",
+      "size_bytes": 10245691680,
+      "sha256": "68957129335ce59ddadcb771f9c375f0ceb587b9c03a104e427fe303d3aab4c6"
     },
     {
       "filename": "Qwen3-8B-Q5_K_M.gguf",
