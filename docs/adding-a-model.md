@@ -47,7 +47,7 @@ the extension and the agent all build it in. Packs are ours; there are no user w
      "is_default": false,
      "prompt_guide": "How to prompt this model, for Claude (optional: else the tool's default guide).",
      "models": [
-       { "url": "https://huggingface.co/…/resolve/main/…/model.safetensors", "subfolder": "diffusion_models" }
+       { "url": "https://huggingface.co/…/resolve/<commit>/…/model.safetensors", "subfolder": "diffusion_models" }
      ],
      "required_nodes": { "UnetLoaderGGUF": "ComfyUI-GGUF" },
      "max_pixels": 1048576,
@@ -59,6 +59,10 @@ the extension and the agent all build it in. Packs are ours; there are no user w
    - `tool_name`: one of the tools in `packs/tools.json` (`generate_illustrated_image`,
      `generate_realistic_image`, `edit_image`). The tool's routing line and the shared ending of
      its description come from there; `prompt_guide` goes between them.
+   - `url`: pinned to a commit (`resolve/<commit sha>/`, the repo's
+     `huggingface.co/api/models/<repo>/revision/main` gives the current one), never `resolve/main`:
+     a repo that replaces a file under the same name (unsloth's "Better quants", 2026-10-29) would
+     make every new download fail its sha256 check.
    - `subfolder`: the ComfyUI models folder the file goes in (`diffusion_models`, `text_encoders`,
      `vae`, `loras`, …).
    - `required_nodes`: custom nodes the workflow uses, class → node pack.

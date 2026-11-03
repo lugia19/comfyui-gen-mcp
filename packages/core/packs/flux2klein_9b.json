@@ -10,21 +10,21 @@
     {
       "filename": "flux-2-klein-9b-Q8_0.gguf",
       "subfolder": "diffusion_models",
-      "url": "https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF/resolve/main/flux-2-klein-9b-Q8_0.gguf",
+      "url": "https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF/resolve/fde8634245fe6b749a221c25b34672b5b8fbd079/flux-2-klein-9b-Q8_0.gguf",
       "size_bytes": 9978304800,
       "sha256": "dfa8908dd58c5af6479b944f80558e226ee40a8fe0903729309e8d1b98fe5297"
     },
     {
       "filename": "Qwen3-8B-Q5_K_M.gguf",
       "subfolder": "text_encoders",
-      "url": "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q5_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/a6adef130ffb23ddaf1a62fec9dced968c9bc482/Qwen3-8B-Q5_K_M.gguf",
       "size_bytes": 5851113280,
       "sha256": "159c694b93271e4edc1dc2a305b10cf981032c8f3035a7da00973312f0331504"
     },
     {
       "filename": "flux2-vae.safetensors",
       "subfolder": "vae",
-      "url": "https://huggingface.co/Comfy-Org/Flux-2-Klein-4B/resolve/main/split_files/vae/flux2-vae.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Flux-2-Klein-4B/resolve/5b3abca5c0dc1ecd4eaf3340868d09063fc1c965/split_files/vae/flux2-vae.safetensors",
       "size_bytes": 336211292,
       "sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
     }
