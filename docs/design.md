@@ -27,10 +27,25 @@ GPU is. Targets:
 |---|---|---|
 | Worker | Cloudflare Worker (TypeScript), free plan | The brain. MCP endpoint, settings and setup app, image route, config in a Durable Object, cron jobs, the GPU list, a relay per PC |
 | ComfyUI | Modal, PCs, or localhost (the extension), always with our extension | The generator. We ship no handler code: ComfyUI's own HTTP API is the interface |
-| Modal app | User's Modal workspace | ComfyUI server on an L4, a Volume, a seed function, a small admin web endpoint |
+| Modal app | User's Modal workspace | ComfyUI server on an L4 (else an A10, L40S or T4: §2, "The Modal GPU"), a Volume, a seed function, a small admin web endpoint |
 | Agent | GPU owner's PC: a Go launcher running a Node bundle | ComfyUI install and lifecycle, model downloads, idle stop, tray, a loopback settings page; relays the Worker's ComfyUI calls to local ComfyUI (§9) |
 | MCPB | Claude Desktop | A stdio shim that loads the latest bundle; one Claude Desktop process runs the local server (MCP, settings page, tray, ComfyUI lifecycle), the others relay to it |
 | Static site | GitHub Pages | Prerequisites, the Deploy button, then "open your Worker" |
+
+**The Modal GPU (2026-11-03).** The ComfyUI server asks Modal for `["L4", "A10", "L40S", "T4"]`
+(`app.py` `GPUS`): an L4, else the next type that has capacity, in that order. A list is the only
+way: the type is fixed at deploy, and keep-warm's live `update_autoscaler` can't change it.
+- **What it covers:** containers waiting for a GPU when L4s are scarce. It doesn't cover a run
+  that failed on the GPU it got.
+- **Prices** (Modal's page, 2026-11-03): L4 $0.80/h, A10 $1.10, L40S $1.95, T4 $0.59, billed by the
+  second, and only while that type is the one running.
+- **The A10** has the L4's 24 GB; the L40S has 48 GB.
+- **The T4** comes last, the user's call: a slow image beats none. It has 16 GB, enough for every
+  pack (a 16 GB PC runs them all), but no bf16. ComfyUI 0.37.0 then picks each model's next
+  allowed type (`supported_inference_dtypes`):
+  - Anima, Krea 2 and Klein allow fp16 and run at the T4's fp16 speed.
+  - Qwen Image 2.1 and Z-Image Turbo allow only bf16 or fp32. They keep bf16 weights and compute
+    in fp32, several times slower (unmeasured).
 
 The agent's launcher (`packages/launcher`, Go) is the one native program: a 6 MB download per
 platform (Windows x64, macOS on Apple silicon, zipped so it keeps its executable bit, and Linux x64;

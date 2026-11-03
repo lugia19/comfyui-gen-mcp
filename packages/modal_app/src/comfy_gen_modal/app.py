@@ -211,9 +211,17 @@ def _watch_reloads(started: float) -> None:
         done_upto = requested
 
 
+# The GPU: an L4, else (none free: Modal's capacity, 2026-11-03) the next type Modal has, in this
+# order. The A10 has the L4's 24 GB at about 1.4x its price, the L40S 48 GB at about 2.4x. The T4
+# (16 GB, cheapest) comes last: it lacks bf16, so ComfyUI runs Qwen Image 2.1 and Z-Image Turbo in
+# fp32 there (allowed types bf16 or fp32), several times slower; Anima, Krea 2 and Klein run in fp16.
+# A slow image beats none.
+GPUS = ["L4", "A10", "L40S", "T4"]
+
+
 @app.server(
     image=comfy_image,
-    gpu="L4",
+    gpu=GPUS,
     volumes={VOL: volume},
     port=COMFY_PORT,
     name=SERVER_NAME,
