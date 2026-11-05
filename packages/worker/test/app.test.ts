@@ -291,11 +291,17 @@ describe("MCP", () => {
     expect(unet()).toBe("anima-turbo-v1.0.safetensors");
   });
 
-  it("redraw is listed and routed by its pack; a model that can't is answered before any GPU time", async () => {
+  it("redraw is listed with show_redraw only, served either way, and routed by its pack; a model that can't is answered before any GPU time", async () => {
     const { app, comfy } = world();
     await withReadyModal(app);
-    const [, list] = await mcp(app, "tools/list", {});
-    expect(list.result.tools.map((t: any) => t.name)).toContain("redraw");
+    const listed = async () => (await mcp(app, "tools/list", {}))[1].result.tools.map((t: any) => t.name);
+    const told = async () => (await mcp(app, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } }))[1].result.instructions;
+    expect(await listed()).not.toContain("redraw"); // off by default: Claude misused it for fixes
+    expect(await told()).not.toContain("redraw");
+    await app.store.saveConfig({ ...(await app.store.config()), show_redraw: true });
+    expect(await listed()).toContain("redraw");
+    expect(await told()).toContain("redraw");
+    await app.store.saveConfig({ ...(await app.store.config()), show_redraw: false }); // hidden: Visual Novelist still calls it
     let [, r] = await mcp(app, "tools/call", { name: "redraw", arguments: { prompt: "x", image: "https://images.example/a.png", box: [0.1, 0.1, 0.5, 0.5], model: "anima" } });
     expect(r.result.isError).toBe(false);
     expect(Object.values<any>(comfy.prompts.at(-1)!).find((n) => n._meta?.title === "cg:model").inputs.unet_name).toBe("anima-base-v1.0.safetensors");

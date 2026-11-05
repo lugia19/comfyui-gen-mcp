@@ -13,7 +13,7 @@ import { normalize, type Config } from "./config.ts";
 import { imageSize, sniffMime } from "./images.ts";
 import { UnknownTool } from "./mcp.ts";
 import { redrawPackFor } from "./metadata.ts";
-import { BG_MODELS, FACE_MODELS, groupByTool, MARK_MODELS, packFor, prepare, redrawPack, select, type Pack } from "./packs.ts";
+import { BG_MODELS, canRedraw, FACE_MODELS, groupByTool, MARK_MODELS, packFor, prepare, redrawPack, select, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
 import * as refs from "./refs.ts";
 import { buildPrompt, cutoutWorkflow, redrawWorkflow, withBackgroundRemoval, withImages, withMarkRemoval, withWebpSave, type Workflow } from "./workflow.ts";
@@ -168,7 +168,7 @@ export class Brain {
     this.client.stopBy = this.client.time() + this.waitS; // cold starts, uploads and the wait share it
     if (name === "fetch_result") return this.fetch(args);
     if (name === "edit_image" && "edit_image" in this.selected) return this.edit(args);
-    if (name === "redraw" && this.specs.some((s) => s.name === "redraw")) return this.redraw(args);
+    if (name === "redraw" && this.packs.some(canRedraw)) return this.redraw(args); // listed or not (show_redraw)
     if (name === "remove_background") return this.removeBackground(args); // hidden: scripted callers
     if (name in this.selected && !STATIC_TOOLS.has(name)) {
       const pack = packFor(this.packs, this.selected[name], args.model); // a scripted caller's hidden `model`

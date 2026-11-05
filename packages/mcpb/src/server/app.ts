@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import {
   Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, UnknownTool,
-  builtinPacks, fileKey, HIDDEN_TOOLS, isModelSet, removableFiles, MARK_MODELS, MODEL_SETS, wantedModelSets, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
+  builtinPacks, fileKey, servedTools, isModelSet, removableFiles, MARK_MODELS, MODEL_SETS, wantedModelSets, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
   type Config, type OutputImage, type Pack, type Rendered,
 } from "@comfy-gen/core";
 import {
@@ -105,7 +105,7 @@ export class LocalApp {
       canRedrawExtend: true,
     });
     const specs = brain(client()).specs;
-    const served = new Set([...specs.map((spec) => spec.name), ...HIDDEN_TOOLS]);
+    const served = servedTools(specs);
 
     const call = async (name: string, args: Record<string, any>): Promise<Rendered> => {
       if (!served.has(name)) throw new UnknownTool(name);

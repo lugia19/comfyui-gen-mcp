@@ -7,7 +7,7 @@
 import {
   Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
   builtinPacks, cfapi, releases, isModelSet, wantedModelSets, fromHex, fromUtf8, sha256Hex, utf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
-  withoutLora, tagLooseLoras, wantedLoras, strengthIn, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, fileKey, removableFiles, BG_MODELS, HIDDEN_TOOLS, checkComfyArgs, type Config, type Content, type Pack,
+  withoutLora, tagLooseLoras, wantedLoras, strengthIn, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, fileKey, removableFiles, BG_MODELS, servedTools, checkComfyArgs, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
@@ -41,8 +41,10 @@ export const MODAL_COLD_START_S = 300;
 export const LOGIN_FAILS_MAX = 10;
 export const LOGIN_WINDOW_S = 3600;
 
-export const INSTRUCTIONS =
-  "Images come back inline, each followed by its image_id. Pass an image_id to edit_image to edit that image, or to redraw to repaint one part of it.";
+/** The server's instructions; redraw named only while Claude sees it (show_redraw). */
+export const instructions = (showRedraw: boolean) =>
+  "Images come back inline, each followed by its image_id. Pass an image_id to edit_image to edit that image" +
+  (showRedraw ? ", or to redraw to repaint one part of it." : ".");
 
 const SETTINGS_METADATA = settingsMetadata(PACKS);
 
@@ -603,7 +605,7 @@ export class App {
     if (sub !== undefined) return error(404, "not found");
     const cfg = await this.store.config(); // one config for every GPU: Claude sees one tool list
     const specs = new Brain(PACKS, cfg, null as unknown as ComfyUIClient, "refs").specs;
-    const served = new Set([...specs.map((spec) => spec.name), ...HIDDEN_TOOLS]);
+    const served = servedTools(specs);
     const key = hmacKey(s);
 
     const call = async (name: string, args: Record<string, any>): Promise<[Content[], boolean, Record<string, any>?]> => {
@@ -690,7 +692,7 @@ export class App {
       }
     };
 
-    const handler = new McpHandler("Comfy-Gen-MCP", this.version, specs, call, INSTRUCTIONS);
+    const handler = new McpHandler("Comfy-Gen-MCP", this.version, specs, call, instructions(cfg.show_redraw));
     // Setup's last step: claude.ai lists the tools once the connector is added (claude_seen), and
     // the first tool call is the first image asked for in a chat (claude_used), which ends it.
     const seen = new Set<string>();

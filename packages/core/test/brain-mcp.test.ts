@@ -4,7 +4,7 @@ import { BACKGROUND_UNAVAILABLE, Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pen
 import { ComfyUIError, STILL_STARTING } from "../src/comfyui.ts";
 import { McpHandler, PROTOCOL_VERSIONS, RESULT_META, UnknownTool, type ToolCall } from "../src/mcp.ts";
 import { builtinPacks, type Pack } from "../src/packs.ts";
-import { toolSpecs } from "../src/tools.ts";
+import { servedTools, toolSpecs } from "../src/tools.ts";
 import { normalize } from "../src/config.ts";
 import { FakeComfy, fastClient, png } from "./fake-comfy.ts";
 import { withPrompt } from "./metadata-fixtures.ts";
@@ -409,10 +409,25 @@ describe("mcp", () => {
 
 describe("redraw", () => {
   const nodeOf = (prompt: Record<string, any>, cls: string) => Object.values<any>(prompt).find((n) => n.class_type === cls);
+  const SHOWN = normalize({ show_redraw: true }); // listed for Claude
+
+  it("is listed only with show_redraw (off by default), and served either way", async () => {
+    for (const mode of ["paths", "refs"] as const) {
+      expect(toolSpecs(BUILTIN, normalize({}), mode).map((s) => s.name), mode).not.toContain("redraw");
+      expect(toolSpecs(BUILTIN, SHOWN, mode).map((s) => s.name), mode).toContain("redraw");
+      // Nothing else Claude reads names it while it's hidden
+      expect(JSON.stringify(toolSpecs(BUILTIN, normalize({}), mode)), mode).not.toMatch(/redraw/i);
+    }
+    expect(servedTools(toolSpecs(BUILTIN, normalize({}), "refs"))).toContain("redraw");
+    // A scripted caller's redraw runs, hidden or not
+    const { comfy, brain } = setup({ canRedraw: true, cfg: { remove_marks: false } });
+    expect(await brain({ hooks: new PathHooks() }).call("redraw", { prompt: "x", image_path: "a.png", box: [0.1, 0.1, 0.5, 0.5] })).toBeInstanceOf(Done);
+    expect(comfy.prompts.length).toBe(1);
+  });
 
   it("is listed in both modes with that mode's image argument", () => {
-    const paths = toolSpecs(BUILTIN, normalize({}), "paths").find((s) => s.name === "redraw")!;
-    const refs = toolSpecs(BUILTIN, normalize({}), "refs").find((s) => s.name === "redraw")!;
+    const paths = toolSpecs(BUILTIN, SHOWN, "paths").find((s) => s.name === "redraw")!;
+    const refs = toolSpecs(BUILTIN, SHOWN, "refs").find((s) => s.name === "redraw")!;
     expect(paths.inputSchema.required).toEqual(["prompt", "image_path"]);
     expect(refs.inputSchema.required).toEqual(["prompt", "image"]);
     for (const spec of [paths, refs]) {
@@ -457,7 +472,7 @@ describe("redraw", () => {
     await brain({ canRedrawArea: true }).call("redraw", args); // the default: the whole image, the graph as before
     expect(region()).not.toHaveProperty("area_only");
     expect(await brain().call("redraw", { ...args, prompt_scope: "crop" })).toEqual(new Failed('prompt_scope must be "image" (the default) or "area".'));
-    const spec = toolSpecs(BUILTIN, normalize({}), "refs").find((s) => s.name === "redraw")!;
+    const spec = toolSpecs(BUILTIN, SHOWN, "refs").find((s) => s.name === "redraw")!;
     expect(spec.inputSchema.properties.prompt_scope).toMatchObject({ enum: ["image", "area"], default: "image" });
   });
 
@@ -495,7 +510,7 @@ describe("redraw", () => {
     const out = await brain({ canRemoveBackground: false }).call("redraw", { prompt: "x", image_path: "a.png", remove_background: true });
     expect((out as Failed).message).toBe(BACKGROUND_UNAVAILABLE);
     expect(comfy.prompts.length).toBe(2);
-    expect(toolSpecs(BUILTIN, normalize({}), "refs").find((s) => s.name === "redraw")!.inputSchema.properties.remove_background.type).toBe("boolean");
+    expect(toolSpecs(BUILTIN, SHOWN, "refs").find((s) => s.name === "redraw")!.inputSchema.properties.remove_background.type).toBe("boolean");
   });
 
   it("answers a bad call before any GPU time", async () => {
@@ -538,7 +553,7 @@ describe("redraw", () => {
     expect(await fail({ prompt_scope: "area" })).toMatch(/prompt_scope "area"/);
     expect(await fail({ extend: { left: 0.75, right: 0.5 } })).toMatch(/at most double/);
     expect(comfy.prompts.length).toBe(1);
-    expect(toolSpecs(BUILTIN, normalize({}), "refs").find((s) => s.name === "redraw")!.inputSchema.properties.extend.type).toBe("object");
+    expect(toolSpecs(BUILTIN, SHOWN, "refs").find((s) => s.name === "redraw")!.inputSchema.properties.extend.type).toBe("object");
   });
 
   it("an extend's new border gets the signature removal, after the paste; a redraw inside the image doesn't", async () => {

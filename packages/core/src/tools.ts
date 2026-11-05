@@ -163,7 +163,7 @@ export const EDIT_DESC_REFS =
   EDIT_TIPS;
 
 export const UPLOAD_DESC =
-  "Get a one-time upload link for an image the user attached to the chat, so edit_image or redraw can " +
+  "Get a one-time upload link for an image the user attached to the chat, so the image tools can " +
   "use it. Returns Python code to run in your code execution environment; it uploads the file and " +
   "prints the image id to pass on. The link expires after 10 minutes, so call this right before the " +
   "edit.";
@@ -222,6 +222,12 @@ export const STATIC_TOOLS = new Set(["edit_image", "fetch_result", "request_uplo
 // Tools served to scripted callers only: never in tools/list, so Claude doesn't see them (design §3,
 // Scripted callers). remove_background cuts an existing image's background out, nothing repainted.
 export const HIDDEN_TOOLS = new Set(["remove_background"]);
+
+/** The tools a frontend serves: those listed (*specs*), the hidden ones, and redraw, which Claude
+ * sees only with show_redraw but scripted callers (Visual Novelist's expressions) always call. */
+export function servedTools(specs: ToolSpec[]): Set<string> {
+  return new Set([...specs.map((s) => s.name), ...HIDDEN_TOOLS, "redraw"]);
+}
 
 // The end of every generation tool's description.
 const GENERATION_TAIL =
@@ -282,7 +288,7 @@ export function toolSpecs(allPacks: Pack[], cfg: Config, imageMode: ImageMode): 
       specs.push({ name: "request_upload", description: UPLOAD_DESC, inputSchema: UPLOAD_SCHEMA });
     }
   }
-  if (allPacks.some(canRedraw)) {
+  if (cfg.show_redraw && allPacks.some(canRedraw)) {
     specs.push(imageMode === "paths"
       ? { name: "redraw", description: REDRAW_DESC_PATHS, inputSchema: REDRAW_SCHEMA_PATHS }
       : { name: "redraw", description: REDRAW_DESC_REFS, inputSchema: REDRAW_SCHEMA_REFS });

@@ -15,6 +15,8 @@
 //                     GPU in its list has its own)
 //   remove_marks      boolean, default on: clean the signatures and watermarks some artist styles
 //                     paint into images (our ComfyUI extension's node, where the GPU has it)
+//   show_redraw       boolean, default off: list the redraw tool for Claude. Scripted callers
+//                     (Visual Novelist) can call it either way
 
 import { isPlainObject } from "./bytes.ts";
 
@@ -38,6 +40,7 @@ export type Config = {
   pack_loras: Record<string, any[]>;
   keep_warm_minutes: number;
   remove_marks: boolean;
+  show_redraw: boolean;
   [key: string]: any;
 };
 
@@ -47,6 +50,7 @@ export const DEFAULTS: Config = {
   pack_loras: {},
   keep_warm_minutes: DEFAULT_KEEP_WARM_MINUTES,
   remove_marks: true,
+  show_redraw: false,
 };
 
 // Each field: key, title, description, type ("int" | "bool" | "text"), default,
@@ -74,6 +78,16 @@ export const SETTINGS_SCHEMA = [
     type: "bool",
     default: true,
   },
+  {
+    key: "show_redraw",
+    title: "Offer the redraw tool to Claude",
+    description:
+      "Repaints one part of an image (a face, a hand) in place. Off by default: Claude tends to reach " +
+      "for it to fix images, where it often does worse than a new image or an edit. Apps such as " +
+      "Visual Novelist can use it either way.",
+    type: "bool",
+    default: false,
+  },
 ];
 
 /** Fill in defaults and drop wrongly typed known values. Unknown keys are kept. Never throws. */
@@ -85,7 +99,7 @@ export function normalize(raw: unknown): Config {
       cfg[key] = structuredClone(val); // a newer version's or a frontend's key: keep it
     } else if (key === "keep_warm_minutes") {
       if (Number.isInteger(val) && val > 0) cfg[key] = Math.min(val, KEEP_WARM_MAX);
-    } else if (key === "remove_marks") {
+    } else if (key === "remove_marks" || key === "show_redraw") {
       if (typeof val === "boolean") cfg[key] = val;
     } else if (key === "pack_loras") {
       if (isPlainObject(val)) cfg[key] = loraGroups(val);

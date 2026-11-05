@@ -6,8 +6,9 @@
   // options (saved with the page's Save), and its foot shows that model's download on each GPU
   // (*status*, a ModelStatus), which starts at once. *cfg* is the page's working copy, *saved* the
   // last saved config, *packs* /api/state's tool groups. *marks*: the remove_marks setting's schema
-  // entry, a card of its own (its models download in the background, never shown).
-  let { cfg = $bindable(), saved, packs, status, marks = null } = $props()
+  // entry, a card of its own (its models download in the background, never shown). *redraw*: the
+  // show_redraw setting's, whether Claude sees the redraw tool.
+  let { cfg = $bindable(), saved, packs, status, marks = null, redraw = null } = $props()
 
   const MP = 1024 * 1024
 
@@ -129,6 +130,15 @@
       <label class="choice">
         <input type="checkbox" bind:checked={cfg.remove_marks} />
         <span><b>{marks.title}</b><br /><span class="muted">{marks.description}</span></span>
+      </label>
+    </section>
+  {/if}
+  {#if redraw}
+    <section class="card">
+      <h2>Redraw</h2>
+      <label class="choice">
+        <input type="checkbox" bind:checked={cfg.show_redraw} />
+        <span><b>{redraw.title}</b><br /><span class="muted">{redraw.description}</span></span>
       </label>
     </section>
   {/if}

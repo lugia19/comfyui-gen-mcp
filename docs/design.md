@@ -541,6 +541,12 @@ body, outfit and pose stay identical across them. Arguments: the image, a prompt
 `box` (`[left, top, right, bottom]`, fractions of the image; none means the largest face),
 and `strength` (0.3 to 1, default 0.9); hidden, `model`, `negative` and `seed` (Scripted callers).
 
+**Not listed for Claude by default (2026-11-05, the user's call).** Claude reached for `redraw` to
+fix images, where it often did worse than a new image or an edit. The `show_redraw` setting (off;
+Settings → Models, its own card) lists it again. Hidden, nothing Claude reads names it: not the
+server's instructions, nor `request_upload`'s description. Every frontend serves it either way
+(core `servedTools`), so scripted callers such as Visual Novelist call it as before.
+
 - **The technique.** The pack's own generation graph, with its empty latent replaced by the image:
   VAE-encoded, a soft mask as the latent's noise mask (`SetLatentNoiseMask`), the model through
   `DifferentialDiffusion` so the mask's edge blends, and the sampler's denoise set to the strength
