@@ -54,6 +54,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   });
   await machine.comfy.refresh();
   machine.fetchModelSets();
+  machine.upgradeWhenIdle(); // ComfyUI and PyTorch to this release's targets, once idle (upgrade.ts)
 
   const app = new LocalApp({
     version: opts.version,
@@ -90,6 +91,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     async close() {
       await new Promise<void>((r) => server.close(() => r()));
       server.closeAllConnections();
+      machine.stopUpgradeChecks();
       await machine.comfy.stop();
     },
   };

@@ -54,11 +54,20 @@ app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 state = modal.Dict.from_name(STATE_DICT, create_if_missing=True)
 
+# ComfyUI and PyTorch, as on PCs (local/src/versions.ts: COMFYUI_VERSION, TORCH_MIN; a test keeps
+# them in step). PyTorch is named, not comfy-cli's pick: the image builds without a GPU, so it fell
+# back to cu126. cu130 has code for every GPU in GPUS (compute capability 7.5 to 8.9; the Ada cards
+# run 8.6's), and Modal's driver (610, CUDA 13.3) runs it. ComfyUI asks cu130 of RTX 20-series and
+# newer. Its last release is 2.14.1: a newer torch is cu132's.
+MODAL_VERSIONS = {"comfyui": "0.37.0", "torch": "2.14.1", "cuda": "cu130"}
+
 comfy_image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("git", "libgl1", "libglib2.0-0")  # the GL and GLib libraries: OpenCV, for ultralytics
     .pip_install("comfy-cli==1.21.0")
-    .run_commands("comfy --skip-prompt install --nvidia --version 0.37.0")
+    .pip_install(f"torch=={MODAL_VERSIONS['torch']}", "torchvision", "torchaudio",
+                 index_url=f"https://download.pytorch.org/whl/{MODAL_VERSIONS['cuda']}")
+    .run_commands(f"comfy --skip-prompt install --nvidia --skip-torch-or-directml --version {MODAL_VERSIONS['comfyui']}")
     # The one custom node pack the product supports on Modal. `comfy node install` needs
     # ComfyUI-Manager; registry-install talks to the Comfy Registry directly (the id is mixed-case).
     .run_commands("comfy node registry-install ComfyUI-GGUF")

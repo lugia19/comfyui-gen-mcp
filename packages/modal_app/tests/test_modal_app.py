@@ -153,6 +153,27 @@ def test_comfyui_that_wont_run_with_the_flags_starts_again_without_them(monkeypa
         mod._stop()
 
 
+def test_modal_runs_the_versions_pcs_do():
+    # ComfyUI as on PCs (local/src/versions.ts), a torch at or above their minimum, and the
+    # extension's packages pinned alike (local/src/install.ts EXTENSION_PACKAGES).
+    import re
+
+    from comfy_gen_modal import app as mod
+
+    local = Path(__file__).resolve().parents[2] / "local" / "src"
+    versions = (local / "versions.ts").read_text()
+    comfyui = re.search(r'COMFYUI_VERSION = "([\d.]+)"', versions).group(1)
+    torch_min = re.search(r'TORCH_MIN = "([\d.]+)"', versions).group(1)
+    as_tuple = lambda v: tuple(int(n) for n in v.split("."))
+    assert mod.MODAL_VERSIONS["comfyui"] == comfyui
+    assert as_tuple(mod.MODAL_VERSIONS["torch"]) >= as_tuple(torch_min)
+    assert re.fullmatch(r"cu13\d", mod.MODAL_VERSIONS["cuda"])  # every GPU in GPUS is compute capability 7.5+
+    pins = re.findall(r'"([\w-]+==[\d.]+)"', re.search(r"EXTENSION_PACKAGES[^{]*\{([^}]*)\}", (local / "install.ts").read_text()).group(1))
+    source = (Path(mod.__file__)).read_text()
+    for pin in pins:
+        assert f'"{pin}"' in source, pin
+
+
 PAYMENT_LOG = """Built image im-gefkBmufHh1oFqRfPbgzr9 in 4.65s
 
 

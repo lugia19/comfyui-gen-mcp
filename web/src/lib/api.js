@@ -74,6 +74,18 @@ export const GPU_NAMES = { nvidia: 'NVIDIA', amd: 'AMD', intel: 'Intel Arc', mac
 export const gpuName = (id) => GPU_NAMES[id] ?? id
 export const platformName = (p) => ({ win32: 'Windows', darwin: 'macOS', linux: 'Linux' })[p] ?? p
 
+/** "2.14.1+cu130" as "PyTorch 2.14.1 (CUDA 13.0)": the build by its tag (local/src/versions.ts). */
+export function torchName(v) {
+  if (!v) return ''
+  const [release, tag = ''] = v.split('+')
+  const cuda = /^cu(\d+)(\d)$/.exec(tag)
+  const build = cuda ? `CUDA ${cuda[1]}.${cuda[2]}` : /^rocm/.test(tag) ? `ROCm ${tag.slice(4)}` : { xpu: 'Intel', cpu: 'CPU' }[tag] ?? ''
+  return `PyTorch ${release}${build ? ` (${build})` : ''}`
+}
+
+/** An upgrade of a PC's ComfyUI (local/src/upgrade.ts) under way. */
+export const upgrading = (u) => ['building', 'checking', 'swapping', 'starting'].includes(u?.state)
+
 /** The R2 bucket's img/ folder in Cloudflare's dashboard, or '' if the login didn't find the account:
  * the build names the bucket <worker>-storage (deploy.py). */
 export const imagesUrl = (info) =>

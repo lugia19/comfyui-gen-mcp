@@ -79,6 +79,7 @@ export class LocalComfy {
   onStopped: (() => void) | null = null;
   private child: ChildProcess | null = null;
   private starting: Promise<string> | null = null;
+  private stoppedFor: Promise<unknown> | null = null; // whileStopped's work: starts and refreshes wait for it
   private launchedArgs: string | null = null; // the comfy_args it runs with, as JSON
   private objectInfo: Set<string> | null = null;
   private busy = 0;
@@ -115,6 +116,7 @@ export class LocalComfy {
 
   /** Refresh state without starting anything: is there an install, is it running. */
   async refresh(): Promise<void> {
+    if (this.stoppedFor) await this.stoppedFor.catch(() => {});
     if (this.child || this.starting) return;
     this.install = await findInstall(this.p);
     if (!this.install) this.state = "not_installed";
@@ -123,6 +125,7 @@ export class LocalComfy {
 
   /** The ComfyUI URL, starting the managed ComfyUI if needed. Throws ComfyUIError for the user. */
   async ensureRunning(): Promise<string> {
+    if (this.stoppedFor) await this.stoppedFor.catch(() => {});
     if (this.state === "running" && this.child && this.url) {
       if (JSON.stringify(this.userArgs()) === this.launchedArgs) return this.url;
       this.starting ??= this.relaunch().finally(() => (this.starting = null));
@@ -274,6 +277,21 @@ export class LocalComfy {
       return resp.ok;
     } catch {
       return false;
+    }
+  }
+
+  /** Run *fn* with ComfyUI stopped (an upgrade's check and swap). A call that needs ComfyUI meanwhile
+   * waits for it, then starts whatever is installed by then. */
+  async whileStopped<T>(fn: () => Promise<T>): Promise<T> {
+    const work = (async () => {
+      await this.stop();
+      return fn();
+    })();
+    this.stoppedFor = work;
+    try {
+      return await work;
+    } finally {
+      if (this.stoppedFor === work) this.stoppedFor = null;
     }
   }
 

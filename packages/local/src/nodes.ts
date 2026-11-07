@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fetchFile, USER_AGENT } from "./fetchfile.ts";
-import type { Install } from "./install.ts";
+import { holdTorch, type Install } from "./install.ts";
 import { log } from "./log.ts";
 import type { Paths } from "./paths.ts";
 import { pythonEnv, run } from "./proc.ts";
@@ -58,7 +58,8 @@ export async function installNodePackage(p: Paths, inst: Install, id: string, on
   const requirements = join(dest, "requirements.txt");
   if (deps || existsSync(requirements)) {
     const uv = await ensureUv(p, onLine);
-    const args = ["pip", "install", "--python", inst.python, ...(deps ?? ["-r", requirements])];
+    // torch held: a node's requirement that names it would otherwise swap ours for PyPI's
+    const args = ["pip", "install", "--python", inst.python, ...(await holdTorch(inst)), ...(deps ?? ["-r", requirements])];
     const { code, output } = await run(uv, args, { env: pythonEnv(uvEnv(p)), onLine, timeoutMs: 1_800_000 });
     if (code !== 0) throw new Error(`Installing ${id}'s dependencies failed: ${output.trim().split("\n").slice(-5).join("\n")}`);
   }

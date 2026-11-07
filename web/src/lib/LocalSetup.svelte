@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount, untrack } from 'svelte'
-  import { api, pcPage } from './api.js'
+  import { api, pcPage, torchName, upgrading } from './api.js'
   import ComfyFlags from './ComfyFlags.svelte'
   import Models from './Models.svelte'
   import { Copy, masked, Task } from './task.svelte.js'
@@ -80,6 +80,14 @@
     if (started) pollInstall()
   }
 
+  // An upgrade of this ComfyUI under way (local/src/upgrade.ts): the page follows it.
+  $effect(() => {
+    if (!upgrading(info.upgrade)) return
+    const t = setTimeout(() => refresh(), 2000)
+    return () => clearTimeout(t)
+  })
+  const retryUpgrade = () => task.run(async () => (await api('POST', '/setup/upgrade'), await refresh()), 'upgrade')
+
   async function action(name) {
     await task.run(() => api('POST', `/comfyui/${name}`), name)
     await refresh()
@@ -111,8 +119,18 @@
   </p>
   {#if comfy.dir}
     <p class="muted">
-      In <code>{comfy.dir}</code>{#if comfy.version}, version {comfy.version}{/if}{#if comfy.gpu}, for {GPU_LABELS[comfy.gpu] || comfy.gpu}{/if}.
+      In <code>{comfy.dir}</code>{#if comfy.version}, version {comfy.version}{/if}{#if comfy.gpu}, for {GPU_LABELS[comfy.gpu] || comfy.gpu}{/if}{#if comfy.torch}, with {torchName(comfy.torch)}{/if}.
     </p>
+  {/if}
+  {#if comfy.build_note}<p class="warn">{comfy.build_note}</p>{/if}
+  {#if upgrading(info.upgrade)}
+    <p><b>Upgrading to {info.upgrade.to}…</b> <span class="muted">It is built beside this one, so images still come meanwhile, except for about a minute while it switches over.</span></p>
+    <pre>{info.upgrade.lines.slice(-8).join('\n')}</pre>
+  {:else if info.upgrade?.state === 'failed'}
+    <p class="err">Upgrading to {info.upgrade.to} failed: {info.upgrade.error} ComfyUI keeps running as it was.
+      <button class="link" onclick={retryUpgrade} disabled={task.busy === 'upgrade'}>Try again</button></p>
+  {:else if info.upgrade?.state === 'done'}
+    <p class="ok">Upgraded to {info.upgrade.to}.</p>
   {/if}
   {#if comfy.error}<pre class="err">{comfy.error}</pre>{/if}
   {#if lowMemory}

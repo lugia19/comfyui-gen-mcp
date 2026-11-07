@@ -253,6 +253,49 @@ which keeps its models, outputs, inputs and user settings, in place: they used t
 and back, and on Windows moving `models` failed with EPERM while anything had a file in it open,
 2026-10-02) and its models.
 
+**ComfyUI and PyTorch versions (2026-11-07, `local/versions.ts`, `local/upgrade.ts`).** A release
+names its targets: `COMFYUI_VERSION` and a minimum PyTorch, `TORCH_MIN`. Modal pins the same
+versions (`app.py` `MODAL_VERSIONS`, kept in step by a test).
+- **The build per card (`chooseBuild`).** uv's `--torch-backend auto` reads only the NVIDIA
+  driver, so a GTX 10-series on a new driver got torch 2.15's CUDA 13 build, which has no kernels
+  for it. For NVIDIA we read `nvidia-smi --query-gpu=compute_cap,driver_version` and use the
+  lowest compute capability across cards:
+
+  | Card or driver | Build |
+  |---|---|
+  | compute capability below 7.5 (GTX 10-series and older) | `cu126`, capped below 2.15 |
+  | driver 580+ | `cu130` |
+  | driver 570–579 | `cu128`, with a note to update |
+  | below 525, or an RTX 50-series below 570 | refused, saying to update the driver |
+  | compute capability below 5.0 | `cpu` |
+
+  - Other GPUs: AMD on Linux keeps `auto` (ROCm). AMD on Windows is named `cpu`: `auto` picked
+    Intel's build beside Intel graphics. Intel gets `xpu`, a Mac `auto` (MPS).
+- **The marker records the build** (`torch: {backend, version}`). An older install has it read
+  once from its Python. Every later `uv pip install` (the extension's packages, a node package's
+  requirements) passes that backend and a constraints file holding torch at its version.
+  Unpinned, a node's requirement could swap it for PyPI's, which is CPU-only on Windows.
+- **Upgrades, once idle.** The agent and the extension check every minute. After 10 minutes
+  without use (the agent update's rule), an install below a target is upgraded:
+  - When: ComfyUI below `COMFYUI_VERSION`, or a torch below `TORCH_MIN` or that can't run on the
+    card. A working build is never moved sideways.
+  - **Built beside it** in `comfyui.next` while the old one serves:
+    - the release's source;
+    - a relocatable venv;
+    - the same torch from uv's cache, or the new build;
+    - the requirements;
+    - the node packages, fresh from the registry.
+  - **Checked** with ComfyUI stopped; calls that need it wait. Torch must see the device and
+    multiply on it, and `main.py --quick-test-for-ci` must pass with our nodes loaded.
+  - **Swapped:** the code (everything but models, output, input and user) goes to `comfyui.prev`,
+    the new code in, the marker last. The old code goes once the new ComfyUI has started, and
+    comes back if it doesn't.
+  - **On failure:** the old install stays as it was, and the GPU card and the PC's page say why.
+    The same target isn't tried again for a day; Try again (`POST /api/setup/upgrade`) runs it
+    now.
+  - **Disk:** an upgrade needs about 2 GB free, or 8 GB when torch changes.
+  - Nothing else upgrades: the install and the agent's own update wait for it.
+
 **Models already on the machine are used where they are** (`local/discover.ts`), since they are
 many GB. The managed ComfyUI reads, through the `extra_model_paths.yaml` written at each start:
 - the user's extra models folder
@@ -1439,6 +1482,10 @@ cold), and Update now to the next dev bundle redeployed Modal 9 s later. CPU on 
 State object), a generation 7.
 
 ## 7. Updates
+
+- **ComfyUI and PyTorch** on PCs follow the agent's or the extension's release: each upgrades its
+  install once idle (§2, "ComfyUI and PyTorch versions"). Modal's image pins them, so a deploy
+  brings them. Moving a version: `docs/moving-comfyui.md`.
 
 - **Worker and Modal app:** the Worker's cron checks the latest GitHub release against its own
   version. On a new one it starts a Workers Build. The template's deploy command is a stub that

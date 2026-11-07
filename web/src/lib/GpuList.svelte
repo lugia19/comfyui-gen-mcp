@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { api, gpuName, platformName } from './api.js'
+  import { api, gpuName, platformName, torchName, upgrading } from './api.js'
   import AgentUpdate from './AgentUpdate.svelte'
   import ComfyFlags from './ComfyFlags.svelte'
   import Icon from './Icon.svelte'
@@ -108,7 +108,15 @@
       <button type="button" class="secondary small" disabled={i === gpus.length - 1 || task.busy} onclick={() => move(i, 1)} aria-label="Move down">↓</button>
     </div>
     {#if g.kind === 'pc' && g.online && g.info}
-      <p class="muted">Agent {g.info.version} on {platformName(g.info.platform)}{#if g.info.gpu}, GPU: {gpuName(g.info.gpu)}{/if}</p>
+      <p class="muted">Agent {g.info.version} on {platformName(g.info.platform)}{#if g.info.gpu}, GPU: {gpuName(g.info.gpu)}{/if}{#if g.info.comfyui_version}. ComfyUI {g.info.comfyui_version}{#if g.info.torch}, {torchName(g.info.torch)}{/if}{/if}</p>
+      <!-- Its ComfyUI upgrading itself to this release's versions once idle (local/src/upgrade.ts) -->
+      {#if upgrading(g.info.upgrade)}
+        <p class="muted">Upgrading to {g.info.upgrade.to}… Images still come meanwhile, except for about a minute while it switches over.</p>
+      {:else if g.info.upgrade?.state === 'failed'}
+        <p class="err">Upgrading to {g.info.upgrade.to} failed: {g.info.upgrade.error} It keeps running as it was.
+          <button type="button" class="retry" disabled={task.busy === g.id} onclick={() => act(g.id, () => api('POST', `/gpus/${g.id}/machine/setup/upgrade`))}>Try again</button></p>
+      {/if}
+      {#if g.info.build_note}<p class="warn">{g.info.build_note}</p>{/if}
     {/if}
     <!-- Actions: pausing and the PC's page first, the disruptive ones at the far end. -->
     {#if g.kind === 'pc'}
@@ -172,6 +180,7 @@
   .name { min-width: 0; }
   input.name { width: 180px; margin: 0; }
   .link { background: none; border: none; padding: 0; margin: 0; color: inherit; cursor: text; }
+  .retry { background: none; border: 0; padding: 0; margin: 0 0 0 6px; color: var(--accent); text-decoration: underline; }
   .spacer { flex: 1; }
   .actions { gap: 8px; align-items: center; margin-top: 8px; }
   .icon-btn { padding: 4px 8px; }

@@ -1212,3 +1212,22 @@ Design §3, "The models", and §4 (LoRA groups).
   (`images.image_2`); LoRA groups `qwenimage21` and `krea2`, detection checked on 13 real LoRAs.
 - **`scripts/fill_pack_models.py`** works again (it read `head()`'s old return value).
 - **End to end** on the dev Worker with the user's PC (16 GB).
+
+## ComfyUI and PyTorch upgrades (2026-11-07)
+
+Design §2, "ComfyUI and PyTorch versions"; `docs/moving-comfyui.md`.
+
+- **Local:**
+  - `versions.ts`: the targets, the PyTorch build per card, whether a torch runs on the card.
+  - `upgrade.ts`: build beside, check, swap, put back.
+  - `Machine.upgradeWhenIdle`, `checkUpgrade`, `/api/setup/upgrade`.
+  - Marker v2 with the torch build.
+  - Torch held on every later `uv pip install`. The node install had no backend at all.
+  - `LocalComfy.whileStopped`: calls wait through the check and swap.
+- **Agent and extension:** both start the checker. The agent's hello carries the ComfyUI version,
+  the torch build, the upgrade and the build's note. Its own update waits for an upgrade.
+- **Web:** the versions and the upgrade (Try again) on the GPU card and the PC's page.
+- **Modal:** torch pinned from cu130. comfy-cli fell back to cu126 without a GPU at build.
+- **This release keeps ComfyUI 0.37.0.** Only an install whose torch is below 2.9 or can't run on
+  its card upgrades. The first real bump (0.44.x) is its own release.
+

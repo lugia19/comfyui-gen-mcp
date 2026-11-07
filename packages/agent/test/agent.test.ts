@@ -429,10 +429,10 @@ describe("the Update to vX button", () => {
     await settle();
     expect(u.state).toBe("restarting");
 
-    const m = (install: string, comfy: string, quiet: number) => ({ install: { state: install }, comfy: { state: comfy, quietFor: () => quiet } }) as any;
+    const m = (install: string, comfy: string, quiet: number) => ({ busyInstalling: install === "running", comfy: { state: comfy, quietFor: () => quiet } }) as any;
     expect(quietForUpdate(m("idle", "running", 0))).toBe(false); // a generation runs
     expect(quietForUpdate(m("idle", "running", 5_000))).toBe(false); // its image may not be fetched yet
-    expect(quietForUpdate(m("running", "stopped", 60_000))).toBe(false); // ComfyUI being installed
+    expect(quietForUpdate(m("running", "stopped", 60_000))).toBe(false); // ComfyUI being installed or upgraded
     expect(quietForUpdate(m("idle", "starting", 60_000))).toBe(false);
     expect(quietForUpdate(m("done", "running", 15_000))).toBe(true);
   });

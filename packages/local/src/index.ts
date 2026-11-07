@@ -8,6 +8,8 @@ export * from "./proc.ts";
 export * from "./fetchfile.ts";
 export * from "./uv.ts";
 export * from "./install.ts";
+export * from "./versions.ts";
+export * from "./upgrade.ts";
 export * from "./nodes.ts";
 export * from "./models.ts";
 export * from "./discover.ts";

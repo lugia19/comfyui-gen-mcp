@@ -10,14 +10,21 @@ import { LocalComfy, type ComfySettings } from "./comfyui.ts";
 import type { ExtensionFiles } from "./nodes.ts";
 import { ModelDownloads, type ModelFile } from "./downloads.ts";
 import { bodyJson, error, json } from "./http.ts";
-import { detectGpu, GPUS, install, isGpu } from "./install.ts";
+import { freeBytes } from "./fetchfile.ts";
+import { detectGpu, GPUS, install, installedTorch, isGpu, removeDir, type Install } from "./install.ts";
 import { log } from "./log.ts";
 import { LoraRegistry, LoraUploads, removeFile } from "./lora-uploads.ts";
 import { SHARED_SUBFOLDERS } from "./models.ts";
 import type { Paths } from "./paths.ts";
 import { openExternal } from "./proc.ts";
+import { buildNext, checkNext, describeTarget, needsUpgrade, nextDir, prevDir, swapBack, swapIn, type UpgradeNeed, type UpgradeState } from "./upgrade.ts";
+import { chooseBuild, nvidiaInfo } from "./versions.ts";
 
 export type InstallState = { state: "idle" | "running" | "done" | "failed"; gpu: string | null; lines: string[]; error: string | null };
+
+const UPGRADE_IDLE_MS = 10 * 60_000; // as the agent's own update waits
+const UPGRADE_HOLD_MS = 24 * 3600_000; // a failed upgrade isn't tried again for this long (Try again: now)
+const GB = 1e9;
 
 /** What ensurePack needs of a pack (the agent receives exactly this from the Worker). */
 export type PackNeeds = { name: string; display_name?: string; models?: ModelFile[]; required_nodes?: Record<string, string> };
@@ -35,6 +42,9 @@ export type MachineOptions = {
    * once ComfyUI is installed, at start and after an install, so their first use doesn't wait. */
   modelSets?: () => PackNeeds[];
   comfy?: LocalComfy; // tests pass a stand-in
+  /** Tests: the ComfyUI source an upgrade unpacks (else GitHub's release), and the free disk space. */
+  fetchSource?: (dir: string, version: string, onLine: (l: string) => void) => Promise<void>;
+  freeBytes?: (dir: string) => number | null;
 };
 
 export class Machine {
@@ -47,6 +57,12 @@ export class Machine {
   private opts: MachineOptions;
   private installState: InstallState = { state: "idle", gpu: null, lines: [], error: null };
   private gpuGuess: Promise<string> | null = null;
+  private upgradeState: UpgradeState = { state: "idle", from: null, to: null, lines: [], error: null, at: null };
+  private upgrading: Promise<void> | null = null;
+  private upgradeHold: { target: string; until: number } | null = null;
+  private upgradeTimer: NodeJS.Timeout | null = null;
+  /** The PyTorch build's note for the user (an old driver), from the last upgrade check. */
+  buildNote: string | null = null;
 
   constructor(opts: MachineOptions) {
     this.opts = opts;
@@ -123,9 +139,18 @@ export class Machine {
     return this.installState;
   }
 
-  /** Nothing running or used for *ms*: no install, no model download, no ComfyUI job. */
+  get upgrade(): UpgradeState {
+    return this.upgradeState;
+  }
+
+  /** An install or an upgrade is under way: the agent's own restart and the other wait for it. */
+  get busyInstalling(): boolean {
+    return this.installState.state === "running" || this.upgrading !== null;
+  }
+
+  /** Nothing running or used for *ms*: no install or upgrade, no model download, no ComfyUI job. */
   idleFor(ms: number): boolean {
-    if (this.installState.state === "running" || this.comfy.state === "starting") return false;
+    if (this.busyInstalling || this.comfy.state === "starting") return false;
     if (this.downloads.jobs().some((j) => j.state === "queued" || j.state === "downloading")) return false;
     return this.comfy.quietFor() >= ms;
   }
@@ -144,6 +169,7 @@ export class Machine {
   /** Install (or reinstall) ComfyUI for *gpu*, in the background; install() reports progress. */
   startInstall(gpu: string): void {
     if (!isGpu(gpu)) throw new Error(`unknown GPU kind ${gpu}`);
+    if (this.upgrading) throw new Error("ComfyUI is being upgraded; install again when that is done");
     const state: InstallState = { state: "running", gpu, lines: [], error: null };
     this.installState = state;
     const onLine = (l: string) => {
@@ -164,6 +190,100 @@ export class Machine {
       state.error = (e as Error).message;
       void this.comfy.refresh();
     });
+  }
+
+  /** Check every *everyMs* for an upgrade due (upgrade.ts), and run it once the machine is idle. */
+  upgradeWhenIdle(everyMs = 60_000): void {
+    if (this.upgradeTimer) return;
+    this.upgradeTimer = setInterval(() => void this.checkUpgrade().catch((e) => log.warn("Checking for a ComfyUI upgrade:", (e as Error).message)), everyMs);
+    this.upgradeTimer.unref();
+  }
+
+  stopUpgradeChecks(): void {
+    if (this.upgradeTimer) clearInterval(this.upgradeTimer);
+    this.upgradeTimer = null;
+  }
+
+  /** The upgrade this install needs on this PC, or null. Also records the build's note. */
+  async pendingUpgrade(): Promise<{ inst: Install; need: UpgradeNeed; target: string } | null> {
+    await this.comfy.refresh();
+    const inst = this.comfy.install;
+    const gpu = inst?.gpu ?? this.opts.settings().gpu;
+    if (!inst || !isGpu(gpu)) return null;
+    await installedTorch(inst); // an install from before the marker had it
+    const nvidia = gpu === "nvidia" ? await nvidiaInfo() : null;
+    const build = chooseBuild(gpu, nvidia);
+    this.buildNote = build.blocked ?? build.note;
+    const need = needsUpgrade({ ...inst, gpu }, build, nvidia);
+    return need ? { inst: { ...inst, gpu }, need, target: describeTarget(inst, need) } : null;
+  }
+
+  /** Start the upgrade due, if the machine is idle and it hasn't just failed (*force*: now, whatever
+   * those say: the page's Try again). Returns the upgrade's state. */
+  async checkUpgrade(force = false): Promise<UpgradeState> {
+    if (this.busyInstalling) return this.upgradeState;
+    if (!force && !this.idleFor(UPGRADE_IDLE_MS)) return this.upgradeState;
+    const due = await this.pendingUpgrade();
+    if (!due || this.busyInstalling) return this.upgradeState;
+    if (!force && this.upgradeHold?.target === due.target && Date.now() < this.upgradeHold.until) return this.upgradeState;
+    // A changed torch is a new venv's worth (about 6 GB); the same one comes from uv's cache.
+    const room = (due.need.torch ? 8 : 2) * GB;
+    const free = (this.opts.freeBytes ?? freeBytes)(this.p.home);
+    if (free !== null && free < room) {
+      const error = `Not enough disk space to upgrade ComfyUI: it needs about ${room / GB} GB free where it is installed, and ${(free / GB).toFixed(1)} GB is.`;
+      this.upgradeState = { state: "failed", from: null, to: due.target, lines: [], error, at: Date.now() };
+      this.upgradeHold = { target: due.target, until: Date.now() + UPGRADE_HOLD_MS };
+      return this.upgradeState;
+    }
+    this.upgrading = this.runUpgrade(due.inst, due.need, due.target).finally(() => (this.upgrading = null));
+    return this.upgradeState;
+  }
+
+  /** The upgrade's stages (upgrade.ts). Any failure leaves the old install as it was. */
+  private async runUpgrade(inst: Install, need: UpgradeNeed, target: string): Promise<void> {
+    const from = `ComfyUI ${inst.version ?? "?"}, PyTorch ${inst.torch?.version ?? "?"}`;
+    const state: UpgradeState = { state: "building", from, to: target, lines: [], error: null, at: null };
+    this.upgradeState = state;
+    const onLine = (l: string) => {
+      log.info(`[upgrade] ${l}`);
+      state.lines.push(l);
+      if (state.lines.length > 200) state.lines.splice(0, 100);
+    };
+    onLine(`Upgrading from ${from} to ${target}`);
+    let swapped = false;
+    try {
+      const next = await buildNext(this.p, inst, need, this.opts.waitExtension, onLine, this.opts.fetchSource);
+      state.state = "checking";
+      await this.comfy.whileStopped(async () => {
+        await checkNext(next, onLine);
+        state.state = "swapping";
+        onLine("Swapping in the new ComfyUI");
+        await swapIn(this.p, next);
+        swapped = true;
+      });
+      state.state = "starting";
+      onLine("Starting the new ComfyUI");
+      await this.comfy.refresh();
+      await this.comfy.ensureRunning();
+      await removeDir(prevDir(this.p));
+      await removeDir(nextDir(this.p));
+      state.state = "done";
+      state.at = Date.now();
+      this.upgradeHold = null;
+      onLine(`Upgraded to ${target}`);
+    } catch (e) {
+      state.error = (e as Error).message;
+      log.error("ComfyUI upgrade failed:", e);
+      if (swapped) {
+        onLine("The new ComfyUI didn't start; putting the old one back");
+        await this.comfy.whileStopped(() => swapBack(this.p)).catch((e2) => log.error("Putting the old ComfyUI back failed:", e2));
+      }
+      await removeDir(nextDir(this.p)).catch(() => {});
+      state.state = "failed";
+      state.at = Date.now();
+      this.upgradeHold = { target, until: Date.now() + UPGRADE_HOLD_MS };
+      await this.comfy.refresh();
+    }
   }
 
   /** Make ComfyUI ready for a pack: installed, its models here (downloads start otherwise, and the
@@ -229,8 +349,11 @@ export class Machine {
         dir: comfy.install?.dir ?? null,
         gpu: comfy.install?.gpu ?? (gpuSetting || null),
         version: comfy.install?.version ?? null,
+        torch: comfy.install?.torch?.version ?? null,
+        build_note: this.buildNote,
       },
       install: this.installState,
+      upgrade: this.upgradeState,
       gpus: GPUS,
       detected_gpu: await this.detectedGpu(),
       memory_gb: Math.round(totalmem() / 2 ** 30), // a Mac's GPU shares it: the page warns below 16
@@ -272,10 +395,16 @@ export class Machine {
       const gpu = (await bodyJson(req)).gpu;
       if (!isGpu(gpu)) return error(400, `gpu must be one of ${GPUS.join(", ")}`);
       if (this.installState.state === "running") return error(409, "an install is already running");
+      if (this.upgrading) return error(409, "ComfyUI is being upgraded; install again when that is done");
       this.startInstall(gpu);
       return json(this.installState);
     }
     if (sub === "/setup/install" && m === "GET") return json(this.installState);
+    if (sub === "/setup/upgrade" && m === "GET") return json(this.upgradeState);
+    if (sub === "/setup/upgrade" && m === "POST") {
+      if (this.installState.state === "running") return error(409, "an install is running");
+      return json(await this.checkUpgrade(true)); // Try again: now, not waiting for idle
+    }
     if (sub === "/comfyui/restart" && m === "POST") return this.comfyAction(() => this.comfy.restart());
     if (sub === "/comfyui/stop" && m === "POST") return this.comfyAction(() => this.comfy.stop());
     if (sub === "/loras" && m === "GET") return json({ loras: this.loras() });

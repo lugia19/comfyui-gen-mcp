@@ -21,10 +21,10 @@ export const RESTART_EXIT_CODE = 75;
 const RESTART_WHEN_QUIET_MS = 10 * 60_000; // an update waits for this long without generations
 const RESTART_ASKED_QUIET_MS = 15_000; // one asked for from the page: only a generation's end, and its image fetched
 
-/** An update asked for from the page may restart now: no install running, no generation (and its
- * image fetched), ComfyUI not starting. Model downloads don't count: they resume. */
-export function quietForUpdate(machine: Pick<Machine, "install" | "comfy">): boolean {
-  return machine.install.state !== "running" && machine.comfy.state !== "starting" && machine.comfy.quietFor() >= RESTART_ASKED_QUIET_MS;
+/** An update asked for from the page may restart now: no install or ComfyUI upgrade running, no
+ * generation (and its image fetched), ComfyUI not starting. Model downloads don't count: they resume. */
+export function quietForUpdate(machine: Pick<Machine, "busyInstalling" | "comfy">): boolean {
+  return !machine.busyInstalling && machine.comfy.state !== "starting" && machine.comfy.quietFor() >= RESTART_ASKED_QUIET_MS;
 }
 
 export type AgentOptions = {
@@ -68,6 +68,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
   });
   await machine.comfy.refresh();
   machine.fetchModelSets();
+  machine.upgradeWhenIdle(); // ComfyUI and PyTorch to this release's targets, once idle (upgrade.ts)
 
   let client: RelayClient | null = null;
   // Paused from the tray: connected, but not taking image requests (the Worker uses Modal, or says
@@ -117,6 +118,12 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
       handle,
       hello: () => ({ version: opts.version, platform: process.platform, gpu: machine.comfy.install?.gpu ?? cfg.gpu ?? null, comfyui: machine.comfy.state, paused,
         installing: machine.install.state === "running", // ComfyUI being installed now (v1.20.1)
+        // ComfyUI's version and PyTorch build, an upgrade to them under way or failed, and a note
+        // on the PyTorch build (an old driver) (v2.6.0)
+        comfyui_version: machine.comfy.install?.version ?? null,
+        torch: machine.comfy.install?.torch?.version ?? null,
+        upgrade: { state: machine.upgrade.state, to: machine.upgrade.to, error: machine.upgrade.error },
+        build_note: machine.buildNote,
         // What this agent's ComfyUI can do. An agent without a flag predates it (or, before v1.16.0,
         // used a ComfyUI of the user's own): the Worker leaves the step out.
         remove_marks: true, // our extension's mark-removal node
@@ -137,7 +144,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
   // this PC to have ComfyUI installed, and shows where it is meanwhile (v1.20.1).
   let lastState = "";
   setInterval(() => {
-    const now = `${machine.comfy.state}/${machine.install.state}`;
+    const now = `${machine.comfy.state}/${machine.install.state}/${machine.upgrade.state}/${machine.comfy.install?.version}`;
     if (now !== lastState) {
       lastState = now;
       client?.refreshHello();
@@ -200,6 +207,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     tray?.stop();
     await new Promise<void>((r) => server.close(() => r()));
     server.closeAllConnections();
+    machine.stopUpgradeChecks();
     await machine.comfy.stop();
   };
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
