@@ -59,7 +59,7 @@ state = modal.Dict.from_name(STATE_DICT, create_if_missing=True)
 # back to cu126. cu130 has code for every GPU in GPUS (compute capability 7.5 to 8.9; the Ada cards
 # run 8.6's), and Modal's driver (610, CUDA 13.3) runs it. ComfyUI asks cu130 of RTX 20-series and
 # newer. Its last release is 2.14.1: a newer torch is cu132's.
-MODAL_VERSIONS = {"comfyui": "0.37.0", "torch": "2.14.1", "cuda": "cu130"}
+MODAL_VERSIONS = {"comfyui": "0.44.2", "torch": "2.14.1", "cuda": "cu130"}
 
 comfy_image = (
     modal.Image.debian_slim(python_version="3.12")

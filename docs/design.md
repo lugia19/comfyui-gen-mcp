@@ -254,7 +254,8 @@ and back, and on Windows moving `models` failed with EPERM while anything had a 
 2026-10-02) and its models.
 
 **ComfyUI and PyTorch versions (2026-11-07, `local/versions.ts`, `local/upgrade.ts`).** A release
-names its targets: `COMFYUI_VERSION` and a minimum PyTorch, `TORCH_MIN`. Modal pins the same
+names its targets: `COMFYUI_VERSION` (0.44.2 since v2.6.0, before it 0.37.0) and a minimum
+PyTorch, `TORCH_MIN` (2.9). Modal pins the same
 versions (`app.py` `MODAL_VERSIONS`, kept in step by a test).
 - **The build per card (`chooseBuild`).** uv's `--torch-backend auto` reads only the NVIDIA
   driver, so a GTX 10-series on a new driver got torch 2.15's CUDA 13 build, which has no kernels

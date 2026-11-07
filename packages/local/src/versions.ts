@@ -12,7 +12,7 @@
 import type { Gpu } from "./install.ts";
 import { run } from "./proc.ts";
 
-export const COMFYUI_VERSION = "0.37.0"; // as on Modal (app.py MODAL_VERSIONS)
+export const COMFYUI_VERSION = "0.44.2"; // as on Modal (app.py MODAL_VERSIONS); 0.37.0 until v2.6.0
 export const TORCH_MIN = "2.9"; // below it, an install's torch is upgraded
 
 /** The lowest compute capability among the PC's NVIDIA cards (one build serves them all) and the

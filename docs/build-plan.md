@@ -1228,6 +1228,15 @@ Design §2, "ComfyUI and PyTorch versions"; `docs/moving-comfyui.md`.
   the torch build, the upgrade and the build's note. Its own update waits for an upgrade.
 - **Web:** the versions and the upgrade (Try again) on the GPU card and the PC's page.
 - **Modal:** torch pinned from cu130. comfy-cli fell back to cu126 without a GPU at build.
-- **This release keeps ComfyUI 0.37.0.** Only an install whose torch is below 2.9 or can't run on
-  its card upgrades. The first real bump (0.44.x) is its own release.
+- **ComfyUI 0.37.0 → 0.44.2 in the same release** (the user's call, 2026-11-07). The upgrade
+  was checked end to end:
+  - **Here, CPU build:** a real install, then the upgrade. ComfyUI-GGUF came fresh from the
+    registry, and every pack's workflow inputs matched 0.44.2's `/object_info`.
+  - **On the user's PC,** Windows with an RTX on driver 580+ and the agent built from this branch
+    as v2.5.6:
+    - 1.5 minutes, with torch 2.14.1+cu130 from uv's cache;
+    - every tool on 0.44.2 at the same speeds: Anima Turbo, Anima, Qwen 2.1 with its edit,
+      Krea 2, Klein 4B, Klein 9B Edit, a redraw, a cutout;
+    - the same seed gave identical pixels.
+  - **Modal (cu130 torch, 0.44.2)** is first checked by the user after its deploy.
 
