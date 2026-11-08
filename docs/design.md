@@ -130,7 +130,7 @@ the list leaves a stored one out, so the next write drops it, and its `fetch_res
   a later, smaller PC doesn't take over from the first: an 8 GB Mac did, 2026-10-02); Modal by its
   deploy's build callback (id `modal`, added at the end).
 - **Managing** (`/api/gpus`): `PATCH /<id>` sets name, enabled, keep-warm and ComfyUI flags; `PUT /order` the
-  order; `POST /<id>/pair` a new pairing link; `POST /<id>/pause` pauses a PC; `DELETE /<id>`
+  order; `POST /<id>/pause` pauses a PC; `DELETE /<id>`
   removes one (a PC's agent is disconnected). `/api/state` lists them with their live state, never
   their secrets.
 - **Routing:** a call goes to the first enabled GPU that is available (a PC: connected and not
@@ -1149,8 +1149,9 @@ past 10 GB at $0.015 per GB a month; Modal per second with $30 free a month and 
    missing models when a tool needs them, and stops ComfyUI after the idle window.
 
 Modal can be added (or kept) as the fallback: each call uses the PC when it is connected and Modal
-otherwise. A new pairing link replaces the old secret (the connected agent is dropped); "Unpair"
-removes it.
+otherwise. There is no new link for a PC already added: to pair it again, remove it (its secret
+stops working and its agent is dropped) and add it back. Replacing the link in place was glitchy, and remove-then-add is one path to keep
+right.
 
 ### Claude Desktop only
 

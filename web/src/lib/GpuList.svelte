@@ -9,7 +9,7 @@
 
   // The Worker's GPUs, in priority order (design §2, "GPUs"): a call goes to the first that is
   // online, not paused and enabled, and has the model ready. Each PC pairs with its own link: a new
-  // or re-linked PC shows its pairing steps (PairPc) in its own entry; Modal is added by its own Setup step. *gpus* is /api/state's list (with each one's live state); *refresh* reloads it.
+  // PC shows its pairing steps (PairPc) in its own entry; Modal is added by its own Setup step. *gpus* is /api/state's list (with each one's live state); *refresh* reloads it.
   let { gpus, refresh } = $props()
 
   const KIND = { pc: 'PC', modal: 'Modal' }
@@ -49,14 +49,8 @@
   }
 
   function remove(g) {
-    const what = g.kind === 'pc' ? 'Its agent disconnects; pair it again with a new link.' : 'The Modal app stays deployed; deploy again to add it back.'
+    const what = g.kind === 'pc' ? 'Its agent disconnects; to use it again, add it back and pair it.' : 'The Modal app stays deployed; deploy again to add it back.'
     if (confirm(`Remove ${g.name} from this Worker? ${what}`)) act(g.id, () => api('DELETE', `/gpus/${g.id}`))
-  }
-
-  function newLink(g) {
-    if (confirm(`Make a new pairing link for ${g.name}? It disconnects until it pairs again; the steps show under it.`)) {
-      act(g.id, () => api('POST', `/gpus/${g.id}/pair`))
-    }
   }
 
   function rename(g) {
@@ -132,14 +126,11 @@
         {/if}
       {/if}
       <!-- The PC's own Comfy-Gen page, through this Worker (design §9, "A page per PC"); nothing to
-           open, or re-link, before it has paired once. -->
+           open before it has paired once. -->
       {#if g.seen}
         <a class="button small" href="/gpu/{g.id}" target="_blank" rel="noopener" title="Its ComfyUI, folders and models, as on the PC"><Icon name="external" />Open its page</a>
       {/if}
       <span class="spacer"></span>
-      {#if g.seen}
-        <button type="button" class="danger small" disabled={task.busy === g.id} onclick={() => newLink(g)} title="It disconnects until it pairs again with the new link"><Icon name="link" />New pairing link</button>
-      {/if}
       {@render trash(g)}
     </div>
     {/if}

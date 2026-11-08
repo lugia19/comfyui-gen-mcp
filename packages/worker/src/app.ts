@@ -1055,7 +1055,6 @@ export class App {
   /**
    * The GPU list (design §2, "GPUs"):
    *   POST   /gpus/pc            add a PC: {id, link} (the pairing link for its agent)
-   *   POST   /gpus/<id>/pair     a new pairing link; the old one stops working, its agent is dropped
    *   POST   /gpus/<id>/pause    {paused}: the tray's pause, from here. The agent keeps it in memory
    *                              only, so a forgotten pause cannot send every image elsewhere for days
    *   PATCH  /gpus/<id>          {name, enabled, keep_warm_minutes, comfy_args}
@@ -1081,15 +1080,9 @@ export class App {
       await this.saveGpus(ids.map((id: string) => gpus.find((g) => g.id === id)!));
       return json({ ok: true });
     }
-    const m = /^\/gpus\/([\w-]+)(?:\/(pair|pause|comfy-args))?$/.exec(sub);
+    const m = /^\/gpus\/([\w-]+)(?:\/(pause|comfy-args))?$/.exec(sub);
     const gpu = m ? gpus.find((g) => g.id === m[1]) : undefined;
     if (!m || !gpu) return error(404, "no such GPU");
-    if (m[2] === "pair" && req.method === "POST" && gpu.kind === "pc") {
-      const secret = tokenUrlsafe(32);
-      await this.updateGpu(gpu.id, { secret, seen: null }); // a new PC starts at the pairing view
-      await this.p.relays(gpu.id).drop();
-      return json({ link: pairingLink(url, secret) });
-    }
     if (m[2] === "pause" && req.method === "POST" && gpu.kind === "pc") {
       return this.controlResponse(gpu, await this.control(gpu, "pause", { paused: (await bodyJson(req)).paused === true }));
     }

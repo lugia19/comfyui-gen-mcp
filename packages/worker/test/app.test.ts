@@ -1019,13 +1019,9 @@ describe("the PC path", () => {
     expect(await gate(secret)).toBe("pc");
     expect((await gpus()).map((g: any) => [g.id, g.name])).toEqual([["pc", "Your PC"], [two.id, "PC 2"]]); // after the other PCs
 
-    // A new link for the first PC: the old one stops working and its agent is dropped.
-    const again = await body(await app.handle(request("POST", "/api/gpus/pc/pair", undefined, cookie)));
-    expect(await gate(secret)).toBeInstanceOf(Response);
-    expect(await gate(again.link.split("#")[1])).toBe("pc");
-    expect(pc.dropped).toBe(1);
-    pc.connected = false;
-    expect((await gpus()).find((g: any) => g.id === "pc").seen).toBeNull(); // a new pairing view
+    // No new link in place: pairing a PC again is removing it and adding it back.
+    expect((await app.handle(request("POST", "/api/gpus/pc/pair", undefined, cookie))).status).toBe(404);
+    expect(await gate(secret)).toBe("pc");
     // Removing the second PC drops its agent and its secret.
     expect((await app.handle(request("DELETE", `/api/gpus/${two.id}`, undefined, cookie))).status).toBe(200);
     expect(await gate(two.secret)).toBeInstanceOf(Response);
