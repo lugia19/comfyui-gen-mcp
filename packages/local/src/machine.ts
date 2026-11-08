@@ -235,7 +235,10 @@ export class Machine {
       this.upgradeHold = { target: due.target, until: Date.now() + UPGRADE_HOLD_MS };
       return this.upgradeState;
     }
-    this.upgrading = this.runUpgrade(due.inst, due.need, due.target).finally(() => (this.upgrading = null));
+    const run: Promise<void> = this.runUpgrade(due.inst, due.need, due.target).finally(() => {
+      if (this.upgrading === run) this.upgrading = null;
+    });
+    this.upgrading = run;
     return this.upgradeState;
   }
 
@@ -267,10 +270,9 @@ export class Machine {
       await this.comfy.ensureRunning();
       await removeDir(prevDir(this.p));
       await removeDir(nextDir(this.p));
-      state.state = "done";
-      state.at = Date.now();
       this.upgradeHold = null;
       onLine(`Upgraded to ${target}`);
+      this.finishUpgrade(state, "done");
     } catch (e) {
       state.error = (e as Error).message;
       log.error("ComfyUI upgrade failed:", e);
@@ -279,11 +281,18 @@ export class Machine {
         await this.comfy.whileStopped(() => swapBack(this.p)).catch((e2) => log.error("Putting the old ComfyUI back failed:", e2));
       }
       await removeDir(nextDir(this.p)).catch(() => {});
-      state.state = "failed";
-      state.at = Date.now();
       this.upgradeHold = { target, until: Date.now() + UPGRADE_HOLD_MS };
-      await this.comfy.refresh();
+      await this.comfy.refresh().catch(() => {});
+      this.finishUpgrade(state, "failed");
     }
+  }
+
+  /** The upgrade's end, its last step: the state and no longer busy together, so a Try again that
+   * sees "failed" (or a check that sees "done") is never refused as still running. */
+  private finishUpgrade(state: UpgradeState, end: "done" | "failed"): void {
+    state.state = end;
+    state.at = Date.now();
+    this.upgrading = null;
   }
 
   /** Make ComfyUI ready for a pack: installed, its models here (downloads start otherwise, and the
