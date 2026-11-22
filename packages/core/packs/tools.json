@@ -10,8 +10,9 @@
       "default_guide": "This tool generates realistic/general-purpose images via ComfyUI.\nUse natural language to describe the image you want. Be specific about composition, lighting, style, and subject.\n\nExamples:\n- A photorealistic portrait of an elderly man with weathered skin, dramatic side lighting\n- A cozy coffee shop interior with warm morning light streaming through windows, watercolor style\n- A futuristic cityscape at sunset with flying vehicles, cinematic wide shot\n\nNote: The first generation after launching ComfyUI may take 1-2 minutes while the model loads into GPU memory. If the request times out, please retry."
     },
     "generate_from_reference": {
-      "title": "Characters from a reference",
+      "title": "From a reference image",
       "reference": true,
+      "within": "generate_illustrated_image",
       "description": "Use this tool to draw the one character in a reference image in a new scene, pose, framing or expression, keeping how it looks. To change the reference picture itself, use edit_image; to draw a character without a reference, use generate_illustrated_image."
     },
     "edit_image": {

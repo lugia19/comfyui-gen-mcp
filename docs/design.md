@@ -587,7 +587,7 @@ and `strength` (0.3 to 1, default 0.9); hidden, `model`, `negative` and `seed` (
 
 **Not listed for Claude by default (2026-11-05, the user's call).** Claude reached for `redraw` to
 fix images, where it often did worse than a new image or an edit. The `show_redraw` setting (off;
-Settings → Models, its own card) lists it again. Hidden, nothing Claude reads names it: not the
+a small checkbox at the foot of Settings → Models' illustrations card, 2026-11-22) lists it again. Hidden, nothing Claude reads names it: not the
 server's instructions, nor `request_upload`'s description. Every frontend serves it either way
 (core `servedTools`), so scripted callers such as Visual Novelist call it as before.
 
@@ -726,6 +726,8 @@ LoRA, original characters included, and for Visual Novelist's characters in new 
   per-model strengths, so the LoRA table has no extra columns. Every GPU already has the Anima files,
   so the tool adds the adapter's download. Images drawn with it redraw with Anima Turbo (their model
   files say Anima).
+- **Settings.** Its model choice sits inside the illustrations card, under Anima's (`within` in
+  tools.json), as "From a reference image": one family, sharing its LoRAs and its downloads.
 - **A capability.** A PC agent says `anima_ref` in its hello (Modal and the MCPB always have it);
   without it Brain answers that the agent needs an update, as for redraw.
 - **Settings** (base: cfg 4, 30 steps, `ref_guidance` 4.5; Turbo: cfg 1, 10 steps, `ref_guidance`
@@ -994,13 +996,15 @@ and failing that the file waits in `loras-pending-delete.json` until ComfyUI sto
   stop.
 - Which GPU answers is the list's order (§2, "GPUs").
 - `remove_marks` (default on): clean painted-in signatures and watermarks (§3, "Signatures and
-  watermarks"). It is a card beside the model cards, a checkbox only: its models download in the
+  watermarks"). A small checkbox at the foot of the illustrations card, beside redraw's (the
+  user's call, 2026-11-22: the artist styles bring the signatures); its models download in the
   background.
 - **One config for every backend** (decided 2026-09-30, after trying one per backend): Claude sees
   one tool list, and its descriptions (styles, LoRA triggers, packs) cannot change with which
   backend is online, so separate settings needed a "keep these the same by hand" warning. What
   really differs per GPU is its files, so the one Settings page shows those per GPU:
-  - **Models:** a card per image tool, side by side: its model, its options, and the chosen
+  - **Models:** a card per image tool, side by side (a tool whose `within` names another, the
+    reference tool, has its choice inside that tool's card): its model, its options, and the chosen
     model's state on each GPU (ready, downloading, missing with a Download button). Saving starts
     the downloads on every GPU, and a model picked but not saved says so (`GET /api/models` returns
     `{gpus, packs: [{…, on: {gpuId: status}}]}`; `?gpu=` for one; one poll serves every card).

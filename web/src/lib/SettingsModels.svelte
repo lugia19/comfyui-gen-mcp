@@ -4,11 +4,16 @@
 
   // Settings → Models: one card per image tool, side by side. A card picks the tool's model and its
   // options (saved with the page's Save), and its foot shows that model's download on each GPU
-  // (*status*, a ModelStatus), which starts at once. *cfg* is the page's working copy, *saved* the
-  // last saved config, *packs* /api/state's tool groups. *marks*: the remove_marks setting's schema
-  // entry, a card of its own (its models download in the background, never shown). *redraw*: the
-  // show_redraw setting's, whether Claude sees the redraw tool.
+  // (*status*, a ModelStatus), which starts at once. A tool whose group says `within` (the reference
+  // tool) has its choice inside that tool's card. *cfg* is the page's working copy, *saved* the last
+  // saved config, *packs* /api/state's tool groups. *marks* and *redraw*: the remove_marks and
+  // show_redraw settings' schema entries, small checkboxes at the foot of the illustrations card
+  // (signatures come with artist styles; redraw repaints illustrations).
   let { cfg = $bindable(), saved, packs, status, marks = null, redraw = null } = $props()
+
+  const ILLUSTRATED = 'generate_illustrated_image' // core REDRAW_TOOL
+  const cards = $derived(packs.filter((g) => !g.within))
+  const inside = (group) => packs.filter((g) => g.within === group.tool_name)
 
   const MP = 1024 * 1024
 
@@ -38,35 +43,61 @@
   }
 </script>
 
+{#snippet choices(group)}
+  {@const current = selected(group, cfg)}
+  {#if group.packs.length > 1}
+    {#each ordered(group) as pack (pack.name)}
+      <label class="choice">
+        <input
+          type="radio"
+          name={group.tool_name}
+          value={pack.name}
+          checked={pack.name === current.name}
+          onchange={() => (cfg.pack_selections[group.tool_name] = pack.name)}
+        />
+        <span>
+          <b>{pack.display_name}</b>
+          {#if pack.legacy}<span class="muted">(older)</span>{/if}
+          <span class="muted">{formatBytes(pack.download_size)}</span><br />
+          <span class="muted">{pack.description}</span>
+        </span>
+      </label>
+    {/each}
+  {:else}
+    <p><b>{current.display_name}</b> <span class="muted">{formatBytes(current.download_size)}</span></p>
+    <p class="muted">{current.description}</p>
+  {/if}
+{/snippet}
+
+{#snippet downloads(group)}
+  {@const current = selected(group, cfg)}
+  {@const unsaved = current.name !== selected(group, saved).name}
+  {@const row = unsaved ? null : status.of(current.name)}
+  {#if unsaved || (row && status.backends.length)}
+    <div class="foot">
+      {#if unsaved}
+        <p class="muted">Not saved yet. Saving downloads {current.display_name} ({formatBytes(current.download_size)}) to any GPU that lacks it.</p>
+      {:else if row}
+        {#each status.backends as where (where)}
+          {@const s = row.on[where] ?? { state: 'unknown' }}
+          <div class="place">
+            <span class="where">{status.names[where] ?? 'This computer'}</span>
+            <ModelState {s} {status} pack={current.name} {where} />
+          </div>
+          {#if s.state === 'downloading' && s.total}<progress max={s.total} value={s.done}></progress>{/if}
+          {#if s.error}<p class="err">{s.error}</p>{/if}
+        {/each}
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
 <div class="cards">
-  {#each packs as group (group.tool_name)}
+  {#each cards as group (group.tool_name)}
     {@const current = selected(group, cfg)}
-    {@const unsaved = current.name !== selected(group, saved).name}
-    {@const row = unsaved ? null : status.of(current.name)}
     <section class="card">
       <h2>{group.title || group.tool_name}</h2>
-      {#if group.packs.length > 1}
-        {#each ordered(group) as pack (pack.name)}
-          <label class="choice">
-            <input
-              type="radio"
-              name={group.tool_name}
-              value={pack.name}
-              checked={pack.name === current.name}
-              onchange={() => (cfg.pack_selections[group.tool_name] = pack.name)}
-            />
-            <span>
-              <b>{pack.display_name}</b>
-              {#if pack.legacy}<span class="muted">(older)</span>{/if}
-              <span class="muted">{formatBytes(pack.download_size)}</span><br />
-              <span class="muted">{pack.description}</span>
-            </span>
-          </label>
-        {/each}
-      {:else}
-        <p><b>{current.display_name}</b> <span class="muted">{formatBytes(current.download_size)}</span></p>
-        <p class="muted">{current.description}</p>
-      {/if}
+      {@render choices(group)}
 
       {#if current.max_pixels_limit}
         <label for="mp-{group.tool_name}">Maximum resolution (megapixels)</label>
@@ -105,43 +136,28 @@
         </p>
       {/if}
 
-      {#if unsaved || (row && status.backends.length)}
-      <div class="foot">
-        {#if unsaved}
-          <p class="muted">Not saved yet. Saving downloads {current.display_name} ({formatBytes(current.download_size)}) to any GPU that lacks it.</p>
-        {:else if row}
-          {#each status.backends as where (where)}
-            {@const s = row.on[where] ?? { state: 'unknown' }}
-            <div class="place">
-              <span class="where">{status.names[where] ?? 'This computer'}</span>
-              <ModelState {s} {status} pack={current.name} {where} />
-            </div>
-            {#if s.state === 'downloading' && s.total}<progress max={s.total} value={s.done}></progress>{/if}
-            {#if s.error}<p class="err">{s.error}</p>{/if}
-          {/each}
-        {/if}
-      </div>
+      {@render downloads(group)}
+
+      {#each inside(group) as sub (sub.tool_name)}
+        <div class="sub">
+          <h3>{sub.title || sub.tool_name}</h3>
+          {@render choices(sub)}
+          {@render downloads(sub)}
+        </div>
+      {/each}
+
+      {#if group.tool_name === ILLUSTRATED && (marks || redraw)}
+        <div class="options">
+          {#if marks}
+            <label class="small" title={marks.description}><input type="checkbox" bind:checked={cfg.remove_marks} /> {marks.title}</label>
+          {/if}
+          {#if redraw}
+            <label class="small" title={redraw.description}><input type="checkbox" bind:checked={cfg.show_redraw} /> {redraw.title}</label>
+          {/if}
+        </div>
       {/if}
     </section>
   {/each}
-  {#if marks}
-    <section class="card">
-      <h2>Watermark removal</h2>
-      <label class="choice">
-        <input type="checkbox" bind:checked={cfg.remove_marks} />
-        <span><b>{marks.title}</b><br /><span class="muted">{marks.description}</span></span>
-      </label>
-    </section>
-  {/if}
-  {#if redraw}
-    <section class="card">
-      <h2>Redraw</h2>
-      <label class="choice">
-        <input type="checkbox" bind:checked={cfg.show_redraw} />
-        <span><b>{redraw.title}</b><br /><span class="muted">{redraw.description}</span></span>
-      </label>
-    </section>
-  {/if}
 </div>
 {#if status.error}<p class="err">{status.error}</p>{/if}
 <p class="muted">Models download once to each GPU (a PC's ComfyUI models folder, or your Modal Volume). A tool whose model is still downloading says so.</p>
@@ -163,6 +179,25 @@
   }
   .loras {
     margin: 10px 0 0;
+  }
+  .sub {
+    border-top: 1px solid var(--border);
+    margin-top: 14px;
+    padding-top: 4px;
+  }
+  .sub h3 {
+    margin: 8px 0 4px;
+  }
+  .options {
+    border-top: 1px solid var(--border);
+    margin-top: 14px;
+    padding-top: 8px;
+  }
+  .small {
+    display: block;
+    font-size: 13px;
+    color: var(--muted);
+    margin: 4px 0;
   }
   .foot {
     border-top: 1px solid var(--border);

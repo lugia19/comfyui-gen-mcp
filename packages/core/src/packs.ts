@@ -39,8 +39,9 @@ export type Pack = Record<string, any> & {
 export const REQUIRED_FIELDS = ["name", "display_name", "tool_name", "models", "workflow"];
 
 /** A tool packs back (packs/tools.json). *reference*: it draws from a reference image, which its
- * calls must give (generate_from_reference). */
-export type Tool = { title: string; description?: string; default_guide?: string; reference?: boolean };
+ * calls must give (generate_from_reference). *within*: the tool whose settings card shows its model
+ * choice (the reference tool's is in the illustrations card: one model family). */
+export type Tool = { title: string; description?: string; default_guide?: string; reference?: boolean; within?: string };
 
 const TOOL_DEFS = TOOL_FILE as {
   tools: Record<string, Tool>;
@@ -310,6 +311,7 @@ function packMetadata(packs: Pack[]) {
   return Object.entries(groupByTool(packs)).map(([tool, group]) => ({
     tool_name: tool,
     title: TOOLS[tool]?.title ?? tool,
+    within: TOOLS[tool]?.within ?? null,
     packs: group.map((p) => ({
       name: p.name,
       display_name: p.display_name ?? p.name,
