@@ -133,6 +133,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
         redraw_area: true, // its redraw node crops for prompt_scope "area" (v1.20.0)
         inpaint_control: true, // our extension's inpainting control node, kohya's LLLite (v1.21.0)
         redraw_extend: true, // its redraw nodes grow the canvas for extend (v1.21.0)
+        anima_ref: true, // its node for the Anima Reference Adapter (generate_from_reference)
         update_now: updater.can, // its page's POST /api/update restarts it into the latest release (v1.22.0)
       }),
       onOpen: () => void sync.sync(),

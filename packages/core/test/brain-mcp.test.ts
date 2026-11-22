@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { roundHalfEven } from "../src/bytes.ts";
-import { BACKGROUND_UNAVAILABLE, Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pending, REDRAW_AREA_UNAVAILABLE, REDRAW_UNAVAILABLE, redrawBox, type ResolvedImage, REDRAW_EXTEND_UNAVAILABLE, redrawExtend } from "../src/brain.ts";
+import { BACKGROUND_UNAVAILABLE, REFERENCE_UNAVAILABLE, Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pending, REDRAW_AREA_UNAVAILABLE, REDRAW_UNAVAILABLE, redrawBox, type ResolvedImage, REDRAW_EXTEND_UNAVAILABLE, redrawExtend } from "../src/brain.ts";
 import { ComfyUIError, STILL_STARTING } from "../src/comfyui.ts";
 import { McpHandler, PROTOCOL_VERSIONS, RESULT_META, UnknownTool, type ToolCall } from "../src/mcp.ts";
 import { builtinPacks, type Pack } from "../src/packs.ts";
@@ -24,6 +24,18 @@ describe("tools", () => {
     // Custom workflows were removed: a stored custom_workflow no longer adds a tool.
     expect(names(toolSpecs(BUILTIN, normalize({ custom_workflow: { workflow: {} } }), "paths"))).toEqual(names(paths));
     expect(names(paths).at(-1)).toBe("fetch_result");
+  });
+
+  it("the reference tool takes its image in each mode's spelling, and says how to pass one", () => {
+    for (const [mode, key] of [["paths", "reference_image_path"], ["refs", "reference_image"]] as const) {
+      const spec = toolSpecs(BUILTIN, normalize({}), mode).find((s) => s.name === "generate_from_reference")!;
+      expect(spec.inputSchema.required).toEqual(["prompt", key]);
+      expect(Object.keys(spec.inputSchema.properties)).toEqual(["prompt", key, "aspect_ratio", "remove_background"]);
+      expect(spec.description).toContain(`${key} is the character's image`);
+      expect(spec.description).toMatch(/NEVER write an @artist tag here/);
+      expect(spec.description).not.toMatch(/\{artist_list\}|\{lora_triggers\}/);
+    }
+    expect(toolSpecs(BUILTIN, normalize({}), "refs").find((s) => s.name === "generate_from_reference")!.description).toContain("request_upload");
   });
 
   it("descriptions fill artists and visible LoRA triggers", () => {
@@ -50,7 +62,7 @@ class PathHooks extends Hooks {
   }
 }
 
-function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean; canCutout?: boolean; canRedrawArea?: boolean; canInpaintControl?: boolean; canRedrawExtend?: boolean } = {}) {
+function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean; canCutout?: boolean; canRedrawArea?: boolean; canInpaintControl?: boolean; canRedrawExtend?: boolean; canReference?: boolean } = {}) {
   const comfy = new FakeComfy();
   const client = fastClient(comfy, { coldStartS: 60, requestBudget: opts.budget ?? null });
   const brain = (o: typeof opts = {}) =>
@@ -64,6 +76,7 @@ function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: nu
       canRedrawArea: o.canRedrawArea ?? opts.canRedrawArea,
       canInpaintControl: o.canInpaintControl ?? opts.canInpaintControl,
       canRedrawExtend: o.canRedrawExtend ?? opts.canRedrawExtend,
+      canReference: o.canReference ?? opts.canReference,
     });
   return { comfy, client, brain };
 }
@@ -157,7 +170,7 @@ describe("brain", () => {
   it("remove_background is offered on every image tool, in both modes", () => {
     for (const mode of ["refs", "paths"] as const) {
       const specs = toolSpecs(BUILTIN, normalize({}), mode).filter((s) => s.name.startsWith("generate_") || s.name === "edit_image");
-      expect(specs.length).toBe(3);
+      expect(specs.length).toBe(4);
       for (const spec of specs) expect(spec.inputSchema.properties.remove_background).toMatchObject({ type: "boolean", default: false });
     }
   });
@@ -316,6 +329,36 @@ describe("brain", () => {
     const budget = roundHalfEven((edit.max_pixels / 1_048_576) * 1e4) / 1e4;
     expect(loaded(comfy.prompts[1])).toEqual([["big.png [output]", budget], ["small.png [output]", 0.25]]);
     expect(hooks.ensured).toEqual([edit.name, edit.name]);
+  });
+
+  it("a reference call loads its image into the adapter's workflow, LoRAs before the adapter", async () => {
+    const hooks = new PathHooks();
+    const cfg = { pack_loras: { anima: [{ name: "style.safetensors", strength: 0.8, strengths: { anima_turbo: 0.5 } }] } };
+    const { comfy, brain } = setup({ hooks, cfg, canReference: true });
+    const b = brain();
+    expect(await b.call("generate_from_reference", { prompt: "1girl, solo, cafe", reference_image_path: "small.png", seed: 7 })).toBeInstanceOf(Done);
+    const wf = comfy.prompts[0];
+    const of = (type: string) => Object.entries<any>(wf).filter(([, n]) => n.class_type === type);
+    const [[loadId, load]] = of("LoadImage");
+    expect(load.inputs.image).toBe("small.png [output]");
+    const [[adapterId, adapter]] = of("ComfyGenAnimaRef");
+    expect(adapter.inputs.image).toEqual([loadId, 0]);
+    const [[loraId, lora]] = of("LoraLoaderModelOnly");
+    expect(adapter.inputs.model).toEqual([loraId, 0]); // the user's LoRAs first, as the adapter wants
+    expect(lora.inputs.strength_model).toBe(0.5); // Anima Turbo's strength (lora_strengths_from)
+    expect(of("KSampler")[0][1].inputs.model).toEqual([adapterId, 0]);
+    expect(of("KSampler")[0][1].inputs.seed).toBe(7);
+    expect(hooks.ensured).toEqual(["anima_ref_turbo"]); // once, before the upload
+    // The other pack by the hidden model, and either mode's spelling of the image.
+    await b.call("generate_from_reference", { prompt: "x", reference_image: "small.png", model: "anima_ref" });
+    expect(Object.values<any>(comfy.prompts[1]).find((n) => n.class_type === "UNETLoader").inputs.unet_name).toBe("anima-base-v1.0.safetensors");
+  });
+
+  it("a reference call needs its image, and a GPU that has the adapter's node", async () => {
+    const { comfy, brain } = setup({ canReference: true });
+    expect(await brain().call("generate_from_reference", { prompt: "x" })).toMatchObject({ message: expect.stringMatching(/reference_image is required/) });
+    expect(await brain({ canReference: false }).call("generate_from_reference", { prompt: "x", reference_image: "small.png" })).toMatchObject({ message: REFERENCE_UNAVAILABLE });
+    expect(comfy.prompts).toEqual([]);
   });
 
   it("unknown tools throw UnknownTool", async () => {

@@ -356,6 +356,10 @@ export function withImages(workflow: Workflow, count: number): [Workflow, { load
   return [wf, images];
 }
 
+/** Our extension's node that applies the Anima Reference Adapter (comfy_gen_modal/comfy_node
+ * ComfyGenAnimaRef): the reference packs' model, after its LoRAs. */
+export const REFERENCE_NODE = "ComfyGenAnimaRef";
+
 /** Our extension's redraw nodes (comfy_gen_modal/comfy_node): the region to repaint with its mask and
  * what to sample, and the paste back. */
 export const REDRAW_REGION_NODE = "ComfyGenRedrawRegion";

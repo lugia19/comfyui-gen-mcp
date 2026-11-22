@@ -13,7 +13,7 @@ import { normalize, type Config } from "./config.ts";
 import { imageSize, sniffMime } from "./images.ts";
 import { UnknownTool } from "./mcp.ts";
 import { redrawPackFor } from "./metadata.ts";
-import { BG_MODELS, canRedraw, FACE_MODELS, groupByTool, MARK_MODELS, packFor, prepare, redrawPack, select, type Pack } from "./packs.ts";
+import { BG_MODELS, canRedraw, FACE_MODELS, groupByTool, MARK_MODELS, packFor, prepare, redrawPack, select, TOOLS, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
 import * as refs from "./refs.ts";
 import { buildPrompt, cutoutWorkflow, redrawWorkflow, withBackgroundRemoval, withImages, withMarkRemoval, withWebpSave, type Workflow } from "./workflow.ts";
@@ -108,6 +108,8 @@ export type BrainOptions = {
   canInpaintControl?: boolean;
   /** redraw's extend: the GPU's extension grows the canvas (v1.21.0). */
   canRedrawExtend?: boolean;
+  /** generate_from_reference: the GPU's extension has the reference adapter's node (ComfyGenAnimaRef). */
+  canReference?: boolean;
 };
 
 export const BACKGROUND_UNAVAILABLE =
@@ -118,6 +120,9 @@ export const REDRAW_UNAVAILABLE =
 
 export const REDRAW_AREA_UNAVAILABLE =
   "prompt_scope \"area\" needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that, or without prompt_scope.";
+
+export const REFERENCE_UNAVAILABLE =
+  "Drawing from a reference needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that.";
 
 export const REDRAW_EXTEND_UNAVAILABLE =
   "extend needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that.";
@@ -141,6 +146,7 @@ export class Brain {
   private canRedrawArea: boolean;
   private canInpaintControl: boolean;
   private canRedrawExtend: boolean;
+  private canReference: boolean;
   private packs: Pack[];
   // Raw selected packs by tool. They are prepared (LoRAs, budget) only when called, so a request
   // pays for one pack, not all of them.
@@ -158,6 +164,7 @@ export class Brain {
     this.canRedrawArea = opts.canRedrawArea ?? false;
     this.canInpaintControl = opts.canInpaintControl ?? false;
     this.canRedrawExtend = opts.canRedrawExtend ?? false;
+    this.canReference = opts.canReference ?? false;
     this.packs = packs;
     this.specs = toolSpecs(packs, this.cfg, imageMode);
     this.selected = Object.fromEntries(select(groupByTool(packs), this.cfg.pack_selections).map((p) => [p.tool_name, p]));
@@ -185,15 +192,30 @@ export class Brain {
     if (seed instanceof Failed) return seed;
     const removeBackground = args.remove_background === true;
     if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
+    // A reference tool's image, named in either mode's spelling (as edit_image's).
+    const reference = TOOLS[rawPack.tool_name]?.reference ? String(args.reference_image_path || args.reference_image || "").trim() : null;
+    if (reference === "") return new Failed("reference_image is required: the image of the character to draw.");
+    if (reference !== null && !this.canReference) return new Failed(REFERENCE_UNAVAILABLE);
     const pack = prepare(rawPack, this.cfg, { removeMarks: await this.marksReady(), removeBackground, cutout: this.canCutout });
-    const wf = buildPrompt(pack.workflow, prompt, {
+    const extra = removeBackground ? [BG_MODELS] : [];
+    let workflow = pack.workflow;
+    if (reference !== null) {
+      try {
+        await this.ensureAll(pack, extra); // before the upload: a local ComfyUI may not be running yet
+        workflow = editWorkflow(pack, [await this.hooks.resolveImage(reference)]);
+      } catch (e) {
+        if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
+        throw e;
+      }
+    }
+    const wf = buildPrompt(workflow, prompt, {
       seed,
       aspectRatio: aspect,
       maxPixels: pack.max_pixels ?? 1_048_576,
       loraToggles: pack.lora_toggles,
       negative: String(args.negative ?? ""), negativeFixed: pack.negative_fixed,
     });
-    return this.run(pack, wf, removeBackground ? [BG_MODELS] : []);
+    return this.run(pack, wf, reference !== null ? null : extra); // a reference's ensure ran already
   }
 
   private async fetch(args: Record<string, any>): Promise<Outcome> {

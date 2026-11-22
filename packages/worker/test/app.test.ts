@@ -5,7 +5,7 @@ import { withPrompt } from "../../core/test/metadata-fixtures.ts";
 import { LORA_CHUNK } from "../src/loras.ts";
 import { PACKS, READY_RECHECK_S, REQUEST_BUDGET, type App } from "../src/app.ts";
 import { offlineMessage, pausedMessage } from "../src/hooks.ts";
-import { BACKGROUND_UNAVAILABLE, MODEL_SETS, REDRAW_AREA_UNAVAILABLE, REDRAW_EXTEND_UNAVAILABLE, REDRAW_UNAVAILABLE, seedKey } from "@comfy-gen/core";
+import { BACKGROUND_UNAVAILABLE, MODEL_SETS, REDRAW_AREA_UNAVAILABLE, REDRAW_EXTEND_UNAVAILABLE, REDRAW_UNAVAILABLE, REFERENCE_UNAVAILABLE, seedKey } from "@comfy-gen/core";
 import { cacheEntry } from "../src/store.ts";
 import * as updates from "../src/updates.ts";
 import golden from "../../core/test/golden.json" with { type: "json" };
@@ -571,7 +571,7 @@ describe("settings API", () => {
     // The selected packs and the rest of their families (Anima beside Anima Turbo).
     // And the watermark and background removal models and the face detector (the setting is on by
     // default; the options are on every call).
-    expect(seeds.map((c) => packName(c[2].pack)).sort()).toEqual(["anima", "anima_turbo", "detect-faces", "qwen_image_21", "qwen_image_21_edit", "remove-background", "remove-marks"]);
+    expect(seeds.map((c) => packName(c[2].pack)).sort()).toEqual(["anima", "anima_ref", "anima_ref_turbo", "anima_turbo", "detect-faces", "qwen_image_21", "qwen_image_21_edit", "remove-background", "remove-marks"]);
     expect(seeds.every((c) => c[2].models.length)).toBe(true);
   });
 
@@ -607,7 +607,7 @@ describe("Modal models", () => {
     net.adminUp = false;
     const ok = await app.handle(request("POST", "/build-callback", { nonce: "n", modal: { server_url: "https://m", admin_url: ADMIN } }));
     expect(ok.status).toBe(200);
-    expect((await body(ok)).warnings.length).toBe(8); // keep-warm + four packs + the three model sets
+    expect((await body(ok)).warnings.length).toBe(10); // keep-warm + six packs + the three model sets
     expect((await app.gpus())[0].kind).toBe("modal");
   });
 
@@ -635,7 +635,7 @@ describe("Modal models", () => {
     expect(models.packs[0].size).toBeGreaterThan(5e9);
     net.adminCalls = [];
     await app.handle(request("GET", "/api/models", undefined, cookie));
-    expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["anima", "qwen_image_21", "qwen_image_21_edit"].map((n) => `/seed/${keyOf(n)}`)); // anima_turbo is recorded
+    expect(net.adminCalls.map((c) => c[1]).sort()).toEqual(["anima", "anima_ref", "anima_ref_turbo", "qwen_image_21", "qwen_image_21_edit"].map((n) => `/seed/${keyOf(n)}`)); // anima_turbo is recorded
     expect(models.packs.map((p: any) => p.name)).not.toContain("remove-marks"); // downloads in the background, never listed
     const retry = await app.handle(request("POST", "/api/models/seed", { pack: "qwen_image_21_edit", gpu: "modal" }, cookie));
     expect((await body(retry)).started).toBe(true);
@@ -645,7 +645,7 @@ describe("Modal models", () => {
     const { app, net } = world();
     await withModal(app);
     const cookie = await login(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "qwen_image_21", "qwen_image_21_edit", "remove-marks", "remove-background", "detect-faces"].map(keyOf) });
+    await app.store.updateSetup({ seeded: ["anima", "anima_ref", "anima_ref_turbo", "anima_turbo", "qwen_image_21", "qwen_image_21_edit", "remove-marks", "remove-background", "detect-faces"].map(keyOf) });
     const cfg = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
     const resp = await app.handle(request("PUT", "/api/config", { config: cfg }, cookie));
     expect((await body(resp)).warnings).toEqual([]);
@@ -826,7 +826,7 @@ describe("LoRAs", () => {
     const { app, net, bucket } = world();
     await withModal(app);
     const cookie = await login(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "qwen_image_21", "qwen_image_21_edit"].map(keyOf) });
+    await app.store.updateSetup({ seeded: ["anima", "anima_ref", "anima_ref_turbo", "anima_turbo", "qwen_image_21", "qwen_image_21_edit"].map(keyOf) });
     await bucket.put("lora/here.safetensors", new Uint8Array(1));
     net.loras = { "here.safetensors": 1 };
     const cfg = (await body(await app.handle(request("GET", "/api/state", undefined, cookie)))).config;
@@ -1033,7 +1033,7 @@ describe("the PC path", () => {
   it("one config serves every GPU; saving applies it to the PC too; keep-warm is the PC's own", async () => {
     const { app, pc } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "qwen_image_21", "qwen_image_21_edit"].map(keyOf) });
+    await app.store.updateSetup({ seeded: ["anima", "anima_ref", "anima_ref_turbo", "anima_turbo", "qwen_image_21", "qwen_image_21_edit"].map(keyOf) });
     const { cookie } = await pair(app);
     const state = async () => body(await app.handle(request("GET", "/api/state", undefined, cookie)));
     const cfg = { ...(await state()).config, pack_settings: { anima: { artist_list: "@one_artist" } } };
@@ -1041,7 +1041,7 @@ describe("the PC path", () => {
     const put = await body(await app.handle(request("PUT", "/api/config", { config: cfg }, cookie)));
     expect(put.warnings).toEqual([]);
     // The selected packs and their families, and the watermark and background removal models.
-    expect(pc.controlCalls.filter(([op]) => op === "download").map(([, a]) => a.pack.name)).toEqual(["anima", "anima_turbo", "qwen_image_21", "qwen_image_21_edit", "remove-marks", "remove-background", "detect-faces"]);
+    expect(pc.controlCalls.filter(([op]) => op === "download").map(([, a]) => a.pack.name)).toEqual(["anima", "anima_ref", "anima_ref_turbo", "anima_turbo", "qwen_image_21", "qwen_image_21_edit", "remove-marks", "remove-background", "detect-faces"]);
     expect(pc.controlCalls.at(-1)![0]).toBe("sync"); // and copies LoRAs
 
     const illustrated = async () => (await mcp(app, "tools/list"))[1].result.tools.find((t: any) => t.name === "generate_illustrated_image").description;
@@ -1068,7 +1068,7 @@ describe("the PC path", () => {
   it("warns only about LoRAs that are not in storage, whatever the GPUs hold", async () => {
     const { app, net, pc, bucket } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "qwen_image_21", "qwen_image_21_edit"].map(keyOf) });
+    await app.store.updateSetup({ seeded: ["anima", "anima_ref", "anima_ref_turbo", "anima_turbo", "qwen_image_21", "qwen_image_21_edit"].map(keyOf) });
     const { cookie } = await pair(app);
     await bucket.put("lora/stored.safetensors", new Uint8Array(1));
     net.loras = { "modal.safetensors": 1 };
@@ -1143,6 +1143,22 @@ describe("the PC path", () => {
     await call();
     expect(Object.values<any>(pc.comfy.prompts[1]).map((n) => n.class_type)).toContain("ComfyGenCutout");
     expect(Object.values<any>(pc.comfy.prompts[1]).map((n) => n.class_type)).not.toContain("JoinImageWithAlpha");
+  });
+
+  it("draws from a reference on a PC whose agent has the node, and says why on one that hasn't", async () => {
+    const { app, pc } = world();
+    await pair(app);
+    const call = () => mcp(app, "tools/call", { name: "generate_from_reference", arguments: { prompt: "1girl, solo, cafe", reference_image: "https://images.example/a.png" } });
+    let [, r] = await call();
+    expect(r.result.content[0].text).toContain(REFERENCE_UNAVAILABLE);
+    expect(pc.comfy.prompts.length).toBe(0);
+    pc.animaRef = true;
+    [, r] = await call();
+    expect(r.result.content[0].type).toBe("image");
+    const wf = Object.values<any>(pc.comfy.prompts[0]);
+    expect(wf.find((n) => n.class_type === "ComfyGenAnimaRef")).toBeDefined();
+    expect(wf.find((n) => n.class_type === "LoadImage").inputs.image).not.toBe("reference.png"); // the uploaded reference
+    expect(pc.controlCalls.filter(([op]) => op === "ensure").map(([, a]) => a.pack.name)).toEqual(["anima_ref_turbo"]);
   });
 
   it("redraws on a PC whose agent can, and says why on one that can't", async () => {
@@ -1355,7 +1371,7 @@ describe("the PC path", () => {
   it("shows each GPU's LoRA files and model downloads, and learns which packs a PC has", async () => {
     const { app, pc, net } = world();
     await withModal(app);
-    await app.store.updateSetup({ seeded: ["anima", "anima_turbo", "qwen_image_21", "qwen_image_21_edit"].map(keyOf) });
+    await app.store.updateSetup({ seeded: ["anima", "anima_ref", "anima_ref_turbo", "anima_turbo", "qwen_image_21", "qwen_image_21_edit"].map(keyOf) });
     const { cookie } = await pair(app);
     net.loras = { "both.safetensors": 7 };
     pc.controls.loras = () => [200, { files: { "mine.safetensors": 123, "both.safetensors": 7 }, syncing: { "x.safetensors": { to: "pc", done: 1, total: 2 } } }];

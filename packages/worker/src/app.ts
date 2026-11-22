@@ -44,7 +44,8 @@ export const LOGIN_WINDOW_S = 3600;
 /** The server's instructions; redraw named only while Claude sees it (show_redraw). */
 export const instructions = (showRedraw: boolean) =>
   "Images come back inline, each followed by its image_id. Pass an image_id to edit_image to edit that image" +
-  (showRedraw ? ", or to redraw to repaint one part of it." : ".");
+  (showRedraw ? ", to redraw to repaint one part of it," : ",") +
+  " or to generate_from_reference to draw its character in a new scene.";
 
 const SETTINGS_METADATA = settingsMetadata(PACKS);
 
@@ -573,7 +574,7 @@ export class App {
     const list = pack ? packLoras(pack, cfg) : [];
     // strength is the selected pack's; strengths has every pack of its group (a caller's `model`
     // picks another, and Anima and Anima Turbo take LoRAs differently).
-    const group = PACKS.filter((p) => pack && p.lora_group === pack.lora_group);
+    const group = PACKS.filter((p) => pack && p.lora_group === pack.lora_group && !p.lora_strengths_from);
     const raw = new Map(((pack && cfg.pack_loras[pack.lora_group!]) || []).map((e: any) => [e.name, e]));
     return json({
       loras: list.map((e) => ({
@@ -672,7 +673,7 @@ export class App {
         const can = (feature: string) => target.kind === "modal" || info?.[feature] === true;
         const outcome = await new Brain(PACKS, cfg, client, "refs", {
           hooks, canRemoveMarks: can("remove_marks"), canRemoveBackground: can("remove_background"), canRedraw: can("redraw"), canCutout: can("cutout"), canRedrawArea: can("redraw_area"),
-          canInpaintControl: can("inpaint_control"), canRedrawExtend: can("redraw_extend"),
+          canInpaintControl: can("inpaint_control"), canRedrawExtend: can("redraw_extend"), canReference: can("anima_ref"),
         }).call(name, args);
         tried.push(target);
         if (outcome.kind === "failed" && downloading && name !== "fetch_result") {

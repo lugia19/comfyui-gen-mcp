@@ -18,6 +18,8 @@
   ],
   "pack_names": [
     "anima",
+    "anima_ref",
+    "anima_ref_turbo",
     "anima_turbo",
     "flux2klein",
     "flux2klein_9b",

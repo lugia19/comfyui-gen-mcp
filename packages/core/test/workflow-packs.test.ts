@@ -364,7 +364,10 @@ describe("packs and config", () => {
     for (const pack of builtin.filter((p) => p.tool_name !== "edit_image")) {
       const tool = TOOLS[pack.tool_name];
       const desc = describeTool(pack, normalize({}));
-      expect(desc.startsWith(tool.description + "\n" + (pack.prompt_guide ?? tool.default_guide)!.split("{")[0])).toBe(true);
+      // A reference tool says how to pass its image between the two.
+      const reference = tool.reference ? /^reference_image is .*\n/.exec(desc.slice(tool.description!.length + 1))?.[0] : "";
+      expect(reference, pack.name).toBeDefined();
+      expect(desc.startsWith(tool.description + "\n" + reference + (pack.prompt_guide ?? tool.default_guide)!.split("{")[0])).toBe(true);
       expect(desc).toMatch(/aspect_ratio parameter[\s\S]*may not appear inline[\s\S]*image\.$/);
       expect(desc).not.toMatch(/\{artist_list\}|\{lora_triggers\}/);
     }
@@ -375,13 +378,14 @@ describe("packs and config", () => {
   it("every model family takes LoRAs, a group per base model", () => {
     // A group is the key a family's LoRA list is stored under: these must never change.
     expect(Object.fromEntries(builtinPacks().map((p) => [p.name, p.lora_group]))).toEqual({
-      anima: "anima", anima_turbo: "anima", z_image_turbo: "zimage",
+      anima: "anima", anima_turbo: "anima", anima_ref: "anima", anima_ref_turbo: "anima", z_image_turbo: "zimage",
       flux2klein: "klein4b", flux2klein_edit: "klein4b", flux2klein_9b: "klein9b", flux2klein_9b_edit: "klein9b",
       qwen_image_21: "qwenimage21", qwen_image_21_edit: "qwenimage21", krea2_turbo: "krea2",
     });
     // A family is the key users' settings are stored under: these must never change.
     expect(Object.fromEntries(builtinPacks().map((p) => [p.name, family(p)]))).toEqual({
-      anima: "anima", anima_turbo: "anima", flux2klein: "flux2klein", flux2klein_9b: "flux2klein_9b",
+      anima: "anima", anima_turbo: "anima", anima_ref: "anima_ref", anima_ref_turbo: "anima_ref",
+      flux2klein: "flux2klein", flux2klein_9b: "flux2klein_9b",
       flux2klein_9b_edit: "flux2klein_9b_edit", flux2klein_edit: "flux2klein_edit", z_image_turbo: "z_image_turbo",
       krea2_turbo: "krea2_turbo", qwen_image_21: "qwen_image_21", qwen_image_21_edit: "qwen_image_21_edit",
     });
@@ -498,6 +502,25 @@ describe("redraw", () => {
     expect(() => validate(bad)).toThrow(/inpaint_control/);
   });
 
+  it("the reference packs: Anima's files and the adapter, the adapter checked; they don't redraw", () => {
+    for (const [name, base] of [["anima_ref", "anima"], ["anima_ref_turbo", "anima_turbo"]]) {
+      const p = pack(name);
+      expect(p.lora_strengths_from).toBe(base);
+      const adapter = Object.values<any>(p.workflow).find((n) => n.class_type === "ComfyGenAnimaRef");
+      expect(p.models.find((m) => m.filename === adapter.inputs.adapter_name)?.subfolder).toBe("comfy_gen");
+      // the base's own files: nothing more downloads but the adapter
+      expect(p.models.filter((m) => m.subfolder !== "comfy_gen").map(fileKey)).toEqual(pack(base).models.filter((m) => m.subfolder !== "comfy_gen").map(fileKey));
+      expect(canRedraw(p)).toBe(false);
+    }
+    const noAdapter = structuredClone(pack("anima_ref")) as any;
+    noAdapter.models = noAdapter.models.filter((m: any) => m.subfolder !== "comfy_gen");
+    expect(() => validate(noAdapter)).toThrow(/reference pack needs/);
+    const noImage = structuredClone(pack("anima_ref")) as any;
+    delete noImage.workflow["60"];
+    expect(() => validate(noImage)).toThrow(/reference pack needs/);
+    expect(() => validate({ ...pack("anima_ref"), lora_strengths_from: "anima_ref" })).toThrow(/lora_strengths_from/);
+  });
+
   it("extend grows the canvas and denoises it fully", () => {
     const wf = redrawWorkflow(prepare(pack("anima_turbo"), normalize({})).workflow, "a.png", { box: "", strength: 0.9, maxPixels: 2359296, extend: "0.25,0,0.25,0" });
     const region = Object.values<any>(wf).find((n) => n.class_type === REDRAW_REGION_NODE);
@@ -572,11 +595,11 @@ describe("Qwen Image 2.1 and Krea 2", () => {
 
   it("are the new defaults; the models they replace are older but still selectable", () => {
     const groups = groupByTool(builtinPacks());
-    expect(select(groups, {}).map((p) => p.name)).toEqual(["anima_turbo", "qwen_image_21", "qwen_image_21_edit"]);
+    expect(select(groups, {}).map((p) => p.name)).toEqual(["anima_turbo", "anima_ref_turbo", "qwen_image_21", "qwen_image_21_edit"]);
     expect(builtinPacks().filter((p) => p.legacy).map((p) => p.name).sort()).toEqual(
       ["flux2klein_9b", "z_image_turbo"], // Klein 4B stays as the low-VRAM choice, Klein 9B Edit as an edit choice
     );
-    expect(select(groups, { generate_realistic_image: "z_image_turbo" })[1].name).toBe("z_image_turbo");
+    expect(select(groups, { generate_realistic_image: "z_image_turbo" }).find((p) => p.tool_name === "generate_realistic_image")!.name).toBe("z_image_turbo");
     // Each tool's current choices: the realistic tool's Qwen and Krea, plus Klein 4B for small cards; the edit tool's Qwen and Klein 9B, plus 4B.
     const current = (tool: string) => groups[tool].filter((p) => !p.legacy).map((p) => p.name).sort();
     expect(current("generate_realistic_image")).toEqual(["flux2klein", "krea2_turbo", "qwen_image_21"]);

@@ -33,6 +33,11 @@ ComfyGenInpaintControl (node): kohya's Anima ControlNet-LLLite inpainting contro
 (models/comfy_gen; the model code is lllite.py, copied from kohya-ss/ComfyUI-Anima-LLLite under the
 Apache License 2.0), so the repainted area continues what surrounds it.
 
+ComfyGenAnimaRef (node): ArcAnima's Anima Reference Adapter on the model, so it draws the character
+in a reference image in the scene the prompt describes (the generate_from_reference packs; the
+weights are in models/comfy_gen, the code is anima_ref.py, copied from
+ArcAnima/ComfyUI-Anima-Ref-Adapter under the Apache License 2.0).
+
 ComfyGenCutout (node): turns ComfyUI's background removal (RMBG 2.0) into the RGBA image, cleaned:
 background enclosed by the silhouette (which BiRefNet models keep) cleared where isnet-anime
 (models/comfy_gen/ISNET) disagrees and the patch is the background's colour, the mask shrunk past
@@ -723,6 +728,47 @@ class ComfyGenInpaintControl:
         return (apply_inpaint_control(model, path, image, mask, strength),)
 
 
+# ── Characters from a reference: the Anima Reference Adapter ──────────────────────────────────
+
+ANIMA_REF = "anima_ref_adapter_v2_r64.safetensors"  # in MARK_FOLDER: the generate_from_reference packs' model
+
+
+class ComfyGenAnimaRef:
+    """The model, after its LoRAs, patched to draw the reference image's character (anima_ref.py,
+    ArcAnima's Anima Reference Adapter). *ref_guidance* above 1 costs a model call per step."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "vae": ("VAE",),
+                "image": ("IMAGE",),
+                "adapter_name": ("STRING", {"default": ANIMA_REF}),
+                "ref_guidance": ("FLOAT", {"default": 4.5, "min": 0.0, "max": 20.0, "step": 0.1}),
+                "correction": (["apg", "rescale", "none"],),
+            },
+            "optional": {
+                "ref_end": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "ref_megapixels": ("FLOAT", {"default": 1.0, "min": 0.25, "max": 2.0, "step": 0.05}),
+            },
+        }
+
+    RETURN_TYPES = ("MODEL",)
+    FUNCTION = "run"
+    CATEGORY = "comfy-gen"
+
+    def run(self, model, vae, image, adapter_name, ref_guidance, correction, ref_end=1.0, ref_megapixels=1.0):
+        import folder_paths
+
+        from .anima_ref import apply
+
+        path = folder_paths.get_full_path(MARK_FOLDER, adapter_name)
+        if not path:
+            raise FileNotFoundError(f"The reference adapter {adapter_name} is not in models/{MARK_FOLDER}")
+        return (apply(model, vae, image, path, ref_guidance, correction, ref_end=ref_end, ref_megapixels=ref_megapixels),)
+
+
 # ── Cut-outs: the background removal's mask, cleaned ──────────────────────────────────────────
 
 ISNET = "isnet-anime.onnx"  # skytnt/anime-seg (Apache-2.0), in MARK_FOLDER: the second opinion on gaps
@@ -868,6 +914,7 @@ NODE_CLASS_MAPPINGS = {
     "ComfyGenRedrawRegion": ComfyGenRedrawRegion,
     "ComfyGenRedrawPaste": ComfyGenRedrawPaste,
     "ComfyGenInpaintControl": ComfyGenInpaintControl,
+    "ComfyGenAnimaRef": ComfyGenAnimaRef,
     "ComfyGenCutout": ComfyGenCutout,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -875,6 +922,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ComfyGenRedrawRegion": "Redraw: region and mask (Comfy-Gen)",
     "ComfyGenRedrawPaste": "Redraw: paste back (Comfy-Gen)",
     "ComfyGenInpaintControl": "Redraw: inpainting control, Anima LLLite (Comfy-Gen)",
+    "ComfyGenAnimaRef": "Character from a reference, Anima Reference Adapter (Comfy-Gen)",
     "ComfyGenCutout": "Cut-out: clean the background removal (Comfy-Gen)",
 }
 

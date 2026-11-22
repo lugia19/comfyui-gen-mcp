@@ -37,6 +37,26 @@ export const GENERATION_SCHEMA = {
   required: ["prompt"],
 };
 
+/** A reference tool's schema (packs/tools.json `reference`): a generation's, with its reference image. */
+export function referenceSchema(imageMode: ImageMode) {
+  const [key, prop] = imageMode === "paths"
+    ? ["reference_image_path", { type: "string", description: "The reference: an image's saved_path, a local file path or a public URL." }]
+    : ["reference_image", { type: "string", description: "The reference: an image id, or a public https URL." }];
+  return {
+    type: "object",
+    properties: { prompt: { type: "string" }, [key]: prop, aspect_ratio: ASPECT_PROP, remove_background: BACKGROUND_PROP },
+    required: ["prompt", key],
+  };
+}
+
+// How a reference tool gets its image, after its guide.
+const REFERENCE_PATHS =
+  "reference_image_path is the character's image: a saved_path these tools returned, a local file path or a public URL. " +
+  "For an image the user attached, ask for its path as edit_image's description says.";
+const REFERENCE_REFS =
+  "reference_image is the character's image: an image id these tools returned, or a public https URL. For an image the " +
+  "user attached, call request_upload with its filename and pass the image id it prints.";
+
 export const EDIT_SCHEMA_PATHS = {
   type: "object",
   properties: { prompt: { type: "string" }, image_path: { type: "string" }, second_image_path: { type: "string" }, remove_background: BACKGROUND_PROP },
@@ -240,11 +260,12 @@ const GENERATION_TAIL =
  * is filled from the configured artists (else the pack's defaults), {lora_triggers} from the
  * configured trigger-gated LoRAs.
  */
-export function describe(pack: Pack, cfg: Config): string {
+export function describe(pack: Pack, cfg: Config, imageMode: ImageMode = "refs"): string {
   const key = family(pack);
   const tool = TOOLS[pack.tool_name] ?? { title: pack.tool_name };
   const guide = pack.prompt_guide ?? tool.default_guide ?? "";
-  let desc = [tool.description, guide].filter(Boolean).join("\n") + "\n\n" + GENERATION_TAIL;
+  const reference = tool.reference ? (imageMode === "paths" ? REFERENCE_PATHS : REFERENCE_REFS) : "";
+  let desc = [tool.description, reference, guide].filter(Boolean).join("\n") + "\n\n" + GENERATION_TAIL;
 
   if (pack.default_artist_list) {
     let artists: string = cfg.pack_settings?.[key]?.artist_list || pack.default_artist_list;
@@ -279,7 +300,11 @@ export function toolSpecs(allPacks: Pack[], cfg: Config, imageMode: ImageMode): 
   const selected = select(groups, cfg.pack_selections ?? {});
   const specs: ToolSpec[] = selected
     .filter((p) => !STATIC_TOOLS.has(p.tool_name))
-    .map((p) => ({ name: p.tool_name, description: describe(p, cfg), inputSchema: GENERATION_SCHEMA }));
+    .map((p) => ({
+      name: p.tool_name,
+      description: describe(p, cfg, imageMode),
+      inputSchema: TOOLS[p.tool_name]?.reference ? referenceSchema(imageMode) : GENERATION_SCHEMA,
+    }));
   if (selected.some((p) => p.tool_name === "edit_image")) {
     if (imageMode === "paths") {
       specs.push({ name: "edit_image", description: EDIT_DESC_PATHS, inputSchema: EDIT_SCHEMA_PATHS });

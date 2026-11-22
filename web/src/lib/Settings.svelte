@@ -59,7 +59,8 @@
     g.packs.map((p) => ({ ...p, tool_name: g.tool_name, tool_default: (g.packs.find((d) => d.is_default) ?? g.packs[0]).name })),
   )
   const loraGroups = (fixed.info.lora_groups ?? [])
-    .map((g) => ({ ...g, packs: allPacks.filter((p) => p.lora_group === g.id) }))
+    // A pack that takes another's strengths (a reference pack) has no column of its own.
+    .map((g) => ({ ...g, packs: allPacks.filter((p) => p.lora_group === g.id && !p.lora_strengths_from) }))
     .filter((g) => g.packs.length)
     .map((g) => ({ ...g, artistPrefix: g.packs.some((p) => p.default_artist_list?.trim().startsWith('@')) }))
 

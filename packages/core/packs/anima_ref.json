@@ -1,0 +1,205 @@
+{
+  "name": "anima_ref",
+  "display_name": "Anima + reference",
+  "description": "Anima with ArcAnima's Anima Reference Adapter: the reference image's character in the prompt's scene. Slower (the reference guidance doubles each step), closer to the reference.",
+  "prompt_guide": "This tool draws the one character in a reference image in a new scene. The reference gives who is drawn: face, hair, eyes, outfit and accessories, and much of the drawing style. The prompt gives everything else: framing, pose, action, expression, place, time and light.\nPrompts MUST follow this order:\n\nmasterpiece, best quality, score_7, safe, 1girl (or 1boy), solo, [framing], [pose and action], [expression], [place, time and light]\n\nSwap safe for the rating that fits (sensitive, nsfw, explicit).\nNEVER write an @artist tag here, unlike generate_illustrated_image: the reference sets the style. Don't name the character or its series, and leave out hair, eye and outfit tags: the reference gives them (a few appearance tags are fine when something must change, such as a jacket taken off). Use a LoRA trigger listed below only when the user asks for that style or concept.\nOne character per image: always solo, and the reference must show one character.\nAsk for a pose or framing that differs from the reference's: the model is trained not to copy the reference's pose, and a clear pose in the prompt helps. Parts the reference doesn't show (legs in a bust-up, the back of an outfit) are guessed; a reference showing the whole character gives more consistent outfits.\nUse booru-style tags with spaces, NOT underscores (e.g. 'looking at viewer'). Text later in the prompt has MORE effect.{lora_triggers}\n\nSmall details of the reference (earrings, scars, small patterns) are often lost, and strongly painterly styles carry over less than the character does.",
+  "tool_name": "generate_from_reference",
+  "is_default": false,
+  "family": "anima_ref",
+  "lora_group": "anima",
+  "lora_strengths_from": "anima",
+  "negative_fixed": "worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, watermark, signature",
+  "models": [
+    {
+      "filename": "anima-base-v1.0.safetensors",
+      "subfolder": "diffusion_models",
+      "url": "https://huggingface.co/circlestone-labs/Anima/resolve/f973fc41ec7545364ac9776c2440285f43ff2a30/split_files/diffusion_models/anima-base-v1.0.safetensors",
+      "size_bytes": 4182218328,
+      "sha256": "bd43b7cffe1ed1153d9c41e7beb2f18cb1273eafbaa3af3edd6a173dc90a006e"
+    },
+    {
+      "filename": "qwen_3_06b_base.safetensors",
+      "subfolder": "text_encoders",
+      "url": "https://huggingface.co/circlestone-labs/Anima/resolve/f973fc41ec7545364ac9776c2440285f43ff2a30/split_files/text_encoders/qwen_3_06b_base.safetensors",
+      "size_bytes": 1192135096,
+      "sha256": "cd2a512003e2f9f3cd3c32a9c3573f820bb28c940f73c57b1ddaa983d9223eba"
+    },
+    {
+      "filename": "qwen_image_vae.safetensors",
+      "subfolder": "vae",
+      "url": "https://huggingface.co/circlestone-labs/Anima/resolve/f973fc41ec7545364ac9776c2440285f43ff2a30/split_files/vae/qwen_image_vae.safetensors",
+      "size_bytes": 253806246,
+      "sha256": "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
+    },
+    {
+      "filename": "anima_ref_adapter_v2_r64.safetensors",
+      "subfolder": "comfy_gen",
+      "url": "https://huggingface.co/ElectronGirl/anima-ref-adapter/resolve/b729afd0c3307f27438df42697ccafaecf051d26/anima_ref_adapter_v2_r64.safetensors",
+      "size_bytes": 183605032,
+      "sha256": "71dda6079e18d354e16e3347bc49a9b710afd9495c378efbb833d30cac9cb81b"
+    }
+  ],
+  "workflow": {
+    "8": {
+      "inputs": {
+        "samples": [
+          "19",
+          0
+        ],
+        "vae": [
+          "15",
+          0
+        ]
+      },
+      "class_type": "VAEDecode",
+      "_meta": {
+        "title": "VAE Decode"
+      }
+    },
+    "12": {
+      "inputs": {
+        "text": "worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, sepia, mask, black face, scaled face, watermark, signature",
+        "clip": [
+          "45",
+          0
+        ]
+      },
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "cg:negative"
+      }
+    },
+    "15": {
+      "inputs": {
+        "vae_name": "qwen_image_vae.safetensors"
+      },
+      "class_type": "VAELoader",
+      "_meta": {
+        "title": "Load VAE"
+      }
+    },
+    "19": {
+      "inputs": {
+        "seed": 0,
+        "steps": 30,
+        "cfg": 4,
+        "sampler_name": "er_sde",
+        "scheduler": "simple",
+        "denoise": 1,
+        "model": [
+          "61",
+          0
+        ],
+        "positive": [
+          "55",
+          0
+        ],
+        "negative": [
+          "12",
+          0
+        ],
+        "latent_image": [
+          "28",
+          0
+        ]
+      },
+      "class_type": "KSampler",
+      "_meta": {
+        "title": "cg:seed"
+      }
+    },
+    "28": {
+      "inputs": {
+        "width": 1536,
+        "height": 1536,
+        "batch_size": 1
+      },
+      "class_type": "EmptyLatentImage",
+      "_meta": {
+        "title": "cg:size"
+      }
+    },
+    "44": {
+      "inputs": {
+        "unet_name": "anima-base-v1.0.safetensors",
+        "weight_dtype": "default"
+      },
+      "class_type": "UNETLoader",
+      "_meta": {
+        "title": "cg:model"
+      }
+    },
+    "45": {
+      "inputs": {
+        "clip_name": "qwen_3_06b_base.safetensors",
+        "type": "stable_diffusion",
+        "device": "default"
+      },
+      "class_type": "CLIPLoader",
+      "_meta": {
+        "title": "Load CLIP"
+      }
+    },
+    "55": {
+      "inputs": {
+        "text": "",
+        "clip": [
+          "45",
+          0
+        ]
+      },
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "cg:prompt"
+      }
+    },
+    "57": {
+      "inputs": {
+        "filename_prefix": "comfy-gen",
+        "images": [
+          "8",
+          0
+        ]
+      },
+      "class_type": "SaveImage",
+      "_meta": {
+        "title": "Save Image"
+      }
+    },
+    "60": {
+      "inputs": {
+        "image": "reference.png"
+      },
+      "class_type": "LoadImage",
+      "_meta": {
+        "title": "cg:image"
+      }
+    },
+    "61": {
+      "inputs": {
+        "model": [
+          "44",
+          0
+        ],
+        "vae": [
+          "15",
+          0
+        ],
+        "image": [
+          "60",
+          0
+        ],
+        "adapter_name": "anima_ref_adapter_v2_r64.safetensors",
+        "ref_guidance": 4.5,
+        "correction": "apg",
+        "ref_end": 1.0,
+        "ref_megapixels": 1.0
+      },
+      "class_type": "ComfyGenAnimaRef",
+      "_meta": {
+        "title": "Reference adapter"
+      }
+    }
+  },
+  "max_pixels": 1048576
+}

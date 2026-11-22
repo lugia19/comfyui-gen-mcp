@@ -375,3 +375,17 @@ def test_extend_samples_the_canvas_and_pastes_the_original_back_exactly():
     assert out.shape == (1, 120, 240, 3)
     assert torch.equal(out[0, :, 40 + 20 : 200 - 20], original[0, :, 20:140])  # the original's interior, pixel for pixel
     assert float(out[0, 60, 5].max()) == 0  # the border is the redrawn result
+
+
+def test_the_reference_node_takes_its_adapter_from_comfy_gen_and_loads_its_code_only_when_run():
+    import sys
+
+    from comfy_gen_modal.comfy_node import ANIMA_REF, NODE_CLASS_MAPPINGS, ComfyGenAnimaRef
+
+    assert NODE_CLASS_MAPPINGS["ComfyGenAnimaRef"] is ComfyGenAnimaRef
+    types = ComfyGenAnimaRef.INPUT_TYPES()
+    assert list(types["required"]) == ["model", "vae", "image", "adapter_name", "ref_guidance", "correction"]
+    assert types["required"]["adapter_name"][1]["default"] == ANIMA_REF
+    assert list(types["optional"]) == ["ref_end", "ref_megapixels"]
+    # anima_ref.py imports ComfyUI and torch: not at load, or this module wouldn't import here
+    assert "comfy_gen_modal.comfy_node.anima_ref" not in sys.modules

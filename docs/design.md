@@ -692,6 +692,45 @@ server's instructions, nor `request_upload`'s description. Every frontend serves
   mask's edge). One open risk: an edit that moves the head can blur the expression, since nothing
   re-checks the face after it.
 
+### Characters from a reference (2026-11-22)
+
+`generate_from_reference` draws the one character in a reference image in the scene the prompt
+describes: the image gives who is drawn (face, hair, eyes, outfit, much of the style), the prompt
+the framing, pose, expression and place. It is for the same character across images without a
+LoRA, original characters included, and for Visual Novelist's characters in new scenes.
+
+- **A tool of its own (the user's call).** Its prompts are the opposite of
+  `generate_illustrated_image`'s: no @artist tag (the reference sets the style), no character name,
+  no hair, eye or outfit tags. One description holding both rules, with "unless a reference is
+  given", would mix them up, as the artist tag shows. As its own tool its schema requires the image
+  (`reference_image`, an id or URL; `reference_image_path` in the MCPB), and its routing line sets
+  it apart from `edit_image` (change this picture) and the plain tool (a new character).
+- **One character only (the user's call).** The adapter can take two side by side, with the prompt
+  saying who is left and right; that is left out.
+- **The adapter.** ArcAnima's Anima Reference Adapter v2 (`anima_ref_adapter_v2_r64.safetensors`,
+  184 MB, a rank-64 LoRA trained on Anima Base, CircleStone Non-Commercial like Anima). The
+  reference runs once, clean, through its own stream; the target attends to its keys and values
+  at every step. With `ref_guidance` above 1, each step has one more model call (the reference's
+  effect, pushed further, with APG against over-saturation).
+- **Its code is copied, not installed.** The node package is not on the Comfy Registry, which is
+  all our node installs take, and its development is paused. `comfy_node/anima_ref.py` is its
+  one-node path, copied from ArcAnima/ComfyUI-Anima-Ref-Adapter at `f02d54d` under the Apache
+  License 2.0, with its licence beside it (as for LLLite). The SnapRef backend, the separate nodes,
+  the download on first use, the frontend script and its route are left out. Our
+  `ComfyGenAnimaRef` node calls it, with the weights in `models/comfy_gen`. Its forward hooks stay
+  on the shared Anima model, but they act only while a reference run is on.
+- **Packs.** `anima_ref` and `anima_ref_turbo` are Anima's and Anima Turbo's workflows, plus a
+  `LoadImage` titled `cg:image` and the adapter node between the model (after the user's LoRAs:
+  `injectLoras` rewires `cg:model`'s consumers) and the sampler. They are a family of their own
+  (`anima_ref`) and share the Anima LoRA group; `lora_strengths_from` gives each one its base's
+  per-model strengths, so the LoRA table has no extra columns. Every GPU already has the Anima files,
+  so the tool adds the adapter's download. Images drawn with it redraw with Anima Turbo (their model
+  files say Anima).
+- **A capability.** A PC agent says `anima_ref` in its hello (Modal and the MCPB always have it);
+  without it Brain answers that the agent needs an update, as for redraw.
+- **Settings** (base: cfg 4, 30 steps, `ref_guidance` 4.5; Turbo: cfg 1, 10 steps, `ref_guidance`
+  1; 1 MP) are the adapter's README's, to be fixed by the first test on the user's PC.
+
 ### Waiting
 
 **Both models stay loaded.** ComfyUI 0.37.0's default RAM-pressure cache frees an earlier prompt's

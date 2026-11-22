@@ -21,7 +21,7 @@ const GROUPS = groupByTool(PACKS);
 const SETTINGS_METADATA = settingsMetadata(PACKS);
 
 export const instructions = (settingsUrl: string) =>
-  "Images come back inline, each followed by its saved_path on this computer. Pass a saved_path (or any image path or URL) to edit_image to edit that image. " +
+  "Images come back inline, each followed by its saved_path on this computer. Pass a saved_path (or any image path or URL) to edit_image to edit that image, or to generate_from_reference to draw its character in a new scene. " +
   `Installing ComfyUI, models, LoRAs and other settings are on the settings page, ${settingsUrl} (or the Comfy-Gen tray icon, Open settings): send the user there when a tool says to.`;
 
 /** What the app needs from the process around it. */
@@ -103,6 +103,7 @@ export class LocalApp {
       canRedrawArea: true,
       canInpaintControl: true,
       canRedrawExtend: true,
+      canReference: true,
     });
     const specs = brain(client()).specs;
     const served = servedTools(specs);

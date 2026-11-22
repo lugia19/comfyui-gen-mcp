@@ -57,7 +57,7 @@ the extension and the agent all build it in. Packs are ours; there are no user w
    ```
 
    - `tool_name`: one of the tools in `packs/tools.json` (`generate_illustrated_image`,
-     `generate_realistic_image`, `edit_image`). The tool's routing line and the shared ending of
+     `generate_realistic_image`, `generate_from_reference`, `edit_image`). The tool's routing line and the shared ending of
      its description come from there; `prompt_guide` goes between them.
    - `url`: pinned to a commit (`resolve/<commit sha>/`, the repo's
      `huggingface.co/api/models/<repo>/revision/main` gives the current one), never `resolve/main`:
@@ -69,7 +69,12 @@ the extension and the agent all build it in. Packs are ours; there are no user w
    - `max_pixels`: the default resolution budget; `max_pixels_limit` lets the user raise it.
    - Optional: `family` (share settings with another pack, as Anima Turbo does with Anima; the
      stored key, so never rename it), `lora_group` (takes LoRAs: a group from `tools.json`'s
-     `lora_groups`, or a new one there with its tab name), `default_artist_list` (Anima's @artists).
+     `lora_groups`, or a new one there with its tab name), `default_artist_list` (Anima's @artists),
+     `lora_strengths_from` (use another pack's per-model LoRA strengths and add no column to the
+     LoRA table: the reference packs take their base's).
+   - A tool marked `reference` in `tools.json` (`generate_from_reference`) draws from an image the
+     call gives: its packs need one `LoadImage` titled `cg:image` and the `ComfyGenAnimaRef` node,
+     whose `adapter_name` is one of the pack's models in `comfy_gen`.
 5. **Fill in the model sizes and hashes:**
 
    ```sh

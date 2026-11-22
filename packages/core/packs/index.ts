@@ -3,6 +3,8 @@
 
 import tools from "./tools.json" with { type: "json" };
 import anima from "./anima.json" with { type: "json" };
+import anima_ref from "./anima_ref.json" with { type: "json" };
+import anima_ref_turbo from "./anima_ref_turbo.json" with { type: "json" };
 import anima_turbo from "./anima_turbo.json" with { type: "json" };
 import flux2klein from "./flux2klein.json" with { type: "json" };
 import flux2klein_9b from "./flux2klein_9b.json" with { type: "json" };
@@ -19,6 +21,8 @@ export const TOOL_FILE: unknown = tools;
 
 export const PACK_FILES: [string, unknown][] = [
   ["anima.json", anima],
+  ["anima_ref.json", anima_ref],
+  ["anima_ref_turbo.json", anima_ref_turbo],
   ["anima_turbo.json", anima_turbo],
   ["flux2klein.json", flux2klein],
   ["flux2klein_9b.json", flux2klein_9b],

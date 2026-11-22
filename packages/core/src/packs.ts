@@ -8,7 +8,7 @@
 import { PACK_FILES, TOOL_FILE } from "../packs/index.ts";
 import { isPlainObject } from "./bytes.ts";
 import { SETTINGS_SCHEMA, strengthIn, tagLoras, type Config, type LoraEntry } from "./config.ts";
-import { injectLoras, nodesTitled, redrawSampler, TITLES, withBackgroundRemoval, withMarkRemoval } from "./workflow.ts";
+import { injectLoras, nodesTitled, redrawSampler, REFERENCE_NODE, TITLES, withBackgroundRemoval, withMarkRemoval } from "./workflow.ts";
 import type { LoraGroupMatch } from "./lora-detect.ts";
 
 export type Pack = Record<string, any> & {
@@ -28,6 +28,9 @@ export type Pack = Record<string, any> & {
   /** Redraw's inpainting control (kohya's Anima LLLite): one of the pack's models, in comfy_gen, applied
    * to the model at *strength* on every redraw where the GPU has our ComfyGenInpaintControl node. */
   inpaint_control?: { file: string; strength: number };
+  /** The pack whose per-model LoRA strengths this one uses (a reference pack: Anima Turbo's for Anima
+   * Turbo + reference), so the LoRA table has no column of its own for it. */
+  lora_strengths_from?: string;
   models: { url: string; subfolder: string; filename: string; size_bytes?: number; sha256?: string }[];
   /** ComfyUI API format; the nodes we fill in are found by title (workflow.ts TITLES). */
   workflow: Record<string, any>;
@@ -35,7 +38,9 @@ export type Pack = Record<string, any> & {
 
 export const REQUIRED_FIELDS = ["name", "display_name", "tool_name", "models", "workflow"];
 
-export type Tool = { title: string; description?: string; default_guide?: string };
+/** A tool packs back (packs/tools.json). *reference*: it draws from a reference image, which its
+ * calls must give (generate_from_reference). */
+export type Tool = { title: string; description?: string; default_guide?: string; reference?: boolean };
 
 const TOOL_DEFS = TOOL_FILE as {
   tools: Record<string, Tool>;
@@ -121,12 +126,21 @@ export function validate(pack: unknown, source = "pack"): Pack {
     if (!isPlainObject(c) || typeof c.file !== "string" || typeof c.strength !== "number" || !listed)
       throw new Error(`${source}: inpaint_control needs a file among its models in comfy_gen, and a strength`);
   }
+  if (pack.lora_strengths_from !== undefined && !(typeof pack.lora_strengths_from === "string" && pack.lora_strengths_from !== pack.name))
+    throw new Error(`${source}: lora_strengths_from must name another pack`);
   // The nodes we fill in, by title: one prompt, at least one seed; a model loader for LoRAs.
   const wf = isPlainObject(pack.workflow) ? (pack.workflow as Record<string, any>) : {};
   const count = (title: string) => nodesTitled(wf, title).length;
   if (count(TITLES.prompt) !== 1) throw new Error(`${source}: needs one node titled ${TITLES.prompt}`);
   if (!count(TITLES.seed)) throw new Error(`${source}: needs a node titled ${TITLES.seed}`);
   if (pack.lora_group !== undefined && count(TITLES.model) !== 1) throw new Error(`${source}: a pack with LoRAs needs one node titled ${TITLES.model}`);
+  // A tool that takes a reference image: one image to load, and the adapter it feeds among the models.
+  if (TOOLS[String(pack.tool_name)].reference) {
+    const adapters = Object.values(wf).filter((n: any) => n?.class_type === REFERENCE_NODE);
+    const listed = (name: unknown) => Array.isArray(pack.models) && pack.models.some((m: any) => m?.filename === name && m?.subfolder === "comfy_gen");
+    if (count(TITLES.image) !== 1 || adapters.length !== 1 || !listed(adapters[0].inputs?.adapter_name))
+      throw new Error(`${source}: a reference pack needs one node titled ${TITLES.image} and one ${REFERENCE_NODE} whose adapter_name is among its models in comfy_gen`);
+  }
   return pack as Pack;
 }
 
@@ -233,12 +247,13 @@ export function supportsLoras(pack: Pack): boolean {
 }
 
 /** The pack's switched-on LoRAs, from its group's list in a normalized config (config.ts cleans
- * the entries), each with `strength` this pack's own (its `strengths` entry, else the shared one). */
+ * the entries), each with `strength` this pack's own (its `strengths` entry, or its
+ * lora_strengths_from pack's, else the shared one). */
 export function packLoras(pack: Pack, cfg: Config): LoraEntry[] {
   if (!pack.lora_group) return [];
   return ((cfg.pack_loras?.[pack.lora_group] ?? []) as LoraEntry[])
     .filter((e) => e.enabled !== false)
-    .map((e) => ({ ...e, strength: strengthIn(e, pack.name) }));
+    .map((e) => ({ ...e, strength: strengthIn(e, pack.lora_strengths_from ?? pack.name) }));
 }
 
 
@@ -309,6 +324,7 @@ function packMetadata(packs: Pack[]) {
       default_artist_list: p.default_artist_list ?? null,
       supports_loras: supportsLoras(p),
       lora_group: p.lora_group ?? null,
+      lora_strengths_from: p.lora_strengths_from ?? null,
     })),
   }));
 }
