@@ -43,6 +43,8 @@
   }
 </script>
 
+<!-- A choice inside another tool's card (the reference models) shows no size: it adds only a small
+     file to that tool's models. -->
 {#snippet choices(group)}
   {@const current = selected(group, cfg)}
   {#if group.packs.length > 1}
@@ -58,13 +60,13 @@
         <span>
           <b>{pack.display_name}</b>
           {#if pack.legacy}<span class="muted">(older)</span>{/if}
-          <span class="muted">{formatBytes(pack.download_size)}</span><br />
+          {#if !group.within}<span class="muted">{formatBytes(pack.download_size)}</span>{/if}<br />
           <span class="muted">{pack.description}</span>
         </span>
       </label>
     {/each}
   {:else}
-    <p><b>{current.display_name}</b> <span class="muted">{formatBytes(current.download_size)}</span></p>
+    <p><b>{current.display_name}</b> {#if !group.within}<span class="muted">{formatBytes(current.download_size)}</span>{/if}</p>
     <p class="muted">{current.description}</p>
   {/if}
 {/snippet}
@@ -76,7 +78,7 @@
   {#if unsaved || (row && status.backends.length)}
     <div class="foot">
       {#if unsaved}
-        <p class="muted">Not saved yet. Saving downloads {current.display_name} ({formatBytes(current.download_size)}) to any GPU that lacks it.</p>
+        <p class="muted">Not saved yet. Saving downloads {current.display_name}{group.within ? '' : ` (${formatBytes(current.download_size)})`} to any GPU that lacks it.</p>
       {:else if row}
         {#each status.backends as where (where)}
           {@const s = row.on[where] ?? { state: 'unknown' }}
