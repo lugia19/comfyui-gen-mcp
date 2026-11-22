@@ -79,10 +79,12 @@ describe("MCP", () => {
     // strength is the selected pack's (Anima); strengths every pack's, falling back to the shared one
     expect(await body(await loras(s.mcp_secret))).toEqual({
       loras: [
-        { name: "ink.safetensors", trigger: "@ink", strength: 0.8, hidden: false, strengths: { anima: 0.8, anima_turbo: 0.5 } },
-        { name: "secret.safetensors", trigger: "@s", strength: 0.6, hidden: true, strengths: { anima: 0.6, anima_turbo: 1 } },
+        { name: "ink.safetensors", trigger: "@ink", strength: 0.8, hidden: false, strengths: { anima: 0.8, anima_ref: 0.8, anima_ref_turbo: 0.5, anima_turbo: 0.5 } },
+        { name: "secret.safetensors", trigger: "@s", strength: 0.6, hidden: true, strengths: { anima: 0.6, anima_ref: 0.6, anima_ref_turbo: 1, anima_turbo: 1 } },
       ],
     });
+    // The reference tool's: its packs take their base's strengths (lora_strengths_from).
+    expect((await body(await app.handle(request("GET", `/mcp/${s.mcp_secret}/loras?tool=generate_from_reference`)))).loras[0]).toMatchObject({ name: "ink.safetensors", strength: 0.5 });
     // Another tool's (?tool=): its selected pack's family, here Flux 2 Klein 4B's, Edit's strength.
     const cfg = await app.store.config();
     await app.store.saveConfig({ ...cfg, pack_selections: { ...cfg.pack_selections, ...{ generate_realistic_image: "z_image_turbo", edit_image: "flux2klein_edit" } }, pack_loras: { ...cfg.pack_loras, klein4b: [{ name: "k.safetensors", trigger: "kk", strengths: { flux2klein_edit: 0.7 } }] } });

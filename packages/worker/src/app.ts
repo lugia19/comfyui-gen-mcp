@@ -7,7 +7,7 @@
 import {
   Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
   builtinPacks, cfapi, releases, isModelSet, wantedModelSets, fromHex, fromUtf8, sha256Hex, utf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
-  withoutLora, tagLooseLoras, wantedLoras, strengthIn, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, fileKey, removableFiles, BG_MODELS, servedTools, checkComfyArgs, type Config, type Content, type Pack,
+  withoutLora, tagLooseLoras, wantedLoras, strengthIn, strengthKey, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, fileKey, removableFiles, BG_MODELS, servedTools, checkComfyArgs, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
@@ -573,13 +573,13 @@ export class App {
     const pack = selectedPacks(cfg).find((p) => p.tool_name === tool);
     const list = pack ? packLoras(pack, cfg) : [];
     // strength is the selected pack's; strengths has every pack of its group (a caller's `model`
-    // picks another, and Anima and Anima Turbo take LoRAs differently).
-    const group = PACKS.filter((p) => pack && p.lora_group === pack.lora_group && !p.lora_strengths_from);
+    // picks another, and Anima and Anima Turbo take LoRAs differently), each as packLoras reads it.
+    const group = PACKS.filter((p) => pack && p.lora_group === pack.lora_group);
     const raw = new Map(((pack && cfg.pack_loras[pack.lora_group!]) || []).map((e: any) => [e.name, e]));
     return json({
       loras: list.map((e) => ({
         name: e.name, trigger: e.trigger, strength: e.strength, hidden: e.hidden,
-        strengths: Object.fromEntries(group.map((p) => [p.name, strengthIn(raw.get(e.name) ?? e, p.name)])),
+        strengths: Object.fromEntries(group.map((p) => [p.name, strengthIn(raw.get(e.name) ?? e, strengthKey(p))])),
       })),
     });
   }

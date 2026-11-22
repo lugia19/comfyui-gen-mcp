@@ -113,10 +113,10 @@ describe("LoRA groups", () => {
     const on = (name: string, trigger: string) => ({ name, strength: 1, trigger, hidden: false, enabled: true });
     const cfg = normalize({ pack_loras: { anima: [on("a.safetensors", "@huke")], zimage: [on("z.safetensors", "pxlart")] } });
     const pack = (n: string) => builtinPacks().find((p) => p.name === n)!;
-    expect(describeTool(pack("anima_turbo"), cfg)).toContain("prompt (these can be either artist styles, usually prefixed with @, or concept tags). These triggers must be used verbatim: @huke.");
-    const z = describeTool(pack("z_image_turbo"), cfg);
+    expect(describeTool(pack("anima_turbo"), cfg, "refs")).toContain("prompt (these can be either artist styles, usually prefixed with @, or concept tags). These triggers must be used verbatim: @huke.");
+    const z = describeTool(pack("z_image_turbo"), cfg, "refs");
     expect(z).toContain("applied to the prompt. These triggers must be used verbatim: pxlart.");
     expect(z).not.toContain("@huke");
-    expect(describeTool(pack("flux2klein"), cfg)).not.toContain("trigger words");
+    expect(describeTool(pack("flux2klein"), cfg, "refs")).not.toContain("trigger words");
   });
 });

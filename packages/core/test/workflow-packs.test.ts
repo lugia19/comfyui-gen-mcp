@@ -171,7 +171,7 @@ describe("packs and config", () => {
 
   it("Anima's guides make an @artist tag mandatory on every call, Turbo's too (the user's call, 2026-10-27)", () => {
     for (const name of ["anima", "anima_turbo"]) {
-      const d = describeTool(builtin.find((p) => p.name === name)!, normalize({}));
+      const d = describeTool(builtin.find((p) => p.name === name)!, normalize({}), "refs");
       expect(d, name).toContain("ALWAYS start the prompt with an @artist tag");
       expect(d, name).toContain("preferred default: @");
       expect(d, name).not.toMatch(/optional/i);
@@ -363,7 +363,7 @@ describe("packs and config", () => {
   it("a tool is described once: its routing line, the pack's guide (else the tool's), the shared tail", () => {
     for (const pack of builtin.filter((p) => p.tool_name !== "edit_image")) {
       const tool = TOOLS[pack.tool_name];
-      const desc = describeTool(pack, normalize({}));
+      const desc = describeTool(pack, normalize({}), "refs");
       // A reference tool says how to pass its image between the two.
       const reference = tool.reference ? /^reference_image is .*\n/.exec(desc.slice(tool.description!.length + 1))?.[0] : "";
       expect(reference, pack.name).toBeDefined();
@@ -408,7 +408,7 @@ describe("packs and config", () => {
     expect(packLoras(anima, cfg).map((e) => e.name)).toEqual(["on.safetensors"]);
     const loaders = Object.values<any>(prepare(anima, cfg).workflow).filter((n) => n.class_type === "LoraLoaderModelOnly");
     expect(loaders.map((n) => n.inputs.lora_name)).toEqual(["on.safetensors"]);
-    const desc = describeTool(anima, cfg);
+    const desc = describeTool(anima, cfg, "refs");
     expect(desc).toContain("@on");
     expect(desc).not.toContain("@off");
   });
@@ -502,7 +502,7 @@ describe("redraw", () => {
     expect(() => validate(bad)).toThrow(/inpaint_control/);
   });
 
-  it("the reference packs: Anima's files and the adapter, the adapter checked; they don't redraw", () => {
+  it("the reference packs: Anima's files and the adapter; one image node; they don't redraw", () => {
     for (const [name, base] of [["anima_ref", "anima"], ["anima_ref_turbo", "anima_turbo"]]) {
       const p = pack(name);
       expect(p.lora_strengths_from).toBe(base);
@@ -512,9 +512,6 @@ describe("redraw", () => {
       expect(p.models.filter((m) => m.subfolder !== "comfy_gen").map(fileKey)).toEqual(pack(base).models.filter((m) => m.subfolder !== "comfy_gen").map(fileKey));
       expect(canRedraw(p)).toBe(false);
     }
-    const noAdapter = structuredClone(pack("anima_ref")) as any;
-    noAdapter.models = noAdapter.models.filter((m: any) => m.subfolder !== "comfy_gen");
-    expect(() => validate(noAdapter)).toThrow(/reference pack needs/);
     const noImage = structuredClone(pack("anima_ref")) as any;
     delete noImage.workflow["60"];
     expect(() => validate(noImage)).toThrow(/reference pack needs/);

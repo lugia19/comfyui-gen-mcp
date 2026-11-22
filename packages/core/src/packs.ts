@@ -8,7 +8,7 @@
 import { PACK_FILES, TOOL_FILE } from "../packs/index.ts";
 import { isPlainObject } from "./bytes.ts";
 import { SETTINGS_SCHEMA, strengthIn, tagLoras, type Config, type LoraEntry } from "./config.ts";
-import { injectLoras, nodesTitled, redrawSampler, REFERENCE_NODE, TITLES, withBackgroundRemoval, withMarkRemoval } from "./workflow.ts";
+import { injectLoras, nodesTitled, redrawSampler, TITLES, withBackgroundRemoval, withMarkRemoval } from "./workflow.ts";
 import type { LoraGroupMatch } from "./lora-detect.ts";
 
 export type Pack = Record<string, any> & {
@@ -134,13 +134,8 @@ export function validate(pack: unknown, source = "pack"): Pack {
   if (count(TITLES.prompt) !== 1) throw new Error(`${source}: needs one node titled ${TITLES.prompt}`);
   if (!count(TITLES.seed)) throw new Error(`${source}: needs a node titled ${TITLES.seed}`);
   if (pack.lora_group !== undefined && count(TITLES.model) !== 1) throw new Error(`${source}: a pack with LoRAs needs one node titled ${TITLES.model}`);
-  // A tool that takes a reference image: one image to load, and the adapter it feeds among the models.
-  if (TOOLS[String(pack.tool_name)].reference) {
-    const adapters = Object.values(wf).filter((n: any) => n?.class_type === REFERENCE_NODE);
-    const listed = (name: unknown) => Array.isArray(pack.models) && pack.models.some((m: any) => m?.filename === name && m?.subfolder === "comfy_gen");
-    if (count(TITLES.image) !== 1 || adapters.length !== 1 || !listed(adapters[0].inputs?.adapter_name))
-      throw new Error(`${source}: a reference pack needs one node titled ${TITLES.image} and one ${REFERENCE_NODE} whose adapter_name is among its models in comfy_gen`);
-  }
+  // A tool that takes a reference image loads it into one node (Brain's loadImages).
+  if (TOOLS[String(pack.tool_name)].reference && count(TITLES.image) !== 1) throw new Error(`${source}: a reference pack needs one node titled ${TITLES.image}`);
   return pack as Pack;
 }
 
@@ -246,6 +241,10 @@ export function supportsLoras(pack: Pack): boolean {
   return Boolean(pack.lora_group);
 }
 
+/** The pack whose per-model LoRA strength *pack* uses (config.ts strengthIn): its own, or its
+ * lora_strengths_from's. */
+export const strengthKey = (pack: Pack): string => pack.lora_strengths_from ?? pack.name;
+
 /** The pack's switched-on LoRAs, from its group's list in a normalized config (config.ts cleans
  * the entries), each with `strength` this pack's own (its `strengths` entry, or its
  * lora_strengths_from pack's, else the shared one). */
@@ -253,7 +252,7 @@ export function packLoras(pack: Pack, cfg: Config): LoraEntry[] {
   if (!pack.lora_group) return [];
   return ((cfg.pack_loras?.[pack.lora_group] ?? []) as LoraEntry[])
     .filter((e) => e.enabled !== false)
-    .map((e) => ({ ...e, strength: strengthIn(e, pack.lora_strengths_from ?? pack.name) }));
+    .map((e) => ({ ...e, strength: strengthIn(e, strengthKey(pack)) }));
 }
 
 

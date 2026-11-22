@@ -37,25 +37,22 @@ export const GENERATION_SCHEMA = {
   required: ["prompt"],
 };
 
-/** A reference tool's schema (packs/tools.json `reference`): a generation's, with its reference image. */
-export function referenceSchema(imageMode: ImageMode) {
-  const [key, prop] = imageMode === "paths"
-    ? ["reference_image_path", { type: "string", description: "The reference: an image's saved_path, a local file path or a public URL." }]
-    : ["reference_image", { type: "string", description: "The reference: an image id, or a public https URL." }];
+/** A reference tool's image argument (packs/tools.json `reference`) named *key*: its schema, a
+ * generation's with the image, and the line after the routing line that says how to pass one. */
+function referenceArg(key: string, what: string, how: string) {
+  const { prompt, ...rest } = GENERATION_SCHEMA.properties;
   return {
-    type: "object",
-    properties: { prompt: { type: "string" }, [key]: prop, aspect_ratio: ASPECT_PROP, remove_background: BACKGROUND_PROP },
-    required: ["prompt", key],
+    schema: { type: "object", properties: { prompt, [key]: { type: "string", description: `The reference: ${what}.` }, ...rest }, required: ["prompt", key] },
+    line: `${key} is the character's image: ${how}`,
   };
 }
 
-// How a reference tool gets its image, after its guide.
-const REFERENCE_PATHS =
-  "reference_image_path is the character's image: a saved_path these tools returned, a local file path or a public URL. " +
-  "For an image the user attached, ask for its path as edit_image's description says.";
-const REFERENCE_REFS =
-  "reference_image is the character's image: an image id these tools returned, or a public https URL. For an image the " +
-  "user attached, call request_upload with its filename and pass the image id it prints.";
+const REFERENCE: Record<ImageMode, ReturnType<typeof referenceArg>> = {
+  paths: referenceArg("reference_image_path", "an image's saved_path, a local file path or a public URL",
+    "a saved_path these tools returned, a local file path or a public URL. For an image the user attached, ask for its path as edit_image's description says."),
+  refs: referenceArg("reference_image", "an image id, or a public https URL",
+    "an image id these tools returned, or a public https URL. For an image the user attached, call request_upload with its filename and pass the image id it prints."),
+};
 
 export const EDIT_SCHEMA_PATHS = {
   type: "object",
@@ -260,11 +257,11 @@ const GENERATION_TAIL =
  * is filled from the configured artists (else the pack's defaults), {lora_triggers} from the
  * configured trigger-gated LoRAs.
  */
-export function describe(pack: Pack, cfg: Config, imageMode: ImageMode = "refs"): string {
+export function describe(pack: Pack, cfg: Config, imageMode: ImageMode): string {
   const key = family(pack);
   const tool = TOOLS[pack.tool_name] ?? { title: pack.tool_name };
   const guide = pack.prompt_guide ?? tool.default_guide ?? "";
-  const reference = tool.reference ? (imageMode === "paths" ? REFERENCE_PATHS : REFERENCE_REFS) : "";
+  const reference = tool.reference ? REFERENCE[imageMode].line : "";
   let desc = [tool.description, reference, guide].filter(Boolean).join("\n") + "\n\n" + GENERATION_TAIL;
 
   if (pack.default_artist_list) {
@@ -303,7 +300,7 @@ export function toolSpecs(allPacks: Pack[], cfg: Config, imageMode: ImageMode): 
     .map((p) => ({
       name: p.tool_name,
       description: describe(p, cfg, imageMode),
-      inputSchema: TOOLS[p.tool_name]?.reference ? referenceSchema(imageMode) : GENERATION_SCHEMA,
+      inputSchema: TOOLS[p.tool_name]?.reference ? REFERENCE[imageMode].schema : GENERATION_SCHEMA,
     }));
   if (selected.some((p) => p.tool_name === "edit_image")) {
     if (imageMode === "paths") {

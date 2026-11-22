@@ -193,21 +193,14 @@ export class Brain {
     const removeBackground = args.remove_background === true;
     if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
     // A reference tool's image, named in either mode's spelling (as edit_image's).
-    const reference = TOOLS[rawPack.tool_name]?.reference ? String(args.reference_image_path || args.reference_image || "").trim() : null;
-    if (reference === "") return new Failed("reference_image is required: the image of the character to draw.");
-    if (reference !== null && !this.canReference) return new Failed(REFERENCE_UNAVAILABLE);
+    const isReference = TOOLS[rawPack.tool_name]?.reference === true;
+    const reference = String(args.reference_image_path || args.reference_image || "").trim();
+    if (isReference && !reference) return new Failed("reference_image is required: the image of the character to draw.");
+    if (isReference && !this.canReference) return new Failed(REFERENCE_UNAVAILABLE);
     const pack = prepare(rawPack, this.cfg, { removeMarks: await this.marksReady(), removeBackground, cutout: this.canCutout });
     const extra = removeBackground ? [BG_MODELS] : [];
-    let workflow = pack.workflow;
-    if (reference !== null) {
-      try {
-        await this.ensureAll(pack, extra); // before the upload: a local ComfyUI may not be running yet
-        workflow = editWorkflow(pack, [await this.hooks.resolveImage(reference)]);
-      } catch (e) {
-        if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
-        throw e;
-      }
-    }
+    const workflow = isReference ? await this.loadImages(pack, extra, [reference]) : pack.workflow;
+    if (workflow instanceof Failed) return workflow;
     const wf = buildPrompt(workflow, prompt, {
       seed,
       aspectRatio: aspect,
@@ -215,7 +208,21 @@ export class Brain {
       loraToggles: pack.lora_toggles,
       negative: String(args.negative ?? ""), negativeFixed: pack.negative_fixed,
     });
-    return this.run(pack, wf, reference !== null ? null : extra); // a reference's ensure ran already
+    return this.run(pack, wf, isReference ? null : extra); // loadImages made the pack ready
+  }
+
+  /** *pack*'s workflow with *images* (call arguments: ids, paths or URLs) uploaded into its image
+   * nodes, the pack and *extra* made ready first: a local ComfyUI may not be running before. */
+  private async loadImages(pack: Pack, extra: Pack[], images: string[]): Promise<Workflow | Failed> {
+    try {
+      await this.ensureAll(pack, extra);
+      const resolved: ResolvedImage[] = [];
+      for (const image of images) resolved.push(await this.hooks.resolveImage(image));
+      return editWorkflow(pack, resolved);
+    } catch (e) {
+      if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
+      throw e;
+    }
   }
 
   private async fetch(args: Record<string, any>): Promise<Outcome> {
@@ -235,17 +242,8 @@ export class Brain {
     const removeBackground = args.remove_background === true;
     if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
     const pack = prepare(this.selected.edit_image, this.cfg, { removeMarks: await this.marksReady(), removeBackground, cutout: this.canCutout });
-    const images: ResolvedImage[] = [];
-    try {
-      // Before uploads: a local ComfyUI may not be running yet.
-      await this.ensureAll(pack, removeBackground ? [BG_MODELS] : []);
-      images.push(await this.hooks.resolveImage(first));
-      if (second) images.push(await this.hooks.resolveImage(second));
-    } catch (e) {
-      if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
-      throw e;
-    }
-    const wf = editWorkflow(pack, images);
+    const wf = await this.loadImages(pack, removeBackground ? [BG_MODELS] : [], second ? [first, second] : [first]);
+    if (wf instanceof Failed) return wf;
     // LoRAs gated on their triggers here too (an edit pack in a LoRA group).
     return this.run(pack, buildPrompt(wf, prompt, { seed, loraToggles: pack.lora_toggles }), null);
   }
