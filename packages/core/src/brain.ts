@@ -96,21 +96,24 @@ export async function uploadInput(client: ComfyUIClient, data: Uint8Array, key: 
   return [image.loadValue(), imageSize(data)];
 }
 
-/** *canRemoveMarks*: the GPU's ComfyUI has our extension's mark-removal node, so the remove_marks
- * setting can apply. *canRemoveBackground*: it can take the background removal model (a PC agent
- * from before v1.16.0 lacks its folder). */
-export type BrainOptions = {
-  hooks?: Hooks; waitS?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean; canCutout?: boolean;
-  /** redraw's prompt_scope "area": the GPU's extension crops (a PC agent from before v1.20.0 doesn't). */
-  canRedrawArea?: boolean;
-  /** The pack's inpainting control on redraws: the GPU's extension has ComfyGenInpaintControl (v1.21.0;
-   * without it a redraw runs as before, uncontrolled). */
-  canInpaintControl?: boolean;
-  /** redraw's extend: the GPU's extension grows the canvas (v1.21.0). */
-  canRedrawExtend?: boolean;
-  /** generate_from_reference: the GPU's extension has the reference adapter's node (ComfyGenAnimaRef). */
-  canReference?: boolean;
-};
+/** What a GPU's ComfyUI can do beyond a plain generation, named as a PC agent's hello says them. A PC
+ * agent from before a feature doesn't say it (and before v1.16.0 ran the user's own ComfyUI); Modal
+ * and the MCPB have every one. The step is left out, or the call answers that the agent needs an
+ * update. */
+export const FEATURES = [
+  "remove_marks", // our extension's mark-removal node: the remove_marks setting can apply
+  "remove_background", // the background_removal model folder (v1.16.0)
+  "redraw", // our extension's redraw nodes (v1.17.0)
+  "cutout", // our extension's cut-out cleanup node (v1.17.3)
+  "redraw_area", // its redraw node crops, for prompt_scope "area" (v1.20.0)
+  "inpaint_control", // the inpainting control node, kohya's LLLite (v1.21.0); without it a redraw runs uncontrolled
+  "redraw_extend", // its redraw nodes grow the canvas, for extend (v1.21.0)
+  "anima_ref", // the Anima Reference Adapter's node, for generate_from_reference (v2.7.0)
+] as const;
+export type Feature = (typeof FEATURES)[number];
+
+/** *features*: what this GPU's ComfyUI can do (FEATURES); none by default. */
+export type BrainOptions = { hooks?: Hooks; waitS?: number; features?: Iterable<Feature> };
 
 export const BACKGROUND_UNAVAILABLE =
   "Background removal needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that, or without remove_background.";
@@ -133,20 +136,19 @@ const REDRAW_STRENGTH = 0.9;
 const MIN_STRENGTH = 0.3;
 const MIN_BOX_SIDE = 0.01;
 
+/** A call's image argument, in either mode's spelling (models sometimes use the other one). */
+const imageArg = (args: Record<string, any>): string => String(args.image_path || args.image || "").trim();
+
+/** *pack*'s resolution budget in pixels (a megapixel unless it says). */
+const budgetOf = (pack: Pack): number => pack.max_pixels ?? 1_048_576;
+
 export class Brain {
   readonly cfg: Config;
   readonly specs: ToolSpec[];
   private client: ComfyUIClient;
   private hooks: Hooks;
   private waitS: number;
-  private canRemoveMarks: boolean;
-  private canRemoveBackground: boolean;
-  private canRedraw: boolean;
-  private canCutout: boolean;
-  private canRedrawArea: boolean;
-  private canInpaintControl: boolean;
-  private canRedrawExtend: boolean;
-  private canReference: boolean;
+  private features: Set<Feature>;
   private packs: Pack[];
   // Raw selected packs by tool. They are prepared (LoRAs, budget) only when called, so a request
   // pays for one pack, not all of them.
@@ -157,22 +159,35 @@ export class Brain {
     this.client = client;
     this.hooks = opts.hooks ?? new Hooks();
     this.waitS = opts.waitS ?? DEFAULT_WAIT_S;
-    this.canRemoveMarks = opts.canRemoveMarks ?? false;
-    this.canRemoveBackground = opts.canRemoveBackground ?? false;
-    this.canRedraw = opts.canRedraw ?? false;
-    this.canCutout = opts.canCutout ?? false;
-    this.canRedrawArea = opts.canRedrawArea ?? false;
-    this.canInpaintControl = opts.canInpaintControl ?? false;
-    this.canRedrawExtend = opts.canRedrawExtend ?? false;
-    this.canReference = opts.canReference ?? false;
+    this.features = new Set(opts.features ?? []);
     this.packs = packs;
     this.specs = toolSpecs(packs, this.cfg, imageMode);
     this.selected = Object.fromEntries(select(groupByTool(packs), this.cfg.pack_selections).map((p) => [p.tool_name, p]));
   }
 
-  /** Run one tool call. Throws UnknownTool for a tool this brain doesn't serve. */
+  private can(feature: Feature): boolean {
+    return this.features.has(feature);
+  }
+
+  /** A call's remove_background: whether it asked for one, or why this GPU can't. */
+  private background(args: Record<string, any>): boolean | Failed {
+    const wanted = args.remove_background === true;
+    return wanted && !this.can("remove_background") ? new Failed(BACKGROUND_UNAVAILABLE) : wanted;
+  }
+
+  /** Run one tool call. Throws UnknownTool for a tool this brain doesn't serve. A ComfyUIError on
+   * the way (a GPU not ready, an upload refused, ComfyUI failing) is the call's answer. */
   async call(name: string, args: Record<string, any>): Promise<Outcome> {
     this.client.stopBy = this.client.time() + this.waitS; // cold starts, uploads and the wait share it
+    try {
+      return await this.dispatch(name, args);
+    } catch (e) {
+      if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
+      throw e;
+    }
+  }
+
+  private async dispatch(name: string, args: Record<string, any>): Promise<Outcome> {
     if (name === "fetch_result") return this.fetch(args);
     if (name === "edit_image" && "edit_image" in this.selected) return this.edit(args);
     if (name === "redraw" && this.packs.some(canRedraw)) return this.redraw(args); // listed or not (show_redraw)
@@ -190,21 +205,20 @@ export class Brain {
     const aspect = String(args.aspect_ratio || "square");
     const seed = callSeed(args.seed);
     if (seed instanceof Failed) return seed;
-    const removeBackground = args.remove_background === true;
-    if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
+    const removeBackground = this.background(args);
+    if (removeBackground instanceof Failed) return removeBackground;
     // A reference tool's image, named in either mode's spelling (as edit_image's).
     const isReference = TOOLS[rawPack.tool_name]?.reference === true;
     const reference = String(args.reference_image_path || args.reference_image || "").trim();
     if (isReference && !reference) return new Failed("reference_image is required: the image of the character to draw.");
-    if (isReference && !this.canReference) return new Failed(REFERENCE_UNAVAILABLE);
-    const pack = prepare(rawPack, this.cfg, { removeMarks: await this.marksReady(), removeBackground, cutout: this.canCutout });
+    if (isReference && !this.can("anima_ref")) return new Failed(REFERENCE_UNAVAILABLE);
+    const pack = prepare(rawPack, this.cfg, { removeMarks: await this.marksReady(), removeBackground, cutout: this.can("cutout") });
     const extra = removeBackground ? [BG_MODELS] : [];
     const workflow = isReference ? await this.loadImages(pack, extra, [reference]) : pack.workflow;
-    if (workflow instanceof Failed) return workflow;
     const wf = buildPrompt(workflow, prompt, {
       seed,
       aspectRatio: aspect,
-      maxPixels: pack.max_pixels ?? 1_048_576,
+      maxPixels: budgetOf(pack),
       loraToggles: pack.lora_toggles,
       negative: String(args.negative ?? ""), negativeFixed: pack.negative_fixed,
     });
@@ -213,16 +227,11 @@ export class Brain {
 
   /** *pack*'s workflow with *images* (call arguments: ids, paths or URLs) uploaded into its image
    * nodes, the pack and *extra* made ready first: a local ComfyUI may not be running before. */
-  private async loadImages(pack: Pack, extra: Pack[], images: string[]): Promise<Workflow | Failed> {
-    try {
-      await this.ensureAll(pack, extra);
-      const resolved: ResolvedImage[] = [];
-      for (const image of images) resolved.push(await this.hooks.resolveImage(image));
-      return editWorkflow(pack, resolved);
-    } catch (e) {
-      if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
-      throw e;
-    }
+  private async loadImages(pack: Pack, extra: Pack[], images: string[]): Promise<Workflow> {
+    await this.ensureAll(pack, extra);
+    const resolved: ResolvedImage[] = [];
+    for (const image of images) resolved.push(await this.hooks.resolveImage(image));
+    return editWorkflow(pack, resolved);
   }
 
   private async fetch(args: Record<string, any>): Promise<Outcome> {
@@ -234,23 +243,22 @@ export class Brain {
   private async edit(args: Record<string, any>): Promise<Outcome> {
     const prompt = String(args.prompt || "").trim();
     // Accept either mode's argument names: models sometimes use the other spelling.
-    const first = String(args.image_path || args.image || "").trim();
+    const first = imageArg(args);
     const second = String(args.second_image_path || args.second_image || "").trim();
     if (!prompt || !first) return new Failed("prompt and an image are required.");
     const seed = callSeed(args.seed);
     if (seed instanceof Failed) return seed;
-    const removeBackground = args.remove_background === true;
-    if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
-    const pack = prepare(this.selected.edit_image, this.cfg, { removeMarks: await this.marksReady(), removeBackground, cutout: this.canCutout });
+    const removeBackground = this.background(args);
+    if (removeBackground instanceof Failed) return removeBackground;
+    const pack = prepare(this.selected.edit_image, this.cfg, { removeMarks: await this.marksReady(), removeBackground, cutout: this.can("cutout") });
     const wf = await this.loadImages(pack, removeBackground ? [BG_MODELS] : [], second ? [first, second] : [first]);
-    if (wf instanceof Failed) return wf;
     // LoRAs gated on their triggers here too (an edit pack in a LoRA group).
     return this.run(pack, buildPrompt(wf, prompt, { seed, loraToggles: pack.lora_toggles }), null);
   }
 
   private async redraw(args: Record<string, any>): Promise<Outcome> {
     const prompt = String(args.prompt || "").trim();
-    const image = String(args.image_path || args.image || "").trim();
+    const image = imageArg(args);
     if (!prompt || !image) return new Failed("prompt and an image are required.");
     const box = redrawBox(args.box);
     if (box instanceof Failed) return box;
@@ -264,11 +272,11 @@ export class Brain {
     if (seed instanceof Failed) return seed;
     if (extend && box) return new Failed("extend and box can't be combined: extend redraws the new border. Fix a part of the image with a second redraw.");
     if (extend && scope === "area") return new Failed('extend can\'t be combined with prompt_scope "area".');
-    if (!this.canRedraw) return new Failed(REDRAW_UNAVAILABLE);
-    if (scope === "area" && !this.canRedrawArea) return new Failed(REDRAW_AREA_UNAVAILABLE);
-    if (extend && !this.canRedrawExtend) return new Failed(REDRAW_EXTEND_UNAVAILABLE);
-    const removeBackground = args.remove_background === true;
-    if (removeBackground && !this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
+    if (!this.can("redraw")) return new Failed(REDRAW_UNAVAILABLE);
+    if (scope === "area" && !this.can("redraw_area")) return new Failed(REDRAW_AREA_UNAVAILABLE);
+    if (extend && !this.can("redraw_extend")) return new Failed(REDRAW_EXTEND_UNAVAILABLE);
+    const removeBackground = this.background(args);
+    if (removeBackground instanceof Failed) return removeBackground;
     // Unnamed, the model that drew the image when its metadata says (mixing models doesn't work).
     const model = args.model || redrawPackFor(await this.hooks.imageBytes(image).catch(() => null), this.packs);
     const rawPack = redrawPack(this.packs, model);
@@ -277,41 +285,29 @@ export class Brain {
     // An extend paints new borders, where the models paint signatures (one in a corner, live on the
     // PC, 2026-10-17): cleaned as a generation is. A redraw inside the image keeps none (§3).
     const removeMarks = extend ? await this.marksReady() : false;
-    let loadValue: string;
-    try {
-      // before the upload, as for edits
-      await this.ensureAll(pack, [...(box || extend ? [] : [FACE_MODELS]), ...(removeBackground ? [BG_MODELS] : [])]);
-      [loadValue] = await this.hooks.resolveImage(image);
-    } catch (e) {
-      if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
-      throw e;
-    }
+    // before the upload, as for edits
+    await this.ensureAll(pack, [...(box || extend ? [] : [FACE_MODELS]), ...(removeBackground ? [BG_MODELS] : [])]);
+    const [loadValue] = await this.hooks.resolveImage(image);
     const wf = redrawWorkflow(pack.workflow, loadValue, {
-      box, strength, maxPixels: pack.max_pixels ?? 1_048_576, keepAlpha: !removeBackground, areaOnly: scope === "area", extend,
-      control: this.canInpaintControl ? pack.inpaint_control : undefined,
+      box, strength, maxPixels: budgetOf(pack), keepAlpha: !removeBackground, areaOnly: scope === "area", extend,
+      control: this.can("inpaint_control") ? pack.inpaint_control : undefined,
     });
     // The marks (an extend's) and then the background, from the pasted result, as on the generate
     // tools; not before: a redraw reaching into an already transparent part samples the colours left
     // under it and gets the old edge pasted back.
     if (removeMarks) withMarkRemoval(wf);
-    if (removeBackground) withBackgroundRemoval(wf, { cutout: this.canCutout });
+    if (removeBackground) withBackgroundRemoval(wf, { cutout: this.can("cutout") });
     return this.run(pack, buildPrompt(wf, prompt, { seed, loraToggles: pack.lora_toggles, negative: String(args.negative ?? ""), negativeFixed: pack.negative_fixed }), null);
   }
 
   /** The hidden remove_background tool: *image* as stored, its background cut out, nothing repainted. */
   private async removeBackground(args: Record<string, any>): Promise<Outcome> {
-    const image = String(args.image_path || args.image || "").trim();
+    const image = imageArg(args);
     if (!image) return new Failed("an image is required.");
-    if (!this.canRemoveBackground) return new Failed(BACKGROUND_UNAVAILABLE);
-    let loadValue: string;
-    try {
-      await this.ensureAll(BG_MODELS, []); // before the upload, as for edits
-      [loadValue] = await this.hooks.resolveImage(image);
-    } catch (e) {
-      if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
-      throw e;
-    }
-    return this.run(BG_MODELS, cutoutWorkflow(loadValue, { cutout: this.canCutout }), null);
+    if (!this.can("remove_background")) return new Failed(BACKGROUND_UNAVAILABLE);
+    await this.ensureAll(BG_MODELS, []); // before the upload, as for edits
+    const [loadValue] = await this.hooks.resolveImage(image);
+    return this.run(BG_MODELS, cutoutWorkflow(loadValue, { cutout: this.can("cutout") }), null);
   }
 
   /** Make *pack* ready, after the model sets the call also needs (*extra*): a call that asked for a
@@ -322,10 +318,10 @@ export class Brain {
   }
 
   /** Whether this call's images get their signatures and watermarks removed: the setting is on, the
-   * GPU can (*canRemoveMarks*), and its models are there. They are fetched like a pack's (ensure);
+   * GPU can (remove_marks), and its models are there. They are fetched like a pack's (ensure);
    * while they download, images go out as they come rather than waiting for them. */
   private async marksReady(): Promise<boolean> {
-    if (!this.canRemoveMarks || !this.cfg.remove_marks) return false;
+    if (!this.can("remove_marks") || !this.cfg.remove_marks) return false;
     try {
       await this.hooks.ensure(MARK_MODELS);
       return true;
@@ -338,29 +334,17 @@ export class Brain {
   /** Submit *wf* and wait for it. *extra*: the model sets to make ready with the pack, null when the
    * caller already did. */
   private async run(pack: Pack, wf: Workflow, extra: Pack[] | null = []): Promise<Outcome> {
-    let promptId: string;
-    try {
-      if (extra) await this.ensureAll(pack, extra);
-      promptId = await this.client.submit(withWebpSave(wf));
-    } catch (e) {
-      if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
-      throw e;
-    }
-    return this.wait(promptId);
+    if (extra) await this.ensureAll(pack, extra);
+    return this.wait(await this.client.submit(withWebpSave(wf)));
   }
 
   private async wait(promptId: string): Promise<Outcome> {
-    try {
-      const stopBy = this.client.stopBy;
-      const images = await this.client.wait(promptId, stopBy === null ? this.waitS : Math.max(0, stopBy - this.client.time()));
-      if (images === null) {
-        return new Pending(promptId, await this.client.statusMessage(promptId));
-      }
-      return new Done(images, promptId);
-    } catch (e) {
-      if (e instanceof ComfyUIError) return new Failed(e.message, e.retryable);
-      throw e;
+    const stopBy = this.client.stopBy;
+    const images = await this.client.wait(promptId, stopBy === null ? this.waitS : Math.max(0, stopBy - this.client.time()));
+    if (images === null) {
+      return new Pending(promptId, await this.client.statusMessage(promptId));
     }
+    return new Done(images, promptId);
   }
 }
 
@@ -420,7 +404,7 @@ export function redrawBox(box: unknown): string | Failed {
  */
 export function editWorkflow(pack: Pack, images: ResolvedImage[]): Workflow {
   const [wf, nodes] = withImages(pack.workflow, Math.max(1, images.length));
-  const budget: number = pack.max_pixels ?? 1_048_576;
+  const budget: number = budgetOf(pack);
   images.forEach(([loadValue, size], i) => {
     const { load, scale } = nodes[i];
     wf[load].inputs.image = loadValue;

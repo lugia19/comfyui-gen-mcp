@@ -5,7 +5,7 @@
 // isolate cache. Each fetch to ComfyUI costs CPU, so the client backs off its polls.
 
 import {
-  Brain, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
+  Brain, FEATURES, toolSpecs, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
   builtinPacks, cfapi, releases, isModelSet, wantedModelSets, fromHex, fromUtf8, sha256Hex, utf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
   withoutLora, tagLooseLoras, wantedLoras, strengthIn, strengthKey, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, fileKey, removableFiles, BG_MODELS, servedTools, checkComfyArgs, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
@@ -605,7 +605,7 @@ export class App {
     if (sub === "models") return this.mcpModels(req);
     if (sub !== undefined) return error(404, "not found");
     const cfg = await this.store.config(); // one config for every GPU: Claude sees one tool list
-    const specs = new Brain(PACKS, cfg, null as unknown as ComfyUIClient, "refs").specs;
+    const specs = toolSpecs(PACKS, cfg, "refs");
     const served = servedTools(specs);
     const key = hmacKey(s);
 
@@ -670,10 +670,8 @@ export class App {
         // What this GPU's ComfyUI can do: all of it on Modal; on a PC what its agent says (one from
         // before a feature doesn't say it).
         const info = target.kind === "pc" ? (await this.status(target)).info : null;
-        const can = (feature: string) => target.kind === "modal" || info?.[feature] === true;
         const outcome = await new Brain(PACKS, cfg, client, "refs", {
-          hooks, canRemoveMarks: can("remove_marks"), canRemoveBackground: can("remove_background"), canRedraw: can("redraw"), canCutout: can("cutout"), canRedrawArea: can("redraw_area"),
-          canInpaintControl: can("inpaint_control"), canRedrawExtend: can("redraw_extend"), canReference: can("anima_ref"),
+          hooks, features: FEATURES.filter((f) => target.kind === "modal" || info?.[f] === true),
         }).call(name, args);
         tried.push(target);
         if (outcome.kind === "failed" && downloading && name !== "fetch_result") {

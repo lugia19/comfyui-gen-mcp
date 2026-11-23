@@ -7,7 +7,7 @@
 // unpaired, either way: paired, its tray is the sign it runs); exit code
 // RESTART_EXIT_CODE asks it to start us again at once (into a newer bundle), 0 to stay stopped.
 
-import { BG_MODELS, FACE_MODELS } from "@comfy-gen/core";
+import { BG_MODELS, FACE_MODELS, FEATURES } from "@comfy-gen/core";
 import { agentInstance, setPartSuffix, listen, log, logTo, Machine, machineTray, openExternal, paths, selfRequest, type ExtensionFiles, type Paths, type TrayLook, type WebFiles } from "@comfy-gen/local";
 import { AgentApp } from "./app.ts";
 import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts";
@@ -124,16 +124,9 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
         torch: machine.comfy.install?.torch?.version ?? null,
         upgrade: { state: machine.upgrade.state, to: machine.upgrade.to, error: machine.upgrade.error },
         build_note: machine.buildNote,
-        // What this agent's ComfyUI can do. An agent without a flag predates it (or, before v1.16.0,
-        // used a ComfyUI of the user's own): the Worker leaves the step out.
-        remove_marks: true, // our extension's mark-removal node
-        remove_background: true, // the background_removal model folder (v1.16.0)
-        redraw: true, // our extension's redraw nodes (v1.17.0)
-        cutout: true, // our extension's cut-out cleanup node (v1.17.3)
-        redraw_area: true, // its redraw node crops for prompt_scope "area" (v1.20.0)
-        inpaint_control: true, // our extension's inpainting control node, kohya's LLLite (v1.21.0)
-        redraw_extend: true, // its redraw nodes grow the canvas for extend (v1.21.0)
-        anima_ref: true, // its node for the Anima Reference Adapter (generate_from_reference)
+        // What this agent's ComfyUI can do (core FEATURES): all of them, this bundle's extension has
+        // its nodes. An agent without a flag predates it; the Worker leaves the step out.
+        ...Object.fromEntries(FEATURES.map((f) => [f, true])),
         update_now: updater.can, // its page's POST /api/update restarts it into the latest release (v1.22.0)
       }),
       onOpen: () => void sync.sync(),

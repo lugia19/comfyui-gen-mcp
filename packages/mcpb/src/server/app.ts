@@ -6,7 +6,7 @@
 
 import { join } from "node:path";
 import {
-  Brain, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, UnknownTool,
+  Brain, FEATURES, toolSpecs, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, UnknownTool,
   builtinPacks, fileKey, servedTools, isModelSet, removableFiles, MARK_MODELS, MODEL_SETS, wantedModelSets, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
   type Config, type OutputImage, type Pack, type Rendered,
 } from "@comfy-gen/core";
@@ -96,16 +96,9 @@ export class LocalApp {
     const client = () => new ComfyUIClient(new FetchTransport(fetch, () => comfy.url));
     const brain = (c: ComfyUIClient) => new Brain(PACKS, cfg, c, "paths", {
       hooks: new LocalHooks(machine, c, this.settingsUrl),
-      canRemoveMarks: true, // our extension is in the managed ComfyUI
-      canRemoveBackground: true,
-      canRedraw: true,
-      canCutout: true,
-      canRedrawArea: true,
-      canInpaintControl: true,
-      canRedrawExtend: true,
-      canReference: true,
+      features: FEATURES, // our extension is in the managed ComfyUI
     });
-    const specs = brain(client()).specs;
+    const specs = toolSpecs(PACKS, cfg, "paths");
     const served = servedTools(specs);
 
     const call = async (name: string, args: Record<string, any>): Promise<Rendered> => {

@@ -62,21 +62,21 @@ class PathHooks extends Hooks {
   }
 }
 
-function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number; canRemoveMarks?: boolean; canRemoveBackground?: boolean; canRedraw?: boolean; canCutout?: boolean; canRedrawArea?: boolean; canInpaintControl?: boolean; canRedrawExtend?: boolean; canReference?: boolean } = {}) {
+// The tests name a GPU's features as flags; Brain takes them as a list (FEATURES).
+const FLAGS = {
+  canRemoveMarks: "remove_marks", canRemoveBackground: "remove_background", canRedraw: "redraw", canCutout: "cutout",
+  canRedrawArea: "redraw_area", canInpaintControl: "inpaint_control", canRedrawExtend: "redraw_extend", canReference: "anima_ref",
+} as const;
+type Flags = { [k in keyof typeof FLAGS]?: boolean };
+
+function setup(opts: { cfg?: unknown; hooks?: Hooks; waitS?: number; budget?: number } & Flags = {}) {
   const comfy = new FakeComfy();
   const client = fastClient(comfy, { coldStartS: 60, requestBudget: opts.budget ?? null });
   const brain = (o: typeof opts = {}) =>
     new Brain(BUILTIN, o.cfg ?? opts.cfg ?? {}, client, "paths", {
       hooks: o.hooks ?? opts.hooks ?? new PathHooks(),
       waitS: o.waitS ?? opts.waitS,
-      canRemoveMarks: o.canRemoveMarks ?? opts.canRemoveMarks,
-      canRemoveBackground: o.canRemoveBackground ?? opts.canRemoveBackground,
-      canRedraw: o.canRedraw ?? opts.canRedraw,
-      canCutout: o.canCutout ?? opts.canCutout,
-      canRedrawArea: o.canRedrawArea ?? opts.canRedrawArea,
-      canInpaintControl: o.canInpaintControl ?? opts.canInpaintControl,
-      canRedrawExtend: o.canRedrawExtend ?? opts.canRedrawExtend,
-      canReference: o.canReference ?? opts.canReference,
+      features: (Object.keys(FLAGS) as (keyof Flags)[]).filter((k) => o[k] ?? opts[k]).map((k) => FLAGS[k]),
     });
   return { comfy, client, brain };
 }
