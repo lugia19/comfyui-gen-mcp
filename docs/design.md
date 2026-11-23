@@ -699,10 +699,10 @@ describes: the image gives who is drawn (face, hair, eyes, outfit, much of the s
 the framing, pose, expression and place. It is for the same character across images without a
 LoRA, original characters included, and for Visual Novelist's characters in new scenes.
 
-- **A tool of its own (the user's call).** Its prompts are the opposite of
-  `generate_illustrated_image`'s: no @artist tag (the reference sets the style), no character name,
-  no hair, eye or outfit tags. One description holding both rules, with "unless a reference is
-  given", would mix them up, as the artist tag shows. As its own tool its schema requires the image
+- **A tool of its own (the user's call).** Its prompts differ from `generate_illustrated_image`'s:
+  no @artist tag (the reference sets the style) and no character name, the scene first and the
+  character's appearance after it. One description holding both rules, with "unless a reference
+  is given", would mix them up, as the artist tag shows. As its own tool its schema requires the image
   (`reference_image`, an id or URL; `reference_image_path` in the MCPB), and its routing line sets
   it apart from `edit_image` (change this picture) and the plain tool (a new character).
 - **One character only (the user's call).** The adapter can take two side by side, with the prompt
@@ -731,7 +731,25 @@ LoRA, original characters included, and for Visual Novelist's characters in new 
 - **A capability.** A PC agent says `anima_ref` in its hello (Modal and the MCPB always have it);
   without it Brain answers that the agent needs an update, as for redraw.
 - **Settings** (base: cfg 4, 30 steps, `ref_guidance` 4.5; Turbo: cfg 1, 10 steps, `ref_guidance`
-  1; 1 MP) are the adapter's README's, to be fixed by the first test on the user's PC.
+  1; 1 MP), the adapter's README's, held up on the user's PC (2026-11-22, an RTX, one OC reference
+  with a hand-written sheet): every identity marker kept from the image alone, the pose and place
+  from the prompt; Turbo about 6 s, base about 20 s and closer to the reference's own style. Its
+  hooks stay inert: a plain image of the same seed is pixel-identical before and after a reference
+  run, and on a ComfyUI that never loaded the adapter.
+- **Prompting (measured 2026-11-23, seed 42, the same reference; the guide follows it).**
+  - Plain @artist tags barely restyle: on Turbo line and shading shift a little, and two of Anima's
+    four default artists turned the pink eyes purple; on base (`ref_guidance` 4.5) nothing changes.
+    An artist LoRA restyles cleanly and keeps the character. So: no @artist tags; another style is
+    a LoRA trigger, when asked.
+  - The character's own appearance tags after the scene help, not hurt (the README's advice is to
+    leave them out): they brought back the shark teeth, the tail's fin and a small charm the image
+    alone had dropped, and fix an eye colour that drifts.
+  - Outfit changes are unreliable: a hoodie and jeans replaced the outfit in one scene (the face,
+    hair and accessories kept), but in another the hoodie only layered over it, and with appearance
+    tags added both kept the old outfit (they pull it back). So the appearance tags are for a
+    character in their reference outfit; a new one is named without them, and edit_image is the
+    fallback. Back views, strong expressions and natural language all work; even a bare prompt
+    without quality tags keeps the character.
 
 ### Waiting
 

@@ -32,7 +32,9 @@ describe("tools", () => {
       expect(spec.inputSchema.required).toEqual(["prompt", key]);
       expect(Object.keys(spec.inputSchema.properties)).toEqual(["prompt", key, "aspect_ratio", "remove_background"]);
       expect(spec.description).toContain(`${key} is the character's image`);
-      expect(spec.description).toMatch(/NEVER write an @artist tag here/);
+      expect(spec.description).toMatch(/Don't add @artist tags/); // the PC test, 2026-11-23: they barely restyle and can shift details
+      expect(spec.description).toMatch(/end the prompt with their key appearance tags/);
+      expect(spec.description).toMatch(/add NO appearance tags \(they pull the old outfit back\)/);
       expect(spec.description).not.toMatch(/\{artist_list\}|\{lora_triggers\}/);
     }
     expect(toolSpecs(BUILTIN, normalize({}), "refs").find((s) => s.name === "generate_from_reference")!.description).toContain("request_upload");
