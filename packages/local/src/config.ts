@@ -1,6 +1,6 @@
 // The config file, config.json: core's config plus the keys only a local install has.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { checkComfyArgs, isPlainObject, normalize, tokenUrlsafe, type Config } from "@comfy-gen/core";
 import { log } from "./log.ts";
@@ -68,14 +68,39 @@ export function writeFileAtomic(path: string, text: string): void {
       renameSync(tmp, path);
       return;
     } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code;
-      if (attempt >= 20 || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) {
+      if (attempt >= 20 || !isBusy(e)) {
         rmSync(tmp, { force: true });
         throw e;
       }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); // a short, synchronous wait
     }
   }
+}
+
+/** loadConfig(*path*), read again only when the file changed (its modified time or size), so a
+ * hand edit still applies at once while the many reads per request cost a stat. Treat what it
+ * returns as read-only: it is shared until the file changes. */
+export function configReader(path: string): () => LocalConfig {
+  const stamp = () => {
+    const st = statSync(path, { throwIfNoEntry: false });
+    return st ? `${st.mtimeMs}:${st.size}` : "";
+  };
+  let seen: string | null = null;
+  let cfg: LocalConfig;
+  return () => {
+    if (stamp() !== seen) {
+      cfg = loadConfig(path);
+      seen = stamp(); // after: loading may have rewritten the file with the defaults
+    }
+    return cfg;
+  };
+}
+
+/** Whether a file operation failed because another program holds the file (Windows: an open file
+ * can't be replaced or deleted), or it isn't ours to change. */
+export function isBusy(e: unknown): boolean {
+  const code = (e as NodeJS.ErrnoException).code;
+  return code === "EPERM" || code === "EBUSY" || code === "EACCES";
 }
 
 export function saveConfig(path: string, cfg: Record<string, any>): void {

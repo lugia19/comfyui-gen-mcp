@@ -7,7 +7,7 @@
 import { closeSync, openSync } from "node:fs";
 import type { Server } from "node:http";
 import { join } from "node:path";
-import { listen, loadConfig, log, logTo, Machine, openExternal, paths, saveConfig, type ExtensionFiles, type LocalConfig, type Paths, type WebFiles } from "@comfy-gen/local";
+import { closeServer, configReader, listen, log, logTo, Machine, openExternal, paths, saveConfig, type ExtensionFiles, type LocalConfig, type Paths, type WebFiles } from "@comfy-gen/local";
 import { wantedModelSets, withoutLora } from "@comfy-gen/core";
 import type { Pack } from "@comfy-gen/core";
 import { LocalApp } from "./app.ts";
@@ -28,19 +28,14 @@ export type RunningServer = { app: LocalApp; server: Server; port: number; close
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const p = opts.paths ?? paths();
   logTo(p.logs);
-  let cfg: LocalConfig = loadConfig(p.config);
-  const config = () => (cfg = loadConfig(p.config)); // re-read: a hand edit takes effect at once
+  const config = configReader(p.config); // a hand edit takes effect at once
+  const cfg: LocalConfig = config();
   const port = opts.port ?? cfg.mcp_port;
   const network = cfg.mcp_network;
 
   // A model downloads at its first use, or when it is chosen on the settings page. Not every selected
   // one up front: that was 22 GB before the first image on a new install (seen 2026-10-02).
-  const download = (packs: Pack[]) => {
-    const comfy = machine.comfy;
-    if (comfy.state === "not_installed" || !packs.length) return;
-    comfy.models.sources(true); // look again: a folder may have appeared
-    for (const pack of packs) if (pack.models?.length) machine.downloads.start(pack.name, pack.models, pack.display_name);
-  };
+  const download = (packs: Pack[]) => machine.downloadPacks(packs, true); // look again: a folder may have appeared
   const machine = new Machine({
     paths: p,
     settings: () => config(),
@@ -52,9 +47,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       if (packLoras) saveConfig(p.config, { ...config(), pack_loras: packLoras });
     },
   });
-  await machine.comfy.refresh();
-  machine.fetchModelSets();
-  machine.upgradeWhenIdle(); // ComfyUI and PyTorch to this release's targets, once idle (upgrade.ts)
+  await machine.start();
 
   const app = new LocalApp({
     version: opts.version,
@@ -89,10 +82,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     server,
     port: bound,
     async close() {
-      await new Promise<void>((r) => server.close(() => r()));
-      server.closeAllConnections();
-      machine.stopUpgradeChecks();
-      await machine.comfy.stop();
+      await closeServer(server);
+      await machine.stop();
     },
   };
 }

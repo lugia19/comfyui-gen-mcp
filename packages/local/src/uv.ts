@@ -3,7 +3,7 @@
 
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { fetchFile } from "./fetchfile.ts";
+import { fetchFile, USER_AGENT } from "./fetchfile.ts";
 import type { Paths } from "./paths.ts";
 import { run, untar } from "./proc.ts";
 
@@ -48,7 +48,7 @@ export async function ensureUv(p: Paths, onLine: (l: string) => void = () => {})
   const asset = `uv-${target}${WIN ? ".zip" : ".tar.gz"}`;
   const base = `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${asset}`;
   onLine(`Downloading uv ${UV_VERSION}`);
-  const sums = await fetch(`${base}.sha256`, { headers: { "User-Agent": "comfy-gen-local" } });
+  const sums = await fetch(`${base}.sha256`, { headers: { "User-Agent": USER_AGENT } });
   if (!sums.ok) throw new Error(`${base}.sha256: HTTP ${sums.status}`);
   const sha256 = (await sums.text()).trim().split(/\s+/)[0];
   const tmp = join(p.bin, "uv-download");

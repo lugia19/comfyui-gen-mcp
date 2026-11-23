@@ -10,7 +10,7 @@ import { request as httpRequest } from "node:http";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { failResult, McpHandler, toolSpecs } from "@comfy-gen/core";
-import { loadConfig, log, logTo, machineTray, paths, selfRequest, type ExtensionFiles, type Paths, type Tray, type TrayLook, type WebFiles } from "@comfy-gen/local";
+import { configReader, log, logTo, machineTray, paths, selfRequest, type ExtensionFiles, type Paths, type Tray, type TrayLook, type WebFiles } from "@comfy-gen/local";
 import { PACKS } from "./server/app.ts";
 import { startServer, type RunningServer } from "./server/server.ts";
 
@@ -25,7 +25,8 @@ export type MainOptions = {
   exit?: (code: number) => void;
 };
 
-type Reply = [status: number, body: string | null];
+/** A JSON-RPC answer to write out, or null for a notification (nothing to answer). */
+type Reply = string | null;
 
 /** POST to the owner. Rejects with the socket error when nobody listens (or the owner died before
  * answering); no timeout, as a tool call may take minutes. */
@@ -36,7 +37,7 @@ function relay(port: number, path: string, body: string): Promise<Reply> {
       (res) => {
         const chunks: Buffer[] = [];
         res.on("data", (c) => chunks.push(c));
-        res.on("end", () => resolve([res.statusCode ?? 502, chunks.length ? Buffer.concat(chunks).toString("utf8") : null]));
+        res.on("end", () => resolve(chunks.length ? Buffer.concat(chunks).toString("utf8") : null));
         res.on("error", reject);
       },
     );
@@ -101,9 +102,10 @@ export async function main(opts: MainOptions): Promise<void> {
   const startTray = (server: RunningServer, look: TrayLook): Promise<Tray | null> =>
     machineTray(server.app.s.machine, look, server.app.settingsUrl);
 
+  const config = configReader(p.config); // read again when the file changes
   let foreign = false;
   if (!(await becomeOwner())) {
-    const port = loadConfig(p.config).mcp_port;
+    const port = config().mcp_port;
     foreign = !(await ownerIsOurs(port));
     if (foreign) log.error(FOREIGN_OWNER(port));
     else log.info(`Process ${process.pid} relays to the server on port ${port}`);
@@ -111,7 +113,7 @@ export async function main(opts: MainOptions): Promise<void> {
 
   const handle = async (line: string): Promise<Reply> => {
     for (let attempt = 0; ; attempt++) {
-      const cfg = loadConfig(p.config);
+      const cfg = config();
       if (foreign && !owner) {
         if (await becomeOwner()) continue; // it quit meanwhile
         foreign = !(await ownerIsOurs(cfg.mcp_port));
@@ -120,12 +122,12 @@ export async function main(opts: MainOptions): Promise<void> {
         if (foreign) {
           const message = FOREIGN_OWNER(cfg.mcp_port);
           const handler = new McpHandler("Comfy-Gen-MCP", opts.version, toolSpecs(PACKS, cfg, "paths"), async () => failResult(message));
-          return handler.handle(line);
+          return (await handler.handle(line))[1];
         }
       }
       if (owner) {
         const resp = await owner.app.handle(selfRequest(owner.port, cfg.mcp_path, { method: "POST", body: line }), "127.0.0.1");
-        return [resp.status, resp.status === 202 ? null : await resp.text()];
+        return resp.status === 202 ? null : await resp.text();
       }
       try {
         return await relay(cfg.mcp_port, cfg.mcp_path, line);
@@ -150,10 +152,9 @@ export async function main(opts: MainOptions): Promise<void> {
       reply = await handle(line);
     } catch (e) {
       log.error("Could not reach the Comfy-Gen server:", e);
-      reply = [502, JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32603, message: `Comfy-Gen-MCP is not available: ${(e as Error).message}` } })];
+      reply = JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32603, message: `Comfy-Gen-MCP is not available: ${(e as Error).message}` } });
     }
-    const [, body] = reply;
-    if (body !== null && id !== null && !closing) stdout.write(body.replace(/\n/g, " ") + "\n");
+    if (reply !== null && id !== null && !closing) stdout.write(reply.replace(/\n/g, " ") + "\n");
   };
 
   const shutdown = async (why: string) => {

@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_MCP_PORT, loadConfig } from "../src/config.ts";
+import { configReader, DEFAULT_MCP_PORT, loadConfig } from "../src/config.ts";
 
 const dir = () => mkdtempSync(join(tmpdir(), "cfg-"));
 
@@ -51,5 +51,17 @@ describe("loadConfig", () => {
     writeFileSync(path, "{nope");
     loadConfig(path);
     expect(readFileSync(`${path}.broken`, "utf8")).toBe("{nope");
+  });
+});
+
+describe("configReader", () => {
+  it("reads the file again only when it changes: a hand edit applies at once", () => {
+    const path = join(dir(), "config.json");
+    const config = configReader(path);
+    const first = config(); // no file yet: the defaults, written out
+    expect(first.mcp_port).toBe(DEFAULT_MCP_PORT);
+    expect(config()).toBe(first); // unchanged: the same object, not read again
+    writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, "utf8")), mcp_port: 19300 }, null, 2)); // another size too: some file systems keep coarse times
+    expect(config().mcp_port).toBe(19300);
   });
 });

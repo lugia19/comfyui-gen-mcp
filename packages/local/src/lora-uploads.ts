@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writ
 import { open } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { checkUpload, chunkLength, chunksMissing, isLoraName, UploadError, validLoraName } from "@comfy-gen/core";
-import { writeFileAtomic } from "./config.ts";
+import { isBusy, writeFileAtomic } from "./config.ts";
 
 export const LORA_CHUNK_SIZE = 4 << 20; // relayed through the Worker: well under its request limits
 const SESSION_MS = 24 * 3600 * 1000;
@@ -49,16 +49,11 @@ export class LoraRegistry {
   }
 
   private names(): string[] {
-    try {
-      const data = JSON.parse(readFileSync(this.file, "utf8"));
-      return Array.isArray(data) ? data.filter((n) => typeof n === "string") : [];
-    } catch {
-      return [];
-    }
+    return readNames(this.file);
   }
 
   private save(names: string[]): void {
-    writeFileAtomic(this.file, JSON.stringify([...new Set(names)].sort()));
+    writeNames(this.file, names);
   }
 
   /** {name: path} of our LoRAs that are on disk. */
@@ -111,29 +106,38 @@ export class LoraRegistry {
   }
 
   private pending(): string[] {
-    try {
-      const data = JSON.parse(readFileSync(this.pendingFile, "utf8"));
-      return Array.isArray(data) ? data.filter((n) => typeof n === "string") : [];
-    } catch {
-      return [];
-    }
+    return readNames(this.pendingFile);
   }
 
   private savePending(names: string[]): void {
     if (!names.length && !existsSync(this.pendingFile)) return;
-    writeFileAtomic(this.pendingFile, JSON.stringify([...new Set(names)].sort()));
+    writeNames(this.pendingFile, names);
   }
 }
 
-/** Delete a file: true once it is gone, false while another program holds it open (Windows). */
-/** Delete a file; false when it is held open (Windows) or not ours to delete. */
+/** A JSON list of names in *file*; none when it is missing or not one. */
+function readNames(file: string): string[] {
+  try {
+    const data = JSON.parse(readFileSync(file, "utf8"));
+    return Array.isArray(data) ? data.filter((n) => typeof n === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** *names*, deduplicated and sorted, as *file*'s JSON list. */
+function writeNames(file: string, names: string[]): void {
+  writeFileAtomic(file, JSON.stringify([...new Set(names)].sort()));
+}
+
+/** Delete a file: true once it is gone, false while another program holds it open (Windows) or it
+ * is not ours to delete. */
 export function removeFile(path: string): boolean {
   try {
     rmSync(path, { force: true });
     return true;
   } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code === "EPERM" || code === "EBUSY" || code === "EACCES") return false;
+    if (isBusy(e)) return false;
     throw e;
   }
 }

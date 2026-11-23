@@ -59,13 +59,11 @@ export class LocalHooks extends Hooks {
   }
 
   async resolveImage(arg: string): Promise<ResolvedImage> {
-    let a = arg.trim().replace(/^saved_path:\s*/i, "").replace(/^(["'])(.*)\1$/, "$2");
+    const a = cleanArg(arg);
     if (ANNOTATED.test(a)) return [a, null];
     if (/^https?:\/\//i.test(a)) return this.fromUrl(a);
-    if (/^file:\/\//i.test(a)) a = fileURLToPath(a);
-    if (a === "~" || a.startsWith("~/") || a.startsWith("~\\")) a = join(homedir(), a.slice(1));
-    if (!isAbsolute(a)) throw new ComfyUIError(`${arg} is not an absolute path or a URL. Pass the full path of the image file, or a saved_path from an earlier result.`);
-    const path = resolve(a);
+    const path = filePath(a);
+    if (!path) throw new ComfyUIError(`${arg} is not an absolute path or a URL. Pass the full path of the image file, or a saved_path from an earlier result.`);
     if (!existsSync(path) || !statSync(path).isFile()) throw new ComfyUIError(`No image file at ${path}.`);
     if (statSync(path).size > MAX_IMAGE_BYTES) throw new ComfyUIError(`${path} is too large (the limit is ${MAX_IMAGE_BYTES / 1e6} MB).`);
     const data = new Uint8Array(readFileSync(path));
@@ -95,11 +93,18 @@ export class LocalHooks extends Hooks {
   }
 }
 
-/** The absolute path an image argument names (a saved_path, a file:// URL, ~/...), or null. */
-function localPath(arg: string): string | null {
-  let a = arg.trim().replace(/^saved_path:\s*/i, "").replace(/^(["'])(.*)\1$/, "$2");
-  if (/^https?:\/\//i.test(a) || ANNOTATED.test(a)) return null;
+/** An image argument as the model may write it, cleaned: no "saved_path:" label, no quotes. */
+const cleanArg = (arg: string) => arg.trim().replace(/^saved_path:\s*/i, "").replace(/^(["'])(.*)\1$/, "$2");
+
+/** The absolute path a cleaned argument names (a path, a file:// URL, ~/...), or null. */
+function filePath(a: string): string | null {
   if (/^file:\/\//i.test(a)) a = fileURLToPath(a);
   if (a === "~" || a.startsWith("~/") || a.startsWith("~\\")) a = join(homedir(), a.slice(1));
   return isAbsolute(a) ? resolve(a) : null;
+}
+
+/** The absolute path an image argument names (a saved_path, a file:// URL, ~/...), or null. */
+function localPath(arg: string): string | null {
+  const a = cleanArg(arg);
+  return /^https?:\/\//i.test(a) || ANNOTATED.test(a) ? null : filePath(a);
 }

@@ -8,7 +8,7 @@
 // RESTART_EXIT_CODE asks it to start us again at once (into a newer bundle), 0 to stay stopped.
 
 import { ALWAYS_MODEL_SETS, FEATURES } from "@comfy-gen/core";
-import { agentInstance, setPartSuffix, listen, log, logTo, Machine, machineTray, openExternal, paths, selfRequest, type ExtensionFiles, type Paths, type TrayLook, type WebFiles } from "@comfy-gen/local";
+import { agentInstance, setPartSuffix, closeServer, listen, log, logTo, Machine, machineTray, openExternal, paths, selfRequest, type ExtensionFiles, type Paths, type TrayLook, type WebFiles } from "@comfy-gen/local";
 import { AgentApp } from "./app.ts";
 import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts";
 import { agentHandler } from "./handlers.ts";
@@ -66,9 +66,7 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     // watermark removal's come with the Worker's settings (its download on save, or the first call).
     modelSets: () => ALWAYS_MODEL_SETS,
   });
-  await machine.comfy.refresh();
-  machine.fetchModelSets();
-  machine.upgradeWhenIdle(); // ComfyUI and PyTorch to this release's targets, once idle (upgrade.ts)
+  await machine.start();
 
   let client: RelayClient | null = null;
   // Paused from the tray: connected, but not taking image requests (the Worker uses Modal, or says
@@ -199,10 +197,8 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
     log.info(`Stopping (${reason})`);
     client?.stop();
     tray?.stop();
-    await new Promise<void>((r) => server.close(() => r()));
-    server.closeAllConnections();
-    machine.stopUpgradeChecks();
-    await machine.comfy.stop();
+    await closeServer(server);
+    await machine.stop();
   };
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.once(signal, () => void close(signal).then(() => exit(0)));

@@ -68,6 +68,12 @@ export async function listen(handler: Handler, port: number, host: string): Prom
   return server;
 }
 
+/** Stop *server* taking connections and close the open ones (keep-alive ones would hold it). */
+export async function closeServer(server: Server): Promise<void> {
+  await new Promise<void>((r) => server.close(() => r()));
+  server.closeAllConnections();
+}
+
 async function serve(handler: Handler, req: IncomingMessage, res: ServerResponse): Promise<void> {
   try {
     const chunks: Buffer[] = [];

@@ -47,6 +47,16 @@ export type MachineOptions = {
   freeBytes?: (dir: string) => number | null;
 };
 
+/** An install's or upgrade's output line: logged, and kept in its state's *lines* for the page (the
+ * last 100 to 200). */
+function lineSink(state: { lines: string[] }, tag: string): (line: string) => void {
+  return (l) => {
+    log.info(`[${tag}] ${l}`);
+    state.lines.push(l);
+    if (state.lines.length > 200) state.lines.splice(0, 100);
+  };
+}
+
 export class Machine {
   readonly p: Paths;
   readonly comfy: LocalComfy;
@@ -94,14 +104,21 @@ export class Machine {
   async deleteLora(name: string): Promise<{ deleted: string; pending: boolean }> {
     let pending = this.loraRegistry.delete(name);
     this.opts.onLoraDeleted?.(name);
-    if (pending && (await this.comfy.free())) {
-      for (let i = 0; i < 5 && pending; i++) {
-        await new Promise((r) => setTimeout(r, 1000));
-        pending = this.loraRegistry.deletePending().includes(name);
-      }
-    }
+    if (pending) pending = await this.retryWhileHeld(() => this.loraRegistry.deletePending().includes(name));
     log.info(pending ? `LoRA deleted: ${name} (its file is in use; deleted when ComfyUI stops)` : `LoRA deleted: ${name}`);
     return { deleted: name, pending };
+  }
+
+  /** A delete that failed because ComfyUI holds the file open (Windows): ComfyUI is asked to unload
+   * its models, then *stillHeld* (which tries again) is retried for up to five seconds. Whether the
+   * file is still held. */
+  private async retryWhileHeld(stillHeld: () => boolean): Promise<boolean> {
+    if (!(await this.comfy.free())) return true;
+    for (let i = 0; i < 5; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      if (!stillHeld()) return false;
+    }
+    return true;
   }
 
   /** The sizes of those of *files* (`subfolder/filename`, as the Worker names them) present in our
@@ -123,12 +140,7 @@ export class Machine {
     const paths = new Map(ownModelPaths(this.comfy.models.ownModels, files));
     const sizes = this.storedModels(files);
     let busy = Object.keys(sizes).filter((f) => !removeFile(paths.get(f)!));
-    if (busy.length && (await this.comfy.free())) {
-      for (let i = 0; i < 5 && busy.length; i++) {
-        await new Promise((r) => setTimeout(r, 1000));
-        busy = busy.filter((f) => !removeFile(paths.get(f)!));
-      }
-    }
+    if (busy.length) await this.retryWhileHeld(() => (busy = busy.filter((f) => !removeFile(paths.get(f)!))).length > 0);
     const deleted = Object.fromEntries(Object.entries(sizes).filter(([f]) => !busy.includes(f)));
     if (Object.keys(deleted).length) log.info(`Model files deleted: ${Object.keys(deleted).join(", ")}`);
     if (busy.length) log.warn(`Model files in use, not deleted: ${busy.join(", ")}`);
@@ -162,8 +174,29 @@ export class Machine {
   /** Start downloading the model sets this machine keeps (MachineOptions.modelSets) that are missing.
    * Not before ComfyUI is installed: downloads go into its models folder. */
   fetchModelSets(): void {
-    if (this.comfy.state === "not_installed") return;
-    for (const set of this.opts.modelSets?.() ?? []) this.downloads.start(set.name, set.models ?? [], set.display_name);
+    this.downloadPacks(this.opts.modelSets?.() ?? []);
+  }
+
+  /** Start downloading *packs*' models, once ComfyUI is installed. *rescan*: look for model folders
+   * again first (one may have appeared). */
+  downloadPacks(packs: PackNeeds[], rescan = false): void {
+    if (this.comfy.state === "not_installed" || !packs.length) return;
+    if (rescan) this.comfy.models.sources(true);
+    for (const pack of packs) if (pack.models?.length) this.downloads.start(pack.name, pack.models, pack.display_name);
+  }
+
+  /** What the agent and the extension do as they start: read ComfyUI's state, fetch the model sets,
+   * and upgrade ComfyUI and PyTorch to this release's targets once idle (upgrade.ts). */
+  async start(): Promise<void> {
+    await this.comfy.refresh();
+    this.fetchModelSets();
+    this.upgradeWhenIdle();
+  }
+
+  /** And as they stop: no more upgrade checks, ComfyUI stopped. */
+  async stop(): Promise<void> {
+    this.stopUpgradeChecks();
+    await this.comfy.stop();
   }
 
   /** Install (or reinstall) ComfyUI for *gpu*, in the background; install() reports progress. */
@@ -172,11 +205,7 @@ export class Machine {
     if (this.upgrading) throw new Error("ComfyUI is being upgraded; install again when that is done");
     const state: InstallState = { state: "running", gpu, lines: [], error: null };
     this.installState = state;
-    const onLine = (l: string) => {
-      log.info(`[install] ${l}`);
-      state.lines.push(l);
-      if (state.lines.length > 200) state.lines.splice(0, 100);
-    };
+    const onLine = lineSink(state, "install");
     (async () => {
       await this.comfy.stop();
       await install(this.p, gpu, onLine);
@@ -247,11 +276,7 @@ export class Machine {
     const from = `ComfyUI ${inst.version ?? "?"}, PyTorch ${inst.torch?.version ?? "?"}`;
     const state: UpgradeState = { state: "building", from, to: target, lines: [], error: null, at: null };
     this.upgradeState = state;
-    const onLine = (l: string) => {
-      log.info(`[upgrade] ${l}`);
-      state.lines.push(l);
-      if (state.lines.length > 200) state.lines.splice(0, 100);
-    };
+    const onLine = lineSink(state, "upgrade");
     onLine(`Upgrading from ${from} to ${target}`);
     let swapped = false;
     try {

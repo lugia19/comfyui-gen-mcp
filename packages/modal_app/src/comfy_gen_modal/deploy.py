@@ -28,6 +28,8 @@ import time
 import urllib.error
 import urllib.request
 
+from .download import USER_AGENT
+
 
 def modal_error(output: str) -> str:
     """Modal's reason for a failed command: the text of its boxed "Error" panel, else the last line."""
@@ -80,7 +82,7 @@ def post(url: str, body: dict, tries: int = 4) -> None:
     data = json.dumps(body).encode()
     for attempt in range(tries):
         req = urllib.request.Request(url, data=data, method="POST",
-                                     headers={"Content-Type": "application/json", "User-Agent": "comfy-gen-modal"})
+                                     headers={"Content-Type": "application/json", "User-Agent": USER_AGENT})
         try:
             with urllib.request.urlopen(req, timeout=120) as resp:
                 print(f"Worker: {resp.status}", flush=True)
