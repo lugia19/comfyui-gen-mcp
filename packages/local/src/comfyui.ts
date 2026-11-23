@@ -15,6 +15,14 @@ import type { Paths } from "./paths.ts";
 import { killTree, pythonEnv, start } from "./proc.ts";
 
 export const PREFERRED_PORT = 8188;
+
+/** The port ComfyUI tries first: 8188, ComfyUI's own, unless COMFY_GEN_COMFY_PORT says another; 0 for
+ * any free one (the tests: files run in parallel, and two ComfyUIs both finding 8188 free would race
+ * for it). */
+function preferredPort(env: NodeJS.ProcessEnv = process.env): number {
+  const set = env.COMFY_GEN_COMFY_PORT;
+  return set !== undefined && /^\d+$/.test(set) ? Number(set) : PREFERRED_PORT;
+}
 // Keep an earlier prompt's outputs (its loaded model) while at least 6 GB of RAM is free, so calls
 // alternating Anima and Anima Turbo don't reload either. ComfyUI 0.37's default frees them after
 // every prompt; its LRU cache would keep them with no regard for RAM. As on Modal (design §3).
@@ -173,7 +181,8 @@ export class LocalComfy {
       log.warn("Could not publish to ~/.comfy-registry:", e);
     }
 
-    const port = (await portFree(PREFERRED_PORT)) ? PREFERRED_PORT : await freePort();
+    const preferred = preferredPort();
+    const port = preferred && (await portFree(preferred)) ? preferred : await freePort();
     const url = `http://127.0.0.1:${port}`;
     const args = ["main.py", "--listen", "127.0.0.1", "--port", String(port), "--disable-auto-launch", ...CACHE_ARGS];
     if ((inst.gpu ?? this.settings().gpu) === "cpu") args.push("--cpu");
