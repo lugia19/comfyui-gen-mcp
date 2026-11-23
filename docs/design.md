@@ -744,12 +744,14 @@ LoRA, original characters included, and for Visual Novelist's characters in new 
   - The character's own appearance tags after the scene help, not hurt (the README's advice is to
     leave them out): they brought back the shark teeth, the tail's fin and a small charm the image
     alone had dropped, and fix an eye colour that drifts.
-  - Outfit changes are unreliable: a hoodie and jeans replaced the outfit in one scene (the face,
-    hair and accessories kept), but in another the hoodie only layered over it, and with appearance
-    tags added both kept the old outfit (they pull it back). So the appearance tags are for a
-    character in their reference outfit; a new one is named without them, and edit_image is the
-    fallback. Back views, strong expressions and natural language all work; even a bare prompt
-    without quality tags keeps the character.
+  - The outfit is locked: a hoodie and jeans replaced it in one scene, but in another only layered
+    over it, with appearance tags added the old outfit always stayed, and fewer clothes (a bikini
+    bottom instead of shorts, "no shorts, bare legs") didn't take either. By design: the adapter's
+    training groups keep one outfit per character (its report, §3). An edit of the result (Qwen
+    Image 2.1 Edit) swapped both cleanly, the face, teeth, accessories and tail kept. So the guide
+    says: the character here, in its outfit and with its appearance tags; other clothes by
+    edit_image (the user's call). Back views, strong expressions and natural language all work;
+    even a bare prompt without quality tags keeps the character.
 
 ### Waiting
 
