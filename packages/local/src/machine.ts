@@ -5,7 +5,7 @@
 import { existsSync, statSync } from "node:fs";
 import { totalmem } from "node:os";
 import { join } from "node:path";
-import { checkComfyArgs, ComfyUIError, downloadSize, MODEL_SETS, UploadError } from "@comfy-gen/core";
+import { checkComfyArgs, ComfyUIError, downloadSize, isModelSet, UploadError } from "@comfy-gen/core";
 import { LocalComfy, type ComfySettings } from "./comfyui.ts";
 import type { ExtensionFiles } from "./nodes.ts";
 import { ModelDownloads, type ModelFile } from "./downloads.ts";
@@ -323,7 +323,7 @@ export class Machine {
         const part = status.total < size ? ` (${gb(size - status.total)} of its ${gb(size)} is already on this computer)` : "";
         throw new ComfyUIError(
           `The ${name} model is downloading: ${pct}% of ${gb(status.total)}${part}. Try again when it is done` +
-            (MODEL_SETS.some((set) => set.name === pack.name) ? "." : `; progress is on the settings page, ${settingsUrl}`), // a model set isn't listed there
+            (isModelSet(pack) ? "." : `; progress is on the settings page, ${settingsUrl}`), // a model set isn't listed there
         );
       }
     }

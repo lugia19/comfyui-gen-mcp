@@ -3,7 +3,7 @@ import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PACK_FILES } from "../packs/index.ts";
 import { DEFAULT_KEEP_WARM_MINUTES, DEFAULTS, normalize, tagLoras } from "../src/config.ts";
-import { BG_MODELS, builtinPacks, fileKey, MODEL_SETS, removableFiles, canRedraw, seedKey, DEFAULT_LORA_GROUP, FACE_MODELS, MARK_MODELS, redrawPack, wantedModelSets, family, groupByTool, packFor, packLoras, prepare, select, supportsLoras, TOOLS, validate, withFamilies } from "../src/packs.ts";
+import { BG_MODELS, builtinPacks, fileKey, MODEL_SETS, removableFiles, canRedraw, seedKey, DEFAULT_LORA_GROUP, FACE_MODELS, MARK_MODELS, redrawPack, wantedModelSets, family, groupByTool, packFor, packLoras, prepare, select, TOOLS, validate, withFamilies } from "../src/packs.ts";
 import { describe as describeTool } from "../src/tools.ts";
 import { OutputImage } from "../src/comfyui.ts";
 import { editWorkflow } from "../src/brain.ts";
@@ -391,7 +391,7 @@ describe("packs and config", () => {
     });
     // Anima's is the key its LoRA lists were stored under before groups, and where loose ones go.
     expect(DEFAULT_LORA_GROUP).toBe("anima");
-    expect(builtinPacks().every(supportsLoras)).toBe(true);
+    expect(builtinPacks().every((p) => p.lora_group)).toBe(true);
     expect(() => validate({ ...builtinPacks()[0], lora_group: "nope" })).toThrow(/unknown LoRA group/);
   });
 

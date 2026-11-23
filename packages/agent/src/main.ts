@@ -7,7 +7,7 @@
 // unpaired, either way: paired, its tray is the sign it runs); exit code
 // RESTART_EXIT_CODE asks it to start us again at once (into a newer bundle), 0 to stay stopped.
 
-import { BG_MODELS, FACE_MODELS, FEATURES } from "@comfy-gen/core";
+import { ALWAYS_MODEL_SETS, FEATURES } from "@comfy-gen/core";
 import { agentInstance, setPartSuffix, listen, log, logTo, Machine, machineTray, openExternal, paths, selfRequest, type ExtensionFiles, type Paths, type TrayLook, type WebFiles } from "@comfy-gen/local";
 import { AgentApp } from "./app.ts";
 import { loadAgentConfig, saveAgentConfig, type AgentConfig } from "./config.ts";
@@ -62,9 +62,9 @@ export async function startAgent(opts: AgentOptions): Promise<Agent> {
       saveAgentConfig(p, cfg);
     },
     waitExtension: opts.waitExtension,
-    // Background removal's model and redraw's face detector, for options every call has. The
+    // The model sets every call may need (background removal's, redraw's face detector). The
     // watermark removal's come with the Worker's settings (its download on save, or the first call).
-    modelSets: () => [BG_MODELS, FACE_MODELS],
+    modelSets: () => ALWAYS_MODEL_SETS,
   });
   await machine.comfy.refresh();
   machine.fetchModelSets();

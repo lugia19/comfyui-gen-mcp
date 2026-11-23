@@ -843,7 +843,7 @@ describe("LoRAs", () => {
     const cookie = await login(app);
     const state = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
     const packs = state.packs.flatMap((g: any) => g.packs);
-    expect(packs.every((p: any) => p.supports_loras && p.lora_group)).toBe(true);
+    expect(packs.every((p: any) => p.lora_group)).toBe(true);
     expect(state.lora_groups.map((g: any) => g.id)).toEqual(["anima", "zimage", "klein4b", "klein9b", "qwenimage21", "krea2"]);
     expect(state.lora_groups[2]).toMatchObject({ title: "Flux 2 Klein 4B", base_models: ["flux2_klein_4b"], match: { layout: "flux2", width: 3072 } });
   });
@@ -888,18 +888,18 @@ describe("setup: storage and the answer", () => {
     const cookie = await login(app);
     const mode = async () => {
       const st = await body(await app.handle(request("GET", "/api/state", undefined, cookie)));
-      return [st.setup_mode, st.mode_from_site];
+      return st.setup_mode;
     };
-    expect(await mode()).toEqual([null, false]);
+    expect(await mode()).toBe(null);
     await withModal(app);
-    expect(await mode()).toEqual([null, false]); // the GPUs don't answer it
+    expect(await mode()).toBe(null); // the GPUs don't answer it
     env.SETUP_MODE = "pc";
-    expect(await mode()).toEqual(["pc", true]);
+    expect(await mode()).toBe("pc");
     expect((await app.handle(request("POST", "/api/setup/mode", { mode: "gpu" }, cookie))).status).toBe(400);
     expect(await body(await app.handle(request("POST", "/api/setup/mode", { mode: "cloud" }, cookie)))).toEqual({ mode: "cloud" });
-    expect(await mode()).toEqual(["cloud", false]); // chosen here wins over both
+    expect(await mode()).toBe("cloud"); // chosen here wins over the site's
     env.SETUP_MODE = "nonsense";
-    expect(await mode()).toEqual(["cloud", false]);
+    expect(await mode()).toBe("cloud");
   });
 });
 

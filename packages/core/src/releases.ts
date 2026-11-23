@@ -31,6 +31,10 @@ export const trim = (base: string) => base.replace(/\/$/, "");
 export const WORKER_VARS = ["SETUP_MODE", "CF_OAUTH_CLIENT", "COMFY_GEN_SETUP", "COMFY_GEN_RELEASES"] as const;
 export type WorkerVars = Partial<Record<(typeof WORKER_VARS)[number], string>>;
 
+/** The answers to "where should images be made?" (SETUP_MODE, and the Worker's own setup.mode). */
+export const SETUP_MODES = ["cloud", "pc", "both"] as const;
+export type SetupMode = (typeof SETUP_MODES)[number];
+
 /** The WORKER_VARS set in *env*. */
 export function workerVars(env: Record<string, string | undefined>): Record<string, string> {
   return Object.fromEntries(WORKER_VARS.filter((k) => env[k]).map((k) => [k, env[k]!]));

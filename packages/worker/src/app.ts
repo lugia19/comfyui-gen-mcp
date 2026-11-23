@@ -6,8 +6,8 @@
 
 import {
   Brain, FEATURES, toolSpecs, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
-  builtinPacks, cfapi, releases, isModelSet, wantedModelSets, fromHex, fromUtf8, sha256Hex, utf8, groupByTool, packLoras, packRow, refs, relay, select, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
-  withoutLora, tagLooseLoras, wantedLoras, strengthIn, strengthKey, packFor, redrawPack, redrawPackFor, seedKey, withFamilies, fileKey, removableFiles, BG_MODELS, servedTools, checkComfyArgs, type Config, type Content, type Pack,
+  builtinPacks, cfapi, releases, isModelSet, fromHex, fromUtf8, sha256Hex, utf8, groupByTool, packLoras, packRow, refs, relay, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
+  withoutLora, tagLooseLoras, wantedLoras, strengthIn, strengthKey, packFor, redrawPack, redrawPackFor, seedKey, selectedPacks, wantedPacks, removablePacks, inUseError, fileKey, removableFiles, BG_MODELS, servedTools, checkComfyArgs, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
 import * as auth from "./auth.ts";
 import * as cloudflare from "./cloudflare.ts";
@@ -49,16 +49,9 @@ export const instructions = (showRedraw: boolean) =>
 
 const SETTINGS_METADATA = settingsMetadata(PACKS);
 
-export function selectedPacks(cfg: Config): Pack[] {
-  return select(GROUPS, cfg.pack_selections);
-}
-
-/** The packs every GPU should have: the selected ones and the rest of their families (a call may
- * name one with the hidden `model` argument). */
-export function wantedPacks(cfg: Config): Pack[] {
-  const packs = withFamilies(selectedPacks(cfg), PACKS);
-  return [...packs, ...wantedModelSets(cfg)];
-}
+/** The selected packs and those every GPU should have (core selectedPacks, wantedPacks). */
+const selected = (cfg: Config): Pack[] => selectedPacks(PACKS, cfg);
+const wanted = (cfg: Config): Pack[] => wantedPacks(PACKS, cfg);
 
 /** The ?tool= of a scripted caller's list (a tool packs back), the illustrated tool by default;
  * null for another name. */
@@ -89,8 +82,8 @@ type OnceCode = { hash: string; exp: number };
 /** A field's codes: a list, or (before 2026-10-18) one code or none. */
 const onceCodes = (v: OnceCode | OnceCode[] | null | undefined): OnceCode[] => (!v ? [] : Array.isArray(v) ? v : [v]);
 /** The answers to the setup's "where should images be made?" (design §8). */
-const SETUP_MODES = ["cloud", "pc", "both"] as const;
-type SetupMode = (typeof SETUP_MODES)[number];
+const { SETUP_MODES } = releases;
+type SetupMode = releases.SetupMode;
 
 /** Storage (R2) isn't bound: R2 wasn't turned on in the account at the last build. The Setup page's
  * storage step turns it on and rebuilds. Thrown by App.bucket, answered 409 (404 for an image). */
@@ -570,7 +563,7 @@ export class App {
     const tool = mcpTool(req);
     if (!tool) return error(400, `tool: one of ${Object.keys(GROUPS).join(", ")}`);
     const cfg = await this.store.config();
-    const pack = selectedPacks(cfg).find((p) => p.tool_name === tool);
+    const pack = selected(cfg).find((p) => p.tool_name === tool);
     const list = pack ? packLoras(pack, cfg) : [];
     // strength is the selected pack's; strengths has every pack of its group (a caller's `model`
     // picks another, and Anima and Anima Turbo take LoRAs differently), each as packLoras reads it.
@@ -591,7 +584,7 @@ export class App {
     if (req.method !== "GET") return new Response(null, { status: 405, headers: { Allow: "GET" } });
     const tool = mcpTool(req);
     if (!tool) return error(400, `tool: one of ${Object.keys(GROUPS).join(", ")}`);
-    const picked = selectedPacks(await this.store.config()).map((p) => p.name);
+    const picked = selected(await this.store.config()).map((p) => p.name);
     const packs = PACKS.filter((p) => p.tool_name === tool);
     return json({ models: packs.map((p) => ({ name: p.name, display_name: p.display_name, selected: picked.includes(p.name) })) });
   }
@@ -617,7 +610,7 @@ export class App {
       if (name === "request_upload") return uploads.requestUpload(args, url.origin, key, this.p.now());
       const gpus = await this.gpus(this.store);
       if (!gpus.length) return failResult(`no GPU is set up yet. Finish setup at ${url.origin}/`);
-      let pack = selectedPacks(cfg).find((p) => p.tool_name === name) ?? null;
+      let pack = selected(cfg).find((p) => p.tool_name === name) ?? null;
       // A scripted caller's hidden `model` (Brain resolves it the same way): routed by, and an
       // unknown one answered before any GPU time.
       if (pack && name !== "edit_image") {
@@ -843,7 +836,7 @@ export class App {
    * LoRAs are spreadLoras' (the callers call it after). */
   private async applyToModal(admin: modalAdmin.ModalAdmin, cfg: Config, keepWarmMinutes: number | null): Promise<string[]> {
     const warnings = keepWarmMinutes === null ? [] : await this.applyKeepWarm(admin, keepWarmMinutes);
-    return warnings.concat(await modalAdmin.seedMissing(admin, this.fresh, wantedPacks(cfg)));
+    return warnings.concat(await modalAdmin.seedMissing(admin, this.fresh, wanted(cfg)));
   }
 
   /** Set how long Modal stays warm after a call. Returns warnings (best effort). */
@@ -992,7 +985,6 @@ export class App {
       storage: Boolean(this.p.bucket),
       encrypt_images: Boolean(s.encrypt_images),
       setup_mode: this.mode(setup), // not "mode": the page tells the agent and the extension apart by that
-      mode_from_site: !setup.mode && ["cloud", "pc", "both"].includes(this.p.env.SETUP_MODE ?? ""),
       build: setup.build ?? null,
       update_build: setup.update_build ?? null,
       modal_error: setup.modal_error ?? null,
@@ -1207,7 +1199,7 @@ export class App {
     }
     // As the extension does: a newly chosen pack starts downloading now.
     for (const pc of await this.onlinePcs(gpus)) {
-      for (const pack of wantedPacks(cfg)) await this.control(pc, "download", { pack: packNeeds(pack) });
+      for (const pack of wanted(cfg)) await this.control(pc, "download", { pack: packNeeds(pack) });
     }
     warnings.push(...(await this.spreadLoras(new URL(req.url).origin)));
     if (wantedLoras(cfg).length) warnings.push(...missingLoras(cfg, await this.loraListing()));
@@ -1416,7 +1408,7 @@ export class App {
   private async models(url: URL): Promise<Response> {
     const only = url.searchParams.get("gpu");
     // The watermark and background removal models download in the background, never listed.
-    const packs = wantedPacks(await this.fresh.config()).filter((p) => !isModelSet(p));
+    const packs = wanted(await this.fresh.config()).filter((p) => !isModelSet(p));
     const on: Record<string, any>[] = packs.map(() => ({}));
     const gpus = (await this.gpus()).filter((g) => !only || g.id === only);
     for (const gpu of gpus) {
@@ -1453,8 +1445,7 @@ export class App {
    * encoders and VAEs), and on a PC only those in its own models folder. Packs with bytes somewhere.
    */
   private async storedModels(): Promise<Response> {
-    const wanted = wantedPacks(await this.fresh.config());
-    const packs = PACKS.map((pack) => ({ pack, files: removableFiles(pack, wanted).map(fileKey) })).filter((p) => p.files.length);
+    const packs = removablePacks(PACKS, wanted(await this.fresh.config()));
     const files = [...new Set(packs.flatMap((p) => p.files))];
     const gpus = files.length ? await this.gpus() : [];
     const found = await Promise.all(gpus.map((gpu) => this.storedOn(gpu, files)));
@@ -1499,10 +1490,10 @@ export class App {
     const name = (await bodyJson(req)).pack;
     const pack = PACKS.find((p) => p.name === name);
     if (!pack) return error(400, "no such model");
-    const wanted = wantedPacks(await this.fresh.config());
-    const label = pack.display_name ?? pack.name;
-    if (wanted.includes(pack)) return error(409, `${label} is in use (selected, or in a selected model's family): choose another model first.`);
-    const files = removableFiles(pack, wanted).map(fileKey);
+    const keep = wanted(await this.fresh.config());
+    const inUse = inUseError(pack, keep);
+    if (inUse) return error(409, inUse);
+    const files = removableFiles(pack, keep).map(fileKey);
     const lost = new Set(files);
     const affected = PACKS.filter((p) => (p.models ?? []).some((m: Pack["models"][number]) => lost.has(fileKey(m))));
     const from: string[] = [];

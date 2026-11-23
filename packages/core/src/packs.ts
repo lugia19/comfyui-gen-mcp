@@ -80,12 +80,16 @@ export const FACE_MODELS: Pack = { tool_name: "", workflow: {}, ...TOOL_DEFS.det
 
 /** The model sets: downloaded in the background, never listed. */
 export const MODEL_SETS = [MARK_MODELS, BG_MODELS, FACE_MODELS];
-export const isModelSet = (pack: Pack) => MODEL_SETS.some((p) => p.name === pack.name);
+/** Whether *pack* (or the pack of that name) is a model set. */
+export const isModelSet = (pack: Pick<Pack, "name"> | string) => MODEL_SETS.some((p) => p.name === (typeof pack === "string" ? pack : pack.name));
 
-/** The model sets a GPU keeps in place with *cfg*: background removal's and the face detector always
- * (any call may need them), the watermark removal's while it is on. */
+/** The model sets every GPU keeps, any call may need them: background removal's and the face detector. */
+export const ALWAYS_MODEL_SETS = [BG_MODELS, FACE_MODELS];
+
+/** The model sets a GPU keeps in place with *cfg*: ALWAYS_MODEL_SETS, and the watermark removal's
+ * while it is on. */
 export function wantedModelSets(cfg: Config): Pack[] {
-  return cfg.remove_marks ? [MARK_MODELS, BG_MODELS, FACE_MODELS] : [BG_MODELS, FACE_MODELS];
+  return cfg.remove_marks ? [MARK_MODELS, ...ALWAYS_MODEL_SETS] : [...ALWAYS_MODEL_SETS];
 }
 
 /** The name a GPU records *pack*'s finished download under (Modal's admin state, the Worker's
@@ -217,6 +221,28 @@ export function redrawPack(packs: Pack[], model: unknown): Pack | string {
   return able.find((p) => p.name === REDRAW_DEFAULT) ?? able[0] ?? "No model here can redraw.";
 }
 
+/** One pack per tool of *packs*, as *cfg* picks them (select). */
+export function selectedPacks(packs: Pack[], cfg: Pick<Config, "pack_selections">): Pack[] {
+  return select(groupByTool(packs), cfg.pack_selections);
+}
+
+/** The packs every GPU should have with *cfg*: the selected ones and the rest of their families (a
+ * call may name one with the hidden `model` argument), and the model sets it keeps. */
+export function wantedPacks(packs: Pack[], cfg: Config): Pack[] {
+  return [...withFamilies(selectedPacks(packs, cfg), packs), ...wantedModelSets(cfg)];
+}
+
+/** The packs of *packs* with files that may be deleted while *wanted* stay, each with those files
+ * (fileKey), for the Stored models section. */
+export function removablePacks(packs: Pack[], wanted: Pack[]): { pack: Pack; files: string[] }[] {
+  return packs.map((pack) => ({ pack, files: removableFiles(pack, wanted).map(fileKey) })).filter((p) => p.files.length);
+}
+
+/** Why *pack*'s files can't be deleted while *wanted* stay, or null. */
+export function inUseError(pack: Pack, wanted: Pack[]): string | null {
+  return wanted.includes(pack) ? `${pack.display_name ?? pack.name} is in use (selected, or in a selected model's family): choose another model first.` : null;
+}
+
 /** *selected* and every other pack of their families, in *packs* order: a family downloads whole,
  * so a call naming a family member finds it ready (design §3, Brain). */
 export function withFamilies(selected: Pack[], packs: Pack[]): Pack[] {
@@ -235,11 +261,6 @@ export function removableFiles(pack: Pack, wanted: Pack[]): Pack["models"] {
   if (isModelSet(pack) || wanted.some((p) => p.name === pack.name)) return [];
   const kept = new Set([...wanted, ...MODEL_SETS].flatMap((p) => (p.models ?? []).map(fileKey)));
   return (pack.models ?? []).filter((m) => !kept.has(fileKey(m)));
-}
-
-/** Whether the pack takes the user's LoRAs: it has a LoRA group. */
-export function supportsLoras(pack: Pack): boolean {
-  return Boolean(pack.lora_group);
 }
 
 /** The pack whose per-model LoRA strength *pack* uses (config.ts strengthIn): its own, or its
@@ -323,7 +344,6 @@ function packMetadata(packs: Pack[]) {
       max_pixels: p.max_pixels ?? null,
       max_pixels_limit: p.max_pixels_limit ?? null,
       default_artist_list: p.default_artist_list ?? null,
-      supports_loras: supportsLoras(p),
       lora_group: p.lora_group ?? null,
       lora_strengths_from: p.lora_strengths_from ?? null,
     })),

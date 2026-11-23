@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import {
   Brain, FEATURES, toolSpecs, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, UnknownTool,
-  builtinPacks, fileKey, servedTools, isModelSet, removableFiles, MARK_MODELS, MODEL_SETS, wantedModelSets, failResult, packRow, renderOutcome, safeEqual, select, groupByTool, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
+  builtinPacks, fileKey, servedTools, isModelSet, removableFiles, removablePacks, inUseError, selectedPacks, wantedPacks, MARK_MODELS, MODEL_SETS, failResult, packRow, renderOutcome, safeEqual, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
   type Config, type OutputImage, type Pack, type Rendered,
 } from "@comfy-gen/core";
 import {
@@ -17,7 +17,6 @@ import {
 import { LocalHooks } from "./hooks.ts";
 
 export const PACKS = builtinPacks();
-const GROUPS = groupByTool(PACKS);
 const SETTINGS_METADATA = settingsMetadata(PACKS);
 
 export const instructions = (settingsUrl: string) =>
@@ -37,16 +36,9 @@ export type Services = {
   web: WebFiles;
 };
 
-export function selectedPacks(cfg: Config): Pack[] {
-  return select(GROUPS, cfg.pack_selections);
-}
-
-/** The selected packs and the rest of their families: a call may name one with the hidden `model`
- * argument, so a family downloads whole. */
-export function wantedPacks(cfg: LocalConfig): Pack[] {
-  const packs = withFamilies(selectedPacks(cfg), PACKS);
-  return [...packs, ...wantedModelSets(cfg)];
-}
+/** The selected packs and those this computer should have (core selectedPacks, wantedPacks). */
+const selected = (cfg: Config): Pack[] => selectedPacks(PACKS, cfg);
+export const wanted = (cfg: LocalConfig): Pack[] => wantedPacks(PACKS, cfg);
 
 const LOCAL_GPU = { id: "local", name: "This computer", kind: "pc" };
 
@@ -138,8 +130,8 @@ export class LocalApp {
     if (sub === "/config" && m === "PUT") return this.saveConfig(req);
     if (sub === "/models" && m === "GET") return json({ packs: this.models() });
     if (sub === "/models/seed" && m === "POST") {
-      const wanted = (await bodyJson(req)).pack;
-      const pack = PACKS.find((p) => p.name === wanted);
+      const name = (await bodyJson(req)).pack;
+      const pack = PACKS.find((p) => p.name === name);
       if (!pack) return error(400, "no such pack");
       return json(this.s.machine.downloads.start(pack.name, pack.models ?? [], pack.display_name));
     }
@@ -169,16 +161,16 @@ export class LocalApp {
     const merged = { ...current, ...incoming, mcp_path: current.mcp_path, mcp_port: current.mcp_port };
     const bad = checkMachineSettings(merged);
     if (bad) return error(400, bad);
-    const before = new Set(selectedPacks(current).map((p) => p.name));
-    const marksBefore = wantedPacks(current).includes(MARK_MODELS);
+    const before = new Set(selected(current).map((p) => p.name));
+    const marksBefore = wanted(current).includes(MARK_MODELS);
     let cfg = this.s.saveConfig(merged);
     // Every LoRA file keeps a group, also one the page's copy of the settings didn't know yet.
     const tagged = tagLooseLoras(cfg.pack_loras, Object.keys(this.s.machine.loras()));
     if (tagged) cfg = this.s.saveConfig({ ...cfg, pack_loras: tagged });
     // A newly chosen model, and the rest of its family, start downloading now, not at their first
     // use; the others wait for theirs. So do the watermark removal's, when switched on.
-    const fresh = withFamilies(selectedPacks(cfg).filter((p) => !before.has(p.name)), PACKS);
-    if (!marksBefore && wantedPacks(cfg).includes(MARK_MODELS)) fresh.push(MARK_MODELS);
+    const fresh = withFamilies(selected(cfg).filter((p) => !before.has(p.name)), PACKS);
+    if (!marksBefore && wanted(cfg).includes(MARK_MODELS)) fresh.push(MARK_MODELS);
     this.s.download(fresh);
     const warnings = this.missingLoras(cfg);
     if (current.extra_models_dir !== cfg.extra_models_dir) {
@@ -192,11 +184,11 @@ export class LocalApp {
    * carries on (switching away doesn't cancel it), so it stays listed until it is done. */
   private models() {
     // The watermark and background removal models download in the background, never listed.
-    const selected = wantedPacks(this.s.config()).filter((p) => !isModelSet(p));
-    const rows: Record<string, unknown>[] = selected.map((pack: Pack) => ({ ...packRow(pack), ...this.s.machine.downloads.status(pack.name, pack.models ?? []) }));
+    const listed = wanted(this.s.config()).filter((p) => !isModelSet(p));
+    const rows: Record<string, unknown>[] = listed.map((pack: Pack) => ({ ...packRow(pack), ...this.s.machine.downloads.status(pack.name, pack.models ?? []) }));
     for (const job of this.s.machine.downloads.jobs()) {
-      if (selected.some((p) => p.name === job.key) || (job.state !== "queued" && job.state !== "downloading")) continue;
-      if (MODEL_SETS.some((p) => p.name === job.key)) continue; // in the background, never listed
+      if (listed.some((p) => p.name === job.key) || (job.state !== "queued" && job.state !== "downloading")) continue;
+      if (isModelSet(job.key)) continue; // in the background, never listed
       const pack = PACKS.find((p) => p.name === job.key);
       rows.push({ ...job, name: job.key, display_name: `${pack?.display_name ?? job.key} (not selected)`, size: job.total });
     }
@@ -207,8 +199,7 @@ export class LocalApp {
    * page's Stored models section is the same: only the files no wanted pack or model set uses, in
    * our own models folder. */
   private storedModels() {
-    const wanted = wantedPacks(this.s.config());
-    const packs = PACKS.map((pack) => ({ pack, files: removableFiles(pack, wanted).map(fileKey) })).filter((p) => p.files.length);
+    const packs = removablePacks(PACKS, wanted(this.s.config()));
     const sizes = this.s.machine.storedModels([...new Set(packs.flatMap((p) => p.files))]);
     const rows = packs.map(({ pack, files }) => ({ ...packRow(pack), on: { [LOCAL_GPU.id]: { bytes: files.reduce((n, f) => n + (sizes[f] ?? 0), 0) } } }));
     return { gpus: [LOCAL_GPU], packs: rows.filter((r) => r.on[LOCAL_GPU.id].bytes > 0) };
@@ -218,9 +209,10 @@ export class LocalApp {
   private async deleteModels(name: unknown): Promise<Response> {
     const pack = PACKS.find((p) => p.name === name);
     if (!pack) return error(400, "no such model");
-    const wanted = wantedPacks(this.s.config());
-    if (wanted.includes(pack)) return error(409, `${pack.display_name ?? pack.name} is in use (selected, or in a selected model's family): choose another model first.`);
-    const { deleted, busy } = await this.s.machine.deleteModels(removableFiles(pack, wanted).map(fileKey));
+    const keep = wanted(this.s.config());
+    const inUse = inUseError(pack, keep);
+    if (inUse) return error(409, inUse);
+    const { deleted, busy } = await this.s.machine.deleteModels(removableFiles(pack, keep).map(fileKey));
     const bytes = Object.values(deleted).reduce((a, b) => a + b, 0);
     return json({ deleted: pack.name, from: bytes ? [LOCAL_GPU.id] : [], bytes, busy: busy.length ? [LOCAL_GPU.name] : [], offline: [], errors: [] });
   }

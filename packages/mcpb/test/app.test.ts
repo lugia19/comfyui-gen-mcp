@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadConfig, Machine, ModelLocator, paths, saveConfig, type LocalComfy } from "@comfy-gen/local";
-import { LocalApp, wantedPacks, type Services } from "../src/server/app.ts";
+import { LocalApp, wanted, type Services } from "../src/server/app.ts";
 import { LocalHooks, STILL_STARTING_HERE } from "../src/server/hooks.ts";
 import { builtinPacks, ComfyUIClient, redrawPackFor, type Pack, type Transport } from "@comfy-gen/core";
 import { withPrompt } from "../../core/test/metadata-fixtures.ts";
@@ -204,7 +204,7 @@ describe("settings API", () => {
 
   it("the watermark removal's models: wanted while it is on", async () => {
     const w = world();
-    const names = () => wantedPacks(w.cfg()).map((p) => p.name);
+    const names = () => wanted(w.cfg()).map((p) => p.name);
     expect(names()).toContain("remove-marks");
     const put = (config: object) => w.local("/api/config", { method: "PUT", body: JSON.stringify({ config }) });
     await put({ remove_marks: false });

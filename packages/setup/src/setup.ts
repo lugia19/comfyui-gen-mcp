@@ -40,7 +40,7 @@ const GRPC_SERVICE = "/modal.client.ModalClient/";
 
 export type Deps = { fetch: Fetch; now: () => number; sleep: (s: number) => Promise<void> };
 
-const MODES = ["cloud", "pc", "both"];
+const MODES: readonly string[] = releases.SETUP_MODES; // the Worker reads SETUP_MODE back
 /** Worker and workers.dev names: lowercase letters, digits and dashes, not at the ends. */
 const NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const USER_AGENT = "comfy-gen-setup";
