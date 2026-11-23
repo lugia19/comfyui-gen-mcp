@@ -33,7 +33,7 @@ export async function discover(fetch: Fetch, token: string, host: string): Promi
     throw new CloudflareError(`Open this page on the workers.dev address to finish setup (not ${host}).`);
   }
   const script = host.split(".")[0];
-  const accounts = (await call(fetch, token, "GET", "/accounts?per_page=50")) ?? [];
+  const accounts = await cfapi.listAccounts(fetch, token);
   for (const acct of accounts) {
     const found = (await call(fetch, token, "GET", `/accounts/${acct.id}/workers/scripts-search?name=${encodeURIComponent(script)}`)) ?? [];
     const match = found.find((s: any) => s.script_name === script);

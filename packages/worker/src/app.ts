@@ -533,12 +533,13 @@ export class App {
    * The GPU for a call (design §2, "GPUs"): the first enabled one, in the list's order, that is
    * available and not known to lack *pack* (unknown is worth a try: its answer says); else the first
    * available, which starts the download. *skip*: GPUs this call already found downloading. A
-   * message instead when none is available.
+   * message instead when none is available. *seen* gets each GPU's status, for the call to reuse.
    */
-  private async pick(gpus: Gpu[], pack: Pack | null, skip: Gpu[] = []): Promise<Gpu | string> {
+  private async pick(gpus: Gpu[], pack: Pack | null, skip: Gpu[] = [], seen?: Map<string, GpuStatus>): Promise<Gpu | string> {
     const enabled = gpus.filter((g) => g.enabled);
     if (!enabled.length) return "No GPU is set up yet.";
     const statuses = await Promise.all(enabled.map((g) => this.status(g)));
+    enabled.forEach((g, i) => seen?.set(g.id, statuses[i]));
     const available = enabled.filter((_, i) => statuses[i].online && !statuses[i].paused);
     if (!available.length) {
       const paused = enabled.filter((_, i) => statuses[i].paused);
@@ -610,6 +611,7 @@ export class App {
       if (name === "request_upload") return uploads.requestUpload(args, url.origin, key, this.p.now());
       const gpus = await this.gpus(this.store);
       if (!gpus.length) return failResult(`no GPU is set up yet. Finish setup at ${url.origin}/`);
+      const images = this.images; // one per call: an image read for routing is not read again
       let pack = selected(cfg).find((p) => p.tool_name === name) ?? null;
       // A scripted caller's hidden `model` (Brain resolves it the same way): routed by, and an
       // unknown one answered before any GPU time.
@@ -623,8 +625,8 @@ export class App {
         // Unnamed, the model that drew a stored image (its embedded prompt), as Brain decides it:
         // passed on as `model`, so the call is routed to a GPU with that pack.
         if (!args.model) {
-          const id = storedImageId(String(args.image ?? ""), url.origin);
-          const model = id ? redrawPackFor(await this.images.get(id).catch(() => null), PACKS) : null;
+          const id = storedImageId(String(args.image_path || args.image || ""), url.origin); // either spelling, as Brain takes it
+          const model = id ? redrawPackFor(await images.get(id).catch(() => null), PACKS) : null;
           if (model) args = { ...args, model };
         }
         const chosen = redrawPack(PACKS, args.model);
@@ -632,18 +634,20 @@ export class App {
         pack = chosen;
       }
       let gpu: Gpu | string;
+      const seen = new Map<string, GpuStatus>(); // each GPU's status, read once per call
       if (name === "fetch_result") {
         // The token names the GPU the job is on: only that one has it.
         const [on, promptId] = splitToken(String(args.request_token ?? ""), gpus);
         args = { ...args, request_token: promptId };
         if (on) {
           const st = await this.status(on);
+          seen.set(on.id, st);
           gpu = st.online ? on : offlineMessage([on]);
         } else {
           gpu = `there is no request ${args.request_token}: its GPU was removed, or the token is mistyped.`;
         }
       } else {
-        gpu = await this.pick(gpus, pack);
+        gpu = await this.pick(gpus, pack, [], seen);
       }
       if (typeof gpu === "string") return failResult(gpu);
       const tried: Gpu[] = [];
@@ -655,20 +659,18 @@ export class App {
           if (target.kind === "pc") await this.setReady(target, packName, ready);
         };
         const client = this.client(target);
-        const images = this.images;
+        const deps = { client, fetch: this.fetch, store: this.store, settingsUrl: `${url.origin}/`, images, onReady };
         const hooks =
-          target.kind === "pc"
-            ? new PcHooks(client, key, this.fetch, this.store, `${url.origin}/`, this.p.relays(target.id), target, images, onReady)
-            : new WorkerHooks(client, key, this.fetch, this.admin(target), this.store, `${url.origin}/`, images, onReady);
+          target.kind === "pc" ? new PcHooks(deps, this.p.relays(target.id), target) : new WorkerHooks({ ...deps, admin: this.admin(target) });
         // What this GPU's ComfyUI can do: all of it on Modal; on a PC what its agent says (one from
         // before a feature doesn't say it).
-        const info = target.kind === "pc" ? (await this.status(target)).info : null;
+        const info = target.kind === "pc" ? (seen.get(target.id) ?? (await this.status(target))).info : null;
         const outcome = await new Brain(PACKS, cfg, client, "refs", {
           hooks, features: FEATURES.filter((f) => target.kind === "modal" || info?.[f] === true),
         }).call(name, args);
         tried.push(target);
         if (outcome.kind === "failed" && downloading && name !== "fetch_result") {
-          const next = await this.pick(gpus, pack, tried);
+          const next = await this.pick(gpus, pack, tried, seen);
           if (typeof next !== "string" && !tried.includes(next)) {
             gpu = next;
             continue;
@@ -822,7 +824,7 @@ export class App {
       // A deploy resets keep-warm to the app's default, and a fresh install has no models yet.
       warnings = await this.applyToModal(this.admin(gpu)!, await this.fresh.config(), gpu.keep_warm_minutes);
       // Modal keeps the flags across deploys; a new Modal account doesn't have them yet.
-      if (gpu.comfy_args?.length) warnings.push(...(await this.applyComfyArgs(this.admin(gpu)!, gpu.comfy_args)));
+      if (gpu.comfy_args?.length) warnings.push(...(await this.applyOnModal("the ComfyUI flags", () => this.admin(gpu)!.comfyArgs(gpu.comfy_args!))));
       warnings.push(...(await this.spreadLoras(new URL(req.url).origin)));
       await this.fresh.updateSetup({ modal_error: null, modal_deploy: null });
     } else if (typeof data.modal_error === "string" || String(data.modal_result ?? "").startsWith("failed")) {
@@ -835,31 +837,16 @@ export class App {
   /** Best effort: apply keep-warm (when given), start downloads for the wanted packs. Returns warnings.
    * LoRAs are spreadLoras' (the callers call it after). */
   private async applyToModal(admin: modalAdmin.ModalAdmin, cfg: Config, keepWarmMinutes: number | null): Promise<string[]> {
-    const warnings = keepWarmMinutes === null ? [] : await this.applyKeepWarm(admin, keepWarmMinutes);
+    const warnings = keepWarmMinutes === null ? [] : await this.applyOnModal("keep-warm", () => admin.idle(keepWarmMinutes));
     return warnings.concat(await modalAdmin.seedMissing(admin, this.fresh, wanted(cfg)));
   }
 
-  /** Set how long Modal stays warm after a call. Returns warnings (best effort). */
-  private async applyKeepWarm(admin: modalAdmin.ModalAdmin, minutes: number): Promise<string[]> {
-    try {
-      await admin.idle(minutes);
-      return [];
-    } catch (e) {
-      if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-      return [`Could not apply keep-warm: ${e.message}`];
-    }
+  /** Apply a setting to Modal through its admin API (*what* names it): a warning if that failed. */
+  private async applyOnModal(what: string, fn: () => Promise<unknown>): Promise<string[]> {
+    const r = await modalAdmin.attempt(fn);
+    return r instanceof modalAdmin.ModalAdminError ? [`Could not apply ${what}: ${r.message}`] : [];
   }
 
-  /** Set Modal's ComfyUI flags. Returns warnings (best effort). */
-  private async applyComfyArgs(admin: modalAdmin.ModalAdmin, args: string[]): Promise<string[]> {
-    try {
-      await admin.comfyArgs(args);
-      return [];
-    } catch (e) {
-      if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-      return [`Could not apply the ComfyUI flags: ${e.message}`];
-    }
-  }
 
   /** A PC control op's answer for the page: its data, or 503 offline / 502 its error. */
   private controlResponse(gpu: Gpu, r: { ok: true; data: unknown } | { ok: false; message: string }): Response {
@@ -1078,12 +1065,8 @@ export class App {
       return this.controlResponse(gpu, await this.control(gpu, "pause", { paused: (await bodyJson(req)).paused === true }));
     }
     if (m[2] === "comfy-args" && req.method === "GET" && this.admin(gpu)) {
-      try {
-        return json(await this.admin(gpu)!.comfyArgsStatus());
-      } catch (e) {
-        if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-        return error(502, e.message);
-      }
+      const r = await modalAdmin.attempt(() => this.admin(gpu)!.comfyArgsStatus());
+      return r instanceof modalAdmin.ModalAdminError ? error(502, r.message) : json(r);
     }
     if (!m[2] && req.method === "PATCH") {
       const body = await bodyJson(req);
@@ -1102,8 +1085,8 @@ export class App {
       }
       const updated = (await this.updateGpu(gpu.id, changes))!;
       const admin = this.admin(updated);
-      const warnings = admin && changes.keep_warm_minutes !== undefined ? await this.applyKeepWarm(admin, updated.keep_warm_minutes) : [];
-      if (admin && changes.comfy_args) warnings.push(...(await this.applyComfyArgs(admin, changes.comfy_args)));
+      const warnings = admin && changes.keep_warm_minutes !== undefined ? await this.applyOnModal("keep-warm", () => admin.idle(updated.keep_warm_minutes)) : [];
+      if (admin && changes.comfy_args) warnings.push(...(await this.applyOnModal("the ComfyUI flags", () => admin.comfyArgs(changes.comfy_args!))));
       return json({ gpu: redact(updated, url), warnings });
     }
     if (!m[2] && req.method === "DELETE") {
@@ -1206,6 +1189,19 @@ export class App {
     return json({ config: cfg, warnings });
   }
 
+  /** A GPU's LoRA files (and a PC's copies under way), or why there are none to list. */
+  private async lorasOn(gpu: Gpu): Promise<{ files?: Record<string, number>; syncing?: Record<string, any>; offline?: true; error?: string }> {
+    if (gpu.kind === "pc") {
+      const r = (await this.status(gpu)).online ? await this.control(gpu, "loras") : null;
+      if (!r || (!r.ok && r.message === offlineMessage([gpu]))) return { offline: true };
+      return r.ok ? { files: r.data?.files ?? {}, syncing: r.data?.syncing ?? {} } : { error: r.message };
+    }
+    const admin = this.admin(gpu);
+    if (!admin) return {};
+    const r = await modalAdmin.attempt(() => admin.loras());
+    return r instanceof modalAdmin.ModalAdminError ? { error: r.message } : { files: r };
+  }
+
   /**
    * The LoRA files in storage and on each GPU, for the settings page: {backends: ["storage", gpu
    * ids…], gpus: [{id, name, kind}], files: {name: {backend: size}}, syncing: the agents' copies in
@@ -1224,29 +1220,16 @@ export class App {
     const add = (backend: string, list: Record<string, number>) => {
       for (const [name, size] of Object.entries(list ?? {})) (out.files[name] ??= {})[backend] = size;
     };
-    add("storage", await this.storedLoras());
-    for (const gpu of gpus) {
+    // Every GPU at once (reads only), merged in the list's order.
+    const [stored, answers] = await Promise.all([this.storedLoras(), Promise.all(gpus.map((gpu) => this.lorasOn(gpu)))]);
+    add("storage", stored);
+    for (const [i, gpu] of gpus.entries()) {
+      const a = answers[i];
       out.backends.push(gpu.id);
-      if (gpu.kind === "pc") {
-        const r = (await this.status(gpu)).online ? await this.control(gpu, "loras") : null;
-        if (!r || (!r.ok && r.message === offlineMessage([gpu]))) {
-          out.offline.push(gpu.id);
-        } else if (r.ok) {
-          add(gpu.id, r.data?.files ?? {});
-          for (const [name, job] of Object.entries((r.data?.syncing ?? {}) as Record<string, any>)) out.syncing[name] = { ...job, to: job.to === "storage" ? "storage" : gpu.id }; // a push goes to storage
-        } else {
-          out.errors[gpu.id] = r.message;
-        }
-      }
-      const admin = this.admin(gpu);
-      if (admin) {
-        try {
-          add(gpu.id, await admin.loras());
-        } catch (e) {
-          if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-          out.errors[gpu.id] = e.message;
-        }
-      }
+      if (a.offline) out.offline.push(gpu.id);
+      if (a.error) out.errors[gpu.id] = a.error;
+      if (a.files) add(gpu.id, a.files);
+      for (const [name, job] of Object.entries(a.syncing ?? {})) out.syncing[name] = { ...job, to: job.to === "storage" ? "storage" : gpu.id }; // a push goes to storage
     }
     return out;
   }
@@ -1278,13 +1261,12 @@ export class App {
    */
   private async loraUploads(req: Request, url: URL, sub: string, s: Secrets): Promise<Response> {
     const uploads = new loras.LoraUploads(this.bucket, this.fresh, this.p.now);
-    const base = sub.startsWith("/loras/uploads") ? "/api/loras/uploads" : "/agent/loras/uploads";
     const m = /^\/loras\/uploads\/([\w-]+)(?:\/(\d+|finish))?$/.exec(sub);
     try {
       if (sub === "/loras/uploads" && req.method === "POST") {
         const body = await bodyJson(req);
         const session = await uploads.start(body.filename, body.size);
-        return json({ ...session, upload_url: `${base}/${session.id}` });
+        return json({ ...session, upload_url: `/api/loras/uploads/${session.id}` }); // the page's; the agent builds its own
       }
       if (m && m[2] === "finish" && req.method === "POST") {
         const body = await bodyJson(req);
@@ -1317,16 +1299,14 @@ export class App {
     for (const gpu of gpus) {
       const admin = this.admin(gpu);
       if (!admin) continue;
-      try {
+      const r = await modalAdmin.attempt(async () => {
         inR2 ??= await this.storedLoras();
         const onModal = Object.keys(inR2).length ? await admin.loras() : {};
         for (const name of Object.keys(inR2).filter((n) => !(n in onModal)).slice(0, SYNC_MAX_FILES)) {
           await admin.fetchLora(name, await this.storeUrl(origin, hmacKey(s), loras.loraKey(name)), inR2[name]);
         }
-      } catch (e) {
-        if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-        warnings.push(`Could not copy LoRAs to ${gpu.name}: ${e.message}`);
-      }
+      });
+      if (r instanceof modalAdmin.ModalAdminError) warnings.push(`Could not copy LoRAs to ${gpu.name}: ${r.message}`);
     }
     for (const pc of await this.onlinePcs(gpus)) await this.control(pc, "sync");
     return warnings;
@@ -1379,13 +1359,9 @@ export class App {
     for (const gpu of gpus) {
       const admin = this.admin(gpu);
       if (!admin) continue;
-      try {
-        await admin.deleteLora(name);
-        from.push(gpu.id);
-      } catch (e) {
-        if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-        if (e.status !== 404) errors.push(`${gpu.name}: ${e.message}`);
-      }
+      const r = await modalAdmin.attempt(() => admin.deleteLora(name));
+      if (!(r instanceof modalAdmin.ModalAdminError)) from.push(gpu.id);
+      else if (r.status !== 404) errors.push(`${gpu.name}: ${r.message}`);
     }
     const pending: string[] = []; // PCs whose ComfyUI still has the file open (Windows): deleted when it stops
     for (const pc of await this.onlinePcs(gpus)) {
@@ -1423,12 +1399,8 @@ export class App {
       const admin = this.admin(gpu);
       if (admin) {
         for (const [i, pack] of packs.entries()) {
-          try {
-            on[i][gpu.id] = await modalAdmin.packStatus(admin, this.fresh, pack);
-          } catch (e) {
-            if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-            on[i][gpu.id] = { state: "unknown", error: e.message };
-          }
+          const r = await modalAdmin.attempt(() => modalAdmin.packStatus(admin, this.fresh, pack));
+          on[i][gpu.id] = r instanceof modalAdmin.ModalAdminError ? { state: "unknown", error: r.message } : r;
         }
       }
     }
@@ -1472,12 +1444,8 @@ export class App {
     }
     const admin = this.admin(gpu);
     if (!admin) return { state: "unknown", error: "this Modal has no admin API: deploy it again from the Setup tab" };
-    try {
-      return { sizes: await admin.storedModels(files) };
-    } catch (e) {
-      if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-      return { state: "unknown", error: e.message };
-    }
+    const r = await modalAdmin.attempt(() => admin.storedModels(files));
+    return r instanceof modalAdmin.ModalAdminError ? { state: "unknown", error: r.message } : { sizes: r };
   }
 
   /**
@@ -1523,12 +1491,9 @@ export class App {
       }
       const admin = this.admin(gpu);
       if (!admin) continue;
-      try {
-        deleted(gpu, (await admin.deleteModels(files, affected.map(seedKey))).deleted ?? {});
-      } catch (e) {
-        if (!(e instanceof modalAdmin.ModalAdminError)) throw e;
-        errors.push(`${gpu.name}: ${e.message}`);
-      }
+      const r = await modalAdmin.attempt(() => admin.deleteModels(files, affected.map(seedKey)));
+      if (r instanceof modalAdmin.ModalAdminError) errors.push(`${gpu.name}: ${r.message}`);
+      else deleted(gpu, r.deleted ?? {});
     }
     const setup = await this.fresh.setup();
     const seeds = new Set(affected.map(seedKey));
@@ -1553,12 +1518,8 @@ export class App {
     }
     const admin = this.admin(gpu);
     if (!admin) return error(400, "this Modal has no admin API: deploy it again from the Setup tab");
-    try {
-      return json(await admin.seed(pack));
-    } catch (e) {
-      if (e instanceof modalAdmin.ModalAdminError) return error(502, e.message);
-      throw e;
-    }
+    const r = await modalAdmin.attempt(() => admin.seed(pack));
+    return r instanceof modalAdmin.ModalAdminError ? error(502, r.message) : json(r);
   }
 
   /** Modal's deploy on the build path: a Workers Build, with *token* stored in the build's secrets

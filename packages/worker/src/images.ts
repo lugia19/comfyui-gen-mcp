@@ -51,6 +51,15 @@ export class Images {
 
   /** A stored image's bytes, or null if there is none (never stored, or expired). */
   async get(id: string): Promise<Uint8Array | null> {
+    // Read once per instance (one per call): a redraw reads its image for the model, then uploads it.
+    let got = this.got.get(id);
+    if (!got) this.got.set(id, (got = this.read(id)));
+    return got;
+  }
+
+  private got = new Map<string, Promise<Uint8Array | null>>();
+
+  private async read(id: string): Promise<Uint8Array | null> {
     const obj = await this.bucket.get(refs.imageKey(id));
     if (!obj) return null;
     if (!obj.customMetadata?.enc) return new Uint8Array(await obj.arrayBuffer());

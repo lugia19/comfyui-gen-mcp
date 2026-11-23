@@ -226,11 +226,6 @@ async function accounts(req: Request, env: Env, deps: Deps): Promise<Response> {
 }
 
 /**
- * Create the user's Worker: its R2 bucket (when R2 is on; else it adds the binding later, from its
- * storage step), the latest release uploaded with a one-time CLAIM secret, the daily cron, its
- * workers.dev address; then hand it the tokens (its /api/claim) for a login ticket.
- */
-/**
  * Upload release *tag* as *script* (a new Worker, or over one: *fromTag* its migration tag), with the
  * new setup's vars and its bucket, created if missing and given its lifecycle rules. A Worker is
  * made without storage when R2 isn't turned on in the account.
@@ -250,6 +245,11 @@ async function install(
   return { release, storage };
 }
 
+/**
+ * Create the user's Worker: its R2 bucket (when R2 is on; else it adds the binding later, from its
+ * storage step), the latest release uploaded with a one-time CLAIM secret, the daily cron, its
+ * workers.dev address; then hand it the tokens (its /api/claim) for a login ticket.
+ */
 async function create(req: Request, env: Env, deps: Deps, url: URL): Promise<Response> {
   const t = await tokensOf(req, env, deps);
   if (!t) return notConnected();

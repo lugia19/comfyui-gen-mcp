@@ -17,6 +17,17 @@ export class ModalAdminError extends Error {
   }
 }
 
+/** *fn*'s value, or the ModalAdminError it threw: the admin API failing is an answer to pass on (a
+ * warning, a 502, a GPU's error), anything else a bug, thrown on. */
+export async function attempt<T>(fn: () => Promise<T>): Promise<T | ModalAdminError> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof ModalAdminError) return e;
+    throw e;
+  }
+}
+
 export class ModalAdmin {
   private fetch: Fetch;
   private url: string;

@@ -21,36 +21,38 @@ const RETRY = { retryable: true };
 // The agent's (local machine.ts) and the Worker's own words for a model download that is under way.
 const DOWNLOADING = /is downloading|still downloading|being downloaded/i;
 
+/** What the image hooks need: the GPU's ComfyUI *client*, this Worker's *fetch*, *store* and
+ * *images*, its settings page (*settingsUrl*, for messages), Modal's admin API (*admin*, none on a
+ * PC), and *onReady*, told whether the GPU has a pack's models: routing then sends calls elsewhere
+ * meanwhile. */
+export type HooksDeps = {
+  client: ComfyUIClient;
+  fetch: Fetch;
+  store: Store;
+  settingsUrl: string;
+  images: Images;
+  onReady: (pack: string, ready: boolean) => Promise<void>;
+  admin?: ModalAdmin | null;
+};
+
 export class WorkerHooks extends Hooks {
   private client: ComfyUIClient;
-  private key: Uint8Array;
   private fetch: Fetch;
   private admin: ModalAdmin | null;
   private store: Store;
   private settingsUrl: string;
   private images: Images;
-  /** Told whether this GPU has a pack's models: routing then sends the call elsewhere meanwhile. */
-  protected onReady: (pack: string, ready: boolean) => Promise<void>;
+  protected onReady: HooksDeps["onReady"];
 
-  constructor(
-    client: ComfyUIClient,
-    key: Uint8Array,
-    fetch: Fetch,
-    admin: ModalAdmin | null,
-    store: Store,
-    settingsUrl: string,
-    images: Images,
-    onReady: (pack: string, ready: boolean) => Promise<void> = async () => {},
-  ) {
+  constructor(d: HooksDeps) {
     super();
-    this.images = images;
-    this.onReady = onReady;
-    this.client = client;
-    this.key = key;
-    this.fetch = fetch;
-    this.admin = admin;
-    this.store = store;
-    this.settingsUrl = settingsUrl;
+    this.client = d.client;
+    this.fetch = d.fetch;
+    this.admin = d.admin ?? null;
+    this.store = d.store;
+    this.settingsUrl = d.settingsUrl;
+    this.images = d.images;
+    this.onReady = d.onReady;
   }
 
   async ensure(pack: Pack): Promise<void> {
@@ -138,18 +140,8 @@ export class PcHooks extends WorkerHooks {
   private relay: RelayStub;
   private gpu: Gpu;
 
-  constructor(
-    client: ComfyUIClient,
-    key: Uint8Array,
-    fetch: Fetch,
-    store: Store,
-    settingsUrl: string,
-    relayStub: RelayStub,
-    gpu: Gpu,
-    images: Images,
-    onReady: (pack: string, ready: boolean) => Promise<void> = async () => {},
-  ) {
-    super(client, key, fetch, null, store, settingsUrl, images, onReady);
+  constructor(d: HooksDeps, relayStub: RelayStub, gpu: Gpu) {
+    super({ ...d, admin: null });
     this.relay = relayStub;
     this.gpu = gpu;
   }

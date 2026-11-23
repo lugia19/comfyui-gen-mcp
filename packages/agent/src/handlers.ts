@@ -81,7 +81,7 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
     });
   };
 
-  const control = async (h: relay.ControlMessage, body: Uint8Array): Promise<Reply> => {
+  const control = async (h: relay.ControlMessage): Promise<Reply> => {
     const args = (h.args ?? {}) as Record<string, any>;
     try {
       switch (h.op) {
@@ -130,5 +130,5 @@ export function agentHandler(o: HandlerOptions): (msg: relay.RelayMessage) => Pr
     }
   };
 
-  return async (msg) => (msg.header.kind === "http" ? http(msg.header, msg.body) : control(msg.header as relay.ControlMessage, msg.body));
+  return async (msg) => (msg.header.kind === "http" ? http(msg.header, msg.body) : control(msg.header as relay.ControlMessage));
 }
