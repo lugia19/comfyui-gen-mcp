@@ -31,6 +31,21 @@ export const trim = (base: string) => base.replace(/\/$/, "");
 export const WORKER_VARS = ["SETUP_MODE", "CF_OAUTH_CLIENT", "COMFY_GEN_SETUP", "COMFY_GEN_RELEASES"] as const;
 export type WorkerVars = Partial<Record<(typeof WORKER_VARS)[number], string>>;
 
+/** A release tag, vX.Y.Z (the v optional), as numbers; null for anything else (a "dev" build). */
+export function parseTag(tag: string | null | undefined): [number, number, number] | null {
+  const m = /^v?(\d+)\.(\d+)\.(\d+)$/.exec((tag ?? "").trim());
+  return m ? [+m[1], +m[2], +m[3]] : null;
+}
+
+/** Whether release tag *a* is newer than *b*; false when either is not a release tag. Each caller
+ * decides what a development build gets. */
+export function newerTag(a: string | null | undefined, b: string | null | undefined): boolean {
+  const [x, y] = [parseTag(a), parseTag(b)];
+  if (!x || !y) return false;
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
+  return false;
+}
+
 /** The answers to "where should images be made?" (SETUP_MODE, and the Worker's own setup.mode). */
 export const SETUP_MODES = ["cloud", "pc", "both"] as const;
 export type SetupMode = (typeof SETUP_MODES)[number];

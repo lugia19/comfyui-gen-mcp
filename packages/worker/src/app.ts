@@ -5,7 +5,7 @@
 // isolate cache. Each fetch to ComfyUI costs CPU, so the client backs off its polls.
 
 import {
-  Brain, FEATURES, toolSpecs, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, FetchTransport, McpHandler, UnknownTool,
+  Brain, FEATURES, toolSpecs, ComfyUIClient, bodyJson, error, failResult, json, packNeeds, renderOutcome, UploadError, uploadRoute, FetchTransport, McpHandler, UnknownTool,
   builtinPacks, cfapi, releases, isModelSet, fromHex, fromUtf8, sha256Hex, utf8, groupByTool, packLoras, packRow, refs, relay, settingsMetadata, tokenHex, tokenUrlsafe, safeEqual,
   withoutLora, tagLooseLoras, wantedLoras, strengthIn, strengthKey, packFor, redrawPack, redrawPackFor, seedKey, selectedPacks, wantedPacks, removablePacks, inUseError, fileKey, removableFiles, BG_MODELS, servedTools, checkComfyArgs, type Config, type Content, type Pack,
 } from "@comfy-gen/core";
@@ -1261,16 +1261,16 @@ export class App {
    */
   private async loraUploads(req: Request, url: URL, sub: string, s: Secrets): Promise<Response> {
     const uploads = new loras.LoraUploads(this.bucket, this.fresh, this.p.now);
-    const m = /^\/loras\/uploads\/([\w-]+)(?:\/(\d+|finish))?$/.exec(sub);
+    const r = uploadRoute(sub);
     try {
-      if (sub === "/loras/uploads" && req.method === "POST") {
+      if (r && "start" in r && req.method === "POST") {
         const body = await bodyJson(req);
         const session = await uploads.start(body.filename, body.size);
         return json({ ...session, upload_url: `/api/loras/uploads/${session.id}` }); // the page's; the agent builds its own
       }
-      if (m && m[2] === "finish" && req.method === "POST") {
+      if (r && "finish" in r && req.method === "POST") {
         const body = await bodyJson(req);
-        const done = await uploads.finish(m[1], body.parts);
+        const done = await uploads.finish(r.id, body.parts);
         // Into the LoRA group it was uploaded for (the page's open tab), switched off until the page
         // saves it on; a push from a PC names none, and lands in the default group.
         await this.tagStored([done.name], body.group);
@@ -1279,7 +1279,7 @@ export class App {
         await this.spreadLoras(url.origin);
         return json(done);
       }
-      if (m && m[2] !== undefined && m[2] !== "finish" && req.method === "PUT") return json(await uploads.chunk(m[1], Number(m[2]), req));
+      if (r && "chunk" in r && req.method === "PUT") return json(await uploads.chunk(r.id, r.chunk, req));
     } catch (e) {
       if (e instanceof UploadError) return error(e.status, e.message);
       throw e;

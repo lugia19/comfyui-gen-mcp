@@ -10,7 +10,7 @@
 // WebSocket: it doesn't survive the relay. Each request costs the Worker CPU and a subrequest, so
 // the poll schedule backs off quickly.
 
-import { concat, fromUtf8, tokenHex, utf8 } from "./bytes.ts";
+import { concat, fromUtf8, tokenHex, utf8, isPlainObject } from "./bytes.ts";
 
 export const BOOTING = [502, 503, 504]; // what a scale-to-zero host answers while a container starts
 // Seconds between /history polls: quick at first (a warm generation takes a few seconds), then
@@ -373,7 +373,7 @@ function rejection(resp: Response): string {
   } catch {
     return `ComfyUI rejected the workflow (HTTP ${resp.status}): ${resp.text.slice(0, 500)}`;
   }
-  const err = data && typeof data === "object" && !Array.isArray(data) ? data.error ?? {} : {};
+  const err = isPlainObject(data) ? data.error ?? {} : {};
   const details: string[] = [];
   for (const [nodeId, nodeErr] of Object.entries<any>(data?.node_errors ?? {})) {
     for (const e of nodeErr.errors ?? []) {

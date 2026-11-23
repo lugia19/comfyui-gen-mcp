@@ -5,7 +5,7 @@
 import { existsSync, statSync } from "node:fs";
 import { totalmem } from "node:os";
 import { join } from "node:path";
-import { checkComfyArgs, ComfyUIError, downloadSize, isModelSet, UploadError } from "@comfy-gen/core";
+import { checkComfyArgs, ComfyUIError, downloadSize, isModelSet, UploadError, uploadRoute } from "@comfy-gen/core";
 import { LocalComfy, type ComfySettings } from "./comfyui.ts";
 import type { ExtensionFiles } from "./nodes.ts";
 import { ModelDownloads, type ModelFile } from "./downloads.ts";
@@ -400,18 +400,15 @@ export class Machine {
    * protocol as the Worker's (web/src/lib/upload.js), each chunk answered with its MD5. */
   private async loraApi(req: Request, sub: string): Promise<Response | null> {
     const m = req.method;
-    const up = /^\/loras\/uploads\/([\w-]+)(?:\/(\d+|finish))?$/.exec(sub);
+    const up = uploadRoute(sub);
     try {
-      if (sub === "/loras/uploads" && m === "POST") {
+      if (up && "start" in up && m === "POST") {
         const body = await bodyJson(req);
         const session = this.uploads.start(body.filename, body.size);
         return json({ ...session, upload_url: `/api/loras/uploads/${session.id}` });
       }
-      if (up && up[2] === "finish" && m === "POST") return json(this.uploads.finish(up[1]));
-      if (up && up[2] && m === "PUT") {
-        const data = new Uint8Array(await req.arrayBuffer());
-        return json(await this.uploads.chunk(up[1], Number(up[2]), data));
-      }
+      if (up && "finish" in up && m === "POST") return json(this.uploads.finish(up.id));
+      if (up && "chunk" in up && m === "PUT") return json(await this.uploads.chunk(up.id, up.chunk, new Uint8Array(await req.arrayBuffer())));
       if (!up && m === "DELETE") {
         return json(await this.deleteLora(decodeURIComponent(sub.slice("/loras/".length))));
       }

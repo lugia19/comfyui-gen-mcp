@@ -4,6 +4,7 @@
 // chunk headers are walked and one small JSON parsed: never a loop over the pixels.
 
 import { imageSize } from "./images.ts";
+import { isPlainObject } from "./bytes.ts";
 import { canRedraw, type Pack } from "./packs.ts";
 
 type Prompt = Record<string, { class_type?: string; inputs?: Record<string, unknown> }>;
@@ -21,7 +22,7 @@ export function comfyPrompt(bytes: Uint8Array | null): Prompt | null {
     const text = PNG_SIGNATURE.every((b, i) => bytes[i] === b) ? pngPrompt(bytes) : webpPrompt(bytes);
     if (!text) return null;
     const prompt = JSON.parse(text);
-    return prompt && typeof prompt === "object" && !Array.isArray(prompt) ? prompt : null;
+    return isPlainObject(prompt) ? prompt : null;
   } catch {
     return null; // truncated or not JSON: as good as none
   }

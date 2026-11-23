@@ -50,6 +50,18 @@ export const chunksMissing = (n: number) => new UploadError(`${n} chunk(s) still
 const PARALLEL = 3;
 const RETRIES = 5;
 
+/** A route of the upload protocol (web/src/lib/upload.js): POST /loras/uploads starts a session,
+ * PUT /loras/uploads/<id>/<n> sends chunk n, POST /loras/uploads/<id>/finish ends it. */
+export type UploadRoute = { start: true } | { id: string; chunk: number } | { id: string; finish: true };
+
+/** *sub*'s upload route (the method aside), or null for another path. */
+export function uploadRoute(sub: string): UploadRoute | null {
+  if (sub === "/loras/uploads") return { start: true };
+  const m = /^\/loras\/uploads\/([\w-]+)\/(\d+|finish)$/.exec(sub);
+  if (!m) return null;
+  return m[2] === "finish" ? { id: m[1], finish: true } : { id: m[1], chunk: Number(m[2]) };
+}
+
 export type UploadSession = { upload_url: string; chunk_size: number; chunks: number };
 
 export type SendOptions = {

@@ -8,15 +8,7 @@ import * as cloudflare from "./cloudflare.ts";
 import type { Fetch } from "./platform.ts";
 import type { Store } from "./store.ts";
 
-export function parseVersion(tag: string): [number, number, number] | null {
-  const m = /^v?(\d+)\.(\d+)\.(\d+)$/.exec((tag || "").trim());
-  return m ? [+m[1], +m[2], +m[3]] : null;
-}
-
-function newer(a: number[], b: number[]): boolean {
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
-  return false;
-}
+export const parseVersion = releases.parseTag;
 
 // Right after a release, GitHub's caches disagree for a few minutes: some answer the new tag, some
 // still the old one, and a Worker's requests go out through many IPs. Seen 2026-10-13: the page
@@ -44,9 +36,7 @@ export async function startUpdate(fetch: Fetch, store: Store, latest: string): P
 
 /** Whether *latest* is newer than *current*. A development build ("dev") is never up to date. */
 export function isNewer(latest: string | null, current: string): boolean {
-  const next = parseVersion(latest ?? "");
-  const cur = parseVersion(current);
-  return Boolean(next) && (!cur || newer(next!, cur));
+  return Boolean(parseVersion(latest)) && (!parseVersion(current) || releases.newerTag(latest, current));
 }
 
 /**
@@ -81,12 +71,10 @@ export function buildUpdater(fetch: Fetch, store: Store): Updater {
  * A development build (a branch or "dev", not a release tag) never updates itself: whoever made it
  * decides when it goes back to releases. */
 export async function check(store: Store, current: string, u: Updater): Promise<string> {
-  const cur = parseVersion(current);
-  if (!cur) return `development build (${current}): no automatic updates`;
+  if (!parseVersion(current)) return `development build (${current}): no automatic updates`;
   const latest = await u.latest();
-  const next = parseVersion(latest ?? "");
-  if (!next) return "no release found";
-  if (!newer(next, cur)) return `up to date (${current})`;
+  if (!parseVersion(latest)) return "no release found";
+  if (!releases.newerTag(latest, current)) return `up to date (${current})`;
   if ((await store.setup()).update_tried === latest) return `already tried ${latest}`;
   const blocked = await u.blocked();
   if (blocked) return `not updating: ${blocked}`;

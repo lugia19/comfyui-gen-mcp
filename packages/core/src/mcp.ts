@@ -5,6 +5,8 @@
 // with 405). Request-independent JSON (the tool list, server info) is serialized once, when the
 // handler is built.
 
+import { isPlainObject } from "./bytes.ts";
+
 // Versions we answer to; a client asking for another gets the newest of these (the spec's rule).
 export const PROTOCOL_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 
@@ -57,11 +59,11 @@ export class McpHandler {
     const id = msg.id;
     if (id === undefined || id === null) return [202, null]; // a notification: accept it
     if (typeof method === "string") seen?.(method);
-    const params = msg.params && typeof msg.params === "object" && !Array.isArray(msg.params) ? msg.params : {};
+    const params = isPlainObject(msg.params) ? msg.params : {};
 
     if (method === "tools/call") {
       const name = params.name;
-      const args = params.arguments && typeof params.arguments === "object" && !Array.isArray(params.arguments) ? params.arguments : {};
+      const args = isPlainObject(params.arguments) ? params.arguments : {};
       if (typeof name !== "string") return [200, error(id, -32602, "tools/call needs a tool name")];
       let content: Content[];
       let isError: boolean;

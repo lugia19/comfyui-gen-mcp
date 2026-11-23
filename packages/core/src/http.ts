@@ -1,6 +1,8 @@
 // JSON responses and request bodies, for every server: the Worker and the local ones (the MCPB and
 // the agent). Web-platform Request and Response only.
 
+import { isPlainObject } from "./bytes.ts";
+
 /** A JSON response. *headers* add to (or override) the JSON content type. */
 export function json(data: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json", ...headers } });
@@ -23,7 +25,7 @@ export function readCookie(header: string | null, name: string): string | null {
 export async function bodyJson(req: Request): Promise<Record<string, any>> {
   try {
     const data = JSON.parse((await req.text()) || "{}");
-    return data && typeof data === "object" && !Array.isArray(data) ? data : {};
+    return isPlainObject(data) ? data : {};
   } catch {
     return {};
   }

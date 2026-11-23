@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import {
   Brain, FEATURES, toolSpecs, ComfyUIClient, ComfyUIError, FetchTransport, McpHandler, UnknownTool,
-  builtinPacks, fileKey, servedTools, isModelSet, removableFiles, removablePacks, inUseError, selectedPacks, wantedPacks, MARK_MODELS, MODEL_SETS, failResult, packRow, renderOutcome, safeEqual, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
+  builtinPacks, fileKey, servedTools, uploadRoute, isModelSet, removableFiles, removablePacks, inUseError, selectedPacks, wantedPacks, MARK_MODELS, MODEL_SETS, failResult, packRow, renderOutcome, safeEqual, settingsMetadata, tagLooseLoras, wantedLoras, withFamilies,
   type Config, type OutputImage, type Pack, type Rendered,
 } from "@comfy-gen/core";
 import {
@@ -61,7 +61,7 @@ export class LocalApp {
     if (path === "/alive") return json({ version: this.s.version, pid: process.pid });
     return settingsPage(req, remote, this.s.web, async (req, sub) => {
       // The machine side knows the LoRA files, this side the settings: every file keeps a group.
-      const finishing = req.method === "POST" && /^\/loras\/uploads\/[\w-]+\/finish$/.test(sub);
+      const finishing = req.method === "POST" && "finish" in (uploadRoute(sub) ?? {});
       const group = finishing ? ((await req.clone().json().catch(() => ({}))) as { group?: unknown }).group : undefined;
       const resp = (await this.s.machine.api(req, sub)) ?? (await this.api(req, sub));
       if (finishing && resp.ok) {

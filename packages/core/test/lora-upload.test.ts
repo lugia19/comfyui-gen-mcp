@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkUpload, chunkLength, isLoraName, md5, sendChunks, UploadError } from "../src/index.ts";
+import { checkUpload, chunkLength, isLoraName, md5, sendChunks, UploadError, uploadRoute } from "../src/index.ts";
 
 describe("LoRA upload rules", () => {
   it("names, sizes and chunks", () => {
@@ -56,5 +56,14 @@ describe("sending a file", () => {
   it("a 4xx is final, with the server's reason", async () => {
     const request = async () => Response.json({ error: "chunk 0 must be 10 bytes" }, { status: 400 });
     await expect(sendChunks({ upload_url: "/up/x", chunk_size: 10, chunks: 3 }, { size: 25, read, request, sleep: async () => {} })).rejects.toThrow("chunk 0 must be 10 bytes");
+  });
+});
+
+describe("uploadRoute", () => {
+  it("names a session's start, its chunks and its finish; nothing else", () => {
+    expect(uploadRoute("/loras/uploads")).toEqual({ start: true });
+    expect(uploadRoute("/loras/uploads/ab-1/3")).toEqual({ id: "ab-1", chunk: 3 });
+    expect(uploadRoute("/loras/uploads/ab-1/finish")).toEqual({ id: "ab-1", finish: true });
+    for (const other of ["/loras/uploads/ab-1", "/loras/x.safetensors", "/loras/uploads/a/b/c", "/loras/uploads/a/-1"]) expect(uploadRoute(other)).toBeNull();
   });
 });

@@ -3,6 +3,7 @@
 // it now. Then the agent restarts at once instead of after ten quiet minutes. A shim from before
 // the Host (a launcher from before v1.22.0) gives none: no button, updates as before.
 
+import { releases } from "@comfy-gen/core";
 import { log } from "@comfy-gen/local";
 
 /** The shim's offer (packages/mcpb/src/shim.ts, Host): keep the two in step. */
@@ -15,19 +16,8 @@ export type UpdateState = "idle" | "downloading" | "restarting" | "failed";
 
 const LATEST_CACHE_MS = 10 * 60_000;
 
-/** vX.Y.Z as numbers; null for anything else (a "dev" build). */
-function parse(tag: string | null): number[] | null {
-  const m = /^v(\d+)\.(\d+)\.(\d+)$/.exec(tag ?? "");
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
-}
-
 /** Whether *a* is a newer release than *b*. A dev build is never offered an update. */
-export function isNewer(a: string | null, b: string): boolean {
-  const [x, y] = [parse(a), parse(b)];
-  if (!x || !y) return false;
-  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
-  return false;
-}
+export const isNewer = (a: string | null, b: string): boolean => releases.newerTag(a, b);
 
 export type UpdaterOptions = {
   version: string;

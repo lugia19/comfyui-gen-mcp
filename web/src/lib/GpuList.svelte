@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte'
+  import { newerTag } from '../../../packages/core/src/releases.ts'
   import { api, gpuName, platformName, torchName, upgrading } from './api.js'
   import AgentUpdate from './AgentUpdate.svelte'
   import ComfyFlags from './ComfyFlags.svelte'
@@ -25,12 +26,7 @@
       // GitHub unreachable: no buttons
     }
   })
-  const older = (v) => {
-    const [a, b] = [latest, v].map((t) => /^v(\d+)\.(\d+)\.(\d+)$/.exec(t ?? '')?.slice(1).map(Number))
-    if (!a || !b) return false
-    const i = a.findIndex((n, k) => n !== b[k])
-    return i >= 0 && a[i] > b[i]
-  }
+  const older = (v) => newerTag(latest, v)
 
   const act = (id, fn) => task.run(async () => (await fn(), await refresh()), id)
 
