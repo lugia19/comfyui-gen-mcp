@@ -24,7 +24,7 @@ const cfg = experimental_readRawConfig({ config: join(here, "wrangler.jsonc") })
 
 // The module, bundled exactly as `wrangler deploy` would.
 const tmp = mkdtempSync(join(tmpdir(), "comfy-gen-bundle-"));
-execFileSync("npx", ["wrangler", "deploy", "--dry-run", "--outdir", tmp], { cwd: here, stdio: ["ignore", "ignore", "inherit"] });
+execFileSync("npx", ["wrangler", "deploy", "--dry-run", "--outdir", tmp], { cwd: here, stdio: ["ignore", "ignore", "inherit"], shell: process.platform === "win32" });
 const module = readFileSync(join(tmp, "index.js"));
 rmSync(tmp, { recursive: true, force: true });
 
