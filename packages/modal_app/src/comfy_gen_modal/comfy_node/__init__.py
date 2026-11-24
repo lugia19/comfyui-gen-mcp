@@ -36,7 +36,8 @@ Apache License 2.0), so the repainted area continues what surrounds it.
 ComfyGenAnimaRef (node): ArcAnima's Anima Reference Adapter on the model, so it draws the character
 in a reference image in the scene the prompt describes (the generate_from_reference packs; the
 weights are in models/comfy_gen, the code is anima_ref.py, copied from
-ArcAnima/ComfyUI-Anima-Ref-Adapter under the Apache License 2.0).
+ArcAnima/ComfyUI-Anima-Ref-Adapter under the Apache License 2.0). It can weaken the reference, so the
+prompt's style comes through, and crop it to the head, so the prompt's clothes do.
 
 ComfyGenCutout (node): turns ComfyUI's background removal (RMBG 2.0) into the RGBA image, cleaned:
 background enclosed by the silhouette (which BiRefNet models keep) cleared where isnet-anime
@@ -501,9 +502,9 @@ def face_boxes(output, scale, conf=FACE_CONF):
 _face_session = []
 
 
-def largest_face(image):
+def largest_face(image, missing=NO_FACE):
     """The largest face in *image* (H, W, C float tensor), [x0, y0, x1, y1] in pixels; raises
-    ValueError(NO_FACE) when there is none."""
+    ValueError(*missing*) when there is none."""
     import numpy as np
 
     if not _face_session:
@@ -522,7 +523,7 @@ def largest_face(image):
     output = _face_session[0].run(None, {"images": board.transpose(2, 0, 1)[None]})[0][0]
     boxes = face_boxes(output, scale)
     if not boxes:
-        raise ValueError(NO_FACE)
+        raise ValueError(missing)
     return boxes[0]
 
 
@@ -733,9 +734,39 @@ class ComfyGenInpaintControl:
 ANIMA_REF = "anima_ref_adapter_v2_r64.safetensors"  # in MARK_FOLDER: the generate_from_reference packs' model
 
 
+# head_only: the reference cropped to its head, so the prompt can dress the character (what the adapter
+# sees, it draws). The detector's face box grown by these shares of its sides: the hair, and ears on
+# top of the head; nothing under the chin, where a collar would come along (tested 2026-11-24).
+HEAD_SIDE, HEAD_UP = 0.4, 1.0
+NO_HEAD = "No face found in the reference: use one that shows the face, or leave new_outfit out."
+
+
+def head_box(face, width, height):
+    """The head around *face* ([x0, y0, x1, y1] in pixels), in whole pixels inside the image."""
+    x0, y0, x1, y1 = face
+    w, h = x1 - x0, y1 - y0
+    return [
+        max(0, round(x0 - HEAD_SIDE * w)),
+        max(0, round(y0 - HEAD_UP * h)),
+        min(width, round(x1 + HEAD_SIDE * w)),
+        min(height, round(y1)),
+    ]
+
+
+def crop_head(image):
+    """The first image of a batch, cropped to its largest face's head."""
+    height, width = image.shape[1:3]
+    x0, y0, x1, y1 = head_box(largest_face(image[0], NO_HEAD), width, height)
+    return image[:1, y0:y1, x0:x1, :3]
+
+
 class ComfyGenAnimaRef:
     """The model, after its LoRAs, patched to draw the reference image's character (anima_ref.py,
-    ArcAnima's Anima Reference Adapter). *ref_guidance* above 1 costs a model call per step."""
+    ArcAnima's Anima Reference Adapter). *ref_guidance* above 1 costs a model call per step
+    (*ref_end* ends that guidance, not the reference).
+    Weakening the reference: *ref_cutoff*, the share of the steps it is on for, and *blend*, its
+    share of each step (a model call more per step); 1 leaves either out. *head_only* crops it to
+    the head."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -751,6 +782,9 @@ class ComfyGenAnimaRef:
             "optional": {
                 "ref_end": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "ref_megapixels": ("FLOAT", {"default": 1.0, "min": 0.25, "max": 2.0, "step": 0.05}),
+                "ref_cutoff": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "blend": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "head_only": ("BOOLEAN", {"default": False}),
             },
         }
 
@@ -758,7 +792,11 @@ class ComfyGenAnimaRef:
     FUNCTION = "run"
     CATEGORY = "comfy-gen"
 
-    def run(self, model, vae, image, adapter_name, ref_guidance, correction, ref_end=1.0, ref_megapixels=1.0):
+    def run(self, model, vae, image, adapter_name, ref_guidance, correction, ref_end=1.0, ref_megapixels=1.0,
+            ref_cutoff=1.0, blend=1.0, head_only=False):
+        if not ref_cutoff or not blend:
+            return (model,)  # no reference at all
+
         import folder_paths
 
         from .anima_ref import apply
@@ -766,7 +804,10 @@ class ComfyGenAnimaRef:
         path = folder_paths.get_full_path(MARK_FOLDER, adapter_name)
         if not path:
             raise FileNotFoundError(f"The reference adapter {adapter_name} is not in models/{MARK_FOLDER}")
-        return (apply(model, vae, image, path, ref_guidance, correction, ref_end=ref_end, ref_megapixels=ref_megapixels),)
+        if head_only:
+            image = crop_head(image)
+        return (apply(model, vae, image, path, ref_guidance, correction, ref_end=ref_end, ref_megapixels=ref_megapixels,
+                      ref_cutoff=ref_cutoff, blend=blend),)
 
 
 # ── Cut-outs: the background removal's mask, cleaned ──────────────────────────────────────────

@@ -49,6 +49,7 @@ export const TITLES = {
   image: "cg:image",
   imageScale: "cg:image scale",
   imageChain: "cg:image chain",
+  reference: "cg:reference",
   removeMarks: "cg:remove marks",
   backgroundModel: "cg:background model",
   background: "cg:remove background",
@@ -102,6 +103,7 @@ export type BuildOptions = {
   outputName?: string; // the save nodes' filename_prefix; a new one per call by default
   negative?: string; // a caller's negative (hidden argument): with negativeFixed, the cg:negative node's text when not blank
   negativeFixed?: string; // the pack's always-on negative tags, kept before the caller's
+  reference?: Record<string, unknown>; // inputs for the cg:reference node (a reference pack's adapter)
 };
 
 /** A call's own output name, `comfy-gen/<12 hex>`: ComfyUI saves it as output/comfy-gen/<hex>_00001_.webp (withWebpSave).
@@ -121,6 +123,7 @@ export function buildPrompt(workflow: Workflow, promptText: string, opts: BuildO
   if (!promptNode) throw new Error(`the workflow has no node titled ${TITLES.prompt}`);
   // A text encoder's `text`, or its `prompt` when it has one (Qwen Image 2.1's TextEncodeQwenImage21).
   wf[promptNode].inputs["prompt" in wf[promptNode].inputs ? "prompt" : "text"] = promptText;
+  for (const id of nodesTitled(wf, TITLES.reference)) Object.assign(wf[id].inputs, opts.reference);
   const negative = opts.negative?.trim();
   if (negative) {
     // The fixed tags stay (quality, watermark...); the caller's replace the rest of the default.

@@ -514,8 +514,14 @@ describe("redraw", () => {
     }
     const noImage = structuredClone(pack("anima_ref")) as any;
     delete noImage.workflow["60"];
-    expect(() => validate(noImage)).toThrow(/reference pack needs/);
+    expect(() => validate(noImage)).toThrow(/reference pack needs one node titled cg:image/);
+    const noAdapter = structuredClone(pack("anima_ref")) as any;
+    noAdapter.workflow["61"]._meta.title = "Adapter";
+    expect(() => validate(noAdapter)).toThrow(/reference pack needs one node titled cg:reference/);
     expect(() => validate({ ...pack("anima_ref"), lora_strengths_from: "anima_ref" })).toThrow(/lora_strengths_from/);
+    const { reference_strength: look, ...without } = pack("anima_ref");
+    for (const bad of [undefined, { ...look, input: "seed" }, { ...look, points: [[0, 0]] }, { ...look, points: [[0, 0], [0.5, 0.8], [0.8, 0.5], [1, 1]] }, { ...look, points: [[0, 0.1], [1, 1]] }, { ...look, new_outfit: 2 }])
+      expect(() => validate({ ...without, reference_strength: bad })).toThrow(/reference_strength/);
   });
 
   it("extend grows the canvas and denoises it fully", () => {

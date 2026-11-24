@@ -6,7 +6,7 @@
 // description's shared parts) is defined once, in packs/tools.json; a pack adds its prompt_guide.
 
 import { PACK_FILES, TOOL_FILE } from "../packs/index.ts";
-import { isPlainObject } from "./bytes.ts";
+import { isPlainObject, roundHalfEven } from "./bytes.ts";
 import { SETTINGS_SCHEMA, strengthIn, tagLoras, type Config, type LoraEntry } from "./config.ts";
 import { injectLoras, nodesTitled, redrawSampler, TITLES, withBackgroundRemoval, withMarkRemoval } from "./workflow.ts";
 import type { LoraGroupMatch } from "./lora-detect.ts";
@@ -31,10 +31,18 @@ export type Pack = Record<string, any> & {
   /** The pack whose per-model LoRA strengths this one uses (a reference pack: Anima Turbo's for Anima
    * Turbo + reference), so the LoRA table has no column of its own for it. */
   lora_strengths_from?: string;
+  /** A reference pack's reference_strength argument: the ComfyGenAnimaRef *input* it sets (ref_cutoff:
+   * the share of the steps the reference is on for; blend: its share of each step), from *points*,
+   * [argument, input value] from [0, 0] to [1, 1], straight lines between them. Each model has its
+   * own, so 0.5 means about the same on both. *new_outfit*: the input's value when a new_outfit call
+   * gives no strength (else full). */
+  reference_strength?: { input: (typeof REFERENCE_INPUTS)[number]; points: [number, number][]; new_outfit?: number };
   models: { url: string; subfolder: string; filename: string; size_bytes?: number; sha256?: string }[];
   /** ComfyUI API format; the nodes we fill in are found by title (workflow.ts TITLES). */
   workflow: Record<string, any>;
 };
+
+export const REFERENCE_INPUTS = ["ref_cutoff", "blend"] as const;
 
 export const REQUIRED_FIELDS = ["name", "display_name", "tool_name", "models", "workflow"];
 
@@ -75,7 +83,7 @@ export const MARK_MODELS: Pack = { tool_name: "", workflow: {}, ...TOOL_DEFS.rem
  * call asks for it. */
 export const BG_MODELS: Pack = { tool_name: "", workflow: {}, ...TOOL_DEFS.remove_background };
 
-/** The face detector redraw finds a face with when the caller gives no box (packs/tools.json). */
+/** The face detector (packs/tools.json): redraw's, when the caller gives no box, and new_outfit's. */
 export const FACE_MODELS: Pack = { tool_name: "", workflow: {}, ...TOOL_DEFS.detect_faces };
 
 /** The model sets: downloaded in the background, never listed. */
@@ -139,9 +147,32 @@ export function validate(pack: unknown, source = "pack"): Pack {
   if (count(TITLES.prompt) !== 1) throw new Error(`${source}: needs one node titled ${TITLES.prompt}`);
   if (!count(TITLES.seed)) throw new Error(`${source}: needs a node titled ${TITLES.seed}`);
   if (pack.lora_group !== undefined && count(TITLES.model) !== 1) throw new Error(`${source}: a pack with LoRAs needs one node titled ${TITLES.model}`);
-  // A tool that takes a reference image loads it into one node (Brain's loadImages).
-  if (TOOLS[String(pack.tool_name)].reference && count(TITLES.image) !== 1) throw new Error(`${source}: a reference pack needs one node titled ${TITLES.image}`);
+  if (TOOLS[String(pack.tool_name)].reference) validateReference(pack, count, source);
   return pack as Pack;
+}
+
+/** What a reference tool's pack also needs: a node the call's image loads into (Brain's loadImages),
+ * its adapter's node, and how reference_strength is set on it. */
+function validateReference(pack: Record<string, any>, count: (title: string) => number, source: string): void {
+  for (const title of [TITLES.image, TITLES.reference])
+    if (count(title) !== 1) throw new Error(`${source}: a reference pack needs one node titled ${title}`);
+  const r = isPlainObject(pack.reference_strength) ? pack.reference_strength as Record<string, any> : {};
+  const share = (v: unknown) => typeof v === "number" && v >= 0 && v <= 1;
+  if (!REFERENCE_INPUTS.includes(r.input) || (r.new_outfit !== undefined && !share(r.new_outfit)))
+    throw new Error(`${source}: reference_strength needs its input (${REFERENCE_INPUTS.join(" or ")}); new_outfit is from 0 to 1`);
+  const isPoint = (p: unknown) => Array.isArray(p) && p.length === 2 && p.every(share);
+  const points: [number, number][] = Array.isArray(r.points) && r.points.every(isPoint) ? r.points : [];
+  const rising = points.every(([x, y], k) => k === 0 || (x > points[k - 1][0] && y >= points[k - 1][1]));
+  if (!rising || String(points[0]) !== "0,0" || String(points.at(-1)) !== "1,1")
+    throw new Error(`${source}: reference_strength needs rising points from [0, 0] to [1, 1]`);
+}
+
+/** What *strength* (a call's reference_strength, 0 to 1) is as the input of *pack*'s reference node. */
+export function referenceInput(pack: Pack, strength: number): number {
+  const { points } = pack.reference_strength!;
+  const i = Math.max(1, points.findIndex(([x]) => x >= strength));
+  const [[x0, y0], [x1, y1]] = [points[i - 1], points[i]];
+  return roundHalfEven((y0 + ((strength - x0) / (x1 - x0)) * (y1 - y0)) * 1e4) / 1e4;
 }
 
 /** The packs shipped with core, in file-name order. Bad ones are logged and skipped. */

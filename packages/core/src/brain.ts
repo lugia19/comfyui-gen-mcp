@@ -13,7 +13,7 @@ import { normalize, type Config } from "./config.ts";
 import { imageSize, sniffMime } from "./images.ts";
 import { UnknownTool } from "./mcp.ts";
 import { redrawPackFor } from "./metadata.ts";
-import { BG_MODELS, canRedraw, FACE_MODELS, groupByTool, MARK_MODELS, packFor, prepare, redrawPack, select, TOOLS, type Pack } from "./packs.ts";
+import { BG_MODELS, canRedraw, FACE_MODELS, groupByTool, MARK_MODELS, packFor, prepare, redrawPack, referenceInput, select, TOOLS, type Pack } from "./packs.ts";
 import { STATIC_TOOLS, toolSpecs, type ImageMode, type ToolSpec } from "./tools.ts";
 import * as refs from "./refs.ts";
 import { buildPrompt, cutoutWorkflow, redrawWorkflow, withBackgroundRemoval, withImages, withMarkRemoval, withWebpSave, type Workflow } from "./workflow.ts";
@@ -109,6 +109,7 @@ export const FEATURES = [
   "inpaint_control", // the inpainting control node, kohya's LLLite (v1.21.0); without it a redraw runs uncontrolled
   "redraw_extend", // its redraw nodes grow the canvas, for extend (v1.21.0)
   "anima_ref", // the Anima Reference Adapter's node, for generate_from_reference (v2.7.0)
+  "reference_strength", // that node weakens the reference and crops it to its head: reference_strength, new_outfit (v2.8.0)
 ] as const;
 export type Feature = (typeof FEATURES)[number];
 
@@ -126,6 +127,9 @@ export const REDRAW_AREA_UNAVAILABLE =
 
 export const REFERENCE_UNAVAILABLE =
   "Drawing from a reference needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that.";
+
+export const REFERENCE_STRENGTH_UNAVAILABLE =
+  "reference_strength and new_outfit need a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that, or without them.";
 
 export const REDRAW_EXTEND_UNAVAILABLE =
   "extend needs a newer Comfy-Gen agent on this PC. The agent updates itself when it restarts; try again after that.";
@@ -210,10 +214,16 @@ export class Brain {
     // A reference tool's image, named in either mode's spelling (as edit_image's).
     const isReference = TOOLS[rawPack.tool_name]?.reference === true;
     const reference = String(args.reference_image_path || args.reference_image || "").trim();
-    if (isReference && !reference) return new Failed("reference_image is required: the image of the character to draw.");
-    if (isReference && !this.can("anima_ref")) return new Failed(REFERENCE_UNAVAILABLE);
+    let look: ReferenceLook | Failed = {};
+    if (isReference) {
+      if (!reference) return new Failed("reference_image is required: the image of the character to draw.");
+      if (!this.can("anima_ref")) return new Failed(REFERENCE_UNAVAILABLE);
+      look = referenceLook(rawPack, args);
+      if (look instanceof Failed) return look;
+      if (Object.keys(look).length && !this.can("reference_strength")) return new Failed(REFERENCE_STRENGTH_UNAVAILABLE);
+    }
     const pack = prepare(rawPack, this.cfg, { removeMarks: await this.marksReady(), removeBackground, cutout: this.can("cutout") });
-    const extra = removeBackground ? [BG_MODELS] : [];
+    const extra = [...(look.head_only ? [FACE_MODELS] : []), ...(removeBackground ? [BG_MODELS] : [])];
     const workflow = isReference ? await this.loadImages(pack, extra, [reference]) : pack.workflow;
     const wf = buildPrompt(workflow, prompt, {
       seed,
@@ -221,6 +231,7 @@ export class Brain {
       maxPixels: budgetOf(pack),
       loraToggles: pack.lora_toggles,
       negative: String(args.negative ?? ""), negativeFixed: pack.negative_fixed,
+      reference: look,
     });
     return this.run(pack, wf, isReference ? null : extra); // loadImages made the pack ready
   }
@@ -262,8 +273,8 @@ export class Brain {
     if (!prompt || !image) return new Failed("prompt and an image are required.");
     const box = redrawBox(args.box);
     if (box instanceof Failed) return box;
-    const strength = args.strength === undefined || args.strength === null ? REDRAW_STRENGTH : Number(args.strength);
-    if (!Number.isFinite(strength) || strength < MIN_STRENGTH || strength > 1) return new Failed(`strength must be a number from ${MIN_STRENGTH} to 1.`);
+    const strength = numberArg(args.strength, "strength", MIN_STRENGTH, 1) ?? REDRAW_STRENGTH;
+    if (strength instanceof Failed) return strength;
     const scope = args.prompt_scope === undefined || args.prompt_scope === null || args.prompt_scope === "" ? "image" : args.prompt_scope;
     if (scope !== "image" && scope !== "area") return new Failed('prompt_scope must be "image" (the default) or "area".');
     const extend = redrawExtend(args.extend);
@@ -373,6 +384,27 @@ export function callSeed(seed: unknown): number | null | Failed {
     return new Failed(`seed must be a whole number from 0 to ${Number.MAX_SAFE_INTEGER}, or left out for a random one.`);
   }
   return n;
+}
+
+/** A call's number from *min* to *max*; null left out, a Failed for anything else. */
+function numberArg(value: unknown, name: string, min: number, max: number): number | null | Failed {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  return n >= min && n <= max ? n : new Failed(`${name} must be a number from ${min} to ${max}.`);
+}
+
+/** What a call sets on its pack's cg:reference node. */
+type ReferenceLook = { ref_cutoff?: number; blend?: number; head_only?: true };
+
+/** A reference call's reference_strength and new_outfit on *pack*'s node; a Failed saying what is
+ * wrong. Nothing at their defaults: the call runs as before them, on older agents too. */
+function referenceLook(pack: Pack, args: Record<string, any>): ReferenceLook | Failed {
+  const { input, new_outfit } = pack.reference_strength!;
+  const strength = numberArg(args.reference_strength, "reference_strength", 0, 1);
+  if (strength instanceof Failed) return strength;
+  const newOutfit = args.new_outfit === true;
+  const value = strength !== null ? referenceInput(pack, strength) : newOutfit ? new_outfit ?? 1 : 1;
+  return { ...(value < 1 ? { [input]: value } : {}), ...(newOutfit ? { head_only: true } : {}) };
 }
 
 /** A redraw call's box for the node: "left,top,right,bottom" fractions, "" for the largest face; a

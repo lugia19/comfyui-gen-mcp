@@ -74,7 +74,10 @@ the extension and the agent all build it in. Packs are ours; there are no user w
      LoRA table: the reference packs take their base's).
    - A tool marked `reference` in `tools.json` (`generate_from_reference`) draws from an image the
      call gives: its packs need one `LoadImage` titled `cg:image` and the `ComfyGenAnimaRef` node,
-     whose `adapter_name` is one of the pack's models in `comfy_gen`.
+     titled `cg:reference`, whose `adapter_name` is one of the pack's models in `comfy_gen`.
+     They also need `reference_strength`: the node input the call's argument sets (`ref_cutoff` or
+     `blend`) and its `points`, [argument, input value] from [0, 0] to [1, 1]; `new_outfit` is the
+     input's value for a new_outfit call that gives no strength.
 5. **Fill in the model sizes and hashes:**
 
    ```sh

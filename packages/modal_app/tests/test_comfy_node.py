@@ -386,6 +386,33 @@ def test_the_reference_node_takes_its_adapter_from_comfy_gen_and_loads_its_code_
     types = ComfyGenAnimaRef.INPUT_TYPES()
     assert list(types["required"]) == ["model", "vae", "image", "adapter_name", "ref_guidance", "correction"]
     assert types["required"]["adapter_name"][1]["default"] == ANIMA_REF
-    assert list(types["optional"]) == ["ref_end", "ref_megapixels"]
+    assert list(types["optional"]) == ["ref_end", "ref_megapixels", "ref_cutoff", "blend", "head_only"]
+    # at their defaults they change nothing
+    assert [types["optional"][k][1]["default"] for k in ("ref_cutoff", "blend", "head_only")] == [1.0, 1.0, False]
     # anima_ref.py imports ComfyUI and torch: not at load, or this module wouldn't import here
     assert "comfy_gen_modal.comfy_node.anima_ref" not in sys.modules
+
+
+def test_the_head_crop_takes_in_the_hair_and_nothing_under_the_chin():
+    from comfy_gen_modal.comfy_node import head_box
+
+    assert head_box([400, 300, 500, 400], 1000, 1000) == [360, 200, 540, 400]
+    assert head_box([10.4, 20.6, 110.4, 120.6], 120, 130) == [0, 0, 120, 121]  # kept inside the image
+
+
+def test_the_head_crop_says_so_when_there_is_no_face(monkeypatch):
+    import pytest
+
+    torch = pytest.importorskip("torch")
+    from comfy_gen_modal import comfy_node
+
+    image = torch.rand(2, 100, 80, 4)
+    monkeypatch.setattr(comfy_node, "largest_face", lambda im, missing: [30, 50, 50, 70])
+    assert torch.equal(comfy_node.crop_head(image), image[:1, 30:70, 22:58, :3])
+
+    def none(im, missing):
+        raise ValueError(missing)
+
+    monkeypatch.setattr(comfy_node, "largest_face", none)
+    with pytest.raises(ValueError, match="new_outfit"):
+        comfy_node.crop_head(image)

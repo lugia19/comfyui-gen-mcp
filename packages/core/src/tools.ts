@@ -37,12 +37,30 @@ export const GENERATION_SCHEMA = {
   required: ["prompt"],
 };
 
+const REFERENCE_PROPS = {
+  reference_strength: {
+    type: "number",
+    minimum: 0,
+    maximum: 1,
+    // no default: a caller filling defaults in would override a pack's own for new_outfit
+    description:
+      "Leave it out to keep the reference's drawing style. Only when the user wants another style: " +
+      "about 0.5, with that style in the prompt (see Style in the description).",
+  },
+  new_outfit: {
+    type: "boolean",
+    default: false,
+    description: "true only when the character should wear something other than in the reference, which the prompt describes (see Outfit in the description).",
+  },
+};
+
 /** A reference tool's image argument (packs/tools.json `reference`) named *key*: its schema, a
- * generation's with the image, and the line after the routing line that says how to pass one. */
+ * generation's with the image and REFERENCE_PROPS, and the line after the routing line that says how
+ * to pass one. */
 function referenceArg(key: string, what: string, how: string) {
   const { prompt, ...rest } = GENERATION_SCHEMA.properties;
   return {
-    schema: { type: "object", properties: { prompt, [key]: { type: "string", description: `The reference: ${what}.` }, ...rest }, required: ["prompt", key] },
+    schema: { type: "object", properties: { prompt, [key]: { type: "string", description: `The reference: ${what}.` }, ...REFERENCE_PROPS, ...rest }, required: ["prompt", key] },
     line: `${key} is the character's image: ${how}`,
   };
 }

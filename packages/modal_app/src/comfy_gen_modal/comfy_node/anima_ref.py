@@ -7,7 +7,9 @@ Comfy-Gen's ComfyGenAnimaRef node (__init__.py), which the generate_from_referen
 Changed from the original: only its one-node path is kept (AnimaRefAdapter's pilot/v2 backend, apply()
 here). Left out: the SnapRef backend, the separate Loader, Latent and Guider nodes, the download from
 Hugging Face on first use (the weights are a pack model, in models/comfy_gen), the frontend script
-with its /anima_ref_adapter/format route, and the node registrations.
+with its /anima_ref_adapter/format route, and the node registrations. Added: weakening the reference,
+by running the model without it after a share of the steps (ref_cutoff) or by blending each step
+with the same step without it (blend).
 
 From the original's docstring: the adapter reads a reference image as an extra latent frame, fed clean
 (timestep 0) next to the noisy target frame, its RoPE (h, w) coordinates shifted so that it is not
@@ -341,12 +343,15 @@ def _asym_ref_kv(adapter: _Adapter, dm, refs, x, offset_ratio):
     return adapter.ref_cache[key]
 
 
-def _make_wrapper(adapter: _Adapter, offset_ratio: float):
+def _make_wrapper(adapter: _Adapter, offset_ratio: float, cutoff=None):
     def wrapper(executor, x, timesteps, context, fps=None, padding_mask=None, **kwargs):
         slot_refs = {slot: [r for r in (kwargs.pop(full, None), kwargs.pop(half, None)) if r is not None]
                      for slot, (full, half) in SLOT_KEYS.items()}
         options = kwargs.get("transformer_options", {})
-        if not slot_refs["character"] and not options.get(NO_REF_KEY):
+        past = _past(options.get("sigmas"), cutoff)
+        if past:
+            adapter.release()  # off for the rest of the run: its ~1 GB of keys and values too
+        if not slot_refs["character"] and not options.get(NO_REF_KEY) and not past:
             slot_refs["character"] = options.get(OPTIONS_REF_KEY, [])  # set by Anima Ref Adapter
         if "style" not in adapter.slots and slot_refs["style"]:
             if not slot_refs["character"]:  # a single-reference adapter reads the style image as its reference
@@ -411,9 +416,18 @@ def _in_window(model_sampling, sigma, start, end) -> bool:
     return model_sampling.percent_to_sigma(end) - 1e-5 <= sigma <= model_sampling.percent_to_sigma(start) + 1e-5
 
 
-def apply(model, vae, image, path, ref_guidance, correction, strength=1.0, ref_end=1.0, ref_megapixels=1.0):
+def _past(sigma, cutoff) -> bool:
+    """Whether a step is at or after *cutoff*, the sigma from which the reference is off (None: never)."""
+    return cutoff is not None and float(sigma.flatten()[0]) <= cutoff + 1e-5
+
+
+def apply(model, vae, image, path, ref_guidance, correction, strength=1.0, ref_end=1.0, ref_megapixels=1.0,
+          ref_cutoff=1.0, blend=1.0):
     """The original AnimaRefAdapter.apply for the pilot/v2 adapter file at *path*: *model* patched to
-    read *image* as its reference, with the reference guidance as a post-CFG function."""
+    read *image* as its reference, with the reference guidance as a post-CFG function. Ours: the
+    reference only for the first *ref_cutoff* of the schedule (the model runs plain after it, with no
+    extra call), and *blend*, its share of each step's result (the rest is the step without it). 1
+    leaves either out."""
     adapter = _Adapter.get(path, strength)
     adapter.install(model.get_model_object("diffusion_model"))
     pixels = image[:1].movedim(-1, 1)
@@ -425,24 +439,37 @@ def apply(model, vae, image, path, ref_guidance, correction, strength=1.0, ref_e
             for w, h in ((width, height), (width // 16 * 8, height // 16 * 8))]
     m = model.clone()
     m.model_options["transformer_options"][OPTIONS_REF_KEY] = refs
-    m.add_wrapper_with_key(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, WRAPPER_KEY, _make_wrapper(adapter, 1.0))
+    cutoff = float(m.get_model_object("model_sampling").percent_to_sigma(ref_cutoff)) if ref_cutoff < 1.0 else None
+    m.add_wrapper_with_key(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, WRAPPER_KEY, _make_wrapper(adapter, 1.0, cutoff))
     m.add_wrapper_with_key(comfy.patcher_extension.WrappersMP.OUTER_SAMPLE, WRAPPER_KEY, _make_outer_sample_wrapper(adapter))
 
-    m.set_model_sampler_post_cfg_function(_post_cfg(ref_guidance, correction, ref_end))
+    m.set_model_sampler_post_cfg_function(_post_cfg(ref_guidance, correction, ref_end, cutoff, blend))
     return m
 
 
-def _post_cfg(ref_guidance, correction, ref_end):
+def _post_cfg(ref_guidance, correction, ref_end, cutoff=None, blend=1.0):
+    def without_ref(args, conds):
+        options = args["model_options"].copy()
+        options["transformer_options"] = {**options["transformer_options"], NO_REF_KEY: True}
+        return comfy.samplers.calc_cond_batch(args["model"], conds, args["input"], args["sigma"], options)
+
     def post_cfg(args):
         guided, pos = args["denoised"], args["cond_denoised"]
+        if _past(args["sigma"], cutoff):
+            return guided  # the model ran without the reference
+        conds, with_ref = [args["cond"], args["uncond"]], [pos, args["uncond_denoised"]]
+        # The reference guidance's branch: the uncond one, as in Anima Ref Guider, or the cond one when
+        # cfg is 1 and there is no uncond.
+        branch = 0 if args["uncond"] is None else 1
+        plain = without_ref(args, conds) if blend != 1.0 else None
         if ref_guidance != 1.0 and _in_window(args["model"].model_sampling, args["sigma"], 0.0, ref_end):
-            # reference effect = (a branch with the reference) - (the same branch without it); the uncond branch
-            # as in Anima Ref Guider, or the cond branch when cfg is 1 and there is no uncond
-            cond, ref = (args["uncond"], args["uncond_denoised"]) if args["uncond"] is not None else (args["cond"], pos)
-            options = args["model_options"].copy()
-            options["transformer_options"] = {**options["transformer_options"], NO_REF_KEY: True}
-            (base,) = comfy.samplers.calc_cond_batch(args["model"], [cond], args["input"], args["sigma"], options)
-            guided = guided + (ref_guidance - 1.0) * (ref - base)
-        return _correct(guided, pos, correction, 0.5)
+            base = plain[branch] if plain else without_ref(args, [conds[branch]])[0]
+            guided = guided + (ref_guidance - 1.0) * (with_ref[branch] - base)  # the reference's effect, pushed further
+        guided = _correct(guided, pos, correction, 0.5)
+        if plain:
+            cond, uncond = plain
+            step = uncond + args["cond_scale"] * (cond - uncond) if branch else cond
+            guided = step + blend * (guided - step)
+        return guided
 
     return post_cfg

@@ -700,7 +700,7 @@ the framing, pose, expression and place. It is for the same character across ima
 LoRA, original characters included, and for Visual Novelist's characters in new scenes.
 
 - **A tool of its own (the user's call).** Its prompts differ from `generate_illustrated_image`'s:
-  no @artist tag (the reference sets the style) and no character name, the scene first and the
+  no @artist tag unless another style is wanted, no character name, the scene first and the
   character's appearance after it. One description holding both rules, with "unless a reference
   is given", would mix them up, as the artist tag shows. As its own tool its schema requires the image
   (`reference_image`, an id or URL; `reference_image_path` in the MCPB), and its routing line sets
@@ -736,15 +736,17 @@ LoRA, original characters included, and for Visual Novelist's characters in new 
   from the prompt; Turbo about 6 s, base about 20 s and closer to the reference's own style. Its
   hooks stay inert: a plain image of the same seed is pixel-identical before and after a reference
   run, and on a ComfyUI that never loaded the adapter.
-- **Prompting (measured 2026-11-23, seed 42, the same reference; the guide follows it).**
+- **Prompting (measured 2026-11-23, seed 42, the same reference).** At full strength, on the whole
+  picture; since 2026-11-24 `reference_strength` and `new_outfit` (below) change what the guide says about
+  style and clothes.
   - Plain @artist tags barely restyle: on Turbo line and shading shift a little, and two of Anima's
     four default artists turned the pink eyes purple; on base (`ref_guidance` 4.5) nothing changes.
-    An artist LoRA restyles cleanly and keeps the character. So: no @artist tags; another style is
-    a LoRA trigger, when asked.
+    An artist LoRA restyles cleanly and keeps the character. So, at full strength: no @artist tags; another
+    style is a LoRA trigger, when asked.
   - The character's own appearance tags after the scene help, not hurt (the README's advice is to
     leave them out): they brought back the shark teeth, the tail's fin and a small charm the image
     alone had dropped, and fix an eye colour that drifts.
-  - The outfit is locked: a hoodie and jeans replaced it in one scene, but in another only layered
+  - The outfit mostly holds: a hoodie and jeans replaced it in one scene, but in another only layered
     over it, with appearance tags added the old outfit always stayed, and fewer clothes (a bikini
     bottom instead of shorts, "no shorts, bare legs") didn't take either. By design: the adapter's
     training groups keep one outfit per character (its report, §3). An edit of the result (Qwen
@@ -752,6 +754,47 @@ LoRA, original characters included, and for Visual Novelist's characters in new 
     says: the character here, in its outfit and with its appearance tags; other clothes by
     edit_image (the user's call). Back views, strong expressions and natural language all work;
     even a bare prompt without quality tags keeps the character.
+
+#### Weakening the reference, and other clothes (2026-11-24)
+
+Two visible arguments (the user's call). `reference_strength`, 0 to 1 (default 1), weakens the
+reference so the prompt's style comes through; `new_outfit` (default false) crops the reference to its
+head, so the prompt dresses the character. At their defaults nothing is set on the node, so the
+output stays as it was and older agents still draw; otherwise the GPU must say the
+`reference_strength` feature. Measured on the PC: about 1,200 images, four characters (two drawn, a
+photo, one with ears and a tail), a style tag and a style LoRA, mostly one or two seeds, by eye.
+
+- **Each pack maps the argument** (`reference_strength` in the pack: the node's input and points), so
+  0.5 means about the same on both models, and a mapping or a method changes with a Worker release
+  alone: the node has both inputs.
+- **Turbo: `ref_cutoff`**, the full reference for the first share of the steps, then the plain model.
+  No extra model call. It gave a better mix of style and character than a constant blend: the early
+  steps set hair, build and clothes, the later ones the drawing style. Useful from about 20 to 50%;
+  from 60% it is hard to tell from all of it. Scenes and poses follow the prompt, but the reference's
+  expression carries over (less at 30%), so the guide says to name it. At Turbo's 10 steps the dial
+  moves in tenths.
+- **Base: `blend`**, each step mixed with the same step without the reference: 0 is plain Anima and 1
+  the pack's output, exactly. A fourth model call per step. `ref_guidance` on its own is no dial here:
+  at 0 the reference still steers (both CFG branches have it), and its low end is flat and grey. The
+  blend pulls harder than on Turbo (0.2 to 0.4 is the useful range, where Turbo's was 0.5 to 0.6), so 0.5
+  is a blend of 0.3. The cutoff
+  works on base too, with more anatomy slips (an artificial arm on both sides); scenes and clothes
+  weren't compared.
+- **The other way round is worse**: the reference off or weak for the first steps (Turbo's
+  `ref_guidance` below 1 with `ref_end`, which ends that guidance, not the reference) gives the
+  text-only composition and less of the style.
+- **`apg` below full strength** leaves some of the reference in (with `ref_guidance` alone, 0 was not
+  the text-only image). The blend mixes after the correction, so it doesn't.
+- **Style.** A tag needs about 0.5; a style LoRA mostly holds its line work on a drawn reference at
+  full strength; a photo goes semi-realistic sooner and wants 0.3 to 0.5. Without a style in the prompt,
+  weakening gives the model's own look.
+- **Clothes.** The adapter draws what it sees, so the clothes must not be in the picture: a head crop
+  changed them in every Turbo image and kept face and hair. Weakening the whole picture gives hybrids at 0.5
+  to 0.6 and weakens the face below (on base 0.4 to 0.5 mostly works). A looser crop brings a collar or
+  choker, a tighter one a generic face; body features outside it survive when the prompt names them.
+  A hat comes along ("no headwear" removed it in 0 of 4 at this crop). The crop is redraw's face
+  detector's box, grown (`head_box`); it found the photo's face too. On base the crop defaults to a
+  blend of 0.6 (the pack's `new_outfit`): at 1 colours got heavy and outlines glowed.
 
 ### Waiting
 

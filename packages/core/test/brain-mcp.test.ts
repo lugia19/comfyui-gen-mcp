@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { roundHalfEven } from "../src/bytes.ts";
-import { BACKGROUND_UNAVAILABLE, REFERENCE_UNAVAILABLE, Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pending, REDRAW_AREA_UNAVAILABLE, REDRAW_UNAVAILABLE, redrawBox, type ResolvedImage, REDRAW_EXTEND_UNAVAILABLE, redrawExtend } from "../src/brain.ts";
+import { BACKGROUND_UNAVAILABLE, REFERENCE_STRENGTH_UNAVAILABLE, REFERENCE_UNAVAILABLE, Brain, DEFAULT_WAIT_S, Done, Failed, Hooks, Pending, REDRAW_AREA_UNAVAILABLE, REDRAW_UNAVAILABLE, redrawBox, type ResolvedImage, REDRAW_EXTEND_UNAVAILABLE, redrawExtend } from "../src/brain.ts";
 import { ComfyUIError, STILL_STARTING } from "../src/comfyui.ts";
 import { McpHandler, PROTOCOL_VERSIONS, RESULT_META, UnknownTool, type ToolCall } from "../src/mcp.ts";
 import { builtinPacks, type Pack } from "../src/packs.ts";
@@ -30,11 +30,12 @@ describe("tools", () => {
     for (const [mode, key] of [["paths", "reference_image_path"], ["refs", "reference_image"]] as const) {
       const spec = toolSpecs(BUILTIN, normalize({}), mode).find((s) => s.name === "generate_from_reference")!;
       expect(spec.inputSchema.required).toEqual(["prompt", key]);
-      expect(Object.keys(spec.inputSchema.properties)).toEqual(["prompt", key, "aspect_ratio", "remove_background"]);
+      expect(Object.keys(spec.inputSchema.properties)).toEqual(["prompt", key, "reference_strength", "new_outfit", "aspect_ratio", "remove_background"]);
       expect(spec.description).toContain(`${key} is the character's image`);
-      expect(spec.description).toMatch(/Don't add @artist tags/); // the PC test, 2026-11-23: they barely restyle and can shift details
+      expect(spec.description).toMatch(/leave reference_strength out and add no @artist tag/); // at full strength they barely restyle
+      expect(spec.description).toMatch(/0\.5 for an @artist tag/);
       expect(spec.description).toMatch(/end the prompt with their key appearance tags/);
-      expect(spec.description).toMatch(/then change the clothes with edit_image on the result/);
+      expect(spec.description).toMatch(/set new_outfit to true/);
       expect(spec.description).not.toMatch(/\{artist_list\}|\{lora_triggers\}/);
     }
     expect(toolSpecs(BUILTIN, normalize({}), "refs").find((s) => s.name === "generate_from_reference")!.description).toContain("request_upload");
@@ -68,6 +69,7 @@ class PathHooks extends Hooks {
 const FLAGS = {
   canRemoveMarks: "remove_marks", canRemoveBackground: "remove_background", canRedraw: "redraw", canCutout: "cutout",
   canRedrawArea: "redraw_area", canInpaintControl: "inpaint_control", canRedrawExtend: "redraw_extend", canReference: "anima_ref",
+  canReferenceStrength: "reference_strength",
 } as const;
 type Flags = { [k in keyof typeof FLAGS]?: boolean };
 
@@ -361,6 +363,40 @@ describe("brain", () => {
     expect(await brain().call("generate_from_reference", { prompt: "x" })).toMatchObject({ message: expect.stringMatching(/reference_image is required/) });
     expect(await brain({ canReference: false }).call("generate_from_reference", { prompt: "x", reference_image: "small.png" })).toMatchObject({ message: REFERENCE_UNAVAILABLE });
     expect(comfy.prompts).toEqual([]);
+  });
+
+  it("reference_strength is each pack's own input; new_outfit crops the reference to its head", async () => {
+    const hooks = new PathHooks();
+    const { comfy, brain } = setup({ hooks, canReference: true, canReferenceStrength: true });
+    const call = async (args: Record<string, unknown>) => {
+      expect(await brain().call("generate_from_reference", { prompt: "x", reference_image: "small.png", ...args })).toBeInstanceOf(Done);
+      const { ref_cutoff, blend, head_only } = Object.values<any>(comfy.prompts.at(-1)!).find((n) => n.class_type === "ComfyGenAnimaRef").inputs;
+      return { ref_cutoff, blend, head_only };
+    };
+    const base = { model: "anima_ref" };
+    expect(await call({})).toEqual({}); // the defaults set nothing: the workflow as before
+    expect(await call({ reference_strength: 1, new_outfit: false })).toEqual({});
+    expect(await call({ reference_strength: 0.5 })).toEqual({ ref_cutoff: 0.3 });
+    expect(await call({ reference_strength: "0.65" })).toEqual({ ref_cutoff: 0.4 }); // between two points
+    expect(await call({ reference_strength: 0 })).toEqual({ ref_cutoff: 0 });
+    expect(await call({ ...base, reference_strength: 0.5 })).toEqual({ blend: 0.3 });
+    expect(hooks.ensured).not.toContain("detect-faces");
+    expect(await call({ new_outfit: true })).toEqual({ head_only: true });
+    expect(hooks.ensured).toContain("detect-faces");
+    expect(await call({ ...base, new_outfit: true })).toEqual({ blend: 0.6, head_only: true }); // base's own default for it
+    expect(await call({ ...base, new_outfit: true, reference_strength: 1 })).toEqual({ head_only: true });
+    const sent = comfy.prompts.length;
+    for (const reference_strength of [1.5, -0.1, "strong"])
+      expect(await brain().call("generate_from_reference", { prompt: "x", reference_image: "small.png", reference_strength })).toMatchObject({ message: expect.stringMatching(/from 0 to 1/) });
+    expect(comfy.prompts.length).toBe(sent);
+  });
+
+  it("an agent from before reference_strength draws at the defaults and says it needs an update otherwise", async () => {
+    const { comfy, brain } = setup({ canReference: true });
+    const call = (args: Record<string, unknown>) => brain().call("generate_from_reference", { prompt: "x", reference_image: "small.png", ...args });
+    for (const args of [{ reference_strength: 0.5 }, { new_outfit: true }]) expect(await call(args)).toMatchObject({ message: REFERENCE_STRENGTH_UNAVAILABLE });
+    expect(comfy.prompts).toEqual([]);
+    expect(await call({ reference_strength: 1 })).toBeInstanceOf(Done);
   });
 
   it("unknown tools throw UnknownTool", async () => {
