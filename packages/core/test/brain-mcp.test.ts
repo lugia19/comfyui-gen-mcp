@@ -262,6 +262,10 @@ describe("brain", () => {
     hooks = new PathHooks();
     await brain({ hooks }).call("edit_image", { prompt: "x", image_path: "a.png", remove_background: true });
     expect([hooks.ensured, cleared(comfy)]).toEqual([["remove-background", "qwen_image_21_edit"], true]); // edits too
+    await brain({ hooks: new PathHooks() }).call("generate_illustrated_image", { prompt: "x", remove_background: "true" });
+    expect(cleared(comfy)).toBe(true); // as text too
+    await brain({ hooks: new PathHooks() }).call("generate_illustrated_image", { prompt: "x", remove_background: "false" });
+    expect(cleared(comfy)).toBe(false);
 
     // Still downloading: a retryable answer, never an image that kept its background.
     class Downloading extends PathHooks {
@@ -384,6 +388,8 @@ describe("brain", () => {
     expect(hooks.ensured).not.toContain("detect-faces");
     expect(await call({ new_outfit: true })).toEqual({ head_only: true });
     expect(hooks.ensured).toContain("detect-faces");
+    expect(await call({ new_outfit: "true" })).toEqual({ head_only: true }); // as text, from a client with an older tool list
+    for (const new_outfit of ["false", "", "no", 1, null]) expect(await call({ new_outfit })).toEqual({});
     expect(await call({ ...base, new_outfit: true })).toEqual({ blend: 0.6, head_only: true }); // base's own default for it
     expect(await call({ ...base, new_outfit: true, reference_strength: 1 })).toEqual({ head_only: true });
     const sent = comfy.prompts.length;

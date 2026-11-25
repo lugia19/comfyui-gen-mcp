@@ -175,7 +175,7 @@ export class Brain {
 
   /** A call's remove_background: whether it asked for one, or why this GPU can't. */
   private background(args: Record<string, any>): boolean | Failed {
-    const wanted = args.remove_background === true;
+    const wanted = isTrue(args.remove_background);
     return wanted && !this.can("remove_background") ? new Failed(BACKGROUND_UNAVAILABLE) : wanted;
   }
 
@@ -386,6 +386,10 @@ export function callSeed(seed: unknown): number | null | Failed {
   return n;
 }
 
+/** A call's true or false argument. Also "true" as text: a client whose tool list is older than the
+ * argument has no type for it and sends text (claude.ai's connector after v2.8.0). */
+const isTrue = (value: unknown): boolean => value === true || value === "true";
+
 /** A call's number from *min* to *max*; null left out, a Failed for anything else. */
 function numberArg(value: unknown, name: string, min: number, max: number): number | null | Failed {
   if (value === undefined || value === null || value === "") return null;
@@ -402,7 +406,7 @@ function referenceLook(pack: Pack, args: Record<string, any>): ReferenceLook | F
   const { input, new_outfit } = pack.reference_strength!;
   const strength = numberArg(args.reference_strength, "reference_strength", 0, 1);
   if (strength instanceof Failed) return strength;
-  const newOutfit = args.new_outfit === true;
+  const newOutfit = isTrue(args.new_outfit);
   const value = strength !== null ? referenceInput(pack, strength) : newOutfit ? new_outfit ?? 1 : 1;
   return { ...(value < 1 ? { [input]: value } : {}), ...(newOutfit ? { head_only: true } : {}) };
 }
