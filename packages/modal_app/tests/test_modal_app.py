@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from comfy_gen_modal.deploy import modal_error, post, proxy_token, report
+from comfy_gen_modal.deploy import IMAGE_BUILDER_VERSION, modal_error, post, proxy_token, report, run_deploy
 from comfy_gen_modal.models import delete_models, needed, rel_path, stored, validate_files, validate_models, validate_pack_name
 
 MODEL = {"url": "https://huggingface.co/x/y/resolve/main/m.safetensors", "subfolder": "vae",
@@ -189,6 +189,30 @@ def test_modal_error_reads_the_error_panel():
     assert modal_error(two_lines) == "Token missing. Could not authenticate client."
     assert modal_error("building...\nsomething broke\n\n") == "something broke"
     assert modal_error("") == "modal deploy failed"
+
+
+def test_the_deploy_pins_the_image_builder_version(monkeypatch):
+    # The workspace's own version may be newer than the pinned modal client accepts.
+    import subprocess
+
+    from modal._image import _get_image_builder_version
+    from modal.exception import VersionError
+
+    monkeypatch.delenv("MODAL_IMAGE_BUILDER_VERSION", raising=False)
+    with pytest.raises(VersionError):
+        _get_image_builder_version("9999.01")
+    env = {}
+
+    def popen(cmd, **kw):
+        env.update(kw["env"])
+        return SimpleNamespace(stdout=["done\n"], wait=lambda: 0)
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setenv("MODAL_TOKEN_ID", "ak-1")
+    assert run_deploy() == (0, "done\n")
+    assert env["MODAL_TOKEN_ID"] == "ak-1"  # the rest of the environment goes along
+    monkeypatch.setenv("MODAL_IMAGE_BUILDER_VERSION", env["MODAL_IMAGE_BUILDER_VERSION"])
+    assert _get_image_builder_version("9999.01") == IMAGE_BUILDER_VERSION
 
 
 def test_report_is_the_build_callbacks_body():

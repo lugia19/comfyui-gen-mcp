@@ -1226,7 +1226,8 @@ past 10 GB at $0.015 per GB a month; Modal per second with $30 free a month and 
    the trigger's build secrets, and starts a build through the Workers Builds API.
 5. The build (Python 3.13 in Cloudflare's build image) fetches the release and runs
    `comfy_gen_modal.deploy`: `modal deploy` with the official SDK, and a proxy token minted once and
-   kept in the app's `comfy-gen-state` Dict, so update builds reuse it. It then deploys the Worker
+   kept in the app's `comfy-gen-state` Dict, so update builds reuse it. It pins Modal's image builder
+   version: the workspace's may be newer than our pinned client accepts. It then deploys the Worker
    and posts the server URL, admin URL and proxy token to it with the nonce (about 90 s in all once
    Modal has the image cached).
 6. The callback stores the generator, re-applies keep-warm (a deploy resets it) and starts a seed

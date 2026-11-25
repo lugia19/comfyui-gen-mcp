@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -29,6 +30,12 @@ import urllib.error
 import urllib.request
 
 from .download import USER_AGENT
+
+# Modal's image builder version (base Debian, Python, Modal's own packages in the container), the
+# newest the pinned client has. Without it `modal deploy` takes the workspace's, which the client
+# refuses when it doesn't know it (2026-11-25: workspaces on 2026.10, client 1.5.5). Change it only
+# with a test deploy: the Debian under app.py's apt packages changes with it.
+IMAGE_BUILDER_VERSION = "2026.10"
 
 
 def modal_error(output: str) -> str:
@@ -51,6 +58,7 @@ def modal_error(output: str) -> str:
 def run_deploy() -> tuple[int, str]:
     """`modal deploy`, its output streamed to the build log as it comes and also kept."""
     proc = subprocess.Popen([sys.executable, "-m", "modal", "deploy", "-m", "comfy_gen_modal.app"],
+                            env={**os.environ, "MODAL_IMAGE_BUILDER_VERSION": IMAGE_BUILDER_VERSION},
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
     kept = []
     for line in proc.stdout:
