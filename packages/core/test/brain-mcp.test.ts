@@ -34,6 +34,7 @@ describe("tools", () => {
       expect(spec.description).toContain(`${key} is the character's image`);
       expect(spec.description).toMatch(/leave reference_strength out and add no @artist tag/); // at full strength they barely restyle
       expect(spec.description).toMatch(/0\.5 for an @artist tag/);
+      expect(spec.description).toMatch(/when the reference is a photo, 0\.3 to 0\.5/);
       expect(spec.description).toMatch(/end the prompt with their key appearance tags/);
       expect(spec.description).toMatch(/set new_outfit to true/);
       expect(spec.description).not.toMatch(/\{artist_list\}|\{lora_triggers\}/);

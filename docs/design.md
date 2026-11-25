@@ -795,6 +795,11 @@ photo, one with ears and a tail), a style tag and a style LoRA, mostly one or tw
   A hat comes along ("no headwear" removed it in 0 of 4 at this crop). The crop is redraw's face
   detector's box, grown (`head_box`); it found the photo's face too. On base the crop defaults to a
   blend of 0.6 (the pack's `new_outfit`): at 1 colours got heavy and outlines glowed.
+  The body comes from the prompt, its age a little too: without "mature female" the photo's woman read
+  a bit younger on Turbo, while the two drawn characters hardly changed (nine pairs, 2026-11-25).
+- **Claude follows it** (2026-11-25): given only the tool descriptions, a fresh session set both
+  arguments right in 8 of 8 plain requests (style by tag and by LoRA, a photo, other clothes, both
+  together, two that wanted neither).
 
 ### Waiting
 
